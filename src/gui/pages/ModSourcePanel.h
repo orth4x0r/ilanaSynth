@@ -40,11 +40,6 @@ inline int modRouteCount (const IlanaSynthAudioProcessor& processor, int source)
     return count;
 }
 
-// PLAY's OP ENV tab: the Operator Env is no modulation source (nothing to
-// drag), but a DX7 voice's envelope card showed it first, so its picture
-// and what plays it stay on PLAY.
-inline constexpr int opEnvSourceId = -1;
-
 inline juce::Colour sourceTabColour (int source)
 {
     return source == opEnvSourceId ? OperatorPool::colour() : modSourceColour (source);
@@ -171,6 +166,8 @@ public:
 
     bool isCollapsed() const { return collapsed; }
     std::function<void (bool)> onCollapsedChange;
+    // The header clicked (folded or opened by hand).
+    std::function<void (bool collapsed)> onUserToggle;
 
     static constexpr int headerHeight = 22, rowHeight = 18;
 
@@ -265,6 +262,8 @@ public:
         if (headerArea().expanded (0, 3).contains (event.getPosition()))
         {
             setCollapsed (! collapsed);
+            if (onUserToggle != nullptr)
+                onUserToggle (collapsed);
             return;
         }
 
@@ -467,6 +466,11 @@ public:
         operatorList.onToggle = [this] { resized(); };
         routes.onRoutesChanged = [this] { resized(); };
         routes.onCollapsedChange = [this] (bool) { resized(); };
+        // An unused AMP ENV on an operator voice: the way to what plays instead.
+        styleJumpLink (opEnvLink, "OP ENV");
+        opEnvLink.setTooltip ("Each operator plays its own copy of the Operator Env; AMP ENV is unused. Opens it on FM.");
+        opEnvLink.onClick = [this] { if (onEditOperatorEnv != nullptr) onEditOperatorEnv(); };
+        addChildComponent (opEnvLink);
         startTimerHz (20);
     }
 
@@ -570,6 +574,8 @@ public:
         if (kind != Kind::opEnv)
             routes.setSource (source, colour);
         history.fill (0.0f);
+        unusedNote = "-"; // (refreshed below)
+        refreshUnused();
         resized();
         repaint();
     }
@@ -654,6 +660,7 @@ public:
 
         if (graph != nullptr)
             graph->setBounds (graphArea);
+        opEnvLink.setBounds (graphArea.getRight() - 8 - 104, graphArea.getY() + 8, 104, 20);
 
         if (kind == Kind::lfo && controls.size() == 4 && rate != nullptr && lowLfo)
         {
@@ -706,8 +713,49 @@ private:
         return "A modulation source. Its settings, if it has any, are on MOD.";
     }
 
+    // An envelope nothing plays dims, and says so over its graph (UI review
+    // 6, I6-2; one wording with MOD: S8-17).
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (unusedNote.isEmpty() || graphArea.isEmpty())
+            return;
+        auto pill = graphArea.reduced (8).withHeight (20);
+        if (opEnvLink.isVisible())
+            pill.setRight (opEnvLink.getX() - 6);
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
+        pill.setWidth (juce::jmin (pill.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, unusedNote) + 16));
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        g.fillRoundedRectangle (pill.toFloat(), 4.0f);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (font);
+        IlanaTheme::drawFitted (g, unusedNote, pill.reduced (8, 0), juce::Justification::centredLeft, 1);
+    }
+
+    void refreshUnused()
+    {
+        const auto env = kind == Kind::envelope ? envelopeOf (source) : -1;
+        const auto inUse = env < 0 || envelopeInUse (processorRef, env);
+        const auto ampOnOperators = env == 0 && ! inUse && FmOperatorInfo::anyOperatorEnv (processorRef);
+        const auto note = inUse ? juce::String()
+                          : ampOnOperators ? juce::String (EnvSection::ampUnusedText())
+                                           : juce::String ("unused: nothing plays this envelope yet");
+        if (note == unusedNote)
+            return;
+        unusedNote = note;
+        const auto alpha = inUse ? 1.0f : IlanaTheme::dimmedAlpha;
+        if (graph != nullptr && kind == Kind::envelope)
+            graph->setAlpha (alpha);
+        if (kind == Kind::envelope)
+            for (auto& control : controls)
+                control->setAlpha (alpha);
+        opEnvLink.setVisible (ampOnOperators);
+        repaint();
+    }
+
     void timerCallback() override
     {
+        if (kind == Kind::envelope && isShowing())
+            refreshUnused();
         if (kind != Kind::other || ! isShowing())
             return;
         history[historyPos] = std::abs (processorRef.getSourceDisplayValue (source));
@@ -725,6 +773,8 @@ private:
     std::unique_ptr<LfoRateControl> rate;
     SourceRouteList routes;
     OperatorEnvList operatorList;
+    juce::TextButton opEnvLink;
+    juce::String unusedNote;
     juce::Rectangle<int> graphArea;
     std::array<float, 80> history {};
     size_t historyPos = 0;
@@ -975,10 +1025,11 @@ private:
 // mod section): the ENVELOPE and LFO cards in one. A grid of source tabs
 // (the envelopes and LFOs in the patch, then "+"), all one width so the rows
 // line up with the card's edges; under them the selected source's editor
-// and its DRIVES list. The controls come first: on a short card the list
-// folds to its header line (ilana's rule for PLAY: settings before
-// assignments).
+// and its DRIVES list, closed to its header line until opened (ilana's rule
+// for PLAY: settings before assignments), and folded again on a card too
+// short for both.
 class ModulationCard : public juce::Component,
+                       public ModulationCardView,
                        private juce::Timer
 {
 public:
@@ -986,6 +1037,7 @@ public:
     {
         addAndMakeVisible (editor);
         editor.onEditOperatorEnv = [this] { if (onEditOperatorEnv != nullptr) onEditOperatorEnv(); };
+        editor.getRouteList().onUserToggle = [this] (bool collapsed) { routesOpen = ! collapsed; };
         addTab.setButtonText ("+");
         addTab.setTooltip ("Add an LFO or envelope to the patch");
         addTab.onClick = [this] { showAddMenu(); };
@@ -1003,8 +1055,17 @@ public:
     // OP ENV's editor (FM, the first operator on it).
     std::function<void()> onEditOperatorEnv;
 
-    int getSelectedSource() const { return selected; }
+    int getSelectedSource() const override { return selected; }
     const std::vector<int>& getSources() const { return sources; }
+    std::vector<int> getSourceList() const override { return sources; }
+    void selectSource (int source) override { select (source); }
+    std::vector<juce::Component*> getSourceTabs() const override
+    {
+        std::vector<juce::Component*> shown;
+        for (auto* tab : getTabs())
+            shown.push_back (tab);
+        return shown;
+    }
     SourceEditor& getEditor() { return editor; }
     std::vector<SourceTab*> getTabs() const
     {
@@ -1099,8 +1160,12 @@ public:
 
     void mouseUp (const juce::MouseEvent& event) override
     {
-        if (! editLinkArea().contains (event.getPosition()))
-            return;
+        if (editLinkArea().contains (event.getPosition()))
+            openSelectedInMod();
+    }
+
+    void openSelectedInMod() override
+    {
         if (selected == opEnvSourceId)
         {
             if (onEditOperatorEnv != nullptr)
@@ -1122,7 +1187,7 @@ private:
 
     void layoutEditor()
     {
-        editor.setRoutesFolded (editorArea.getHeight() - editor.getRouteList().getIdealHeight() - 10 < minControlsHeight);
+        editor.setRoutesFolded (! routesOpen || editorArea.getHeight() - editor.getRouteList().getIdealHeight() - 10 < minControlsHeight);
         editor.setBounds (editorArea);
     }
 
@@ -1250,5 +1315,9 @@ private:
     juce::Rectangle<int> editorArea;
     int selected = (int) Mod::lfoSourceFor (0);
     bool hoverEdit = false;
+    // The DRIVES list is closed until opened (ilana, 2026-10-09: what a
+    // source drives is a drop-down, the controls come first); opened, it
+    // stays open from source to source.
+    bool routesOpen = false;
 };
 } // namespace

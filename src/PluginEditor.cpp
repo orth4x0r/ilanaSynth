@@ -35,6 +35,7 @@
 #include "gui/WavetableEditor.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
+#include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
 #include "gui/OutputView.h"
@@ -414,6 +415,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         auto popover = std::make_unique<SourcePopover> (p);
         popover->onClose = [this] { closeSourcePopover(); };
         popover->onOpenInMod = [this] (int source) { if (openSourceInMod != nullptr) openSourceInMod (source); };
+        popover->getEditor().onEditOperatorEnv = [this]
+        {
+            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+            closeSourcePopover();
+            showOperatorEnvelope (operators.empty() ? 0 : operators.front());
+        };
         content.addChildComponent (*popover);
         sourcePopover = std::move (popover);
     }

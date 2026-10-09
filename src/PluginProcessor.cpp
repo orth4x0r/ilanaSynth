@@ -1184,6 +1184,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                                                    (int) getParam (ids.spectral),
                                                    getParam (ids.spectralAmount))
                              : getTableForChoice (choice);
+        settings.spectralMode = (int) getParam (ids.spectral);
+        settings.spectralTable = choice;
+        settings.spectralAmount = getParam (ids.spectralAmount);
+        settings.baseTable = getTableForChoice (choice);
         settings.frame = getParam (ids.frame);
         settings.level = getParam (ids.level) * vectorGains[(size_t) osc];
         settings.pan = getParam (ids.pan);
@@ -1434,6 +1438,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.numModSlots = numActiveSlots;
     p.numActiveDestinations = 0;
     p.anyExtendedFmMods = false;
+    p.anySpectralMods = false;
+    p.spectralCache = spectralCache.get();
 
     for (int i = 0; i < numActiveSlots; ++i)
     {
@@ -1442,6 +1448,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
         if (! Mod::isExplicitDestination (destination))
         {
+            p.anySpectralMods = p.anySpectralMods || Mod::isVoiceSpectralSlot (activeSlots[i]);
             p.anyExtendedFmMods = p.anyExtendedFmMods || Mod::extendedFmCellFor (destination) >= 0;
             continue;
         }

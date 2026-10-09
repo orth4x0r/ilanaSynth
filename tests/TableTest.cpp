@@ -3024,6 +3024,62 @@ void runUnisonTests()
         check (different, "the appended unison stack modes change the sound against Classic");
     }
 
+    // Frame and warp spreads change a stack's sound, stay bounded, and do nothing at 0 or with one voice.
+    {
+        const auto render = [] (int voices, const char* spreadId, float spread)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_unison", (float) voices);
+            setParam (processor, "osc1_detune", 10.0f);
+            setParam (processor, "osc1_table", 6.0f);
+            setParam (processor, "osc1_frame", 0.5f);
+            setParam (processor, "osc1_warp", 7.0f);
+            setParam (processor, "osc1_warp_amt", 0.3f);
+            setParam (processor, spreadId, spread);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+            return std::make_pair (peak, centroid);
+        };
+
+        for (const auto* id : { "osc1_uni_frame", "osc1_uni_warp" })
+        {
+            const auto off = render (5, id, 0.0f);
+            const auto on = render (5, id, 1.0f);
+            const auto single = render (1, id, 1.0f);
+            const auto singleOff = render (1, id, 0.0f);
+            check (std::isfinite (on.first) && on.first > 0.02f && on.first < 4.0f && std::abs (on.second - off.second) > 1.0,
+                   juce::String (id) + " changes a five-voice stack and stays bounded (centroid "
+                       + juce::String (off.second, 0) + " -> " + juce::String (on.second, 0) + " Hz)");
+            check (std::abs (single.second - singleOff.second) < 0.5,
+                   juce::String (id) + " leaves a single voice alone");
+        }
+    }
+
+    // Scale quantise: C major snaps note 61 (C#) to C or D, so the pitch moves by a semitone from the plain note.
+    {
+        const auto frequencyOf = [] (int scale, int note)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_table", 0.0f);
+            setParam (processor, "osc1_scale", (float) scale);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            renderPeakAndCentroid (processor, note, 40, centroid);
+            return centroid;
+        };
+
+        const auto plain = frequencyOf (0, 61);
+        const auto snapped = frequencyOf (1, 61);
+        const auto inKey = frequencyOf (1, 60);
+        const auto inKeyPlain = frequencyOf (0, 60);
+        check (std::abs (snapped - plain) > 1.0 && std::abs (inKey - inKeyPlain) < 0.5,
+               "an oscillator's scale snap moves an out-of-key note and leaves an in-key one (61: "
+                   + juce::String (plain, 0) + " -> " + juce::String (snapped, 0) + " Hz)");
+    }
+
     const auto full16 = widthOf (16, 1.0f, UnisonMode::Classic);
     const auto blend0 = widthOf (15, 0.0f, UnisonMode::Classic);
     const auto hyper = widthOf (16, 1.0f, UnisonMode::Hypersaw);
@@ -7157,7 +7213,8 @@ void runM6PhaseDistortionTests()
     }
 
     // Old patches: warp modes keep their indices; PD extras default off.
-    check (Warp::getNames()[9] == "Ring" && Warp::getNames()[10] == "PD Saw" && Warp::Count == 16,
+    check (Warp::getNames()[9] == "Ring" && Warp::getNames()[10] == "PD Saw" && Warp::getNames()[16] == "Formant"
+               && Warp::getNames()[17] == "Squeeze" && Warp::Count == 18,
            "PD warps are appended after the existing warp modes");
     check (processor.apvts.getRawParameterValue ("osc1_warp2")->load() == 0.0f
                && processor.apvts.getRawParameterValue ("osc1_pd_env")->load() == 0.0f

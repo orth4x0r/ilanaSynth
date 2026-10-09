@@ -124,8 +124,20 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     clipActive.reserve (1024);
     arpChordActive.ensureStorageAllocated (128);
     arpChordNotes.ensureStorageAllocated (128);
-    spectralCache = std::make_unique<SpectralCache> ([] (int index) { return FactoryTables::get().tables[(size_t) index].get(); },
-                                                     TableFactory::getNumFactoryTables());
+    spectralCache = std::make_unique<SpectralCache> (
+        [this] (int choice) -> std::shared_ptr<const Wavetable>
+        {
+            const auto& factory = FactoryTables::get().tables;
+            const auto factoryCount = (int) factory.size();
+
+            // (The factory tables live for the whole session: a non-owning pointer.)
+            if (choice < factoryCount)
+                return std::shared_ptr<const Wavetable> (std::shared_ptr<const Wavetable> {}, factory[(size_t) juce::jmax (0, choice)].get());
+
+            const juce::SpinLock::ScopedLockType lock (tableLock);
+            return userTables[(size_t) juce::jlimit (0, numUserSlots - 1, choice - factoryCount)];
+        },
+        TableFactory::getNumFactoryTables() + numUserSlots);
 
     for (auto& value : modDisplayValues)
         value.store (0.0f);

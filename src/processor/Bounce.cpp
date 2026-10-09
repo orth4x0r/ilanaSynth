@@ -12,6 +12,9 @@ IlanaSynthAudioProcessor::~IlanaSynthAudioProcessor()
         bounceThread->cancel = true;
         bounceThread->stopThread (10000);
     }
+
+    // The spectral worker reads the patch tables: stop it before they go.
+    spectralCache.reset();
 }
 
 bool IlanaSynthAudioProcessor::startBounce (const BounceRequest& request)

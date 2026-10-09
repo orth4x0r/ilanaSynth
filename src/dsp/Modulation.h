@@ -692,9 +692,37 @@ struct Slot
     }
 };
 
+// The spectral warp amounts are parameter destinations, but a route fed by a
+// per-note source (an envelope, velocity, key track, random) is worked out per
+// voice, so every voice morphs by its own amount. Returns the oscillator
+// (0-5) whose SPEC AMT the destination is, or -1.
+inline int spectralOscFor (int destination)
+{
+    static const auto first = []
+    {
+        std::array<int, 6> ids {};
+        const char* prefixes[] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+        for (int osc = 0; osc < 6; ++osc)
+            ids[(size_t) osc] = destinationForParamId (juce::String (prefixes[osc]) + "_spectral_amt");
+        return ids;
+    }();
+
+    for (int osc = 0; osc < 6; ++osc)
+        if (first[(size_t) osc] > 0 && first[(size_t) osc] == destination)
+            return osc;
+
+    return -1;
+}
+
 // M6b: 64 slots. Slots 1-32 keep their parameter IDs; 33-64 are appended.
 constexpr int maxSlots = 64;
 constexpr int remapSize = 256;
+
+// A route into a spectral amount that the voices evaluate themselves.
+inline bool isVoiceSpectralSlot (const Slot& slot)
+{
+    return spectralOscFor (slot.destination) >= 0 && (isPerVoiceSource (slot.source) || isPerVoiceSource (slot.aux));
+}
 
 // Shapes a raw source value by the slot's polarity and curve.
 inline float shape (const Slot& slot, float value)

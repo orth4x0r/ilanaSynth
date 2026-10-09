@@ -888,7 +888,8 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.endsWith ("_spectral_amt"))
         return "How far the spectral warp goes. For Formant, the middle leaves the vowel where it was. "
-               "Changes rebuild the table in the background (64 steps), so modulating it follows with a short lag.";
+               "Changes rebuild the table in the background (64 steps), so modulating it follows with a short lag. "
+               "Routed from an envelope, velocity, key track or random, every note morphs by its own amount (32 steps, up to 16 tables shared).";
 
     if ((id.startsWith ("osc") || id.startsWith ("sub")) && id.endsWith ("_scale"))
         return "Snaps this oscillator to a scale: the played note plus SEMI moves to the nearest scale note, so a chord "

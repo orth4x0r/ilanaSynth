@@ -1118,6 +1118,10 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
         if (! juce::isPositiveAndBelow (slot.destination, maxDestinations))
             continue;
 
+        // A spectral amount fed by a per-note source is worked out by each voice.
+        if (Mod::isVoiceSpectralSlot (slot))
+            continue;
+
         auto value = Mod::shape (slot, globalSourceValue (slot.source));
 
         if (slot.aux != Mod::Source::None)

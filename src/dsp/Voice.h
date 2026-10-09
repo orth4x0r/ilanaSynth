@@ -175,6 +175,12 @@ struct VoiceParams
         float spread = 0.0f;
         int unisonMode = UnisonMode::Classic;
         float unisonBlend = 1.0f;
+        // Per unison voice: the frame and warp amount drift across the stack (0 = every voice alike).
+        float frameSpread = 0.0f;
+        float warpSpread = 0.0f;
+        // Quantise this oscillator's note (plus SEMI) to a scale (Scales::getNames, 0 = off) and root (0-11).
+        int scale = 0;
+        int scaleRoot = 0;
         int warpMode = 0;
         float warpAmount = 0.0f;
         int route = 0; // FilterRoute
@@ -793,6 +799,7 @@ private:
     // The note and velocity (1-127) a multisample picks its region by, and the
     // region each oscillator plays (null for a plain sample).
     int lastNote = 60, lastVelocity = 100;
+    int pitchNote = 60; // the sounding note, legato included (scale quantise reads it)
     const SampleZone* sampleZone[VoiceParams::numOscillators] {};
     bool noteHeld = false;
 

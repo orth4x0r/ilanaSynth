@@ -630,7 +630,7 @@ public:
         if (kind == Kind::opEnv)
         {
             // The picture, and under it what plays it (a drop-down).
-            operatorList.setBounds (area.removeFromBottom (juce::jmin (operatorList.getIdealHeight(), area.getHeight() / 2)));
+            operatorList.setBounds (area.removeFromBottom (juce::jmin (operatorList.getIdealHeight(), area.getHeight() - minGraphHeight)));
             area.removeFromBottom (gap);
             graphArea = area;
             if (graph != nullptr)
@@ -698,7 +698,7 @@ public:
 
 private:
     enum class Kind { lfo, envelope, opEnv, other };
-    static constexpr int gap = 10, menuHeight = 13 + 4 + 28, knobRowHeight = 70;
+    static constexpr int gap = 10, menuHeight = 13 + 4 + 28, knobRowHeight = 70, minGraphHeight = 90;
 
     juce::String describeOther() const
     {
@@ -719,12 +719,10 @@ private:
     {
         if (unusedNote.isEmpty() || graphArea.isEmpty())
             return;
+        // (Clear of the LFO graph's GRID menu and of EDIT OP ENV.)
         auto pill = graphArea.reduced (8).withHeight (20);
-        if (opEnvLink.isVisible())
-            pill.setRight (opEnvLink.getX() - 6);
+        pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : kind == Kind::lfo ? graphArea.getRight() - 110 : pill.getRight());
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
-        // (Room to spare: the text scales with the window.)
-        pill.setWidth (juce::jmin (pill.getWidth(), juce::roundToInt ((float) juce::GlyphArrangement::getStringWidthInt (font, unusedNote) * 1.25f) + 24));
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
         g.setColour (IlanaTheme::Ui::text2);
@@ -1335,7 +1333,7 @@ private:
     void timerCallback() override
     {
         // (Visible up the tree: an offscreen editor, as in the UI tests, follows the pool too.)
-        for (auto* c = static_cast<juce::Component*> (this); c != nullptr; c = c->getParentComponent())
+        for (auto* c = static_cast<juce::Component*> (this); c->getParentComponent() != nullptr; c = c->getParentComponent())
             if (! c->isVisible())
                 return;
         refreshSources();

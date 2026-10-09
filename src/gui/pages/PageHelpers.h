@@ -113,12 +113,12 @@ void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Recta
 // label font, a quiet state word after it, and the box's switch at the right
 // (reserveRight leaves its room).
 void paintSubBoxTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& title, const juce::String& state,
-                       bool on, int reserveRight = 0)
+                       bool on, int reserveRight = 0, juce::Colour tint = {})
 {
     header.removeFromRight (reserveRight);
-    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.06f);
     const auto width = juce::GlyphArrangement::getStringWidthInt (font, title);
-    g.setColour (on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+    g.setColour (! tint.isTransparent() ? tint : on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
     g.setFont (font);
     g.drawText (title, header, juce::Justification::centredLeft);
 

@@ -64,49 +64,16 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
     {
         editor.showPage ("OSC");
         settle (300);
-        StateTabs* shared = nullptr;
-        auto voiceIndex = -1;
+        // (The approved OSC design has no tabs: VOICE, STEREO and NOISE are the
+        // groups of the strip's first row, SUB, STRINGS and SOUNDBOARD of its
+        // second, so the old tab checks became "no tabs, the controls are all shown".)
         std::vector<StateTabs*> rows;
         findAll<StateTabs> (editor, rows);
-        for (auto* tabs : rows)
-            for (int i = 0; i < tabs->getNumItems(); ++i)
-            {
-                if (tabs->getItem (i).name == "SUB + NOISE")
-                    shared = tabs;
-            }
+        auto tabs = 0;
+        for (auto* row : rows)
+            tabs += visibleInTree (row) ? 1 : 0;
 
-        for (auto* tabs : rows)
-            for (int i = 0; i < tabs->getNumItems(); ++i)
-                if (tabs->getItem (i).name == "VOICE" && tabs == shared)
-                    voiceIndex = i;
-
-        // (Review 14, V14-9: SPREAD & DRIFT's controls moved into the VOICE tab, which fills the drawer.)
-        auto spreadTab = false;
-        if (shared != nullptr)
-            for (int i = 0; i < shared->getNumItems(); ++i)
-                spreadTab = spreadTab || shared->getItem (i).name == "SPREAD & DRIFT";
-        expect (shared != nullptr && ! spreadTab && voiceIndex >= 0
-                    && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("glide")
-                    && shared->getItem (voiceIndex).tooltip.containsIgnoreCase ("spread"),
-                "OSC's strip has a VOICE tab holding the voice settings and the spread and drift (S9-1, S9-2, S10-3, V14-9)");
-
-        // S10-3, S10-4: UNISON is the card's alone; the global tabs sit after the
-        // sub and noise, behind a group gap.
-        if (shared != nullptr)
         {
-            auto unisonTabs = 0;
-            for (int i = 0; i < shared->getNumItems(); ++i)
-                unisonTabs += shared->getItem (i).name == "UNISON" ? 1 : 0;
-            expect (unisonTabs == 0 && shared->getItem (0).name == "VOICE" && shared->getItem (1).name == "SUB + NOISE"
-                        && voiceIndex == 0 && shared->getItem (voiceIndex).state == "POLY",
-                    "the strip's tabs: VOICE first (naming its mode), then SUB + NOISE, no UNISON tab (S10-3, S10-4, review 11 S11-1)");
-        }
-
-        if (shared != nullptr && voiceIndex >= 0 && shared->onSelect != nullptr)
-        {
-            shared->setSelected (voiceIndex);
-            shared->onSelect (voiceIndex);
-            settle (300);
             const auto knobFor = [&editor] (const char* id) -> KnobControl*
             {
                 std::vector<KnobControl*> knobs;
@@ -128,21 +95,19 @@ void runReview9T2Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProc
             for (auto* toggle : toggles)
                 if (visibleInTree (toggle) && toggle->getWidth() > 0 && toggle->getButton().getTooltip().startsWith ("Glide Legato"))
                     legato = toggle;
+            expect (tabs == 0 && knobFor ("voice_spread") != nullptr && knobFor ("drift") != nullptr && knobFor ("unison_random") != nullptr,
+                    "OSC's strip has no tabs: the spread, phase and drift sit in its STEREO group (S9-1, S9-2, S10-3, V14-9)");
             expect (modeCombo != nullptr && knobFor ("poly_voices") != nullptr && knobFor ("bend_range") != nullptr
                         && knobFor ("glide") != nullptr && legato != nullptr,
-                    "the VOICE tab shows mode, voices, bend range, glide and legato glide without a menu");
+                    "the VOICE group shows mode, voices, bend range, glide and legato glide without a menu");
 
             if (modeCombo != nullptr)
             {
                 modeCombo->getComboBox().setSelectedItemIndex (1, juce::sendNotificationSync);
                 settle (100);
-                expect (juce::roundToInt (readParam ("voice_mode")) == 1, "the VOICE tab's mode switch sets MONO");
+                expect (juce::roundToInt (readParam ("voice_mode")) == 1, "the VOICE group's mode switch sets MONO");
                 modeCombo->getComboBox().setSelectedItemIndex (0, juce::sendNotificationSync);
             }
-
-            // Back on the first section for the other pages.
-            shared->setSelected (0);
-            shared->onSelect (0);
         }
     }
 

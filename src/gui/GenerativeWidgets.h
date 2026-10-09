@@ -105,11 +105,11 @@ private:
         if (now > 0)
             remembered = now;
 
-        const auto amount = now > 0 ? 1.0f : 0.0f;
-
-        if ((float) button.getProperties()["switchAmount"] != amount || ! button.getProperties().contains ("switchAmount"))
+        // The button's own state: the look-and-feel's shared animator
+        // slides the switch to it (it used to jump).
+        if (button.getToggleState() != (now > 0))
         {
-            button.getProperties().set ("switchAmount", amount);
+            button.setToggleState (now > 0, juce::dontSendNotification);
             button.repaint();
         }
     }

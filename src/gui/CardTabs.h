@@ -97,17 +97,20 @@ public:
             const auto colour = colourFor (i);
             const auto hovered = isMouseOver() && pill.contains (mouse);
 
+            // The choice and the hover fade as every pill's do (the shared animator).
+            const auto chosen = IlanaTheme::fade (*this, i, active ? 1.0f : 0.0f);
+            const auto hover = IlanaTheme::fade (*this, 1000 + i, hovered ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+
             if (! hasDots())
             {
-                IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
+                IlanaTheme::paintPill (g, pill, names[i], colour, chosen, hover);
                 continue;
             }
 
             // The name shifts right of its dot: lit while on, a quiet ring
             // while off.
-            const auto hover = hovered ? 1.0f : 0.0f;
-            IlanaTheme::paintPill (g, pill, {}, colour, active, hover);
-            g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
+            IlanaTheme::paintPill (g, pill, {}, colour, chosen, hover);
+            g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (chosen, 0.5f * hover)));
             g.setFont (IlanaTheme::pillFont());
             g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace()), juce::Justification::centred);
 
@@ -115,11 +118,12 @@ public:
             {
                 // A switch, not a light: it is the engine's power.
                 const auto overSwitch = isMouseOver() && switchBounds (i).expanded (2.0f).contains (mouse);
-                IlanaTheme::paintSwitch (g, switchBounds (i), isTabOn (i) ? 1.0f : 0.0f, colour, overSwitch ? 1.0f : 0.0f);
+                IlanaTheme::paintSwitch (g, switchBounds (i), IlanaTheme::fade (*this, 2000 + i, isTabOn (i) ? 1.0f : 0.0f), colour,
+                                         IlanaTheme::fade (*this, 3000 + i, overSwitch ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
                 continue;
             }
 
-            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, isTabOn (i));
+            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, IlanaTheme::fade (*this, 4000 + i, isTabOn (i) ? 1.0f : 0.0f));
         }
 
         if (hasOpen)
@@ -130,8 +134,9 @@ public:
             // I10-2): the same words as the header links, not a glyph. Set
             // apart from the pills by a gap and drawn as a link, text only in
             // the accent colour, so it does not read as one more tab (V11-19).
-            g.setColour (hovered ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
-            g.setFont (IlanaTheme::pillFont());
+            const auto linkColour = names.isEmpty() ? IlanaTheme::accent() : colourFor (selected); // (the card's colour: the sheet's .lk)
+            g.setColour (hovered ? linkColour.brighter (0.25f) : linkColour);
+            g.setFont (IlanaTheme::linkFont());
             g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), open.withTrimmedLeft (12.0f), juce::Justification::centredRight);
         }
     }

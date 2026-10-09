@@ -52,6 +52,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("env");
         const auto bounds = getLocalBounds().toFloat();
 
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
@@ -65,7 +66,7 @@ public:
 
         // The well frames the plot only; the time ruler sits under it,
         // outside the frame (UI review 7, V7-23).
-        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (rulerHeight + 2.0f), 6.0f);
+        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (slim ? 0.0f : rulerHeight + 2.0f), 6.0f);
 
         const auto geo = layoutGeometry();
 
@@ -183,8 +184,16 @@ public:
     // curve, its handles or DELAY, and read as an axis.
     static constexpr float rulerHeight = 14.0f;
 
+    bool slim = false;
+
+public:
+    // PLAY's graph is a slim strip across the card: no time ruler under it.
+    void setSlim (bool shouldBeSlim) { slim = shouldBeSlim; repaint(); }
+
     juce::Rectangle<float> getPlotArea() const
     {
+        if (slim)
+            return getLocalBounds().toFloat().reduced (12.0f, 9.0f);
         return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 2.0f + 8.0f).reduced (12.0f, 0.0f);
     }
 
@@ -331,7 +340,7 @@ public:
 private:
     std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
     {
-        const auto position = processorRef.getEnvMonitorPosition (envelopeIndex());
+        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f);
 
         // Idle, or an envelope that isn't running (it waits at the start).
         if (position <= 0.0f)
@@ -392,6 +401,9 @@ private:
         {
             return release > 0.0f && seconds < release ? geo.xS + seconds / release * (geo.xR - geo.xS) : -1.0f;
         };
+
+        if (slim)
+            return;
 
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
         g.setFont (font);
@@ -472,6 +484,11 @@ private:
 
     float readMonitor() const
     {
+        return levelSmoother.get (readRawMonitor());
+    }
+
+    float readRawMonitor() const
+    {
         if (paramPrefix.startsWith ("env"))
             return processorRef.getEnvMonitorExtra (paramPrefix.substring (3).getIntValue() - 6);
 
@@ -501,11 +518,12 @@ private:
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
-                                                                ^ IlanaAnim::phaseSignature (processorRef.getEnvMonitorPosition (envelopeIndex()), 31))))
+                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f), 31))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
+    IlanaAnim::BlockSmoother positionSmoother, levelSmoother; // monitors glided between audio blocks
 
     float readSeconds (const char* suffix) const
     {
@@ -636,6 +654,12 @@ private:
         lastMousePosition = event.position;
         frozenScale = fitScale (getPlotArea());
 
+        // The handle keeps its place under the press: the pointer may be up
+        // to the hit radius off its centre, and the drag moves the handle by
+        // the pointer's movement, not to the pointer (no jump on first click).
+        if (dragHandle >= 0)
+            dragPoint = handlePosition (layoutGeometry(), dragHandle);
+
         if (dragHandle >= 0)
         {
             dragParameter = parameterFor (suffixForHandle (dragHandle));
@@ -682,6 +706,15 @@ private:
             return;
 
         const auto geo = layoutGeometry();
+
+        // Shift (or Ctrl / Cmd) moves the handle 10x finer than the pointer.
+        {
+            const auto fine = event.mods.isShiftDown() || event.mods.isCommandDown() ? 0.1f : 1.0f;
+            dragPoint += (event.position - lastMousePosition) * fine;
+            dragPoint.x = juce::jmax (dragPoint.x, geo.x0);
+            dragPoint.y = juce::jlimit (geo.yTop, geo.yBottom, dragPoint.y);
+        }
+
         const auto setSeconds = [] (juce::RangedAudioParameter& parameter, float seconds)
         {
             const auto range = parameter.getNormalisableRange();
@@ -700,20 +733,20 @@ private:
         switch (dragHandle)
         {
             case 0:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xStart) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xStart) / geo.scale));
                 break;
 
             case 1:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xH) / geo.scale));
-                setSustainFromY (event.position.y);
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xH) / geo.scale));
+                setSustainFromY (dragPoint.y);
                 break;
 
             case 2:
-                setSustainFromY (event.position.y);
+                setSustainFromY (dragPoint.y);
                 break;
 
             case 3:
-                setSeconds (*dragParameter, unitsToSeconds ((event.position.x - geo.xS) / geo.scale));
+                setSeconds (*dragParameter, unitsToSeconds (juce::jmax (0.0f, dragPoint.x - geo.xS) / geo.scale));
                 break;
 
             default:
@@ -724,7 +757,7 @@ private:
                 const auto segment = dragHandle - firstCurveHandle;
                 const auto sustain = readValue ("sustain");
                 const auto height = geo.plot.getHeight();
-                const auto level = (geo.yBottom - event.position.y) / juce::jmax (1.0f, height);
+                const auto level = (geo.yBottom - dragPoint.y) / juce::jmax (1.0f, height);
                 const auto low = segment == 0 ? 0.0f : segment == 1 ? sustain : 0.0f;
                 const auto high = segment == 0 ? 1.0f : segment == 1 ? 1.0f : sustain;
 
@@ -739,7 +772,7 @@ private:
                 }
                 else
                 {
-                    const auto delta = event.position.y - lastMousePosition.y;
+                    const auto delta = (event.position.y - lastMousePosition.y) * (event.mods.isShiftDown() || event.mods.isCommandDown() ? 0.1f : 1.0f);
                     dragNormalised = juce::jlimit (0.0f, 1.0f, dragNormalised - delta * 0.004f);
                 }
 
@@ -812,6 +845,6 @@ private:
     juce::RangedAudioParameter* sustainGesture = nullptr;
     float dragNormalised = 0.5f;
     float frozenScale = 1.0f;
-    juce::Point<float> lastMousePosition;
+    juce::Point<float> lastMousePosition, dragPoint;
     juce::String readout;
 };

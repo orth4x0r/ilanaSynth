@@ -30,6 +30,13 @@
 #include <complex>
 #include <limits>
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #define ILANA_PIANO_SSE 1
+ #include <xmmintrin.h>
+#else
+ #define ILANA_PIANO_SSE 0
+#endif
+
 #include "PianoModelTuning.h"
 
 class PianoString
@@ -51,10 +58,9 @@ public:
             std::fill (buffer, buffer + size, 0.0f);
         nutWrite = bridgeWrite = horizontalWrite = 0;
         bridgeThiranIn = bridgeThiranOut = horizontalThiranIn = horizontalThiranOut = 0.0f;
-        std::fill (std::begin (dispersionIn), std::end (dispersionIn), 0.0f);
-        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-        std::fill (std::begin (horizontalIn), std::end (horizontalIn), 0.0f);
-        std::fill (std::begin (horizontalState), std::end (horizontalState), 0.0f);
+        for (int stage = 0; stage < maxStages; ++stage)
+            for (int lane = 0; lane < 4; ++lane)
+                chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
         bridgeReturn = 0.0f;
         bridgeInput = 0.0f;
@@ -239,12 +245,24 @@ public:
                                          : readThiran (bridgeOffset, bridgeWrite, bridgeSize, bridgeTap, bridgeThiranIn, bridgeThiranOut);
         if (++bridgeWrite >= bridgeSize)
             bridgeWrite = 0;
-        for (int stage = 0; stage < stages; ++stage)
+        // The horizontal polarisation reads its own loop (nothing below
+        // writes it first), so both run their stiffness allpasses together:
+        // lane 0 vertical, lane 1 horizontal, the same arithmetic per lane.
+        auto h = 0.0f;
+        if (! eco)
         {
-            const auto next = dispersion * wave + dispersionIn[stage] - dispersion * dispersionState[stage];
-            dispersionIn[stage] = wave;
-            dispersionState[stage] = next;
-            wave = next;
+            h = readThiran (horizontalOffset, horizontalWrite, horizontalSize, horizontalTap, horizontalThiranIn, horizontalThiranOut);
+            dispersePair (wave, h);
+        }
+        else
+        {
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                const auto next = dispersion * wave + chainIn[stage][0] - dispersion * chainState[stage][0];
+                chainIn[stage][0] = wave;
+                chainState[stage][0] = next;
+                wave = next;
+            }
         }
         lossState += (wave - lossState) * lossCoefficient;
         auto atBridge = lossState * lossGain;
@@ -262,17 +280,9 @@ public:
             auto combRead = forceHistoryWrite - nutDelay;
             if (combRead < 0)
                 combRead += forceHistorySize;
-            forceHistoryWrite = (forceHistoryWrite + 1) % forceHistorySize;
+            forceHistoryWrite = forceHistoryWrite + 1 < forceHistorySize ? forceHistoryWrite + 1 : (forceHistoryWrite + 1) % forceHistorySize;
             const auto drive = (push - forceHistory[(size_t) combRead]) * aftersound;
 
-            auto h = readThiran (horizontalOffset, horizontalWrite, horizontalSize, horizontalTap, horizontalThiranIn, horizontalThiranOut);
-            for (int stage = 0; stage < stages; ++stage)
-            {
-                const auto next = dispersion * h + horizontalIn[stage] - dispersion * horizontalState[stage];
-                horizontalIn[stage] = h;
-                horizontalState[stage] = next;
-                h = next;
-            }
             horizontalLossState += (h - horizontalLossState) * horizontalLossCoefficient;
             auto loop = horizontalLossState * horizontalLossGain;
             if (damper > 0.0f && ! noteHeld)
@@ -568,8 +578,39 @@ private:
     float bridgeThiranIn = 0.0f, bridgeThiranOut = 0.0f, horizontalThiranIn = 0.0f, horizontalThiranOut = 0.0f;
     int stages = maxStages;
     float dispersion = 0.0f;
-    float dispersionIn[maxStages] {}, dispersionState[maxStages] {};
-    float horizontalIn[maxStages] {}, horizontalState[maxStages] {};
+    // Per stage: lane 0 the vertical polarisation, lane 1 the horizontal.
+    alignas (16) float chainIn[maxStages][4] {};
+    alignas (16) float chainState[maxStages][4] {};
+
+    void dispersePair (float& vertical, float& horizontal) noexcept
+    {
+       #if ILANA_PIANO_SSE
+        const auto coefficient = _mm_set1_ps (dispersion);
+        auto x = _mm_set_ps (0.0f, 0.0f, horizontal, vertical);
+        for (int stage = 0; stage < stages; ++stage)
+        {
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (coefficient, x), _mm_load_ps (chainIn[stage])),
+                                          _mm_mul_ps (coefficient, _mm_load_ps (chainState[stage])));
+            _mm_store_ps (chainIn[stage], x);
+            _mm_store_ps (chainState[stage], next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        vertical = out[0];
+        horizontal = out[1];
+       #else
+        for (int stage = 0; stage < stages; ++stage)
+            for (int lane = 0; lane < 2; ++lane)
+            {
+                auto& x = lane == 0 ? vertical : horizontal;
+                const auto next = dispersion * x + chainIn[stage][lane] - dispersion * chainState[stage][lane];
+                chainIn[stage][lane] = x;
+                chainState[stage][lane] = next;
+                x = next;
+            }
+       #endif
+    }
     float lossCoefficient = 0.5f, lossGain = 0.99f, lossState = 0.0f;
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;

@@ -201,6 +201,9 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         for (int i = 0; i < OscillatorIds::count; ++i)
             if (i != osc)
                 set (juce::String (OscillatorIds::prefixes[(size_t) i]) + "_on", 0.0f);
+    // A table bounced onto an operator keeps its tuning by ratio or its
+    // Operator EG, as before: it stays FM / DX7.
+    migrateOperatorModes();
     return true;
 }
 

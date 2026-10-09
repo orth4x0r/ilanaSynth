@@ -55,15 +55,133 @@ inline std::vector<int> sources (const IlanaSynthAudioProcessor& p, int osc)
     return result;
 }
 
-// A wavetable oscillator tuned by ratio or fixed Hz, or on the Operator EG:
-// an operator. One in an FM route but tuned in semitones stays an
-// oscillator with FM, as on Vital (UI review 7, V7-15).
+inline int mode (const IlanaSynthAudioProcessor& p, int osc)
+{
+    return juce::jlimit (0, OscMode::count - 1, juce::roundToInt (read (p, prefix (osc) + "_mode")));
+}
+
+// An operator is an oscillator of the FM / DX7 type (2026-10-06; before, a
+// wavetable tuned by ratio or fixed Hz or on the Operator EG, which now loads
+// as one). One in an FM route but of another type stays an oscillator with
+// FM, as on Vital (UI review 7, V7-15).
 inline bool isOperator (const IlanaSynthAudioProcessor& p, int osc)
 {
-    if (juce::roundToInt (read (p, prefix (osc) + "_mode")) != 0)
-        return false;
+    return mode (p, osc) == OscMode::fmOperator;
+}
 
-    return tuning (p, osc) != OscTuning::Semitones || usesOperatorEg (p, osc);
+// The type menu's order: FM / DX7 next to Wavetable (both play tables);
+// the saved index is unchanged.
+inline const std::array<int, OscMode::count>& modeMenuOrder()
+{
+    static const std::array<int, OscMode::count> order { OscMode::wavetable, OscMode::fmOperator, OscMode::physical,
+                                                         OscMode::sample, OscMode::granular, OscMode::live };
+    return order;
+}
+
+inline juce::String modeName (int mode)
+{
+    return OscMode::names[(size_t) juce::jlimit (0, OscMode::count - 1, mode)];
+}
+
+// Picks an oscillator's type as one undo step, through the processor (so
+// leaving FM / DX7 drops the operator's tuning and Operator EG).
+inline void chooseMode (IlanaSynthAudioProcessor& p, int osc, int newMode)
+{
+    if (newMode < 0 || newMode >= OscMode::count || newMode == mode (p, osc))
+        return;
+    p.performEdit ("OSC " + juce::String (osc + 1) + " type " + modeName (newMode),
+                   [&p, osc, newMode] { p.setOscillatorMode (osc, newMode); });
+}
+
+// The type menu's items in its order (the UI tests read them).
+inline juce::StringArray modeMenuItems()
+{
+    juce::StringArray items;
+    for (const auto entry : modeMenuOrder())
+        items.add (modeName (entry));
+    return items;
+}
+
+// A type menu (oscN_mode) that picks through chooseMode: its list in the
+// menu's order, the arrow keys step through the same order.
+inline void bindModeMenu (ComboControl& control, IlanaSynthAudioProcessor& p, int osc)
+{
+    auto* box = &control.getComboBox();
+    control.setPopupOverride ([box, &p, osc]
+    {
+        juce::PopupMenu menu;
+        const auto current = mode (p, osc);
+        for (const auto entry : modeMenuOrder())
+            menu.addItem (entry + 1, modeName (entry), true, entry == current);
+
+        juce::Component::SafePointer<juce::ComboBox> safe (box);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (box), [safe, &p, osc] (int result)
+        {
+            if (safe != nullptr && result > 0)
+                chooseMode (p, osc, result - 1);
+        });
+    });
+    control.setNudgeOverride ([&p, osc] (int step)
+    {
+        const auto& order = modeMenuOrder();
+        const auto at = (int) (std::find (order.begin(), order.end(), mode (p, osc)) - order.begin());
+        const auto next = juce::jlimit (0, OscMode::count - 1, at + step);
+        chooseMode (p, osc, order[(size_t) next]);
+    });
+}
+
+// The operator's own choices in an oscillator's TUNING and ENVELOPE menus:
+// Ratio, Fixed Hz and OP ENV belong to FM / DX7. Elsewhere TUNING keeps only
+// Semitones (Ratio and Fixed Hz greyed, so the menu says where they are),
+// and a Wavetable's ENVELOPE has no OP ENV. The saved indices are unchanged.
+// `current`: the ENVELOPE parameter's index, shown once the menu is rebuilt
+// (its attachment could not show OP ENV while the item was missing).
+inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope, bool asOperator, bool envelopeChoice, int current)
+{
+    if (tune != nullptr)
+        for (const auto choice : { OscTuning::Ratio, OscTuning::Fixed })
+            if (tune->isItemEnabled (choice + 1) != asOperator)
+                tune->setItemEnabled (choice + 1, asOperator);
+
+    if (envelope == nullptr)
+        return;
+
+    const auto id = OperatorEg::envelopeChoice + 1;
+    const auto has = envelope->indexOfItemId (id) >= 0;
+    if (has == envelopeChoice)
+    {
+        if (envelope->getSelectedId() != current + 1 && envelope->indexOfItemId (current + 1) >= 0)
+            envelope->setSelectedId (current + 1, juce::dontSendNotification);
+        return;
+    }
+
+    // Rebuilt in place, with any section headings, so the saved index keeps
+    // its item.
+    struct Entry { juce::String text; int itemId; bool heading; };
+    std::vector<Entry> entries;
+    for (juce::PopupMenu::MenuItemIterator it (*envelope->getRootMenu(), false); it.next();)
+    {
+        const auto& item = it.getItem();
+        if (item.itemID == id || (item.isSectionHeader && item.text == "FM PAGE"))
+            continue;
+        entries.push_back ({ item.text, item.itemID, item.isSectionHeader });
+    }
+    const auto sectioned = std::any_of (entries.begin(), entries.end(), [] (const Entry& e) { return e.heading; });
+    envelope->clear (juce::dontSendNotification);
+    for (const auto& entry : entries)
+    {
+        if (entry.heading)
+            envelope->addSectionHeading (entry.text);
+        else if (entry.itemId != 0)
+            envelope->addItem (entry.text, entry.itemId);
+    }
+    if (envelopeChoice)
+    {
+        if (sectioned)
+            envelope->addSectionHeading ("FM PAGE");
+        envelope->addItem ("OP ENV", id);
+    }
+    envelope->setSelectedId (current + 1, juce::dontSendNotification);
 }
 
 inline juce::String oscList (const std::vector<int>& oscs, const juce::String& before)
@@ -319,6 +437,245 @@ inline void groupExciteMenu (ComboControl& control)
 // PhysicalPage, in FilterVectorPhysicalPages.h).
 void showPhysicalString (juce::Component& from, int osc);
 
+
+// The unison block's little picture (the OSC cards' UNISON row): one bar per
+// voice, spread across the width as far as DETUNE reaches, the outer voices
+// shorter. A picture only; it takes no clicks.
+class UnisonSpreadView : public juce::Component
+{
+public:
+    UnisonSpreadView (IlanaSynthAudioProcessor& p, int index)
+        : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
+    {
+        setInterceptsMouseClicks (false, false);
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    // Re-reads the voices and the detune; repaints when they changed.
+    void update()
+    {
+        const auto voiceCount = juce::jlimit (1, 16, juce::roundToInt (read ("_unison")));
+        const auto detune = read ("_detune");
+        const auto active = read ("_unison") > 1.5f;
+
+        if (voiceCount != voices || ! juce::approximatelyEqual (detune, spread) || active != isActive)
+        {
+            voices = voiceCount;
+            spread = detune;
+            isActive = active;
+            repaint();
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat();
+        const auto count = voices;
+        const auto detuneNorm = [this]
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (prefix + "_detune"))
+                return parameter->convertTo0to1 (spread);
+            return 0.5f;
+        }();
+        const auto half = area.getWidth() * 0.5f - 6.0f;
+        const auto reach = half * (0.18f + 0.82f * juce::jlimit (0.0f, 1.0f, detuneNorm));
+
+        for (int i = 0; i < count; ++i)
+        {
+            const auto position = count == 1 ? 0.0f : ((float) i - (float) (count - 1) * 0.5f) / ((float) (count - 1) * 0.5f);
+            const auto closeness = 1.0f - std::abs (position);
+            const auto height = juce::jmin (area.getHeight() - 4.0f, 8.0f + 14.0f * closeness);
+            const auto bar = juce::Rectangle<float> (4.0f, height).withCentre ({ area.getCentreX() + position * reach, area.getCentreY() });
+            g.setColour (colour.withAlpha (0.45f + 0.5f * closeness));
+            g.fillRoundedRectangle (bar, 2.0f);
+        }
+    }
+
+private:
+    float read (const char* suffix) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (prefix + suffix);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    juce::String prefix;
+    juce::Colour colour = IlanaTheme::accent();
+    int voices = 0;
+    float spread = -1.0f;
+    bool isActive = false;
+};
+
+// A Physical oscillator's STRING row, right of its knobs: the string's
+// partials as bars (their levels from the strike point, DAMP and STIFF, as
+// the PHYSICAL page's PARTIALS read-out), so the row reads as the wavetable
+// card's, full to its end, without a second copy of the string's controls
+// (those stay on PHYSICAL: UI review 9, I9-3). A picture only.
+class StringPartialsView : public juce::Component,
+                           public juce::SettableTooltipClient
+{
+public:
+    StringPartialsView (IlanaSynthAudioProcessor& p, int index)
+        : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
+    {
+        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is. OSC > PHYSICAL edits the string.");
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    std::function<void()> onClick;
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+    // Re-reads the settings; repaints when they changed.
+    void update()
+    {
+        const std::array<float, 3> now { read ("_string_damp"), read ("_string_stiffness"), read ("_string_excite_pos") };
+        if (now != shown)
+        {
+            shown = now;
+            repaint();
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto area = getLocalBounds().toFloat();
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        const auto title = area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
+        g.drawText ("PARTIALS", title.toNearestInt(), juce::Justification::centredLeft, false);
+        area.removeFromLeft (8.0f);
+        const auto plot = area.reduced (0.0f, 2.0f);
+
+        const auto damp = shown[0], stiff = shown[1];
+        const auto pos = juce::jlimit (0.05f, 0.5f, shown[2] > 0.001f ? shown[2] : 0.25f);
+        constexpr int count = 16;
+        const auto slot = plot.getWidth() / (float) count;
+        for (int n = 1; n <= count; ++n)
+        {
+            const auto comb = 0.3f + 0.7f * std::abs (std::sin (juce::MathConstants<float>::pi * (float) n * pos));
+            // (Drawn on a square-root scale, so the upper partials still show in a 28 px row.)
+            const auto level = std::sqrt (juce::jlimit (0.02f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3))));
+            const auto bar = juce::Rectangle<float> (juce::jmin (4.0f, slot * 0.6f), plot.getHeight() * level)
+                                 .withCentre ({ plot.getX() + slot * ((float) n - 0.5f), plot.getBottom() - plot.getHeight() * level * 0.5f });
+            g.setColour (colour.withAlpha (0.45f + 0.5f * level));
+            g.fillRoundedRectangle (bar, 2.0f);
+        }
+    }
+
+private:
+    float read (const char* suffix) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (prefix + suffix);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    juce::String prefix;
+    juce::Colour colour = IlanaTheme::accent();
+    std::array<float, 3> shown { -1.0f, -1.0f, -1.0f };
+};
+
+// The right-hand cells of an oscillator's PITCH row: an oscillator in an FM
+// route says so in a chip in its source's colour (a link to the FM page), one
+// in none shows its output level as a bar.
+class OscStatusView : public juce::Component,
+                      public juce::SettableTooltipClient
+{
+public:
+    OscStatusView (IlanaSynthAudioProcessor& p, int index)
+        : processorRef (p), osc (index), colour (IlanaTheme::oscColour (index)) {}
+
+    std::function<void()> onClick;
+
+    // Re-reads the role and the level; repaints when they changed.
+    void update (const juce::String& chipTextIn, juce::Colour chipColourIn, bool isLink, const juce::String& tip)
+    {
+        const auto* levelValue = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_level");
+        const auto newLevel = levelValue != nullptr ? juce::jlimit (0.0f, 1.0f, levelValue->load()) : 0.0f;
+
+        if (chipTextIn != chipText || chipColourIn != chipColour || isLink != link || ! juce::approximatelyEqual (newLevel, level))
+        {
+            chipText = chipTextIn;
+            chipColour = chipColourIn;
+            link = isLink;
+            level = newLevel;
+            setMouseCursor (link ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            setTooltip (tip);
+            repaint();
+        }
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    bool hitTest (int, int) override { return link && chipText.isNotEmpty(); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (link && onClick != nullptr && ! event.mouseWasDraggedSinceMouseDown() && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+    // The chip's text as drawn (the UI test reads it).
+    const juce::String& getChipText() const { return chipText; }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat();
+
+        if (chipText.isNotEmpty())
+        {
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            const auto width = juce::jmin (area.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), chipText) + 28.0f);
+            const auto chip = juce::Rectangle<float> (width, 20.0f).withCentre ({ area.getX() + width * 0.5f, area.getCentreY() });
+            g.setColour (chipColour.withAlpha (0.2f));
+            g.fillRoundedRectangle (chip, 10.0f);
+            g.setColour (chipColour.withAlpha (0.75f));
+            g.drawRoundedRectangle (chip.reduced (0.5f), 10.0f, 1.0f);
+            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ chip.getX() + 11.0f, chip.getCentreY() }));
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, chipText, chip.withTrimmedLeft (20.0f).withTrimmedRight (8.0f), juce::Justification::centredLeft, 1);
+            return;
+        }
+
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        IlanaTheme::drawFitted (g, "OUT", area.withWidth (30.0f), juce::Justification::centredLeft, 1);
+        const auto track = juce::Rectangle<float> (area.getX() + 34.0f, area.getCentreY() - 3.0f, juce::jmax (0.0f, area.getWidth() - 40.0f), 6.0f);
+        g.setColour (IlanaTheme::Ui::track);
+        g.fillRoundedRectangle (track, 3.0f);
+        g.setColour (colour.withAlpha (0.9f));
+        g.fillRoundedRectangle (track.withWidth (track.getWidth() * level), 3.0f);
+    }
+
+private:
+    IlanaSynthAudioProcessor& processorRef;
+    int osc;
+    juce::Colour colour, chipColour;
+    juce::String chipText;
+    bool link = false;
+    float level = -1.0f;
+};
+
 class OscPage : public juce::Component,
                 private juce::AudioProcessorValueTreeState::Listener,
                 private juce::AsyncUpdater,
@@ -450,12 +807,12 @@ public:
 
     explicit OscPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
-          subShape (p.apvts, "sub_shape", "SHAPE"),
-          subOctave (p.apvts, "sub_octave", "OCTAVE")
+          subShape (p.apvts, "sub_shape", "WAVE"),
+          subOctave (p.apvts, "sub_octave", "OCT")
           , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
-          , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
-          , symCount (p.apvts, "sym_count", "STRINGS")
-          , sbOn (p.apvts, "sb_on", "SOUNDBOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "SOUNDBOARD MIX"), sbTone (p.apvts, "sb_tone", "TONE")
+          , symAmount (p.apvts, "sym_amount", "AMT"), symDecay (p.apvts, "sym_decay", "DECAY")
+          , symCount (p.apvts, "sym_count", "COUNT")
+          , sbOn (p.apvts, "sb_on", "SOUNDBOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "MIX"), sbTone (p.apvts, "sb_tone", "TONE")
           , sbSize (p.apvts, "sb_size", "SIZE"), stretch (p.apvts, "stretch", "STRETCH")
           , pedalRes (p.apvts, "pedal_res", "PEDAL RES"), mechKey (p.apvts, "mech_key", "KEY NOISE")
           , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
@@ -470,14 +827,17 @@ public:
                 p, prefix + "_table", prefix + "_frame", prefix + "_unison",
                 prefix + "_spread", prefix + "_detune", false, juce::String {},
                 prefix + "_mode", i, oscColour (i), false);
-            // There is room here for every frame at once (UI review 5, V6).
-            waveDisplays[(size_t) i]->setViewMode (1);
+            // The card's well opens on the cycle, as the design draws it; its
+            // corner chip still steps to every frame at once (3D) and the
+            // harmonics (UI review 5, V6; design round 2).
+            waveDisplays[(size_t) i]->setViewMode (0);
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD...");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
             styleJumpLink (*editButtons[(size_t) i], "TABLE");
             // RESAMPLE: one name for the resampler, apart from the Bounce
             // LFO shapes (UI review 7, I7-25).
             bounceButtons[(size_t) i] = std::make_unique<juce::TextButton> ("RESAMPLE");
+            aux[(size_t) i] = std::make_unique<CardAux> (p, i);
         }
 
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -543,24 +903,70 @@ public:
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
         }
 
-        addChildComponent (stringView);
-        addChildComponent (opEnvGraph);
-        opEnvGraph.setReadOnly (true);
-        opEnvGraph.onOpen = [this]
-        {
-            if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
-                editor->showOperatorEnvelope (selected);
-        };
-
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
+            auto& osc = *controls[(size_t) i];
+            auto& card = *aux[(size_t) i];
+
+            // The card's grid: knobs with their name and value to the right
+            // of the dial, menus 18 px high under a small name.
+            for (auto* knob : cardKnobs (osc))
+                knob->setInlineKnob (true);
+            for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode,
+                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode })
+                menu->setCompactLayout (true);
+            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.grainLive })
+                toggle->setInlineLabel (true);
+            osc.on.setBareSwitch (true);
+            osc.on.setSwitchColour (oscColour (i));
+            // The type menu picks through the processor (one undo step; an
+            // operator's tuning goes when it leaves FM / DX7).
+            OscRole::bindModeMenu (osc.mode, processorRef, i);
+
+            // The short names the grid has room for (the tooltips keep the full ones).
+            osc.warpAmt.setLabelText ("AMT");
+            osc.warp2Amt.setLabelText ("AMT");
+            osc.spectralAmt.setLabelText ("AMT");
+            osc.pdEnvAmt.setLabelText ("AMT");
+            osc.unison.setLabelText ("VOICES");
+            osc.uniMode.setLabelText ("MODE");
+
+            // An amount whose stage is Off keeps its place and shows a faded dash.
+            osc.warpAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_warp") == 0; });
+            osc.warp2Amt.setDashWhen ([this, prefix] { return readChoice (prefix + "_warp2") == 0; });
+            osc.pdEnvAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_pd_env") == 0; });
+            osc.spectralAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_spectral") == 0; });
+
+            addChildComponent (card.stringView);
+            card.stringView.setColour (oscColour (i));
+            card.stringView.setCompact (true);
+            addChildComponent (card.opEnvGraph);
+            card.opEnvGraph.setReadOnly (true);
+            card.opEnvGraph.onOpen = [this, i]
+            {
+                if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                    editor->showOperatorEnvelope (i);
+            };
+            card.spreadView.setColour (oscColour (i));
+            card.partials.setColour (oscColour (i));
+            card.partials.onClick = [this, i] { showPhysicalString (*this, i); };
+            addChildComponent (card.partials);
+            card.status.setColour (oscColour (i));
+            card.status.onClick = [i]
+            {
+                if (FmOperatorInfo::hooks().openOperator != nullptr)
+                    FmOperatorInfo::hooks().openOperator (i);
+            };
+            addChildComponent (card.spreadView);
+            addChildComponent (card.status);
+
             addChildComponent (waveDisplay (i));
             scrubbers[(size_t) i].setColour (oscColour (i));
             scrubberAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-                p.apvts, juce::String (OscillatorIds::prefixes[(size_t) i]) + "_frame", scrubbers[(size_t) i]));
+                p.apvts, prefix + "_frame", scrubbers[(size_t) i]));
             addChildComponent (scrubbers[(size_t) i]);
-            setupLoadButton (loadButton (i),
-                             juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table", 0);
+            setupLoadButton (loadButton (i), prefix + "_table", 0);
             addChildComponent (loadButton (i));
             auto& edit = *editButtons[(size_t) i];
             edit.setTooltip ("Edit this wavetable: draw frames, set harmonics, formulas and morphs.\n"
@@ -578,32 +984,32 @@ public:
             // V40): a raised box at the controls' height.
             for (auto* button : { &loadButton (i), &edit, &bounce })
                 styleHeaderButton (*button);
+
+            // The Operator Env has one editor, on FM's operator card; here a
+            // picture of it and a link there (UI review 8, S8-4).
+            styleJumpLink (card.opEnvButton, "OP ENV");
+            card.opEnvButton.setTooltip ("This operator plays its OP ENV: edit it on the FM page");
+            card.opEnvButton.onClick = [this, i]
+            {
+                if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                    editor->showOperatorEnvelope (i);
+            };
+            addChildComponent (card.opEnvButton);
+
+            // A Physical oscillator's string has one editor, the PHYSICAL page;
+            // here its picture, its main knobs and a link there (UI review 9,
+            // I9-3).
+            styleJumpLink (card.stringButton, "STRING");
+            card.stringButton.setTooltip ("Every control of this oscillator's string, exciter and body is on the PHYSICAL page");
+            card.stringButton.onClick = [this, i] { showPhysicalString (*this, i); };
+            addChildComponent (card.stringButton);
+
+            card.sampleLoadButton.setButtonText ("LOAD...");
+            card.sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample.  You can also drop a .wav or .sfz file on the picture");
+            card.sampleLoadButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleLoadButton); };
+            styleHeaderButton (card.sampleLoadButton);
+            addChildComponent (card.sampleLoadButton);
         }
-
-        // The Operator Env has one editor, on FM's operator card; here a
-        // picture of it and a link there (UI review 8, S8-4).
-        styleJumpLink (opEnvButton, "OP ENV");
-        opEnvButton.setTooltip ("This operator plays its OP ENV: edit it on the FM page");
-        opEnvButton.onClick = [this]
-        {
-            if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
-                editor->showOperatorEnvelope (selected);
-        };
-        addChildComponent (opEnvButton);
-
-        // A Physical oscillator's string has one editor, the PHYSICAL page;
-        // here its picture, its main knobs and a link there (UI review 9,
-        // I9-3).
-        styleJumpLink (stringButton, "STRING");
-        stringButton.setTooltip ("Every control of this oscillator's string, exciter and body is on the PHYSICAL page");
-        stringButton.onClick = [this] { showPhysicalString (*this, selected); };
-        addChildComponent (stringButton);
-
-        sampleLoadButton.setButtonText ("LOAD...");
-        sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample.  You can also drop a .wav or .sfz file on the picture");
-        sampleLoadButton.onClick = [this] { waveDisplay (selected).showSampleMenu (sampleLoadButton); };
-        styleHeaderButton (sampleLoadButton);
-        addChildComponent (sampleLoadButton);
 
         // The TABLE lists open the wavetable browser.
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -617,25 +1023,25 @@ public:
             });
         }
 
-        // The shared sections under the oscillator, one at a time behind
-        // their tabs (each tab lit while its part is on).
+        // The strip under the oscillators: voice, stereo, noise, sub, strings
+        // and soundboard in one card, no tabs.
         voiceSpread = std::make_unique<KnobControl> (p.apvts, "voice_spread", "SPREAD");
-        unisonRandom = std::make_unique<KnobControl> (p.apvts, "unison_random", "UNI PHASE");
+        unisonRandom = std::make_unique<KnobControl> (p.apvts, "unison_random", "PHASE");
         // The oscillators' analogue drift (the vector pad's drift is WANDER:
         // UI review 6, I6-25).
-        drift = std::make_unique<KnobControl> (p.apvts, "drift", "ANALOG DRIFT");
+        drift = std::make_unique<KnobControl> (p.apvts, "drift", "DRIFT");
         // VOICE: how the notes are shared out (review 9, S9-1): the header's
         // VOICES button opens the same settings.
         voiceMode = std::make_unique<ComboControl> (p.apvts, "voice_mode", "MODE");
         voiceCount = std::make_unique<KnobControl> (p.apvts, "poly_voices", "VOICES", IlanaTheme::Ui::text2, false);
-        bendRange = std::make_unique<KnobControl> (p.apvts, "bend_range", "BEND RANGE", IlanaTheme::Ui::text2, false);
+        bendRange = std::make_unique<KnobControl> (p.apvts, "bend_range", "BEND", IlanaTheme::Ui::text2, false);
         glideTime = std::make_unique<KnobControl> (p.apvts, "glide", "GLIDE", IlanaTheme::Ui::text2, false);
-        glideLegato = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO ONLY");
+        glideLegato = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
         // The switch is the sub's alone, and says so; the noise has its
         // own level and colour beside it (V8-14, V8-15).
-        subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", IlanaTheme::accent(), true);
-        noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
+        subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
+        subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "LEVEL", IlanaTheme::accent(), true);
+        noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "LEVEL", IlanaTheme::Ui::text2, false);
         noiseColourStrip = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
         addChildComponents (subShape, subOctave, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
                             *voiceMode, *voiceCount, *bendRange, *glideTime, *glideLegato,
@@ -645,12 +1051,32 @@ public:
             addChildComponent (*note);
         sbOn.showAsSwitch();
 
-        oscTabs.setName ("OSC tabs"); // (the UI test finds them by it)
+        for (auto* knob : stripKnobs())
+            knob->setInlineKnob (true);
+        for (auto* menu : { &subShape, &subOctave, &sbModel, voiceMode.get() })
+            menu->setCompactLayout (true);
+        symManual.setInlineLabel (true);
+        glideLegato->setSmallName (true);
+        subOscOn->setGroupName ("SUB", IlanaTheme::accent());
+        symOn.setGroupName ("STRINGS", oscColour (4));
+        sbOn.setGroupName ("SOUNDBOARD", oscColour (4));
+        subOscOn->getButton().setTooltip ("Switch the sub oscillator on or off");
+        symOn.getButton().setTooltip ("Sympathetic strings: shared drone strings that ring with everything you play");
+        sbOn.getButton().setTooltip ("The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises");
+
+        moreButton.setTooltip ("Manual tuning of the sympathetic strings, and the keys' stretch tuning, pedal resonance and mechanical noises");
+        moreButton.onClick = [this]
+        {
+            stripOpen = ! stripOpen;
+            updateModeVisibility();
+        };
+        styleHeaderButton (moreButton);
+        addChildComponent (moreButton);
+
+        // (Not drawn: the tests pick an oscillator by this list, as they did by the old tabs.)
+        oscTabs.setName ("OSC tabs");
         oscTabs.onPick = [this] (int osc) { selectOscillator (osc); };
-        oscTabs.onMenu = [this] (int tab) { showOscMenu (oscForTab (tab)); };
-        addAndMakeVisible (oscTabs);
-        sharedTabs.onSelect = [this] (int tab) { selectShared (tab); };
-        addAndMakeVisible (sharedTabs);
+        addChildComponent (oscTabs);
 
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : listenedSuffixes)
@@ -668,8 +1094,15 @@ public:
             effectRules.add (osc.spectralAmt, effectRules.choiceIsNot (prefix + "_spectral", 0), "SPECTRAL is Off");
             effectRules.add (osc.warpAmt, effectRules.choiceIsNot (prefix + "_warp", 0), "WARP is Off");
 
-            for (auto* knob : { &osc.uniBlend, &osc.spread, &osc.detune })
-                effectRules.add (*knob, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+            effectRules.add (osc.detune, effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+            // Grains have no unison blend or spread: the knobs keep their
+            // columns, dimmed, with a dash for the value.
+            for (auto* knob : { &osc.uniBlend, &osc.spread })
+            {
+                effectRules.add (*knob, [this, i, voices = effectRules.isAbove (prefix + "_unison", 1.5f)] { return voices() && getMode (i) != 3; },
+                                 "UNISON is 1 (a Granular oscillator has no unison blend or spread)");
+                knob->setDashWhen ([this, i] { return getMode (i) == 3; });
+            }
 
             // The sample's own controls dim until there is a sample (S14-3).
             for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleStart,
@@ -682,23 +1115,16 @@ public:
                                  "load a sample first");
         }
 
-        // One way to add an oscillator here: the tab row's last button
+        // One way to add an oscillator here: the dashed row under the last card
         // (UI review 6, S33).
         addButton.setTooltip ("Add the next oscillator, switched on");
-        addButton.onClick = [this]
-        {
-            for (int i = 0; i < OscillatorIds::count; ++i)
-                if (! processorRef.isOscillatorShown (i))
-                {
-                    processorRef.performEdit ("Add OSC " + juce::String (i + 1), [this, i] { processorRef.addOscillator (i); });
-                    selected = i;
-                    break;
-                }
-
-            updateModeVisibility();
-            updateEnabled();
-        };
+        addButton.onClick = [this] { addOscillatorOfType (-1); };
         addChildComponent (addButton);
+        // FM / DX7 has its own way in (an operator: a sine tuned by ratio on
+        // the Operator EG), beside the plain one.
+        addFmButton.setTooltip ("Add the next oscillator as an FM / DX7 operator: a sine tuned by ratio, on its OP ENV");
+        addFmButton.onClick = [this] { addOscillatorOfType (OscMode::fmOperator); };
+        addChildComponent (addFmButton);
 
         lastRevealVersion = processorRef.getRevealVersion();
         updateModeVisibility();
@@ -730,7 +1156,7 @@ public:
     }
 
     // Patch loads change which oscillators are shown; FM routes (polled)
-    // change what the tabs say.
+    // change what the cards say.
     void timerCallback() override
     {
         if (bouncingOsc >= 0)
@@ -744,10 +1170,12 @@ public:
         }
         else
         {
-            updateTabs();
+            updateTabItems();
 
-            if (OscRole::describeLong (processorRef, selected) != shownRole || rowsKey (selected) != shownRows)
+            if (layoutKey() != shownKey)
                 updateModeVisibility();
+            else
+                updateCardPictures();
         }
 
         effectRules.apply();
@@ -757,182 +1185,106 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        // The chosen oscillator's card: its tag, name and what it is, after
-        // the MODE menu.
-        if (! oscCard.isEmpty())
-        {
-            const auto tint = oscColour (selected);
-            IlanaTheme::paintCard (g, oscCard.toFloat(), 6.0f, tint);
-            const auto stripe = juce::Rectangle<float> ((float) oscCard.getX() + 2.0f, (float) oscCard.getY() + 6.0f,
-                                                        3.0f, (float) oscCard.getHeight() - 12.0f);
-            g.setColour (tint.withAlpha (0.85f));
-            g.fillRoundedRectangle (stripe, 1.5f);
+        for (const auto& card : cards)
+            paintOscCard (g, card);
 
-            const auto headerY = oscCard.getY() + headerHeight / 2;
-            IlanaTheme::paintTag (g, { (float) oscCard.getX() + 17.0f, (float) headerY }, tint);
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("OSC " + juce::String (selected + 1), juce::Rectangle<int> (oscCard.getX() + 28, headerY - 8, 60, 16),
-                        juce::Justification::centredLeft);
-
-            // An FM-modulated oscillator says so in a pill in its source's colour (review 12, S12-8).
-            if (captionIsLink())
-            {
-                const auto from = OscRole::sources (processorRef, selected);
-                const auto pillColour = from.empty() ? tint : oscColour (from.front());
-                const auto text = shownRole + juce::String::fromUTF8 ("  \xe2\x80\xba");
-                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-                const auto width = juce::jmin (subtitleArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (font), text) + 18);
-                const auto pill = subtitleArea.withWidth (width).withSizeKeepingCentre (width, 20).toFloat();
-                g.setColour (pillColour.withAlpha (0.18f));
-                g.fillRoundedRectangle (pill, 10.0f);
-                g.setColour (pillColour.withAlpha (0.8f));
-                g.drawRoundedRectangle (pill.reduced (0.5f), 10.0f, 1.0f);
-                g.setColour (IlanaTheme::Ui::text);
-                g.setFont (font);
-                g.drawText (text, pill.toNearestInt().reduced (9, 0), juce::Justification::centredLeft, true);
-            }
-            else
-            {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawText (isOff (selected) ? juce::String::fromUTF8 ("off  \xc2\xb7  switch on to hear it")
-                                             : shownRole + (shownRole.contains ("FM") ? juce::String::fromUTF8 ("  \xe2\x80\xba") : juce::String()), subtitleArea,
-                            juce::Justification::centredLeft, true);
-            }
-
-            if (! controlBay.isEmpty())
-                IlanaTheme::paintRecessedPanel (g, controlBay.toFloat(), 6.0f);
-
-            // Each row named at its left.
-            for (const auto& [area, name] : rowLabels)
-            {
-                g.setColour (tint.withAlpha (0.8f));
-                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-                g.setFont (font);
-                // (Only as wide as the words, so the box never reaches the first control's label.)
-                IlanaTheme::drawFitted (g, name, area.withWidth (juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, name) + 2)),
-                                        juce::Justification::topLeft, 1);
-            }
-        }
-
-        if (! sharedCard.isEmpty())
-            IlanaTheme::paintRecessedPanel (g, sharedCard.toFloat(), 6.0f);
-
-        // Folded: what is off, and what opens it (the sub's switch).
-        if (shownSharedFolded)
-        {
-            const auto left = sharedTabs.getRight() + 14 + 44 + 10;
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, "sub off, no noise: switch the sub on to set them",
-                                    juce::Rectangle<int> (left, sharedCard.getY(), sharedCard.getRight() - 20 - left, sharedHeaderHeight),
-                                    juce::Justification::centredLeft, 1);
-        }
-
-        // SUB + NOISE's two halves, each named at its left.
-        for (const auto& [area, name] : sharedLabels)
-        {
-            g.setColour (name == "SUB" ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            IlanaTheme::drawFitted (g, name, area, juce::Justification::topLeft, 1);
-        }
-        if (! sharedNoteArea.isEmpty() && sharedNote.isNotEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            IlanaTheme::drawFitted (g, sharedNote, sharedNoteArea, juce::Justification::centredLeft, 5);
-        }
-        for (const auto& divider : sharedDividers)
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.07f));
-            g.fillRect (divider);
-        }
+        paintStrip (g);
     }
 
-    // The caption's "FM FROM OSC 2 30 % ›" is a link to the FM page (review
-    // 11, I11-4).
-    bool captionIsLink() const { return ! isOff (selected) && shownRole.contains ("FM") && FmOperatorInfo::hooks().openOperator != nullptr; }
-
-    void mouseMove (const juce::MouseEvent& event) override
+    // A right-click on a card's header: switch it off or remove it (the old
+    // tab's menu).
+    void mouseDown (const juce::MouseEvent& event) override
     {
-        setMouseCursor (captionIsLink() && subtitleArea.contains (event.getPosition()) ? juce::MouseCursor::PointingHandCursor
-                                                                                        : juce::MouseCursor::NormalCursor);
-    }
+        if (! event.mods.isPopupMenu())
+            return;
 
-    void mouseUp (const juce::MouseEvent& event) override
-    {
-        if (captionIsLink() && subtitleArea.contains (event.getPosition()) && ! event.mouseWasDraggedSinceMouseDown())
-            FmOperatorInfo::hooks().openOperator (selected);
+        for (const auto& card : cards)
+            if (card.header.contains (event.getPosition()))
+            {
+                showOscMenu (card.osc);
+                return;
+            }
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
 
-    // The height the page needs: the tab row, the card with its rows at the
-    // smallest knobs, and the shared card.
+    // The height the page needs: every shown card at its smallest, the add
+    // row and the strip.
     int getMinimumHeight() const
     {
-        auto units = 0;
-        for (const auto& row : rowsFor (selected))
-            units += rowUnits (row);
-        return pageMargin * 2 + tabRowHeight + gap * 2 + headerHeight + 10 + units * minRowHeight + sharedHeight;
+        return contentHeight (minimumHeights());
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12, pageMargin);
-        area.removeFromTop (tabRowHeight + gap);
-
-        // SUB + NOISE with the sub off and no noise folds to its header (the
-        // tabs and the switch), as WEST and BODY do on FILTER (V10-9).
-        shownSharedFolded = sharedFolded();
-        sharedCard = area.removeFromBottom (shownSharedFolded ? sharedHeaderHeight + 6 : sharedHeight);
-        area.removeFromBottom (gap);
-        oscCard = area;
-        layoutTabs();
-        layoutCard();
-        layoutShared();
+        layoutPage();
     }
 
-    // The oscillator the card shows (the UI test and the FM page's links
-    // pick one).
+    // The oscillator the UI test or the FM page's links pick: its card is
+    // scrolled into view.
     void selectOscillator (int osc)
     {
-        if (osc < 0 || osc >= OscillatorIds::count)
+        if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
             return;
 
         selected = osc;
         updateModeVisibility();
         updateEnabled();
+        scrollTo (osc);
     }
 
     int getSelectedOscillator() const { return selected; }
 
-    // The shared section below the card: SUB + NOISE, VOICE (with the spread and drift),
-    // STRINGS (sympathetic) or SOUNDBOARD.
-    // The tabs, in their order (the groups: the sub and noise, then the
-    // global drawer).
-    // VOICE first and open by default: polyphony is found where the voices are
-    // set (review 11, S11-1).
+    // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
+    // unless it had a type), or as that type. The add row and the UI tests.
+    void addOscillatorOfType (int mode)
+    {
+        for (int i = 0; i < OscillatorIds::count; ++i)
+            if (! processorRef.isOscillatorShown (i))
+            {
+                processorRef.performEdit ((mode == OscMode::fmOperator ? "Add FM / DX7 OSC " : "Add OSC ") + juce::String (i + 1), [this, i, mode]
+                {
+                    if (mode >= 0)
+                        processorRef.addOscillator (i, mode);
+                    else
+                        processorRef.addOscillator (i);
+                });
+                selected = i;
+                break;
+            }
+
+        updateModeVisibility();
+        updateEnabled();
+    }
+
+    // The strip under the cards. VOICE and the keys' extras (stretch, pedal
+    // resonance, noises) are both in it; the second sits under MORE, which
+    // this opens.
     enum SharedTab { sharedVoice = 0, sharedSubNoise, sharedSympathetic, sharedKeys };
 
     void selectShared (int index)
     {
-        sharedSelected = juce::jlimit (0, shownShared - 1, index);
-        sharedTabs.setSelected (sharedSelected);
+        if (index == sharedKeys || index == sharedSympathetic)
+            stripOpen = true;
+
         updateModeVisibility();
-        // SUB + NOISE folds while off: picking it (or leaving it) re-lays the card.
-        if (sharedFolded() != shownSharedFolded)
-        {
-            resized();
-            repaint();
-        }
+        scrollTo (-1);
     }
 
     // The UI test reads the menu's items.
     juce::StringArray getOscMenuItems (int band) const
     {
         return { isOff (band) ? "Switch on" : "Switch off", "Remove oscillator" };
+    }
+
+    // The card's rectangle in the page (the UI tests).
+    juce::Rectangle<int> getCardBounds (int osc) const
+    {
+        for (const auto& card : cards)
+            if (card.osc == osc)
+                return card.bounds;
+
+        return {};
     }
 
 private:
@@ -951,62 +1303,799 @@ private:
         button.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text);
     }
 
-    static constexpr int pageMargin = 6, gap = 6, tabRowHeight = 30, headerHeight = 32;
-    static constexpr int sharedHeaderHeight = 30, sharedHeight = sharedHeaderHeight + 74;
-    static constexpr int minRowHeight = 62, maxRowHeight = 132, rowLabelWidth = 96;
+    // The page's measures, in design pixels. Every card is the same width; a
+    // wavetable card is the one compact height; the page scrolls once the
+    // cards and the strip no longer fit.
+    static constexpr int sideMargin = 14, topMargin = 10, bottomMargin = 10, gap = 8;
+    static constexpr int cardHeaderHeight = 30, compactCardMin = 130, compactCardMax = 142, liveCardHeight = 84;
+    static constexpr int addRowHeight = 18, stripRowHeight = 36, stripBaseHeight = 92, stripRowsExtra = 80;
+    static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
+    static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
-    // What the rows hold, to lay them out again when it changes.
-    juce::String rowsKey (int index) const
+    // fm: the FM / DX7 type, the operator's card (its tuning, the Operator EG
+    // or another envelope, feedback); wavetable: the table's card.
+    enum class Kind { wavetable, fm, physical, sample, grain, live };
+
+    Kind kindOf (int osc) const
+    {
+        switch (getMode (osc))
+        {
+            case 1: return Kind::physical;
+            case 2: return Kind::sample;
+            case 3: return Kind::grain;
+            case 4: return Kind::live;
+            case OscMode::fmOperator: return Kind::fm;
+            default: return Kind::wavetable;
+        }
+    }
+
+    static bool isCompactKind (Kind kind) { return kind != Kind::sample; }
+
+    // One cell of a card's grid: the control, its row, first column and width in columns.
+    struct Slot
+    {
+        juce::Component* item;
+        int row, col, span;
+    };
+
+    // The compact cards' three rows on one nine-column grid (the sample card's
+    // two or three on seven): what stands in each cell. The same column holds
+    // the same kind of control from card to card.
+    std::vector<Slot> slotsFor (int index) const
+    {
+        auto& osc = *controls[(size_t) index];
+        const auto kind = kindOf (index);
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+        std::vector<Slot> slots;
+        const auto add = [&slots] (juce::Component& item, int row, int col, int span = 1) { slots.push_back ({ &item, row, col, span }); };
+        const auto unisonRow = [&] (int row, bool blend)
+        {
+            add (osc.uniMode, row, 0);
+            add (osc.unison, row, 1);
+            add (osc.detune, row, 2);
+            if (blend)
+            {
+                add (osc.uniBlend, row, 3);
+                add (osc.spread, row, 4);
+            }
+            add (osc.chord, row, 5);
+        };
+
+        switch (kind)
+        {
+            case Kind::wavetable:
+            {
+                add (osc.frame, 0, 0);
+                add (osc.warp, 0, 1);
+                add (osc.warpAmt, 0, 2);
+                add (osc.warp2, 0, 3);
+                add (osc.warp2Amt, 0, 4);
+                add (osc.spectral, 0, 5);
+                add (osc.spectralAmt, 0, 6);
+                add (osc.pdEnv, 0, 7);
+                add (osc.pdEnvAmt, 0, 8);
+                add (osc.level, 1, 0);
+                add (osc.pan, 1, 1);
+                add (osc.tune, 1, 2);
+                const auto tuning = OscRole::tuning (processorRef, index);
+                add (tuning == OscTuning::Ratio ? (juce::Component&) osc.ratio
+                                                : tuning == OscTuning::Fixed ? (juce::Component&) osc.fixedHz : (juce::Component&) osc.semi, 1, 3);
+                add (osc.fine, 1, 4);
+                add (osc.ampEnv, 1, 5);
+                unisonRow (2, true);
+                break;
+            }
+            case Kind::fm:
+            {
+                // The operator's own order (RATIO, SEMI, FINE, OUTPUT; review 8, V8-5),
+                // its wave and envelope menu under it, then the unison row as every card has it.
+                // OUTPUT is the Operator EG's level; on another envelope the
+                // oscillator's LEVEL stands there.
+                const auto tuning = OscRole::tuning (processorRef, index);
+                add (osc.tune, 0, 0);
+                if (tuning == OscTuning::Ratio)
+                    add (osc.ratio, 0, 1);
+                if (tuning == OscTuning::Fixed)
+                    add (osc.fixedHz, 0, 1);
+                add (osc.semi, 0, 2);
+                add (osc.fine, 0, 3);
+                add (OscRole::usesOperatorEg (processorRef, index) ? (juce::Component&) osc.egOut : (juce::Component&) osc.level, 0, 4);
+                add (osc.pan, 0, 5);
+                add (osc.table, 1, 0, 2);
+                add (osc.ampEnv, 1, 2, 2);
+                add (osc.feedback, 1, 4, 2);
+                add (osc.feedbackType, 1, 6, 2);
+                // An operator has no unison spread (review 8, I8-15): its UNISON
+                // shows only once it is raised, on the third row; so do a
+                // table's shapers, only while one is in use (no factory
+                // operator uses them; an old patch's still shows what plays).
+                {
+                    auto col = 0;
+                    if (readFloat (prefix + "_unison") > 1.5f)
+                        add (osc.unison, 2, col++);
+                    const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
+                                                                            { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
+                    for (const auto& [menu, amount] : shapers)
+                        if (col <= 4 && readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2"
+                                                                            : menu == &osc.spectral ? "_spectral" : "_pd_env")) != 0)
+                        {
+                            add (*menu, 2, col++);
+                            add (*amount, 2, col++);
+                        }
+                }
+                break;
+            }
+            case Kind::physical:
+                // The string is edited on PHYSICAL only (UI review 9, I9-3): the
+                // card keeps its exciter, DECAY and DAMP (PLAY's two).
+                add (osc.excite, 0, 0, 2);
+                add (osc.stringDecay, 0, 2);
+                add (osc.stringDamp, 0, 3);
+                add (osc.level, 1, 0);
+                add (osc.pan, 1, 1);
+                add (osc.semi, 1, 3);
+                add (osc.fine, 1, 4);
+                add (osc.ampEnv, 1, 5);
+                unisonRow (2, true);
+                break;
+            case Kind::grain:
+            {
+                int col = 0;
+                if (IlanaSynthAudioProcessor::isEffectBuild)
+                    add (osc.grainLive, 0, col++);
+                add (osc.sampleTuned, 0, col++);
+                add (osc.sampleReverse, 0, col++);
+                add (osc.grainPosition, 0, col++);
+                add (osc.grainSize, 0, col++);
+                add (osc.grainDensity, 0, col++);
+                add (osc.grainSpray, 0, col++);
+                // (PITCH RND is the longest name: it takes two cells when the row has one to spare.)
+                const auto wide = col <= 6;
+                add (osc.grainPitch, 0, col, wide ? 2 : 1);
+                col += wide ? 2 : 1;
+                add (osc.grainSpread, 0, col);
+                add (osc.level, 1, 0);
+                add (osc.pan, 1, 1);
+                add (osc.semi, 1, 3);
+                add (osc.fine, 1, 4);
+                add (osc.ampEnv, 1, 5);
+                // BLEND and SPREAD keep their columns, dimmed with a dash:
+                // grains have no unison blend or spread (controls dim in place).
+                unisonRow (2, true);
+                break;
+            }
+            case Kind::live:
+                // The input itself: no pitch, shape or unison.
+                add (osc.level, 0, 0);
+                add (osc.pan, 0, 1);
+                add (osc.ampEnv, 0, 5);
+                break;
+            case Kind::sample:
+                // A sample's wave takes the card's width above its rows, as in a
+                // sampler (S14-3, S14-4); the rows sit under it on seven columns.
+                add (osc.sampleTuned, 0, 0);
+                add (osc.sampleLoop, 0, 1);
+                add (osc.sampleReverse, 0, 2);
+                add (osc.sampleStart, 0, 3);
+                add (osc.sampleEnd, 0, 4);
+                add (osc.sampleFadeIn, 0, 5);
+                add (osc.sampleFadeOut, 0, 6);
+                add (osc.level, 1, 0);
+                add (osc.pan, 1, 1);
+                add (osc.semi, 1, 2);
+                add (osc.fine, 1, 3);
+                add (osc.unison, 1, 4);
+                add (osc.ampEnv, 1, 5);
+                add (osc.chord, 1, 6);
+                // More than one voice: the unison's own row (review 11, I11-11).
+                if (readFloat (prefix + "_unison") > 1.5f)
+                {
+                    add (osc.uniMode, 2, 0);
+                    add (osc.detune, 2, 1);
+                    add (osc.uniBlend, 2, 2);
+                    add (osc.spread, 2, 3);
+                }
+                break;
+        }
+
+        return slots;
+    }
+
+    bool unisonShown (int osc) const
+    {
+        return readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f;
+    }
+
+    static juce::String rowName (Kind kind, int row)
+    {
+        switch (kind)
+        {
+            case Kind::wavetable: return row == 0 ? "SHAPE" : row == 1 ? "PITCH" : "UNISON";
+            case Kind::fm: return row == 0 ? "PITCH" : row == 1 ? "WAVE" : "UNISON";
+            // (Its third row is the wavetable's UNISON row, named as on every
+            // card; its tooltip says they are copies of the string, I11-9.)
+            case Kind::physical: return row == 0 ? "STRING" : row == 1 ? "PITCH" : "UNISON";
+            case Kind::grain: return row == 0 ? "GRAINS" : row == 1 ? "PITCH" : "UNISON";
+            case Kind::live: return "LEVEL";
+            case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : "UNISON";
+        }
+
+        return {};
+    }
+
+    static int numRows (Kind kind, bool unisonRow)
+    {
+        return kind == Kind::live ? 1 : kind == Kind::sample ? (unisonRow ? 3 : 2) : 3;
+    }
+
+    // One card's measures, laid out by layoutPage and read by paint.
+    struct CardGeometry
+    {
+        int osc = 0;
+        Kind kind = Kind::wavetable;
+        juce::Rectangle<int> bounds, header, well, wave, group, captionArea;
+        int rows = 3, columns = 9, rowHeight = 28, gridX = 0, gridWidth = 0, labelX = 0, labelWidth = rowLabelWidth;
+        std::array<int, 3> rowY {};
+        std::vector<int> separatorY;
+    };
+
+    std::vector<CardGeometry> cards;
+    juce::Rectangle<int> stripArea, addArea;
+
+    // What a card needs at least, by what it holds.
+    int minimumCardHeight (int osc) const
+    {
+        switch (kindOf (osc))
+        {
+            case Kind::live: return liveCardHeight;
+            case Kind::sample:
+            {
+                const auto rows = numRows (Kind::sample, readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f);
+                return 1 + cardHeaderHeight + 8 + sampleWaveMin + 8 + sampleGroupHeight (rows) + 8 + 1;
+            }
+            default: return compactCardMin;
+        }
+    }
+
+    static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
+
+    std::vector<int> shownList() const
+    {
+        std::vector<int> shown;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc))
+                shown.push_back (osc);
+        return shown;
+    }
+
+    std::vector<int> minimumHeights() const
+    {
+        std::vector<int> heights;
+        for (const auto osc : shownList())
+            heights.push_back (minimumCardHeight (osc));
+        return heights;
+    }
+
+    bool canAdd() const { return numShown() < OscillatorIds::count; }
+
+    int stripHeight() const { return stripBaseHeight + (stripOpen ? stripRowsExtra : 0); }
+
+    int contentHeight (const std::vector<int>& heights) const
+    {
+        auto total = topMargin + stripHeight() + bottomMargin;
+        for (const auto height : heights)
+            total += height + gap;
+        if (canAdd())
+            total += addRowHeight + gap;
+        return total;
+    }
+
+    void layoutPage()
+    {
+        cards.clear();
+        const auto shown = shownList();
+        auto heights = minimumHeights();
+        const auto slack = getHeight() - contentHeight (heights);
+
+        // Spare height goes to a sample's waveform, else to the wavetable
+        // cards up to their roomy size; the strip stays at the foot.
+        if (slack > 0 && ! heights.empty())
+        {
+            std::vector<size_t> samples, compacts;
+            for (size_t i = 0; i < shown.size(); ++i)
+            {
+                const auto kind = kindOf (shown[i]);
+                if (kind == Kind::sample)
+                    samples.push_back (i);
+                else if (kind != Kind::live)
+                    compacts.push_back (i);
+            }
+
+            if (! samples.empty())
+                for (const auto i : samples)
+                    heights[i] += slack / (int) samples.size();
+            else if (! compacts.empty())
+                for (const auto i : compacts)
+                    heights[i] = juce::jmin (compactCardMax, heights[i] + slack / (int) compacts.size());
+        }
+
+        const auto width = getWidth() - sideMargin * 2;
+        auto y = topMargin;
+
+        for (size_t i = 0; i < shown.size(); ++i)
+        {
+            CardGeometry card;
+            card.osc = shown[i];
+            card.kind = kindOf (shown[i]);
+            card.bounds = { sideMargin, y, width, heights[i] };
+            layoutCard (card);
+            cards.push_back (card);
+            y += heights[i] + gap;
+        }
+
+        addArea = {};
+        addButton.setVisible (canAdd());
+        addFmButton.setVisible (canAdd());
+
+        if (canAdd())
+        {
+            for (int i = 0; i < OscillatorIds::count; ++i)
+                if (! processorRef.isOscillatorShown (i))
+                {
+                    addButton.setLabel ("+  ADD OSC " + juce::String (i + 1));
+                    break;
+                }
+
+            // The row adds a Wavetable; its right end the same as FM / DX7.
+            addArea = { sideMargin, y, width, addRowHeight };
+            auto row = addArea;
+            addFmButton.setBounds (row.removeFromRight (addFmWidth));
+            row.removeFromRight (gap);
+            addButton.setBounds (row);
+            y += addRowHeight + gap;
+        }
+
+        const auto stripY = juce::jmax (y, getHeight() - bottomMargin - stripHeight());
+        stripArea = { sideMargin, stripY, width, stripHeight() };
+        layoutStrip();
+    }
+
+    // A grid cell of a card, in the page.
+    juce::Rectangle<int> cellRect (const CardGeometry& card, int row, int col, int span) const
+    {
+        const auto cellWidth = (float) (card.gridWidth - (card.columns - 1) * colGap) / (float) card.columns;
+        const auto left = card.gridX + juce::roundToInt ((float) col * (cellWidth + (float) colGap));
+        const auto right = card.gridX + juce::roundToInt ((float) (col + span) * (cellWidth + (float) colGap) - (float) colGap);
+        return { left, card.rowY[(size_t) row], right - left, card.rowHeight };
+    }
+
+    void placeSlot (const CardGeometry& card, const Slot& slot) const
+    {
+        const auto cell = cellRect (card, slot.row, slot.col, slot.span);
+
+        if (dynamic_cast<KnobControl*> (slot.item) != nullptr)
+            slot.item->setBounds (cell.expanded (0, 3)); // (room for the modulation rings)
+        else if (dynamic_cast<ComboControl*> (slot.item) != nullptr)
+            slot.item->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 28));
+        else
+            slot.item->setBounds (cell);
+    }
+
+    void layoutCard (CardGeometry& card)
+    {
+        const auto index = card.osc;
+        auto& osc = *controls[(size_t) index];
+        auto& pieces = *aux[(size_t) index];
+        const auto inner = card.bounds.reduced (1);
+        card.header = inner.withHeight (cardHeaderHeight);
+        const auto body = inner.withTrimmedTop (cardHeaderHeight);
+
+        // Header: the power switch at the right, the actions and the engine
+        // menu before it; the name and the engine's name at the left.
+        {
+            const auto centre = card.header.getCentreY();
+            osc.on.setBounds (juce::Rectangle<int> (40, 22).withCentre ({ card.header.getRight() - 8 - 20, centre }));
+            auto right = card.header.withRight (osc.on.getX() - 8);
+
+            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.opEnvButton, &pieces.stringButton,
+                                  editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
+                if (button != nullptr && button->isVisible())
+                {
+                    const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
+                                                                                   button->getButtonText()) + 24;
+                    button->setBounds (right.removeFromRight (width).withSizeKeepingCentre (width, 22));
+                    right.removeFromRight (6);
+                }
+
+            osc.mode.setBounds (right.removeFromRight (100).withSizeKeepingCentre (100, 20));
+            right.removeFromRight (6);
+            card.captionArea = right.withTrimmedLeft (80);
+        }
+
+        if (card.kind == Kind::sample)
+        {
+            card.columns = sampleColumns;
+            card.rows = numRows (Kind::sample, readFloat (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_unison") > 1.5f);
+            card.rowHeight = sampleRowHeight;
+            card.labelWidth = sampleLabelWidth;
+            auto content = body.reduced (10, 8);
+            card.group = content.removeFromBottom (sampleGroupHeight (card.rows));
+            content.removeFromBottom (8);
+            card.wave = content;
+            waveDisplay (index).setBounds (card.wave);
+            card.labelX = card.group.getX() + 10;
+            card.gridX = card.labelX + sampleLabelWidth + 8;
+            card.gridWidth = card.group.getRight() - 10 - card.gridX;
+            card.separatorY.clear();
+
+            for (int r = 0; r < card.rows; ++r)
+            {
+                card.rowY[(size_t) r] = card.group.getY() + 4 + r * (sampleRowHeight + 1);
+                if (r > 0)
+                    card.separatorY.push_back (card.rowY[(size_t) r] - 1);
+            }
+
+            for (const auto& slot : slotsFor (index))
+                placeSlot (card, slot);
+
+            // The unison row's picture fills what the row leaves.
+            if (card.rows == 3)
+                pieces.spreadView.setBounds (cellRect (card, 2, 4, 3));
+            return;
+        }
+
+        card.rows = numRows (card.kind, true);
+        card.columns = 9;
+        card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - 2 * rowGap - 8) / 3);
+        const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);
+        const auto padTop = juce::jmax (4, (body.getHeight() - rowsHeight) / 2);
+        card.well = { body.getX() + 10, body.getY() + juce::jmin (5, padTop), wellWidth, body.getHeight() - 2 * juce::jmin (5, padTop) };
+        card.labelX = card.well.getRight() + 10;
+        card.gridX = card.labelX + rowLabelWidth + 8;
+        card.gridWidth = inner.getRight() - 10 - card.gridX;
+
+        for (int r = 0; r < 3; ++r)
+            card.rowY[(size_t) r] = body.getY() + padTop + r * (card.rowHeight + rowGap);
+
+        for (const auto& slot : slotsFor (index))
+            placeSlot (card, slot);
+
+        // The well: the wavetable (with its slim line), the operator's envelope
+        // or the string.
+        const auto electric = card.kind == Kind::physical && isElectric (index);
+        waveDisplay (index).setBounds (card.well);
+        pieces.opEnvGraph.setBounds (card.well);
+        pieces.stringView.setBounds (card.well);
+        for (auto& item : scrubbers)
+            item.setBounds ({});
+        juce::ignoreUnused (electric);
+
+        // The right-hand cells: the FM chip or the output bar in PITCH's, the
+        // unison picture in UNISON's.
+        if (card.kind == Kind::physical)
+            pieces.partials.setBounds (cellRect (card, 0, 4, 5).reduced (4, 0));
+
+        if (card.kind != Kind::live)
+        {
+            pieces.status.setBounds (cellRect (card, 1 - (card.kind == Kind::fm ? 1 : 0), 6, 3));
+            pieces.spreadView.setBounds (cellRect (card, 2, 6, 3));
+        }
+        else
+            pieces.status.setBounds (cellRect (card, 0, 6, 3));
+    }
+
+    void paintOscCard (juce::Graphics& g, const CardGeometry& card) const
+    {
+        const auto index = card.osc;
+        const auto tint = oscColour (index);
+        const auto off = isOff (index);
+
+        if (off)
+            g.beginTransparencyLayer (0.55f);
+
+        IlanaTheme::paintCard (g, card.bounds.toFloat(), 10.0f, tint);
+        g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
+        g.fillRect (juce::Rectangle<int> (card.bounds.getX() + 1, card.header.getBottom() - 1, card.bounds.getWidth() - 2, 1));
+
+        const auto centre = card.header.getCentreY();
+        IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 17.0f, (float) centre }, tint);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        g.drawText ("OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 30, centre - 9, 56, 18), juce::Justification::centredLeft);
+
+        // The engine's name after it, quietly.
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        IlanaTheme::drawFitted (g, engineName (index), card.captionArea.withHeight (18).withCentre (card.captionArea.getCentre()),
+                                juce::Justification::centredLeft, 1);
+
+        // Each row named at its left, in the oscillator's colour.
+        if (card.kind == Kind::sample)
+            IlanaTheme::paintRecessedPanel (g, card.group.toFloat(), 8.0f);
+
+        for (int r = 0; r < card.rows; ++r)
+        {
+            g.setColour (tint.withAlpha (0.8f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            // (An operator's third row is there only for UNISON or a shaper in use.)
+            auto name = rowName (card.kind, r);
+            if (card.kind == Kind::fm && r == 2)
+            {
+                auto shaper = false;
+                for (const auto& slot : slotsFor (index))
+                    shaper = shaper || (slot.row == 2 && slot.item != &controls[(size_t) index]->unison);
+                if (! shaper && ! unisonShown (index))
+                    continue;
+                if (shaper)
+                    name = unisonShown (index) ? "MORE" : "SHAPE";
+            }
+            IlanaTheme::drawFitted (g, name,
+                                    juce::Rectangle<int> (card.labelX, card.rowY[(size_t) r], card.labelWidth, card.rowHeight), juce::Justification::centredLeft, 1);
+        }
+
+        for (const auto y : card.separatorY)
+        {
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
+            g.fillRect (juce::Rectangle<int> (card.group.getX() + 8, y, card.group.getWidth() - 16, 1));
+        }
+
+        if (off)
+            g.endTransparencyLayer();
+    }
+
+    // The engine's name in the header: an FM / DX7 oscillator says it is an
+    // operator, and on what envelope.
+    juce::String engineName (int index) const
+    {
+        if (getMode (index) == OscMode::fmOperator)
+            return OscRole::usesOperatorEg (processorRef, index) ? "FM operator, OP ENV" : "FM operator";
+        return OscRole::modeName (getMode (index));
+    }
+
+    // The strip: one card, no tabs. VOICE, STEREO and NOISE on its first row, SUB,
+    // STRINGS and SOUNDBOARD on its second; MORE opens the strings' manual
+    // tuning and the keys' extras under them.
+    struct StripEntry
+    {
+        juce::Component* item;
+        int width;
+    };
+
+    struct StripGroup
+    {
+        juce::String name;
+        juce::Colour colour;
+        ToggleControl* nameSwitch = nullptr; // a group that is its own switch
+        std::vector<StripEntry> entries;
+        int nameWidth = 0, width = 0;
+    };
+
+    std::vector<std::tuple<juce::Rectangle<int>, juce::String, juce::Colour>> stripNames;
+    std::vector<juce::Rectangle<int>> stripSeparators;
+
+    static int textWidth (const juce::String& text, float size, bool bold = false)
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (size, bold)), text) + 2;
+    }
+
+    // A knob cell: the dial, then its name and value.
+    static int knobCellWidth (KnobControl& knob)
+    {
+        // (The widest of its name and its values: "COUNT" over "6 strings".)
+        auto& slider = knob.getSlider();
+        auto widest = juce::jmax (textWidth (knob.getLabelText(), IlanaTheme::TextSize::label), 34);
+        for (const auto value : { slider.getMinimum(), slider.getValue(), slider.getMaximum() })
+            widest = juce::jmax (widest, textWidth (slider.getTextFromValue (value), IlanaTheme::TextSize::body) + 2);
+        return 28 + 4 + widest + 1;
+    }
+
+    StripGroup makeGroup (const juce::String& name, juce::Colour colour, ToggleControl* nameSwitch,
+                          std::initializer_list<StripEntry> entries) const
+    {
+        StripGroup group;
+        group.name = name;
+        group.colour = colour;
+        group.nameSwitch = nameSwitch;
+        group.entries = entries;
+        group.nameWidth = nameSwitch != nullptr ? 13 + textWidth (name, IlanaTheme::TextSize::label, true) + 4
+                                                : textWidth (name, IlanaTheme::TextSize::label, true) + 2;
+        group.width = group.nameWidth;
+        for (auto& entry : group.entries)
+        {
+            if (entry.width <= 0)
+                if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
+                    entry.width = knobCellWidth (*knob);
+            group.width += 5 + entry.width;
+        }
+        return group;
+    }
+
+    void placeStripEntry (const StripEntry& entry, int x, juce::Rectangle<int> row) const
+    {
+        const auto cell = juce::Rectangle<int> (x, row.getY(), entry.width, row.getHeight());
+
+        if (dynamic_cast<KnobControl*> (entry.item) != nullptr)
+            entry.item->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 30));
+        else if (dynamic_cast<ComboControl*> (entry.item) != nullptr)
+            entry.item->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 28));
+        else if (auto* toggle = dynamic_cast<ToggleControl*> (entry.item); toggle != nullptr && toggle->getButton().getButtonText() == "MANUAL")
+            entry.item->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), 24));
+        else
+            entry.item->setBounds (cell);
+    }
+
+    // Groups across a row, parted by thin rules; `justify` spreads them over the row.
+    void flowRow (juce::Rectangle<int> row, std::vector<StripGroup>& groups, bool justify, int reserveRight = 0)
+    {
+        auto total = 0;
+        for (const auto& group : groups)
+            total += group.width;
+
+        const auto separators = juce::jmax (0, (int) groups.size() - 1);
+        const auto freeWidth = row.getWidth() - reserveRight - total - separators;
+        const auto space = justify && separators > 0 ? juce::jlimit (4, 60, freeWidth / (separators * 2)) : 14;
+        auto x = row.getX();
+
+        for (size_t gi = 0; gi < groups.size(); ++gi)
+        {
+            auto& group = groups[gi];
+            const auto nameArea = juce::Rectangle<int> (x, row.getY(), group.nameWidth, row.getHeight());
+
+            if (group.nameSwitch != nullptr)
+                group.nameSwitch->setBounds (nameArea);
+            else
+                stripNames.push_back ({ nameArea, group.name, group.colour });
+
+            x += group.nameWidth;
+
+            for (const auto& entry : group.entries)
+            {
+                x += 5;
+                placeStripEntry (entry, x, row);
+                x += entry.width;
+            }
+
+            if (gi + 1 < groups.size())
+            {
+                x += space;
+                stripSeparators.push_back ({ x, row.getCentreY() - 13, 1, 26 });
+                x += 1 + space;
+            }
+        }
+    }
+
+    void layoutStrip()
+    {
+        stripNames.clear();
+        stripSeparators.clear();
+
+        auto inner = stripArea.reduced (12, 6);
+        auto rowA = inner.removeFromTop (stripRowHeight);
+        inner.removeFromTop (4);
+        auto rowB = inner.removeFromTop (stripRowHeight);
+
+        const auto accent = IlanaTheme::accent();
+        std::vector<StripGroup> first { makeGroup ("VOICE", accent, nullptr, { { voiceMode.get(), 68 }, { voiceCount.get(), 0 }, { bendRange.get(), 0 },
+                                                                             { glideTime.get(), 0 }, { glideLegato.get(), 48 } }),
+                                        makeGroup ("STEREO", accent, nullptr, { { voiceSpread.get(), 0 }, { unisonRandom.get(), 0 }, { drift.get(), 0 } }),
+                                        makeGroup ("NOISE", accent, nullptr, { { noiseStrip.get(), 0 }, { noiseColourStrip.get(), 0 } }) };
+        const auto moreWidth = 54;
+        moreButton.setBounds (juce::Rectangle<int> (moreWidth, 22).withCentre ({ rowA.getRight() - moreWidth / 2, rowA.getCentreY() }));
+        flowRow (rowA, first, true, moreWidth + 10);
+
+        std::vector<StripGroup> second { makeGroup ("SUB", accent, subOscOn.get(), { { &subShape, 68 }, { subOscLevel.get(), 0 }, { &subOctave, 62 } }),
+                                         makeGroup ("STRINGS", oscColour (4), &symOn, { { &symAmount, 0 }, { &symCount, 0 }, { &symDecay, 0 } }),
+                                         makeGroup ("SOUNDBOARD", oscColour (4), &sbOn, { { &sbModel, 66 }, { &sbSize, 0 }, { &sbTone, 0 }, { &sbMix, 0 } }) };
+        flowRow (rowB, second, true);
+
+        // Under MORE: the strings' manual tuning, then the keys' extras.
+        if (stripOpen)
+        {
+            inner.removeFromTop (4);
+            auto rowC = inner.removeFromTop (stripRowHeight);
+            inner.removeFromTop (4);
+            auto rowD = inner.removeFromTop (stripRowHeight);
+            std::vector<StripGroup> third { makeGroup ("STRING TUNING", oscColour (4), nullptr,
+                                                       { { &symManual, 96 }, { symNotes[0].get(), 0 }, { symNotes[1].get(), 0 }, { symNotes[2].get(), 0 },
+                                                         { symNotes[3].get(), 0 }, { symNotes[4].get(), 0 }, { symNotes[5].get(), 0 } }) };
+            flowRow (rowC, third, false);
+            std::vector<StripGroup> fourth { makeGroup ("KEYS", accent, nullptr, { { &stretch, 0 }, { &pedalRes, 0 }, { &mechKey, 0 }, { &mechDamper, 0 }, { &mechPedal, 0 } }) };
+            flowRow (rowD, fourth, false);
+        }
+    }
+
+    void paintStrip (juce::Graphics& g) const
+    {
+        IlanaTheme::paintCard (g, stripArea.toFloat(), 10.0f, IlanaTheme::accent());
+
+        for (const auto& [area, name, colour] : stripNames)
+        {
+            g.setColour (colour.withAlpha (0.9f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            IlanaTheme::drawFitted (g, name, area, juce::Justification::centredLeft, 1);
+        }
+
+        for (const auto& separator : stripSeparators)
+        {
+            g.setColour (IlanaTheme::Ui::line);
+            g.fillRect (separator);
+        }
+    }
+
+    void scrollTo (int osc)
+    {
+        auto* viewport = findParentComponentOfClass<juce::Viewport>();
+
+        if (viewport == nullptr)
+            return;
+
+        const auto area = osc >= 0 ? getCardBounds (osc) : stripArea;
+
+        if (area.isEmpty())
+            return;
+
+        const auto top = viewport->getViewPositionY();
+        const auto height = viewport->getViewHeight();
+
+        if (area.getY() < top)
+            viewport->setViewPosition (0, juce::jmax (0, area.getY() - topMargin));
+        else if (area.getBottom() + bottomMargin > top + height)
+            viewport->setViewPosition (0, area.getBottom() + bottomMargin - height);
+    }
+
+    juce::String layoutKey() const
     {
         juce::String key;
-        for (const auto& row : rowsFor (index))
+        for (const auto osc : shownList())
         {
-            key << row.first << ":" << (int) row.second.size();
-            for (auto* item : row.second)
-                key << (item == nullptr ? '-' : '+'); // (an amount hides while its stage is Off)
-            key << ";";
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+            key << osc << ":" << getMode (osc) << (OscRole::usesOperatorEg (processorRef, osc) ? "o" : "-") << OscRole::tuning (processorRef, osc)
+                << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-") << ";";
         }
+        key << (stripOpen ? "open" : "shut") << (readBool ("sym_manual") ? "m" : "-") << (canAdd() ? "+" : "=");
         return key;
     }
 
-    juce::String shownRows;
+    juce::String shownKey;
 
-    // A row's height in rows: the Operator Env's graph takes two.
-    int rowUnits (const std::pair<juce::String, std::vector<juce::Component*>>& row) const
+    // What a card holds besides the controls every oscillator has: the pictures
+    // the modes need (each card has its own, so all can be live at once) and
+    // their buttons.
+    struct CardAux
     {
-        return std::find (row.second.begin(), row.second.end(), &opEnvGraph) != row.second.end() ? 2 : 1;
-    }
-    static constexpr int numShared = 4;
-    int shownShared = numShared; // the tabs drawn: three on an operator voice (I12-6)
+        CardAux (IlanaSynthAudioProcessor& p, int index)
+            : stringView (p, juce::String (OscillatorIds::prefixes[(size_t) index])), opEnvGraph (p),
+              spreadView (p, index), partials (p, index), status (p, index) {}
 
-    // An operator voice (an Operator Env oscillator, none physical) with the
-    // strings and the soundboard off.
-    bool sharedPhysicalTabsHidden() const
+        PhysicalView stringView;
+        OperatorEnvDisplay opEnvGraph;
+        UnisonSpreadView spreadView;
+        StringPartialsView partials;
+        OscStatusView status;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton;
+    };
+
+    // Every knob a card can show, for the one inline style.
+    static std::vector<KnobControl*> cardKnobs (OscControls& osc)
     {
-        if (readBool ("sym_on") || readBool ("sb_on"))
-            return false;
-        bool anyOperator = false;
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            if (processorRef.isOscillatorShown (osc))
-            {
-                if (getMode (osc) == 1)
-                    return false;
-                anyOperator = anyOperator || OscRole::usesOperatorEg (processorRef, osc);
-            }
-        return anyOperator;
+        return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
+                 &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.spectralAmt,
+                 &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
+                 &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
+                 &osc.trim, &osc.feedback };
     }
 
-    int lastRevealVersion = -1;
-    int selected = 0, sharedSelected = 0;
-    bool shownSharedFolded = false;
-
-    bool sharedFolded() const { return sharedSelected == sharedSubNoise && ! readBool ("subosc_on") && readFloat ("noise_level") <= 0.0005f; }
-    juce::String shownRole;
-    juce::Rectangle<int> oscCard, sharedCard, controlBay, subtitleArea;
-    std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels, sharedLabels;
-    std::vector<juce::Rectangle<int>> sharedDividers;
-    juce::Rectangle<int> sharedNoteArea;
-    juce::String sharedNote;
+    std::vector<KnobControl*> stripKnobs()
+    {
+        std::vector<KnobControl*> knobs { voiceCount.get(), bendRange.get(), glideTime.get(), voiceSpread.get(), unisonRandom.get(),
+                                          drift.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(), &symAmount,
+                                          &symDecay, &symCount, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey,
+                                          &mechDamper, &mechPedal };
+        for (auto& note : symNotes)
+            knobs.push_back (note.get());
+        return knobs;
+    }
 
     bool readBool (const juce::String& id) const
     {
@@ -1035,7 +2124,7 @@ private:
         return count;
     }
 
-    // The tabs list the added oscillators in order.
+    // The hidden picker's order: the shown oscillators.
     int oscForTab (int tab) const
     {
         for (int osc = 0, index = 0; osc < OscillatorIds::count; ++osc)
@@ -1045,429 +2134,94 @@ private:
         return selected;
     }
 
-    void updateTabs()
-    {
-        updateTabItems();
-        // A state that changed length moves the tabs after it.
-        layoutTabs();
-    }
-
-    void layoutTabs()
-    {
-        auto tabRow = getLocalBounds().reduced (12, pageMargin).removeFromTop (tabRowHeight);
-        const auto canAdd = numShown() < OscillatorIds::count;
-        addButton.setVisible (canAdd);
-        // Named as PLAY's (review 8, I8-31): "+ ADD OSC 4".
-        for (int i = 0; i < OscillatorIds::count; ++i)
-            if (! processorRef.isOscillatorShown (i))
-            {
-                addButton.setLabel ("+  ADD OSC " + juce::String (i + 1));
-                break;
-            }
-        oscTabs.setBounds (tabRow.withWidth (juce::jmin (tabRow.getWidth() - (canAdd ? 130 : 0), oscTabs.getIdealWidth())));
-        addButton.setBounds (juce::Rectangle<int> (oscTabs.getRight() + gap, tabRow.getCentreY() - DashedAddButton::standardHeight / 2, 128, DashedAddButton::standardHeight));
-
-        if (! sharedCard.isEmpty())
-        {
-            const auto header = sharedCard.reduced (10, 0).withHeight (sharedHeaderHeight);
-            sharedTabs.setBounds (header.withWidth (juce::jmin (header.getWidth() - 60, sharedTabs.getIdealWidth())).reduced (0, 3));
-        }
-    }
-
+    // The list the tests pick an oscillator from (not drawn), each entry's role
+    // in its tooltip; also the OUTPUT / DEPTH name of an operator's level.
     void updateTabItems()
     {
-        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
-        std::vector<int> shown;
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            if (processorRef.isOscillatorShown (osc))
-                shown.push_back (osc);
 
-        // The one oscillator picker (UI review 9, I9-5), each tab with the
-        // oscillator's role after its name.
+        const auto shown = shownList();
+
         oscTabs.setOscillators (shown, [this] (int osc) { return ! isOff (osc); },
                                 [this] (int osc)
                                 {
                                     const auto role = OscRole::describe (processorRef, osc);
-                                    const auto mode = juce::jlimit (0, 4, getMode (osc));
-                                    return "OSC " + juce::String (osc + 1) + ": " + juce::String (modeNames[mode]).toLowerCase()
+                                    return "OSC " + juce::String (osc + 1) + ": " + OscRole::modeName (getMode (osc))
                                            + (role.isNotEmpty() ? ", " + OscRole::describeLong (processorRef, osc) : juce::String())
-                                           + (isOff (osc) ? ", switched off" : "") + ".  Right-click to switch it off or remove it.";
+                                           + (isOff (osc) ? ", switched off" : "") + ".  Right-click its header to switch it off or remove it.";
                                 },
                                 [this] (int osc)
                                 {
-                                    // Off: the dot says it. One rule on every page (I12-2): the
-                                    // chosen tab is wide with its engine, the others a dot and a
-                                    // number; the role (OUT, MOD -> 2) is in every tab's tooltip
-                                    // and the FM pill (I13-2). An FM operator's engine is OPERATOR.
-                                    if (osc != selected)
+                                    if (osc != selected || isOff (osc))
                                         return juce::String();
-                                    if (isOff (osc))
-                                        return juce::String();
-                                    return OscRole::usesOperatorEg (processorRef, osc) && getMode (osc) == 0
-                                               ? juce::String ("OPERATOR")
-                                               : juce::String (modeNames[juce::jlimit (0, 4, getMode (osc))]);
+                                    // (The tag is the type: FM / DX7 for an operator.)
+                                    return OscRole::modeName (getMode (osc)).toUpperCase();
                                 });
         oscTabs.setSelectedOsc (selected);
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (const auto name = juce::String (OscRole::outputKnobName (processorRef, osc)); controls[(size_t) osc]->egOut.getLabelText() != name)
                 controls[(size_t) osc]->egOut.setLabelText (name);
-
-        // SUB + NOISE belong to the oscillators; after the gap, the global
-        // drawer: voice settings, the spread and drift every voice shares, the
-        // shared strings and the keys' body (review 10, S10-3, S10-4).
-        std::vector<StateTabs::Item> sharedItemsList { { "VOICE", voiceModeName(), IlanaTheme::Ui::text2, true, "Poly, mono or legato, how many voices, the pitch-bend range and glide, then how far the voices spread across the stereo field, how their phases start and how far they drift.  The header's VOICES opens this.", false, false },
-                               { "SUB + NOISE", {}, IlanaTheme::accent(), readBool ("subosc_on"),
-                                 "The sub oscillator and the noise, under every oscillator" },
-                               { "STRINGS", {}, IlanaTheme::Ui::text2, readBool ("sym_on"),
-                                 "Sympathetic strings: shared drone strings that ring with everything you play" },
-                               { "SOUNDBOARD", {}, IlanaTheme::Ui::text2, true,
-                                 "The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises", false } };
-        // An operator voice has no strings or soundboard to tune: the last two
-        // tabs wait until an oscillator is physical or they are on (I12-6).
-        if (sharedPhysicalTabsHidden())
-            sharedItemsList.resize (sharedSympathetic);
-        shownShared = (int) sharedItemsList.size();
-        sharedTabs.setItems (std::move (sharedItemsList));
-        if (sharedSelected >= shownShared)
-        {
-            sharedSelected = sharedVoice;
-            triggerAsyncUpdate();
-        }
-        sharedTabs.setSelected (sharedSelected);
     }
 
-    // The card's rows for an oscillator, each named for what it shapes; the
-    // physical rows come from the list the PHYSICAL page builds from too.
-    std::vector<std::pair<juce::String, std::vector<juce::Component*>>> rowsFor (int index) const
+    // What the PITCH row's right-hand cells say: the FM role in a chip as
+    // long as the cells can hold, else shorter, else none (the output bar).
+    void updateStatus (int index)
     {
-        auto& osc = *controls[(size_t) index];
-        const auto mode = getMode (index);
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
-        std::vector<std::pair<juce::String, std::vector<juce::Component*>>> rows;
+        auto& view = aux[(size_t) index]->status;
+        const auto tint = oscColour (index);
+        juce::StringArray candidates;
+        auto colour = tint;
+        const auto sources = OscRole::sources (processorRef, index);
+        const auto targets = OscRole::targets (processorRef, index);
 
-        // An operator on the Operator Env: its envelope as a picture that
-        // opens its one editor (FM's card, UI review 8, S8-4), then its pitch
-        // and levels in the FM card's order (RATIO, SEMI, FINE, OUTPUT, LEVEL:
-        // V8-5), then the wave it plays; UNISON only once it is on (I8-15).
-        if (mode == 0 && OscRole::usesOperatorEg (processorRef, index))
+        if (! sources.empty())
+            colour = oscColour (sources.front());
+        else if (! targets.empty())
+            colour = oscColour (targets.front());
+
+        if (OscRole::isOperator (processorRef, index))
         {
-            const auto tuning = OscRole::tuning (processorRef, index);
-            rows.push_back ({ "OP ENV", { (juce::Component*) &opEnvGraph } });
-            std::vector<juce::Component*> pitch { &osc.tune };
-            if (tuning == OscTuning::Ratio)
-                pitch.push_back (&osc.ratio);
-            if (tuning == OscTuning::Fixed)
-                pitch.push_back (&osc.fixedHz);
-            pitch.insert (pitch.end(), { &osc.semi, &osc.fine, &osc.egOut, &osc.pan, &osc.ampEnv, &osc.table, &osc.feedback, &osc.feedbackType });
-            if (readFloat (prefix + "_unison") > 1.5f)
-                pitch.push_back (&osc.unison);
-            // One row: the pitch, the output and the wave share the columns,
-            // so the envelope's picture takes the height (review 14, V14-6).
-            rows.push_back ({ "PITCH & WAVE", pitch });
-            // The one level an operator shows is OUTPUT (review 10, I10-1;
-            // review 12, I12-1): the oscillator's own level into the voice
-            // (VOICE LEVEL) is not drawn here at all; it stays a parameter
-            // (the host's list, the matrix).
-            return rows;
+            const auto role = OscRole::describe (processorRef, index);
+            candidates.add ("OPERATOR  " + role);
+            candidates.add (role.isNotEmpty() ? role : juce::String ("OPERATOR"));
+            candidates.add ("OP");
+        }
+        else if (const auto role = OscRole::describeLong (processorRef, index); role.isNotEmpty())
+        {
+            candidates.add (role);
+            candidates.add (OscRole::describe (processorRef, index));
+            candidates.add ("FM");
         }
 
-        std::vector<juce::Component*> pitch { &osc.level, &osc.pan };
-
-        if (mode == 0)
-        {
-            // A wavetable can be an FM operator: its TUNING, then RATIO or
-            // FIXED in SEMI's place (as on the FM page).
-            const auto tuning = OscRole::tuning (processorRef, index);
-            pitch.push_back (&osc.tune);
-            pitch.push_back (tuning == OscTuning::Ratio ? (juce::Component*) &osc.ratio
-                                                        : tuning == OscTuning::Fixed ? (juce::Component*) &osc.fixedHz : (juce::Component*) &osc.semi);
-        }
-        else if (mode != 4)
-            pitch.push_back (&osc.semi);
-
-        if (mode != 4)
-            pitch.push_back (&osc.fine);
-
-        pitch.push_back (&osc.ampEnv);
-
-        std::vector<juce::Component*> unison { &osc.uniMode, &osc.unison, &osc.detune };
-
-        if (mode != 3)
-            unison.insert (unison.end(), { &osc.uniBlend, &osc.spread });
-
-        unison.push_back (&osc.chord);
-
-        // A sample or grain oscillator with one voice has nothing to blend:
-        // the row folds to its UNISON and CHORD until UNISON is raised
-        // (review 11, I11-11).
-        if ((mode == 2 || mode == 3) && readFloat (prefix + "_unison") < 1.5f)
-            unison = { &osc.unison, &osc.chord };
-
-        if (mode == 0)
-        {
-            // An amount whose stage is Off stays drawn, dimmed, so the row
-            // never changes layout when a stage is chosen (S13-2).
-            rows.push_back ({ "SHAPE", { &osc.frame, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt } });
-
-            // The second warp and the warp envelope under the first, in its
-            // columns: always drawn, dimmed while off, so the card is four
-            // full rows and does not change when a warp is picked (V14-6).
-            rows.push_back ({ "WARP CHAIN", { nullptr, &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt } });
-        }
-        else if (mode == 1)
-        {
-            // The string is edited on PHYSICAL only (UI review 9, I9-3): the
-            // card keeps its exciter, DECAY and DAMP (PLAY's two) and
-            // EDIT STRING › in the header.
-            rows.push_back ({ "STRING", { &osc.excite, nullptr, &osc.stringDecay, &osc.stringDamp } });
-        }
-        else if (mode == 2)
-            rows.push_back ({ "SAMPLE", { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleStart, &osc.sampleEnd,
-                                          &osc.sampleFadeIn, &osc.sampleFadeOut } });
-        else if (mode == 3)
-        {
-            std::vector<juce::Component*> grains;
-            if (IlanaSynthAudioProcessor::isEffectBuild)
-                grains.push_back (&osc.grainLive);
-            grains.insert (grains.end(), { &osc.sampleTuned, &osc.sampleReverse, &osc.grainPosition, &osc.grainSize,
-                                           &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread });
-            rows.push_back ({ "GRAINS", grains });
-        }
-
-        // A sample with one voice: UNISON and CHORD join the pitch row (seven
-        // columns, as the SAMPLE row above), so the wave takes the height
-        // (review 14, S14-3).
-        const auto sampleOneVoice = mode == 2 && unison.size() == 2;
-        if (sampleOneVoice)
-            pitch.insert (pitch.end(), unison.begin(), unison.end());
-
-        rows.push_back ({ mode == 4 ? "LEVEL" : "PITCH & LEVEL", pitch });
-
-        // M7.5 Live: the input itself, so no pitch, shape or unison.
-        if (mode != 4 && ! sampleOneVoice)
-            rows.push_back ({ mode == 1 ? "STRING COPIES" : "UNISON", unison }); // (copies of the string: I11-9)
-
-        return rows;
-    }
-
-    void layoutCard()
-    {
-        rowLabels.clear();
-        controlBay = {};
-
-        if (oscCard.isEmpty())
-            return;
-
-        const auto index = selected;
-        const auto mode = getMode (index);
-        auto& osc = *controls[(size_t) index];
-
-        // Header: name, MODE menu, what it is; the actions and the switch at
-        // the right.
-        auto header = oscCard.reduced (8, 0).withHeight (headerHeight);
-        osc.on.setBounds (IlanaTheme::cardSwitchBounds (oscCard, header.getCentreY()));
-        header.setRight (osc.on.getX() - 8);
-        header.removeFromLeft (80);
-        osc.mode.setBounds (header.removeFromLeft (132).withSizeKeepingCentre (132, 24));
-        header.removeFromLeft (10);
-
-        for (auto* button : { opEnvButton.isVisible() ? &opEnvButton : nullptr, stringButton.isVisible() ? &stringButton : nullptr,
-                              &loadButton (index), &sampleLoadButton,
-                              editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
-            if (button != nullptr && button->isVisible())
+        juce::String chip;
+        const auto room = juce::jmax (40, view.getWidth() - 28);
+        for (const auto& candidate : candidates)
+            if (candidate.isNotEmpty() && textWidth (candidate, IlanaTheme::TextSize::tiny, true) <= room)
             {
-                const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
-                                                                               button->getButtonText()) + 24;
-                button->setBounds (header.removeFromRight (width).withSizeKeepingCentre (width, 22));
-                header.removeFromRight (6);
+                chip = candidate;
+                break;
             }
 
-        subtitleArea = header;
-
-        auto content = oscCard.reduced (8).withTrimmedTop (headerHeight - 6);
-        // An operator on the Operator Env shows its envelope in the rows
-        // (the whole width, no sine beside it: review 11, V11-7).
-        const auto operatorEnvelope = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
-        // A sample's wave takes the card's whole width above its rows, as in
-        // a sampler: the waveform with its ruler, loop flags and key map is
-        // the page, not a 330 px box beside two thirds of blank (S14-3, S14-4).
-        const auto sampleWide = mode == 2;
-        juce::Rectangle<int> display;
-        if (sampleWide)
-        {
-            constexpr int sampleRowHeight = 86;
-            display = content.removeFromTop (juce::jmax (120, content.getHeight() - (int) rowsFor (index).size() * sampleRowHeight));
-            content.removeFromTop (6);
-        }
-        else if (! operatorEnvelope)
-        {
-            display = content.removeFromLeft (juce::jlimit (220, 330, content.getWidth() * 30 / 100));
-            content.removeFromLeft (8);
-        }
-
-        if (mode == 1)
-        {
-            // A string moving as it is played (UI review 6, V24); a tine or
-            // reed keeps its pickup curve as an inset.
-            stringView.setBounds (display);
-
-            if (isElectric (index))
-                waveDisplay (index).setBounds (display.withTrimmedLeft (display.getWidth() * 45 / 100).withHeight (display.getHeight() * 36 / 100)
-                                                   .reduced (8));
-        }
-        else
-        {
-            // A thin frame scrubber under a wavetable's picture (S12-2).
-            auto picture = display;
-            const auto scrubber = picture.getHeight() > 150 && mode == 0 ? picture.removeFromBottom (18) : juce::Rectangle<int>(); // (only a wavetable has one)
-            waveDisplay (index).setBounds (picture);
-            for (auto& item : scrubbers)
-                item.setBounds ({});
-            scrubbers[(size_t) index].setBounds (scrubber);
-        }
-
-        // The rows packed from the top at about a knob's height, each named
-        // level with its controls' labels (UI review 7, S7-25, V7-29); the
-        // Operator Env's graph row is twice as tall.
-        const auto rows = rowsFor (index);
-        auto units = 0;
-        for (const auto& row : rows)
-            units += rowUnits (row);
-        const auto unitHeight = juce::jmin (maxRowHeight, content.getHeight() / juce::jmax (1, units));
-        controlBay = content.withHeight (juce::jmin (content.getHeight(), unitHeight * units - 4)).expanded (4, 0);
-
-        // The grid is as many columns as the widest row, six at least.
-        size_t gridColumns = 6;
-        for (const auto& row : rows)
-            if (rowUnits (row) == 1)
-                gridColumns = juce::jmax (gridColumns, row.second.size());
-
-        for (size_t r = 0; r < rows.size(); ++r)
-        {
-            auto row = content.removeFromTop (unitHeight * rowUnits (rows[r]));
-            rowLabels.push_back ({ row.removeFromLeft (rowLabelWidth).reduced (8, 0).withTrimmedTop (3).withHeight (18), rows[r].first });
-            // On a shared grid of at least seven columns, so knobs line up
-            // from row to row (the Operator Env's graph takes the columns
-            // after its LEVEL).
-            auto items = rows[r].second;
-            while (items.size() < gridColumns && rowUnits (rows[r]) == 1)
-                items.push_back (nullptr);
-            layoutSlots (row, items, rowUnits (rows[r]) == 1);
-
-            // Switches in a row of knobs sit level with the dials, not
-            // under the name (S13-1: one height across the row).
-            const auto hasKnob = std::any_of (items.begin(), items.end(), [] (auto* item) { return dynamic_cast<KnobControl*> (item) != nullptr; });
-            for (auto* item : items)
-                if (auto* toggle = dynamic_cast<ToggleControl*> (item))
-                    toggle->setSwitchDrop (hasKnob ? juce::jmax (0, (row.getHeight() - 6 - 27) / 2 - 12) : 0);
-        }
+        const auto link = chip.isNotEmpty() && FmOperatorInfo::hooks().openOperator != nullptr;
+        const auto full = OscRole::describeLong (processorRef, index);
+        view.update (chip, colour, link, chip.isEmpty() ? "The oscillator's output level" : full + (link ? "\nClick to open it on the FM page" : ""));
     }
 
-    // The shared section's tabs in its header, its switch at the right, one
-    // row of controls under them.
-    void layoutShared()
+    // The pictures that follow the sound: the unison's spread, the FM chip and
+    // the output bar (polled with the timer).
+    void updateCardPictures()
     {
-        auto header = sharedCard.reduced (10, 0).withHeight (sharedHeaderHeight);
-        // The switches sit in their tab's content, ahead of its controls
-        // (review 11, S11-4, I11-6); folded, the sub's is beside its hint.
-        sharedLabels.clear();
-        sharedDividers.clear();
-        sharedNoteArea = {};
-        sharedNote = {};
-        auto row = sharedCard.withTrimmedTop (sharedHeaderHeight).reduced (8, 0).withTrimmedBottom (4);
-
-        if (shownSharedFolded)
+        for (const auto index : shownList())
         {
-            for (auto* item : sharedItems (sharedSubNoise))
-                if (item != nullptr)
-                    item->setBounds ({});
-            subOscOn->setBounds (juce::Rectangle<int> (sharedTabs.getRight() + 14, header.getCentreY() - 12, 44, 24));
-            return;
+            aux[(size_t) index]->spreadView.update();
+            aux[(size_t) index]->partials.update();
+            updateStatus (index);
         }
 
-        // SUB + NOISE in two named halves (the sub's controls, then after
-        // the gap the noise's), so its row reads as two small modules
-        // rather than four knobs and an empty half (UI review 8, S8-29).
-        // (The VOICE tab is two halves the same way: playing, then spread; the
-        // paragraph that used to fill its right side is gone, V14-9.)
-        if (sharedSelected == sharedSubNoise || sharedSelected == sharedVoice)
-        {
-            const auto items = sharedItems (sharedSelected);
-            const auto split = std::find (items.begin(), items.end(), nullptr);
-            std::vector<juce::Component*> sub (items.begin(), split), noise;
-            for (auto it = split; it != items.end(); ++it)
-                if (*it != nullptr)
-                    noise.push_back (*it);
-            // Two halves no wider than their controls need, side by side in
-            // the middle of the card, not spread over its whole width with
-            // 200 px between knobs (UI review 9, V9-9).
-            // (Sized by their controls, three and two cells, no empty slot.)
-            constexpr int cellWidth = 150;
-            const auto subShare = (int) sub.size() * cellWidth + (rowLabelWidth - 24), noiseShare = (int) noise.size() * cellWidth + (rowLabelWidth - 24);
-            row = row.withSizeKeepingCentre (juce::jmin (row.getWidth(), subShare + noiseShare), row.getHeight());
-            auto half = row.removeFromLeft (row.getWidth() * subShare / juce::jmax (1, subShare + noiseShare));
-            sharedDividers.push_back (juce::Rectangle<int> (row.getX(), row.getY() + 6, 1, row.getHeight() - 12));
-            // The band beside the tabs says what MODE does, in a line or two (the
-            // paragraph that took the controls' width is gone: V14-9).
-            if (sharedSelected == sharedVoice)
-            {
-                const auto noteLeft = sharedTabs.getRight() + 18;
-                sharedNoteArea = { noteLeft, sharedCard.getY() + 4, sharedCard.getRight() - 12 - noteLeft, sharedHeaderHeight - 4 };
-                sharedNote = "MODE sets how notes share voices: POLY plays chords, MONO and LEGATO one note at a time. GLIDE slides the pitch from the last note.";
-            }
-
-            for (const auto& [area, name, group] : { std::tuple<juce::Rectangle<int>*, const char*, std::vector<juce::Component*>*> { &half, sharedSelected == sharedVoice ? "NOTES" : "SUB", &sub },
-                                               { &row, sharedSelected == sharedVoice ? "STEREO" : "NOISE", &noise } })
-            {
-                sharedLabels.push_back ({ area->removeFromLeft (rowLabelWidth - 24).reduced (8, 0).withTrimmedTop (3).withHeight (18), name });
-                layoutSlots (*area, *group);
-            }
-            return;
-        }
-
-        // STRINGS holds few controls: they stand at the left in cells of one
-        // size and a line of words fills the rest of the card, so the drawer
-        // has no bare right half (V12-3).
-        if (sharedSelected == sharedSympathetic && ! readBool ("sym_manual"))
-        {
-            auto items = sharedItems (sharedSelected);
-            while (! items.empty() && (items.back() == nullptr || ! items.back()->isVisible()))
-                items.pop_back();
-            auto weight = 0.0f;
-            for (auto* item : items)
-                weight += slotWeight (item);
-            const auto width = juce::jmin (row.getWidth() * 3 / 4, juce::roundToInt (weight * 150.0f));
-            layoutSlots (row.removeFromLeft (width), items);
-            {
-                // The words also fill the strip beside the tabs, so the
-                // card has no bare band there.
-                const auto noteLeft = juce::jmax (row.getX() + 18, sharedTabs.getRight() + 18);
-                sharedNoteArea = { noteLeft, sharedCard.getY() + 6, row.getRight() - 6 - noteLeft, sharedCard.getBottom() - sharedCard.getY() - 12 };
-            }
-            sharedNote = "Shared drone strings that ring along with everything you play. AMOUNT sets how loud they are, DECAY how long they ring and STRINGS "
-                         "how many there are; MANUAL lets you tune them by hand.";
-            return;
-        }
-
-        layoutSlots (row, sharedItems (sharedSelected));
+        getProperties().set ("caption", OscRole::describeLong (processorRef, selected)); // for the UI test
     }
 
-    std::vector<juce::Component*> sharedItems (int index)
-    {
-        switch (index)
-        {
-            // (The sub's controls, then the noise's after the gap.)
-            case sharedSubNoise: return { subOscOn.get(), &subShape, &subOctave, subOscLevel.get(), nullptr, noiseStrip.get(), noiseColourStrip.get() };
-            case sharedSympathetic: return { &symOn, &symAmount, &symDecay, &symCount, &symManual, symNotes[0].get(), symNotes[1].get(), symNotes[2].get(),
-                             symNotes[3].get(), symNotes[4].get(), symNotes[5].get() };
-            case sharedVoice: return { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(), nullptr,
-                                       voiceSpread.get(), unisonRandom.get(), drift.get() };
-            default: return { &sbOn, &sbModel, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal };
-        }
-    }
-
-    // An oscillator tab's right-click menu.
+    // An oscillator card's right-click menu.
     void showOscMenu (int band)
     {
         const auto on = ! isOff (band);
@@ -1508,69 +2262,6 @@ private:
     juce::TextButton& loadButton (int index)
     {
         return *loadButtons[(size_t) juce::jlimit (0, OscillatorIds::count - 1, index)];
-    }
-
-    static float slotWeight (juce::Component* item)
-    {
-        if (dynamic_cast<OperatorEnvDisplay*> (item) != nullptr)
-            return 6.6f;
-
-        if (dynamic_cast<ComboControl*> (item) != nullptr)
-            return 1.5f;
-
-        if (auto* toggle = dynamic_cast<ToggleControl*> (item))
-            return toggle->getButton().getButtonText().length() > 8 ? 1.05f : 0.75f; // (LEGATO ONLY keeps its name at 75 %)
-
-        return 1.1f;
-    }
-
-    // `grid`: the card's rows share one column grid (every control one
-    // column, at least seven of them), so knobs and menus line up from row to
-    // row and the rows fill the card (review 11, S11-2, S11-3); the drawer's
-    // rows keep their weights.
-    static void layoutSlots (juce::Rectangle<int> area, const std::vector<juce::Component*>& items, bool grid = false)
-    {
-        if (items.empty())
-            return;
-
-        if (grid && items.size() >= 2)
-        {
-            const auto columns = (int) items.size();
-            const auto cellWidth = (float) area.getWidth() / (float) columns;
-            const auto left = area.getX();
-            for (int i = 0; i < columns; ++i)
-                if (items[(size_t) i] != nullptr)
-                {
-                    // A menu takes the empty column after it (a WARP with no
-                    // amount, an exciter's name), so its text has room.
-                    const auto span = dynamic_cast<ComboControl*> (items[(size_t) i]) != nullptr && i + 1 < columns && items[(size_t) i + 1] == nullptr ? 2 : 1;
-                    items[(size_t) i]->setBounds (juce::Rectangle<int> (left + juce::roundToInt ((float) i * cellWidth), area.getY(),
-                                                                          juce::roundToInt ((float) (i + span) * cellWidth) - juce::roundToInt ((float) i * cellWidth),
-                                                                          area.getHeight()).reduced (3));
-                }
-            return;
-        }
-
-        const auto totalWidth = area.getWidth();
-        auto totalWeight = 0.0f;
-
-        for (auto* item : items)
-            totalWeight += slotWeight (item);
-
-        if (totalWeight <= 0.0f)
-            return;
-
-        for (size_t i = 0; i < items.size(); ++i)
-        {
-            const auto width = i + 1 == items.size()
-                                   ? area.getWidth()
-                                   : juce::jmax (1, (int) std::round ((float) totalWidth * slotWeight (items[i]) / totalWeight));
-
-            auto cell = area.removeFromLeft (width).reduced (3);
-
-            if (items[i] != nullptr)
-                items[i]->setBounds (cell);
-        }
     }
 
     int getMode (int oscIndex) const
@@ -1652,10 +2343,13 @@ private:
                                    });
     }
 
+    // Every component of one oscillator's card, to hide before the shown ones
+    // are switched on.
     std::vector<juce::Component*> componentsOf (int i)
     {
         auto& osc = *controls[(size_t) i];
         auto& phys = *physical[(size_t) i];
+        auto& pieces = *aux[(size_t) i];
         return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.mode, &osc.table,
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
@@ -1668,11 +2362,12 @@ private:
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
-                 bounceButtons[(size_t) i].get() };
+                 bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton };
     }
 
-    // The card shows the chosen oscillator only: its rows, its display and
-    // its header's actions; the shared card its chosen section.
+    // The cards show every shown oscillator with its own controls; the strip
+    // its groups (the extras only while MORE is open).
     void updateModeVisibility()
     {
         if (! processorRef.isOscillatorShown (selected))
@@ -1687,100 +2382,77 @@ private:
             for (auto* component : componentsOf (i))
                 component->setVisible (false);
 
-        const auto index = selected;
-        const auto mode = getMode (index);
-        auto& osc = *controls[(size_t) index];
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
-        osc.stringSustain.setLabelText (juce::roundToInt (readFloat (prefix + "_excite")) == 10 ? "FEEDBACK" : "SUSTAIN");
-
-        for (const auto& row : rowsFor (index))
-            for (auto* item : row.second)
-                if (item != nullptr)
-                    item->setVisible (true);
-
-        osc.on.setVisible (true);
-        osc.mode.setVisible (true);
-        // An operator on the Operator Env plays a plain cycle: no table
-        // tools, no resampling (UI review 8, I8-15, S8-9, V8-16).
-        const auto opEnv = OscRole::usesOperatorEg (processorRef, index);
-        // An FM operator reads as one (UI review 9, I9-6): its mode says
-        // Operator (as PLAY's strip does) and its table is its WAVE.
+        for (const auto index : shownList())
         {
-            auto& modeBox = osc.mode.getComboBox();
-            const juce::String modeText (opEnv ? "Operator" : "Wavetable");
-            if (modeBox.getItemText (0) != modeText)
-            {
-                const auto wasSelected = modeBox.getSelectedId() == 1;
-                modeBox.changeItemText (1, modeText);
-                if (wasSelected)
-                    modeBox.setText (modeText, juce::dontSendNotification);
-            }
-            osc.table.setLabelText (opEnv ? "WAVE" : "TABLE");
-        }
-        editButtons[(size_t) index]->setVisible (mode == 0 && ! opEnv);
-        // LOAD loads what the mode plays: a wavetable (LOAD...), or a
-        // sample or SF2 / SFZ multisample (LOAD, UI review 4, V30; review
-        // 7, I7-24).
-        loadButton (index).setVisible (mode == 0 && ! opEnv);
-        sampleLoadButton.setVisible (mode == 2 || mode == 3);
-        bounceButtons[(size_t) index]->setVisible (mode != 4 && ! opEnv);
+            const auto kind = kindOf (index);
+            auto& osc = *controls[(size_t) index];
+            auto& pieces = *aux[(size_t) index];
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+            osc.stringSustain.setLabelText (juce::roundToInt (readFloat (prefix + "_excite")) == 10 ? "FEEDBACK" : "SUSTAIN");
 
-        stringView.setVisible (mode == 1);
-        waveDisplay (index).setVisible ((mode != 1 || isElectric (index)) && ! opEnv);
-        scrubbers[(size_t) index].setVisible (mode == 0 && ! opEnv);
-        waveDisplay (index).setCompact (mode == 1);
-        waveDisplay (index).setSingleCycle (opEnv);
+            for (const auto& slot : slotsFor (index))
+                slot.item->setVisible (true);
 
-        if (mode == 1 && stringPrefix != prefix)
-        {
-            stringPrefix = prefix;
-            stringView.setOscillator (prefix);
-        }
+            osc.on.setVisible (true);
+            osc.mode.setVisible (true);
+            // An FM / DX7 oscillator plays a plain cycle: no table tools
+            // (UI review 8, I8-15, S8-9, V8-16); on the Operator EG no
+            // resampling either.
+            const auto opEnv = kind == Kind::fm && OscRole::usesOperatorEg (processorRef, index);
+            // An FM operator reads as one (UI review 9, I9-6): its type says
+            // FM / DX7 and its table is its WAVE. Ratio, Fixed Hz and OP ENV
+            // are its own: a Wavetable's menus don't offer them.
+            osc.table.setLabelText (kind == Kind::fm ? "WAVE" : "TABLE");
+            OscRole::showOperatorChoices (&osc.tune.getComboBox(), &osc.ampEnv.getComboBox(), kind == Kind::fm,
+                                          getMode (index) != OscMode::wavetable, readChoice (prefix + "_amp_env"));
 
-        stringView.setColour (oscColour (index));
+            editButtons[(size_t) index]->setVisible (kind == Kind::wavetable);
+            // LOAD loads what the mode plays: a wavetable (LOAD...), or a
+            // sample or SF2 / SFZ multisample (LOAD, UI review 4, V30; review
+            // 7, I7-24).
+            loadButton (index).setVisible (kind == Kind::wavetable);
+            pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
+            bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
+            pieces.opEnvButton.setVisible (opEnv);
+            pieces.stringButton.setVisible (kind == Kind::physical);
 
-        shownRole = OscRole::describeLong (processorRef, index);
-        getProperties().set ("caption", shownRole); // for the UI test
-        shownRows = rowsKey (index);
-        // Any mode can play the Operator Env (I7-20).
-        opEnvButton.setVisible (opEnv);
-        stringButton.setVisible (mode == 1);
-        opEnvGraph.setVisible (false);
-        opEnvGraph.setSource (prefix, oscColour (index));
-
-        for (const auto& row : rowsFor (index))
-            for (auto* item : row.second)
-                if (item == &opEnvGraph)
-                    opEnvGraph.setVisible (true);
-
-        // The shared card: its chosen section's controls and its switch.
-        for (int s = 0; s < numShared; ++s)
-            for (auto* item : sharedItems (s))
-                if (item != nullptr)
-                    item->setVisible (false);
-
-        for (auto* item : sharedItems (sharedSelected))
-            if (item != nullptr)
-                item->setVisible (true);
-
-        subOscOn->setVisible (sharedSelected == sharedSubNoise);
-        symOn.setVisible (sharedSelected == sharedSympathetic);
-
-        if (sharedSelected == sharedSympathetic)
-        {
-            const auto symOnNow = readBool ("sym_on");
-            const auto manual = readBool ("sym_manual");
-
-            for (int n = 0; n < (int) symNotes.size(); ++n)
-                symNotes[(size_t) n]->setVisible (manual);
-
-            for (auto* control : { (juce::Component*) &symAmount, (juce::Component*) &symDecay,
-                                   (juce::Component*) &symCount, (juce::Component*) &symManual })
-                control->setAlpha (symOnNow ? 1.0f : IlanaTheme::dimmedAlpha);
+            // The well: the table (slim line), the string, the operator's
+            // envelope, the sample, the live meter.
+            const auto electric = kind == Kind::physical && isElectric (index);
+            auto& wave = waveDisplay (index);
+            wave.setVisible (! opEnv && (kind != Kind::physical || electric));
+            if (wave.isCompact() != (kind != Kind::sample))
+                wave.setCompact (kind != Kind::sample);
+            wave.setSlim (kind == Kind::wavetable);
+            pieces.stringView.setVisible (kind == Kind::physical && ! electric);
+            pieces.opEnvGraph.setVisible (opEnv);
+            pieces.opEnvGraph.setSource (prefix, oscColour (index));
+            pieces.partials.setVisible (kind == Kind::physical && ! electric);
+            pieces.status.setVisible (kind != Kind::sample);
+            pieces.spreadView.setVisible (kind != Kind::live && ((kind != Kind::sample && kind != Kind::fm) || readFloat (prefix + "_unison") > 1.5f));
         }
 
-        updateTabs();
+        // The strip.
+        for (auto* item : std::initializer_list<juce::Component*> { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(),
+                                                                    voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
+                                                                    subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount, &symCount,
+                                                                    &symDecay, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix, &moreButton })
+            item->setVisible (true);
+
+        for (auto* item : std::initializer_list<juce::Component*> { &symManual, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
+            item->setVisible (stripOpen);
+
+        for (auto& note : symNotes)
+            note->setVisible (stripOpen && readBool ("sym_manual"));
+
+        moreButton.setButtonText (stripOpen ? juce::String ("LESS ") + juce::String::fromUTF8 ("\xe2\x96\xb4")
+                                            : juce::String ("MORE ") + juce::String::fromUTF8 ("\xe2\x96\xbe"));
+
+        updateTabItems();
+        shownKey = layoutKey();
+        getProperties().set ("caption", OscRole::describeLong (processorRef, selected)); // for the UI test
         resized();
+        updateCardPictures();
         repaint();
         if (onModeChanged != nullptr)
             onModeChanged();
@@ -1790,7 +2462,7 @@ private:
     bool isElectric (int index) const
     {
         const auto excite = juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_excite"));
-        return excite == 7 || excite == 8;
+        return getMode (index) == 1 && (excite == 7 || excite == 8);
     }
 
     static void setGroupEnabled (std::initializer_list<juce::Component*> controls, bool enabled)
@@ -1804,12 +2476,6 @@ private:
 
     void updateEnabled()
     {
-        if (sharedFolded() != shownSharedFolded)
-        {
-            resized();
-            repaint();
-        }
-
         // The sub's controls follow its switch; noise has its own level.
         const auto subIsOn = readBool ("subosc_on");
         for (auto* control : { static_cast<juce::Component*> (&subShape), static_cast<juce::Component*> (&subOctave),
@@ -1826,10 +2492,15 @@ private:
         for (auto* control : { &sbMix, &sbTone, &sbSize })
             control->setAlpha (boardOn ? 1.0f : IlanaTheme::dimmedAlpha);
 
-        // Manual notes past STRINGS are not sounding.
+        // The strings' controls dim while the strings are off; manual notes
+        // past STRINGS are not sounding.
+        const auto stringsOn = readBool ("sym_on");
+        for (auto* control : { &symAmount, &symDecay, &symCount })
+            control->setAlpha (stringsOn ? 1.0f : IlanaTheme::dimmedAlpha);
+        symManual.setAlpha (stringsOn ? 1.0f : IlanaTheme::dimmedAlpha);
         const auto stringCount = juce::roundToInt (readFloat ("sym_count"));
         for (int i = 0; i < (int) symNotes.size(); ++i)
-            symNotes[(size_t) i]->setAlpha (i < stringCount ? 1.0f : IlanaTheme::dimmedAlpha);
+            symNotes[(size_t) i]->setAlpha (stringsOn && i < stringCount ? 1.0f : IlanaTheme::dimmedAlpha);
 
         for (int index = 0; index < OscillatorIds::count; ++index)
         {
@@ -1860,29 +2531,41 @@ private:
                                &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback,
                                &osc.feedbackType }, enabled);
 
-            // An amount whose stage or envelope is Off does nothing: dim it.
+            // An amount whose stage or envelope is Off does nothing: dim it
+            // (it keeps its place and shows a dash).
             if (enabled)
             {
                 osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
                 osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
             }
 
-            const auto alpha = enabled ? 1.0f : 0.3f;
+            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.spread })
+                knob->refreshValueText();
+
+            // A switched-off oscillator dims in place, the same size.
+            const auto alpha = enabled ? 1.0f : 0.55f;
+            auto& pieces = *aux[(size_t) index];
             waveDisplay (index).setAlpha (alpha);
             waveDisplay (index).setEnabled (enabled);
             loadButton (index).setEnabled (! chooserOpen && enabled);
             loadButton (index).setAlpha (alpha);
             editButtons[(size_t) index]->setEnabled (enabled);
             editButtons[(size_t) index]->setAlpha (alpha);
-
-            if (index == selected)
-                stringView.setAlpha (alpha);
+            bounceButtons[(size_t) index]->setAlpha (alpha);
+            pieces.stringView.setAlpha (alpha);
+            pieces.opEnvGraph.setAlpha (alpha);
+            pieces.spreadView.setAlpha (alpha);
+            pieces.partials.setAlpha (alpha);
+            pieces.status.setAlpha (alpha);
+            pieces.opEnvButton.setAlpha (alpha);
+            pieces.stringButton.setAlpha (alpha);
+            pieces.sampleLoadButton.setAlpha (alpha);
         }
 
         effectRules.apply();
     }
 
-    // The VOICE tab's quiet state: the mode, so the tab says what lives in it.
+    // The VOICE group's quiet state: the mode, so the tab says what lives in it.
     juce::String voiceModeName() const
     {
         static const char* const names[] { "POLY", "MONO", "LEGATO" };
@@ -2024,20 +2707,19 @@ private:
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waveDisplays;
     std::array<FrameScrubber, OscillatorIds::count> scrubbers;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> scrubberAttachments;
-    // The physical oscillator's string, moving as it is played: one view,
-    // following the chosen oscillator.
-    PhysicalView stringView { processorRef };
-    juce::String stringPrefix { "osc1" };
+    int lastRevealVersion = -1;
+    int selected = 0;
+    bool stripOpen = false;
 
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
+    std::array<std::unique_ptr<CardAux>, OscillatorIds::count> aux;
     IlanaSynthAudioProcessor::BounceRequest bounceRequest;
     int bouncingOsc = -1, bounceButtonWide = -1;
     DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
-    juce::TextButton opEnvButton, stringButton, sampleLoadButton;
-    // The Operator Env's graph, for the chosen operator (the FM card's).
-    OperatorEnvDisplay opEnvGraph { processorRef };
+    DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
+    static constexpr int addFmWidth = 150;
+    juce::TextButton moreButton { "MORE" };
     OscPicker oscTabs;
-    StateTabs sharedTabs;
     std::unique_ptr<juce::FileChooser> tableChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
     // Each oscillator's controls by parameter suffix, for the shared

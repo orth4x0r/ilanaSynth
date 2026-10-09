@@ -1,5 +1,8 @@
 #pragma once
 
+#include <map>
+#include <string>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
@@ -108,6 +111,81 @@ inline juce::uint64 phaseSignature (float phase, int salt)
 {
     return (juce::uint64) (juce::uint32) juce::roundToInt (phase * 512.0f) * (0x100000001b3ull + (juce::uint64) salt * 2654435761ull);
 }
+
+// Diagnostics: paint() calls per component kind, counted only while a tool
+// (ilanaSnapshot --fps) has switched it on. One branch when off.
+inline bool& paintStatsOn() { static bool on = false; return on; }
+inline std::map<std::string, int>& paintStats() { static std::map<std::string, int> counts; return counts; }
+inline void countPaint (const char* name)
+{
+    if (paintStatsOn())
+        ++paintStats()[name];
+}
+
+// The audio thread publishes a display value once per block (a host buffer
+// of 1024 samples is 43 times a second, 2048 is 21). A picture that jumps to
+// each new value moves at that rate however often it is repainted. This
+// glides from the last shown value to each new one over the time between
+// the last two publications (one block of delay at most), so motion follows
+// the display's refresh. `circular` values (a phase 0..1) take the short way
+// round the wrap; `snapBack` is how far a value may fall before it is taken
+// as a restart (an envelope's new note) and jumped to; a negative published
+// value (nothing playing) is always jumped to.
+class BlockSmoother
+{
+public:
+    float get (float published, bool circular = false, float snapBack = 1.0e9f) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        // First look, or not looked at for a while (a hidden view): show the
+        // published value as it is.
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0)
+        {
+            target = published;
+            from = shown = published;
+            span = 0.0f;
+            changeMs = now;
+        }
+
+        lastCallMs = now;
+
+        if (published != target)
+        {
+            const auto measured = juce::jlimit (2.0, 60.0, now - changeMs);
+            interval = changeMs > 0.0 ? 0.6 * interval + 0.4 * measured : measured;
+            changeMs = now;
+            from = shown;
+            auto delta = published - from;
+
+            if (circular)
+            {
+                if (delta < -0.5f) delta += 1.0f;
+                else if (delta > 0.5f) delta -= 1.0f;
+            }
+            else if (published < 0.0f || from < 0.0f || delta < -snapBack)
+            {
+                from = published;
+                delta = 0.0f;
+            }
+
+            target = published;
+            span = delta;
+        }
+
+        const auto t = (float) juce::jlimit (0.0, 1.0, (now - changeMs) / interval);
+        shown = from + span * t;
+
+        if (circular)
+            shown -= std::floor (shown);
+
+        return shown;
+    }
+
+private:
+    mutable float target = -1.0e9f, from = 0.0f, span = 0.0f, shown = 0.0f;
+    mutable double changeMs = 0.0, interval = 12.0, lastCallMs = 0.0;
+};
 
 class FrameTimer;
 
@@ -314,10 +392,10 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
 
     const auto smallW = juce::jmax (2, (int) ((float) snapshot.getWidth() * scale));
     const auto smallH = juce::jmax (2, (int) ((float) snapshot.getHeight() * scale));
-    auto small = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
+    auto shrunk = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
 
     {
-        juce::Image::BitmapData data (small, juce::Image::BitmapData::readWrite);
+        juce::Image::BitmapData data (shrunk, juce::Image::BitmapData::readWrite);
         const auto passes = juce::jlimit (1, 3, (int) std::round (radius));
 
         for (int pass = 0; pass < passes; ++pass)
@@ -357,6 +435,6 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
         }
     }
 
-    return small.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
+    return shrunk.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
 }
 } // namespace IlanaAnim

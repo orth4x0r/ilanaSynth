@@ -295,7 +295,6 @@ class TransposeKnob : public juce::Component,
 public:
     TransposeKnob (IlanaSynthAudioProcessor& p, juce::Colour colour) : processorRef (p)
     {
-        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 14);
         slider.setRange (-24.0, 24.0, 1.0);
         slider.setColour (juce::Slider::rotarySliderFillColourId, colour);
@@ -406,7 +405,7 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label label;
     bool dragging = false, updating = false;
 };
@@ -737,8 +736,11 @@ private:
     {
         const auto osc = firstShownOscillator();
         if (auto* parameter = processorRef.apvts.getParameter (FmOperatorInfo::prefixOf (osc) + "_amp_env"))
-            processorRef.performEdit ("OSC " + juce::String (osc + 1) + " plays OP ENV", [parameter]
+            processorRef.performEdit ("OSC " + juce::String (osc + 1) + " plays OP ENV", [this, parameter, osc]
             {
+                // (OP ENV is FM / DX7's: a Wavetable becomes one, the same sound otherwise.)
+                if (juce::roundToInt (FmOperatorInfo::read (processorRef, FmOperatorInfo::prefixOf (osc) + "_mode")) == OscMode::wavetable)
+                    processorRef.setOscillatorMode (osc, OscMode::fmOperator);
                 parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) OperatorEg::envelopeChoice));
                 parameter->endChangeGesture();

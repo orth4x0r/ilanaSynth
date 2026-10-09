@@ -444,7 +444,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_amp_env"))
         return "The envelope that shapes this oscillator's level (as an FM operator, how deep it modulates): one of "
                "the 16 envelopes (Amp Env is the original), the MSEG run once per note, or the Operator Env, the DX7's "
-               "envelope (four rates and levels, keyboard and velocity scaling), edited on the FM page.";
+               "envelope (four rates and levels, keyboard and velocity scaling), edited on the FM page (FM / DX7 oscillators).";
 
     // The Operator Env (FM page): DX7 values 0-99, shown in the synth's units.
     for (int stage = 1; stage <= 4; ++stage)
@@ -513,7 +513,8 @@ inline juce::String describeParameter (const juce::String& id)
         return "The DX7 algorithm the FM routing was set from (a DX7 voice or the grid's DX7 pages), for the FM page's label.";
     if (isOscParameter (id, "_tune"))
         return "How the operator is tuned: in semitones (as before), as a ratio of the played note, "
-               "or at a fixed frequency that ignores the keyboard (for drums and formants). SEMI and FINE still apply.";
+               "or at a fixed frequency that ignores the keyboard (for drums and formants). SEMI and FINE still apply. "
+               "Ratio and Fixed Hz are for FM / DX7 oscillators; a Wavetable is tuned in semitones.";
     if (isOscParameter (id, "_ratio"))
         return "Frequency ratio to the played note, used when TUNING is Ratio. SNAP pulls it to the nearest ratio of a set.";
     if (isOscParameter (id, "_ratio_snap"))
@@ -647,7 +648,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_mode", false))
         return "Wavetable, Physical (a string, or the Tine and Reed electric pianos), a sample you drag onto the card, "
                "Granular: a cloud of tiny grains read from that sample (a vocal until you load your own), "
-               "or Live: the audio coming into ilanaSynth FX.";
+               "Live: the audio coming into ilanaSynth FX, "
+               "or FM / DX7: an FM operator (tuned by ratio or fixed Hz, with the DX7's operator envelope).";
 
     if (isOscParameter (id, "_on"))
         return "Turns this oscillator on and off. Switching fades in/out so it stays click-free.";
@@ -1130,6 +1132,11 @@ inline juce::String describeParameter (const juce::String& id)
         || id == "fx_reverb_width" || id == "fx_reverb_mix")
         return "Space and depth.";
 
+    if (id == "fx_routing")
+        return "How the rack's effects connect. Series: each effect feeds the next one. Parallel: every effect hears "
+               "the rack's input and their outputs are averaged (so effects that leave the sound alone give it back "
+               "unchanged); a soloed effect is heard alone.";
+
     if (id.endsWith ("_bypass"))
         return "Bypasses this rack slot without losing its settings.";
 
@@ -1317,8 +1324,9 @@ inline juce::String describeParameter (const juce::String& id)
         if (id == "sub_shape") return "Sub oscillator shape: sine, square or saw.";
         if (id == "sub_octave") return "Sub oscillator octave: one or two octaves down.";
         if (id == "sub_mode")
-            return "Wavetable, Physical string, a sample you drag onto the card, or Granular: a cloud of tiny "
-               "grains read from that sample (a vocal until you load your own).";
+            return "Wavetable, Physical string, a sample you drag onto the card, Granular: a cloud of tiny "
+               "grains read from that sample (a vocal until you load your own), Live: the audio coming into ilanaSynth FX, "
+               "or FM / DX7: an FM operator (tuned by ratio or fixed Hz, with the DX7's operator envelope).";
         if (id == "sub_table") return "Wavetable for OSC 3.";
         if (id == "sub_frame") return "Morphs through the table's frames.";
         if (id == "sub_pan") return "Stereo position of OSC 3.";

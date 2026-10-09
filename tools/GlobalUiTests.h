@@ -224,7 +224,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         probe = {};
                         probe.armed = true;
                         probe.recordRects = true;
-                        probe.origin = bounds.getPosition();
+                        // (Rectangles are recorded in the painter's own units and mapped into the editor's afterwards, so a zoomed editor compares like with like.)
+                        probe.origin = {};
                         juce::Image image (juce::Image::ARGB, painter->getWidth(), painter->getHeight(), true);
                         {
                             juce::Graphics g (image);
@@ -239,8 +240,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         for (auto* parent = painter->getParentComponent(); parent != nullptr && parent != &editor; parent = parent->getParentComponent())
                             shown = shown.getIntersection (editor.getLocalArea (parent, parent->getLocalBounds()));
 
-                        for (const auto& [text, whole] : rects)
+                        for (const auto& [text, local] : rects)
                         {
+                            const auto whole = editor.getLocalArea (painter, local);
                             const auto rect = whole.getIntersection (shown);
                             if (rect.isEmpty())
                                 continue;
@@ -292,19 +294,19 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             shownCorners += visibleInTree (corner) && corner->getHeight() > 60 ? 1 : 0;
         expect (shownCorners == 4, "VECTOR, off: the four corners show a picture of their oscillator (V14-2)");
 
-        // V14-1: an odd card count leaves no card-sized hole: the ADD EFFECT tile is a bar.
+        // V14-1: the rack has no card-sized hole: + ADD is a small button in its top bar.
         editor.showPage ("FX");
         settle (300);
-        std::vector<DashedAddButton*> tiles;
-        findAll<DashedAddButton> (editor, tiles);
-        auto tallTile = false, anyTile = false;
-        for (auto* tile : tiles)
-            if (visibleInTree (tile) && tile->getButtonText().contains ("ADD EFFECT"))
+        std::vector<juce::TextButton*> addButtons;
+        findAll<juce::TextButton> (editor, addButtons);
+        auto tallAdd = false, anyAdd = false;
+        for (auto* add : addButtons)
+            if (visibleInTree (add) && add->getButtonText() == "+ ADD")
             {
-                anyTile = true;
-                tallTile = tile->getHeight() > 48;
+                anyAdd = true;
+                tallAdd = add->getHeight() > 32;
             }
-        expect (anyTile && ! tallTile, "FX: the ADD EFFECT tile is a bar on its own row, not a card-sized hole (V14-1)");
+        expect (anyAdd && ! tallAdd, "FX: + ADD is a button in the top bar, not a card-sized hole (V14-1)");
 
         // V14-4: a short matrix shows a curve in its dock, never a text box.
         loadNamed ("Felt Hammer Board");
@@ -382,34 +384,26 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 "the OUT meter keeps clear of the window's corner (" + meterBounds.toString() + " in " + juce::String (editor.getWidth()) + ")");
     }
 
-    // I8-21, I8-20: OSC's shared tabs light their dot from a switch only
-    // (VOICE and ACOUSTIC KEYS have none); an off oscillator's tab says
-    // nothing in words (its dot is out).
+    // I8-21, I8-20: with the approved OSC design the shared tabs are gone (the
+    // strip is one card, its groups named in colour, no dots). What stays true:
+    // an off oscillator says nothing in words and its card dims in place.
     {
         editor.showPage ("OSC");
         settle (300);
         std::vector<StateTabs*> rows;
         findAll<StateTabs> (editor, rows);
-        auto voiceDot = true, keysDot = true, subDotFollowsSwitch = false, offWord = false;
-        setParam ("subosc_on", 0.0f);
-        setParam ("noise_level", 0.5f);
+        auto tabs = 0;
+        for (auto* row : rows)
+            tabs += visibleInTree (row) ? 1 : 0;
         setParam ("osc2_on", 0.0f);
         settle (400);
-        for (auto* tabs : rows)
-            for (int i = 0; i < tabs->getNumItems(); ++i)
-            {
-                const auto& item = tabs->getItem (i);
-                if (item.name == "VOICE")
-                    voiceDot = item.dot;
-                if (item.name == "SOUNDBOARD")
-                    keysDot = item.dot;
-                if (item.name == "SUB + NOISE")
-                    subDotFollowsSwitch = item.dot && ! item.lit;
-                if (item.name == "OSC 2")
-                    offWord = item.state.containsIgnoreCase ("off");
-            }
-        expect (! voiceDot && ! keysDot && subDotFollowsSwitch && ! offWord,
-                "OSC's tabs: no dot on VOICE or SOUNDBOARD, SUB + NOISE's dot follows its switch, no OFF in an off oscillator's tab");
+        std::vector<juce::Label*> labels;
+        findAll<juce::Label> (editor, labels);
+        auto offWord = false;
+        for (auto* label : labels)
+            offWord = offWord || (visibleInTree (label) && label->getText().trim().equalsIgnoreCase ("off") && label->getParentComponent() == nullptr);
+        expect (tabs == 0 && ! offWord,
+                "OSC: the strip has no tabs or dots, and an off oscillator's card says nothing in words");
         setParam ("osc2_on", 1.0f);
         loadNamed ("Neuro Wobble");
     }

@@ -22,138 +22,87 @@ enum class Icon
     Save
 };
 
+// The mockup's icons (lib.js ICON), as its SVG paths on a 14 px grid (15
+// for the dice and the gear): strokes 1.6 px (the save arrow 1.8), round
+// ends, scaled to the box they are drawn in.
 inline juce::Path make (Icon icon, juce::Rectangle<float> r)
 {
-    juce::Path p;
-    const auto cx = r.getCentreX();
-    const auto cy = r.getCentreY();
-    const auto s = juce::jmin (r.getWidth(), r.getHeight());
+    juce::Path stroked, filled;
+    auto grid = 14.0f;
+
+    const auto stroke = [&stroked] (const juce::Path& outline, float width)
+    {
+        juce::Path p;
+        juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath (p, outline);
+        stroked.addPath (p);
+    };
+    const auto svg = [] (const char* d) { return juce::Drawable::parseSVGPath (d); };
+    const auto circle = [] (float cx, float cy, float radius)
+    {
+        juce::Path p;
+        p.addEllipse (cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+        return p;
+    };
 
     switch (icon)
     {
         case Icon::Undo:
+            stroke (svg ("M4 5H9a3.5 3.5 0 010 7H4M4 5l2.5-2.5M4 5l2.5 2.5"), 1.6f);
+            break;
+
         case Icon::Redo:
-        {
-            // A hooked arrow: arc over the top, arrowhead on the left (undo).
-            const auto radius = s * 0.3f;
-            p.addCentredArc (cx, cy + s * 0.06f, radius, radius, 0.0f,
-                             -juce::MathConstants<float>::halfPi * 1.25f, juce::MathConstants<float>::halfPi * 0.95f, true);
-            const juce::Point<float> tip (cx - radius * 0.96f, cy - radius * 0.2f);
-            juce::Path head;
-            head.addTriangle (tip.x - s * 0.13f, tip.y - s * 0.02f, tip.x + s * 0.1f, tip.y - s * 0.02f,
-                              tip.x - s * 0.02f, tip.y + s * 0.15f);
-
-            juce::Path stroked;
-            juce::PathStrokeType (s * 0.09f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
-                .createStrokedPath (stroked, p);
-            stroked.addPath (head);
-
-            if (icon == Icon::Redo)
-                stroked.applyTransform (juce::AffineTransform::scale (-1.0f, 1.0f, cx, cy));
-
-            return stroked;
-        }
+            stroke (svg ("M10 5H5a3.5 3.5 0 000 7h5M10 5L7.5 2.5M10 5L7.5 7.5"), 1.6f);
+            break;
 
         case Icon::History:
-        {
-            const auto radius = s * 0.34f;
-            juce::Path outline;
-            outline.addEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre ({ cx, cy }));
-            outline.startNewSubPath (cx, cy - radius * 0.62f);
-            outline.lineTo (cx, cy);
-            outline.lineTo (cx + radius * 0.48f, cy + radius * 0.3f);
-
-            juce::PathStrokeType (s * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
-                .createStrokedPath (p, outline);
-            return p;
-        }
+            stroke (circle (7.0f, 7.0f, 5.5f), 1.6f);
+            stroke (svg ("M7 4v3.4l2.2 1.3"), 1.6f);
+            break;
 
         case Icon::Gear:
-        {
-            const auto outer = s * 0.4f;
-            const auto inner = s * 0.29f;
-            constexpr int teeth = 8;
-
-            for (int i = 0; i < teeth * 2; ++i)
-            {
-                const auto a0 = (float) i / (float) (teeth * 2) * juce::MathConstants<float>::twoPi;
-                const auto a1 = (float) (i + 1) / (float) (teeth * 2) * juce::MathConstants<float>::twoPi;
-                const auto radius = i % 2 == 0 ? outer : inner;
-                const juce::Point<float> pa (cx + std::cos (a0) * radius, cy + std::sin (a0) * radius);
-                const juce::Point<float> pb (cx + std::cos (a1) * radius, cy + std::sin (a1) * radius);
-
-                if (i == 0)
-                    p.startNewSubPath (pa);
-                else
-                    p.lineTo (pa);
-
-                p.lineTo (pb);
-            }
-
-            p.closeSubPath();
-            p.addEllipse (juce::Rectangle<float> (s * 0.26f, s * 0.26f).withCentre ({ cx, cy }));
-            p.setUsingNonZeroWinding (false);
-            return p;
-        }
+            grid = 15.0f;
+            stroke (circle (7.5f, 7.5f, 2.2f), 1.6f);
+            stroke (svg ("M7.5 1v2M7.5 12v2M1 7.5h2M12 7.5h2M3 3l1.4 1.4M10.6 10.6L12 12M3 12l1.4-1.4M10.6 4.4L12 3"), 1.6f);
+            break;
 
         case Icon::Dice:
         {
-            const auto box = juce::Rectangle<float> (s * 0.66f, s * 0.66f).withCentre ({ cx, cy });
-            p.addRoundedRectangle (box, s * 0.12f);
-
-            const auto pip = s * 0.12f;
-
-            for (const auto& offset : { juce::Point<float> (-0.18f, -0.18f), juce::Point<float> (0.18f, 0.18f),
-                                        juce::Point<float> (0.0f, 0.0f), juce::Point<float> (0.18f, -0.18f),
-                                        juce::Point<float> (-0.18f, 0.18f) })
-                p.addEllipse (juce::Rectangle<float> (pip, pip).withCentre ({ cx + offset.x * s, cy + offset.y * s }));
-
-            p.setUsingNonZeroWinding (false);
-            return p;
+            grid = 15.0f;
+            juce::Path box;
+            box.addRoundedRectangle (1.5f, 1.5f, 12.0f, 12.0f, 3.0f);
+            stroke (box, 1.6f);
+            for (const auto pip : { juce::Point<float> (5.0f, 5.0f), juce::Point<float> (10.0f, 10.0f), juce::Point<float> (7.5f, 7.5f) })
+                filled.addPath (circle (pip.x, pip.y, 1.1f));
+            break;
         }
 
         case Icon::ChevronLeft:
+            stroke (svg ("M8 4.5L5.5 7 8 9.5"), 1.3f); // (the sheet draws a small 13 px ‹)
+            break;
+
         case Icon::ChevronRight:
-        {
-            juce::Path line;
-            const auto dir = icon == Icon::ChevronLeft ? 1.0f : -1.0f;
-            line.startNewSubPath (cx + dir * s * 0.1f, cy - s * 0.22f);
-            line.lineTo (cx - dir * s * 0.1f, cy);
-            line.lineTo (cx + dir * s * 0.1f, cy + s * 0.22f);
-            juce::PathStrokeType (s * 0.1f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded)
-                .createStrokedPath (p, line);
-            return p;
-        }
+            stroke (svg ("M6 4.5L8.5 7 6 9.5"), 1.3f);
+            break;
 
         case Icon::Star:
-            p.addStar ({ cx, cy + s * 0.02f }, 5, s * 0.17f, s * 0.38f, 0.0f);
-            return p;
+            filled = svg ("M7 1l1.8 3.9 4.2.5-3.1 2.9.8 4.2L7 10.4 3.3 12.5l.8-4.2L1 5.4l4.2-.5z");
+            break;
 
         case Icon::More:
-            for (int i = -1; i <= 1; ++i)
-                p.addEllipse (juce::Rectangle<float> (s * 0.13f, s * 0.13f).withCentre ({ cx + (float) i * s * 0.22f, cy }));
-            return p;
+            for (const auto x : { 2.5f, 7.0f, 11.5f })
+                filled.addPath (circle (x, 7.0f, 1.3f));
+            break;
 
         case Icon::Save:
-        {
-            // Down arrow into a tray.
-            juce::Path line;
-            line.startNewSubPath (cx, cy - s * 0.3f);
-            line.lineTo (cx, cy + s * 0.08f);
-            line.startNewSubPath (cx - s * 0.15f, cy - s * 0.06f);
-            line.lineTo (cx, cy + s * 0.1f);
-            line.lineTo (cx + s * 0.15f, cy - s * 0.06f);
-            line.startNewSubPath (cx - s * 0.3f, cy + s * 0.08f);
-            line.lineTo (cx - s * 0.3f, cy + s * 0.3f);
-            line.lineTo (cx + s * 0.3f, cy + s * 0.3f);
-            line.lineTo (cx + s * 0.3f, cy + s * 0.08f);
-            juce::PathStrokeType (s * 0.085f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
-                .createStrokedPath (p, line);
-            return p;
-        }
+            stroke (svg ("M7 1v8M3.5 6L7 9.5 10.5 6M1.5 12.5h11"), 1.8f);
+            break;
     }
 
-    return p;
+    stroked.addPath (filled);
+    const auto side = juce::jmin (r.getWidth(), r.getHeight());
+    const auto scale = side / grid;
+    stroked.applyTransform (juce::AffineTransform::scale (scale).translated (r.getCentreX() - side * 0.5f, r.getCentreY() - side * 0.5f));
+    return stroked;
 }
 } // namespace IlanaIcons
 
@@ -181,6 +130,14 @@ public:
         repaint();
     }
 
+    // No key background: the button sits inside another display (the
+    // preset display's prev / next segments).
+    void setFlat (bool shouldBeFlat)
+    {
+        flat = shouldBeFlat;
+        repaint();
+    }
+
     void setIconColour (std::optional<juce::Colour> colour)
     {
         iconColour = colour;
@@ -189,50 +146,114 @@ public:
 
     void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
     {
+        using namespace IlanaTheme;
+
         const auto on = getToggleState();
-        auto background = findColour (on ? juce::TextButton::buttonOnColourId : juce::TextButton::buttonColourId);
+        const auto enabled = isEnabled();
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        getLookAndFeel().drawButtonBackground (g, *this, background, isHighlighted, isDown);
+        // A disabled key fades as a whole, as the sheet's redo (.ib at 45 %).
+        const auto fade = enabled ? 1.0f : 0.45f;
 
-        if (emphasis && isEnabled())
+        if (emphasis && enabled)
         {
-            const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-            g.setColour (IlanaTheme::accent().withAlpha (isDown ? 0.5f : (isHighlighted ? 0.42f : 0.32f)));
-            g.fillRoundedRectangle (bounds, juce::jmin (5.0f, bounds.getHeight() * 0.3f));
-            g.setColour (IlanaTheme::accent().withAlpha (0.85f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), juce::jmin (5.0f, bounds.getHeight() * 0.3f), 1.2f);
+            // SAVE, the header's one main action (.btn.pri): the accent solid
+            // with dark text, 8 px corners.
+            g.setColour (accent().brighter (isHighlighted && ! isDown ? 0.12f : 0.0f).withMultipliedBrightness (isDown ? 0.9f : 1.0f));
+            g.fillRoundedRectangle (bounds, 8.0f);
+        }
+        else if (! flat)
+        {
+            // The sheet's header key (.ib): 30 px, ink 2, a hairline, 8 px
+            // corners; lit (.ib.on) the accent at 15 % with a half-accent rim.
+            // (Lit and hovered fade in and out: the shared animator.)
+            const auto lit = IlanaTheme::fade (*this, 0, on ? 1.0f : 0.0f);
+            const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, FadeRate::hover);
+            auto fill = Ui::panel.interpolatedWith (accent(), 0.15f * lit);
+            fill = fill.interpolatedWith (Ui::hover, over);
+            g.setColour (fill.withMultipliedAlpha (fade));
+            g.fillRoundedRectangle (bounds, 8.0f);
+            g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.8f * over).interpolatedWith (accent().withAlpha (0.5f), lit).withMultipliedAlpha (fade));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 7.5f, 1.0f);
+        }
+        else if (isHighlighted)
+        {
+            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
+            g.fillRect (getLocalBounds());
         }
 
-        auto area = getLocalBounds().toFloat().reduced (3.0f);
-        const auto enabled = isEnabled();
-        auto colour = iconColour.value_or (on || emphasis ? juce::Colours::white : IlanaTheme::Ui::text2);
+        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : on ? IlanaTheme::accentText() : Ui::text2);
 
         if (! enabled)
-            colour = colour.withAlpha (0.22f);
-        else if (isHighlighted)
-            colour = colour.interpolatedWith (juce::Colours::white, 0.6f);
+            colour = colour.withMultipliedAlpha (fade);
+        else if (isHighlighted && ! emphasis)
+            colour = colour.interpolatedWith (Ui::text, 0.7f);
 
         g.setColour (colour);
 
         if (text.isNotEmpty())
         {
-            const auto iconArea = area.removeFromLeft (area.getHeight());
-            g.fillPath (IlanaIcons::make (icon, iconArea));
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (text, area.withTrimmedRight (2.0f), juce::Justification::centred);
+            // Icon, 6 px, then the word, centred as one group (.btn: gap 6).
+            const auto font = juce::Font (IlanaTheme::font (15.0f, true).withKerningFactor (0.04f));
+            const auto textWidth = juce::GlyphArrangement::getStringWidth (font, text);
+            const auto group = juce::jmin (bounds.getWidth() - 8.0f, 14.0f + 6.0f + textWidth);
+            const auto x = bounds.getCentreX() - group * 0.5f;
+            g.fillPath (IlanaIcons::make (icon, { x, bounds.getCentreY() - 7.0f, 14.0f, 14.0f }));
+            g.setFont (font);
+            g.drawText (text, juce::Rectangle<float> (x + 20.0f, bounds.getY(), group - 20.0f + 1.0f, bounds.getHeight()),
+                        juce::Justification::centredLeft, false);
         }
         else
         {
-            const auto side = juce::jmin (area.getWidth(), area.getHeight());
-            g.fillPath (IlanaIcons::make (icon, area.withSizeKeepingCentre (side, side)));
+            // The sheet's 14 px icon (15 for the dice and gear) in a 30 px key;
+            // the flat prev / next arrows take 14 in their 28 px segments.
+            const auto side = juce::jmin (bounds.getWidth(), bounds.getHeight(), (icon == IlanaIcons::Icon::Dice || icon == IlanaIcons::Icon::Gear) ? 15.0f : 14.0f);
+            g.fillPath (IlanaIcons::make (icon, bounds.withSizeKeepingCentre (side, side)));
         }
     }
 
 private:
     IlanaIcons::Icon icon;
     juce::String text;
-    bool emphasis = false;
+    bool emphasis = false, flat = false;
     std::optional<juce::Colour> iconColour;
+};
+
+// SCOPE, KEYBOARD and ? in the tab bar: a small ghost button (clear fill,
+// a thin rim, 6 px corners); lit with the accent while it is switched on.
+class GhostButton : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto on = getToggleState();
+
+        if (on)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.16f));
+            g.fillRoundedRectangle (bounds, 6.0f);
+        }
+        else if (isHighlighted || isDown)
+        {
+            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
+            g.fillRoundedRectangle (bounds, 6.0f);
+        }
+
+        g.setColour (on ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::line.brighter (isHighlighted ? 0.3f : 0.0f));
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f));
+        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+    }
+
+    // The width its text needs.
+    int getIdealWidth() const
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f)), getButtonText()) + 20;
+    }
 };
 
 // The preset name as the centrepiece of the header: an inset display with
@@ -285,55 +306,47 @@ public:
         }
     }
 
+    // The two 28 px segments at the ends hold the prev / next buttons (the
+    // editor lays them over this display); the live scope sits right of the
+    // name, faint.
+    static constexpr int arrowWidth = 28;
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
 
-        g.setColour (IlanaTheme::Ui::panel);
-        g.fillRoundedRectangle (bounds, 6.0f);
+        // (The field itself is painted by the editor, under the live wave.)
         g.setColour (hover ? IlanaTheme::accent().withAlpha (0.6f) : IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 10.0f, 1.0f);
 
         // A preset load flashes the field with a glow that fades out.
         if (flash > 0.01f)
         {
-            IlanaTheme::paintGlow (g, bounds.reduced (1.0f), 6.0f, IlanaTheme::accent(), 2.0f * flash);
+            IlanaTheme::paintGlow (g, bounds.reduced (1.0f), 10.0f, IlanaTheme::accent(), 2.0f * flash);
             g.setColour (IlanaTheme::accent().withAlpha (0.12f * flash));
-            g.fillRoundedRectangle (bounds, 6.0f);
+            g.fillRoundedRectangle (bounds, 10.0f);
             g.setColour (IlanaTheme::accent().withAlpha (0.7f * flash));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.2f);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 10.0f, 1.2f);
         }
 
-        auto text = getLocalBounds().reduced (12, 3);
+        // The rules between the arrows and the name.
+        g.setColour (IlanaTheme::Ui::line2);
+        g.fillRect (juce::Rectangle<float> ((float) arrowWidth, 1.0f, 1.0f, bounds.getHeight() - 1.0f));
+        g.fillRect (juce::Rectangle<float> ((float) (getWidth() - arrowWidth - 1), 1.0f, 1.0f, bounds.getHeight() - 1.0f));
 
-        // Browse chevron on the right.
-        const auto chevronArea = text.removeFromRight (14).toFloat();
-        juce::Path chevron;
-        chevron.startNewSubPath (chevronArea.getCentreX() - 4.0f, chevronArea.getCentreY() - 2.0f);
-        chevron.lineTo (chevronArea.getCentreX(), chevronArea.getCentreY() + 2.0f);
-        chevron.lineTo (chevronArea.getCentreX() + 4.0f, chevronArea.getCentreY() - 2.0f);
-        g.setColour (hover ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
-        g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        auto text = getLocalBounds().withTrimmedLeft (arrowWidth + 12).withTrimmedRight (arrowWidth + 8).reduced (0, 3);
 
         // Init's category is its own name: show it as the start-up label does.
         const auto categoryText = category.isNotEmpty() && ! category.equalsIgnoreCase ("Init") ? category.toUpperCase()
                                                                                                 : name.isEmpty() || name.equalsIgnoreCase ("Init") ? juce::String ("NEW PATCH") // (I14-7: not "PRESET" over Init)
                                                                                                                                                       : juce::String ("PRESET");
-        auto categoryRow = text.removeFromTop (12);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (notice.isNotEmpty() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
-        g.drawText (notice.isNotEmpty() ? notice : categoryText, categoryRow, juce::Justification::centredLeft);
-
-        if (isModified && notice.isEmpty())
-        {
-            const auto width = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), categoryText);
-            const auto dot = juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) categoryRow.getX() + width + 9.0f, (float) categoryRow.getCentreY() });
-            g.setColour (IlanaTheme::accent().withAlpha (0.3f));
-            g.fillEllipse (dot.expanded (2.5f));
-            g.setColour (IlanaTheme::accent());
-            g.fillEllipse (dot);
-            g.drawText ("EDITED", categoryRow.withTrimmedLeft ((int) (width + 16.0f)), juce::Justification::centredLeft);
-        }
+        // "BASS · EDITED": the category and the edited mark in the accent, one line.
+        auto categoryRow = text.removeFromTop (14);
+        // (The sheet's .nm i: 9 px bold, tracked 0.1 em, always in the accent.)
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.1f));
+        g.setColour (IlanaTheme::accent());
+        g.drawText (notice.isNotEmpty() ? notice : categoryText + (isModified ? juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 EDITED")) : juce::String()),
+                    categoryRow, juce::Justification::centredLeft);
 
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (nameSize, true));
@@ -362,7 +375,7 @@ public:
 private:
     // The preset name is the header's centrepiece: a size up from the type
     // scale's "large".
-    static constexpr float nameSize = 21.0f;
+    static constexpr float nameSize = 20.0f;
     juce::String name, category;
     bool isFavourite = false;
     bool isModified = false;
@@ -382,24 +395,39 @@ public:
 
     void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
     {
+        // The sheet's A / B (.ab): a hairline box of 8 px corners on the
+        // header's ink, the side playing filled with the accent edge to edge
+        // (dark letter), the other a t3 letter.
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
-        g.setColour (IlanaTheme::Ui::raised.brighter (isDown ? 0.12f : (isHighlighted ? 0.06f : 0.0f)));
-        g.fillRoundedRectangle (bounds, radius);
-        g.setColour (IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
-
+        const auto radius = 8.0f;
         const auto onB = getButtonText() == "B";
-        auto left = bounds.reduced (3.0f);
-        const auto right = left.removeFromRight (left.getWidth() * 0.5f);
-        const auto lit = onB ? right : left;
-        g.setColour (IlanaTheme::accent().withAlpha (0.85f));
-        g.fillRoundedRectangle (lit.reduced (1.0f, 0.0f), radius - 1.5f);
+        auto left = bounds;
+        const auto right = left.removeFromRight (bounds.getWidth() * 0.5f);
 
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        g.setColour (onB ? IlanaTheme::Ui::text2 : juce::Colours::white);
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (bounds, radius);
+            g.reduceClipRegion (clip);
+
+            if (isHighlighted || isDown)
+            {
+                g.setColour (juce::Colours::white.withAlpha (isDown ? 0.08f : 0.04f));
+                g.fillRect (onB ? left : right);
+            }
+
+            g.setColour (IlanaTheme::accent());
+            g.fillRect (onB ? right : left);
+        }
+
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
+
+        g.setFont (IlanaTheme::font (15.0f, true));
+        const auto dark = juce::Colour (0xff1a0b06);
+        g.setColour (onB ? IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, isHighlighted ? 0.5f : 0.0f) : dark);
         g.drawText ("A", left.toNearestInt(), juce::Justification::centred);
-        g.setColour (onB ? juce::Colours::white : IlanaTheme::Ui::text2);
+        g.setColour (onB ? dark : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, isHighlighted ? 0.5f : 0.0f));
         g.drawText ("B", right.toNearestInt(), juce::Justification::centred);
     }
 };

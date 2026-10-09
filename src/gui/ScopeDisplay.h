@@ -171,7 +171,7 @@ public:
         area.removeFromRight (10.0f);
 
         if (! hold)
-            processorRef.copyScopeData (scopeSamplesL.data(), scopeSamplesR.data(), fftSize);
+            processorRef.copyScopeDataSmooth (scopeSamplesL.data(), scopeSamplesR.data(), fftSize);
 
         auto peakL = 0.0f;
         auto peakR = 0.0f;

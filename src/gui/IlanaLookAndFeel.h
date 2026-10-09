@@ -5,6 +5,7 @@
 #include <BinaryData.h>
 
 #include <cmath>
+#include <map>
 #include <unordered_map>
 
 namespace IlanaTheme
@@ -16,6 +17,9 @@ inline juce::Colour& accentRef()
 }
 
 inline juce::Colour accent() { return accentRef(); }
+// The accent as text on an accent-tinted fill (the sheet's acc2): lighter,
+// in every skin's own hue.
+inline juce::Colour accentText() { return accentRef().interpolatedWith (juce::Colours::white, 0.2f); }
 
 inline const juce::uint32 palette[]
 {
@@ -29,25 +33,37 @@ inline constexpr int numPalettes = 4;
 // thing the eye goes to.
 namespace Ui
 {
-    inline const juce::Colour bg      { 0xff111215 }; // page
-    inline const juce::Colour header  { 0xff15171a }; // header strip
-    inline const juce::Colour panel   { 0xff181a1e }; // cards
-    inline const juce::Colour raised  { 0xff22252a }; // buttons, menus
-    inline const juce::Colour hover   { 0xff31363e }; // lighter than line, so hovers show
-    inline const juce::Colour well    { 0xff0e0f12 }; // displays
-    inline const juce::Colour line    { 0xff2a2e34 }; // borders
-    inline const juce::Colour track   { 0xff30343b }; // knob and slider tracks
-    inline const juce::Colour text    { 0xffe9eaed }; // values, titles
-    inline const juce::Colour text2   { 0xffa3a9b1 }; // labels
-    inline const juce::Colour text3   { 0xff7d838c }; // hints, disabled
+    // (The approved mockup's ladder, mock.css: ink0..ink5, line, line2, t1..t3.)
+    inline const juce::Colour bg      { 0xff0f1014 }; // page (ink 1)
+    inline const juce::Colour header  { 0xff0a0b0e }; // header strip and dock (ink 0)
+    inline const juce::Colour panel   { 0xff15171c }; // cards, header keys (ink 2)
+    inline const juce::Colour raised  { 0xff1c1f26 }; // controls: menus, pills, buttons, knob caps (ink 3)
+    inline const juce::Colour hover   { 0xff313642 }; // lighter than line, so hovers show (ink 5)
+    inline const juce::Colour well    { 0xff0a0b0e }; // displays (ink 0)
+    inline const juce::Colour line    { 0xff2a2e37 }; // borders
+    inline const juce::Colour line2   { 0xff20232a }; // hairlines inside a card (under its header)
+    inline const juce::Colour track   { 0xff262a33 }; // knob and slider tracks, a switch while off (ink 4)
+    inline const juce::Colour text    { 0xffeef0f4 }; // values, titles
+    inline const juce::Colour text2   { 0xffaab0bb }; // labels
+    inline const juce::Colour text3   { 0xff7a8190 }; // hints, disabled
+    inline const juce::Colour accent2 { 0xffff8a63 }; // the accent as text on a tinted fill
 }
 
 // The oscillators' identity colours: shown as a small tag, a card edge and a
 // waveform, never as the accent.
 inline juce::Colour oscColour (int index)
 {
-    static const juce::uint32 colours[] { 0xfff5c542, 0xff5b8cff, 0xff4fd1a5, 0xffb28aff, 0xffd9a070, 0xff48d4e8 };
+    static const juce::uint32 colours[] { 0xfff2b83d, 0xff5b8cff, 0xff3ecf9a, 0xffa47bff, 0xffe39a6b, 0xff3fc7e8 };
     return juce::Colour (colours[(size_t) juce::jlimit (0, 5, index)]);
+}
+
+// Whether a colour is one of the oscillators' (whatever its alpha).
+inline bool isOscIdentityColour (juce::Colour colour)
+{
+    for (int i = 0; i < 6; ++i)
+        if (oscColour (i).withAlpha (1.0f) == colour.withAlpha (1.0f))
+            return true;
+    return false;
 }
 
 // How opaque a control is while it does nothing (its section is off): dimmed,
@@ -63,7 +79,7 @@ inline constexpr float dimmedAlpha = 0.6f;
 namespace KnobSize
 {
     inline constexpr int main    = 48;
-    inline constexpr int small   = 40;
+    inline constexpr int compact = 40; // (not "small": a macro in rpcndr.h on Windows)
     inline constexpr int mini    = 36;
     inline constexpr int minimum = 28;
 }
@@ -162,13 +178,39 @@ inline juce::FontOptions font (float height, bool bold = false, bool tabular = f
         probe.under += deviceHeight < probe.limit - 0.01f ? 1 : 0;
     }
     const auto snapped = juce::jmax (1.0f, std::round (deviceHeight)) / scale;
-    const auto typeface = bold ? boldTypefaceRef()
-                               : (deviceHeight < 16.5f ? mediumTypefaceRef() : regularTypefaceRef());
+    // The mockup sets all text in Manrope 500 (medium) and 700 (bold), at every size.
+    const auto typeface = bold ? boldTypefaceRef() : mediumTypefaceRef();
 
     const auto options = juce::FontOptions().withHeight (snapped)
                                             .withStyle (bold ? "Bold" : "Regular")
                                             .withTypeface (typeface);
     return tabular ? options.withFeatureEnabled ("tnum") : options;
+}
+
+// The tallest a text of `height` units draws at any of the editor's zooms
+// (75 % to 200 %): font() snaps to whole device pixels and to the screen
+// floor, so at 75 % a 14.3 unit name is 14.67 units tall. A line laid out
+// for it holds it at every zoom (the layout doesn't change with the zoom).
+inline float tallestAtAnyZoom (float height)
+{
+    auto tallest = height;
+    for (const auto zoom : { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f })
+        tallest = juce::jmax (tallest, juce::jmax (1.0f, std::round (juce::jmax (height * zoom, TextSize::screenFloorPx))) / zoom);
+    return tallest;
+}
+
+// An inline knob's value text (the OSC cards, the voice strip): left-aligned
+// under the name, in the label size, so a cell of a dial and a few words holds
+// it. `on` false restores the usual centred value.
+inline void styleInlineValueBox (juce::Slider& slider, bool on)
+{
+    for (auto* child : slider.getChildren())
+        if (auto* box = dynamic_cast<juce::Label*> (child))
+        {
+            box->setJustificationType (on ? juce::Justification::centredLeft : juce::Justification::centred);
+            box->setBorderSize (on ? juce::BorderSize<int> (1, 0, 1, 1) : juce::BorderSize<int> (1, 1, 1, 1));
+            box->setFont (font (on ? TextSize::label : TextSize::body, false, true));
+        }
 }
 
 // The UI test's other probe (UI review 8, V8-12 / I8-25): while armed, every
@@ -426,19 +468,27 @@ inline void paintGlow (juce::Graphics& g, juce::Rectangle<float> bounds, float r
     }
 }
 
+// The component sheet's card (.cd): ink 2, a hairline, 10 px corners (a
+// small box keeps its own smaller ones); its family colour only as a 7 %
+// wash at the top that is gone by mid-card (.tint).
 inline void paintCard (juce::Graphics& g, juce::Rectangle<float> bounds, float radius, juce::Colour tint)
 {
+    if (bounds.getHeight() >= 40.0f && bounds.getWidth() >= 120.0f)
+        radius = juce::jmax (radius, 10.0f);
+
     g.setColour (Ui::panel);
     g.fillRoundedRectangle (bounds, radius);
 
-    g.setColour (Ui::line);
-    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
-
-    // The tint only as a faint wash along the top edge.
-    juce::ColourGradient wash (tint.withAlpha (0.05f), bounds.getX(), bounds.getY(),
-                               tint.withAlpha (0.0f), bounds.getX(), bounds.getY() + juce::jmin (60.0f, bounds.getHeight()), false);
+    // The family colour as the sheet's .tint: 7 % at the very top, gone by
+    // mid-card, so the colour reads as identity and the eye lands on the
+    // displays.
+    juce::ColourGradient wash (tint.withAlpha (isOscIdentityColour (tint) ? 0.07f : 0.05f), bounds.getX(), bounds.getY(),
+                               tint.withAlpha (0.0f), bounds.getX(), bounds.getY() + juce::jmin (90.0f, bounds.getHeight() * 0.55f), false);
     g.setGradientFill (wash);
-    g.fillRoundedRectangle (bounds.reduced (1.0f), radius);
+    g.fillRoundedRectangle (bounds.reduced (1.0f), radius - 1.0f);
+
+    g.setColour (Ui::line);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 }
 
 inline void paintRecessedPanel (juce::Graphics& g, juce::Rectangle<float> bounds, float radius)
@@ -449,12 +499,22 @@ inline void paintRecessedPanel (juce::Graphics& g, juce::Rectangle<float> bounds
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 }
 
+// The sheet's well (.well): ink 0, a line2 hairline, a 1 px black shadow
+// along its inner top edge.
 inline void paintWell (juce::Graphics& g, juce::Rectangle<float> bounds, float radius)
 {
     g.setColour (Ui::well);
     g.fillRoundedRectangle (bounds, radius);
-    g.setColour (Ui::line);
-    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        juce::Path clip;
+        clip.addRoundedRectangle (bounds.reduced (1.0f), juce::jmax (0.0f, radius - 1.0f));
+        g.reduceClipRegion (clip);
+        g.setColour (juce::Colours::black);
+        g.fillRect (bounds.reduced (1.0f).withHeight (1.0f));
+    }
+    g.setColour (Ui::line2);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), juce::jmax (0.0f, radius - 0.5f), 1.0f);
 }
 
 // Kept for callers that layered it over a well; the flat theme has no gloss.
@@ -463,29 +523,33 @@ inline void paintGlassOverlay (juce::Graphics&, juce::Rectangle<float>, float) {
 // A section's identity tag: a small glowing dot in its colour.
 inline void paintTag (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour)
 {
-    g.setColour (colour.withAlpha (0.22f));
-    g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (centre));
+    // (The sheet's .ch .dot: 8 px with a 3 px halo at 20 %.)
+    g.setColour (colour.withAlpha (0.2f));
+    g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre));
     g.setColour (colour);
-    g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre));
+    g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre));
 }
 
 // Whether a tab's switchable part is on (review 7, I7-37: one indicator on
 // every tab that names a switch, CardTabs and the FM operator pills): a lit
 // dot with a halo while on, a quiet ring while off.
-inline void paintOnDot (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, bool on)
+// `on` may be between 0 and 1 while it fades (fade()).
+inline void paintOnDot (juce::Graphics& g, juce::Point<float> centre, juce::Colour colour, float on)
 {
     const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre (centre);
+    on = juce::jlimit (0.0f, 1.0f, on);
 
-    if (on)
+    if (on > 0.0f)
     {
-        g.setColour (colour.withAlpha (0.3f));
+        g.setColour (colour.withAlpha (0.3f * on));
         g.fillEllipse (dot.expanded (2.5f));
-        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f));
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.15f).withMultipliedAlpha (on));
         g.fillEllipse (dot);
     }
-    else
+
+    if (on < 1.0f)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.28f));
+        g.setColour (juce::Colours::white.withAlpha (0.28f * (1.0f - on)));
         g.drawEllipse (dot.reduced (0.5f), 1.0f);
     }
 }
@@ -500,6 +564,12 @@ inline juce::String captionFragment (const juce::String& text)
     if (fragment.endsWithChar ('.') && ! fragment.endsWith (".."))
         fragment = fragment.dropLastCharacters (1);
 
+    // A role written in caps ("TO OUTPUT, MODULATES 1") reads as the sheet's
+    // lower-case caption ("to output, modulates 1").
+    if (fragment.length() > 6 && fragment.containsChar (' ') && fragment == fragment.toUpperCase()
+        && fragment.containsAnyOf ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        return fragment.toLowerCase();
+
     if (fragment.length() > 1 && juce::CharacterFunctions::isUpperCase (fragment[0])
         && juce::CharacterFunctions::isLowerCase (fragment[1]))
         fragment = fragment.substring (0, 1).toLowerCase() + fragment.substring (1);
@@ -507,10 +577,14 @@ inline juce::String captionFragment (const juce::String& text)
     return fragment;
 }
 
+// A card's title: the sheet's h4 (11 px at 800, tracked 0.08 em).
+inline juce::FontOptions cardTitleFont() { return font (15.0f, true).withKerningFactor (0.08f); }
+
 // Where a card title's subtitle can start: past the tag and the name.
 inline int cardTitleWidth (const juce::String& text)
 {
-    return juce::GlyphArrangement::getStringWidthInt (juce::Font (font (TextSize::body, true)), text) + 30;
+    // (The tag and its 8 px gap, the title, then 8 px before the caption: the sheet's .ch gap.)
+    return juce::GlyphArrangement::getStringWidthInt (juce::Font (cardTitleFont()), text) + 22;
 }
 
 // A card's title: its tag, then the name in the text colour. A card with no
@@ -520,11 +594,16 @@ inline bool hasFamilyColour (juce::Colour colour) { return colour.getSaturation(
 
 inline void paintCardTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& text, juce::Colour colour)
 {
-    if (hasFamilyColour (colour))
+    const auto tagged = hasFamilyColour (colour);
+
+    if (tagged)
         paintTag (g, { (float) header.getX() + 3.0f, (float) header.getCentreY() }, colour);
+
     g.setColour (Ui::text);
-    g.setFont (font (TextSize::body, true));
-    g.drawText (text, header.withTrimmedLeft (14), juce::Justification::centredLeft);
+    g.setFont (cardTitleFont());
+    // (A title never ends in an ellipsis: it shrinks to fit, as every other
+    // text does. A card with no tag starts at its own left edge.)
+    drawFitted (g, text, header.withTrimmedLeft (tagged ? 14 : 0), juce::Justification::centredLeft, 1, TextSize::minInteractive);
 }
 
 // A card's header, the same everywhere: tag, title, then a quiet subtitle
@@ -552,10 +631,11 @@ inline void paintCardHeader (juce::Graphics& g, juce::Rectangle<int> header, con
     if (subtitle.isEmpty())
         return;
 
-    auto area = header.withTrimmedLeft (cardTitleWidth (title)).withTrimmedRight (rightReserve); // 16 px after the title
+    // The sheet's .cap: 10.5 px in t3, 8 px after the title.
+    auto area = header.withTrimmedLeft (cardTitleWidth (title)).withTrimmedRight (rightReserve);
     g.setColour (Ui::text3);
-    g.setFont (font (TextSize::label));
-    g.drawText (fittedHint (captionFragment (subtitle), juce::Font (font (TextSize::label)), (float) area.getWidth()), area,
+    g.setFont (font (TextSize::body));
+    g.drawText (fittedHint (captionFragment (subtitle), juce::Font (font (TextSize::body)), (float) area.getWidth()), area,
                 juce::Justification::centredLeft, false);
 }
 
@@ -583,49 +663,121 @@ inline juce::Rectangle<int> cardSwitchBounds (juce::Rectangle<int> card, int tit
 
 // An on/off switch: a pill with a sliding knob. `amount` runs 0 (off) to 1
 // (on) so callers can animate it; the on state glows in `colour`.
+// The one animator for every small state change drawn in paint() (a
+// switch's slide, a pill's choice and hover, a segment's fill): eases a
+// value toward its target over time, keyed by the component and a channel,
+// and repaints the owner until it settles. A key not painted for two
+// seconds (a page just opened, a component at a reused address) starts
+// where it should be rather than sliding in from a stale state.
+// The rates match ToggleControl's own timer (30 % and 22 % a 60 Hz frame).
+namespace FadeRate
+{
+    inline constexpr float slide = 21.4f; // a switch's knob, a choice's fill
+    inline constexpr float hover = 14.9f; // a hover's tint
+}
+
+// The core, keyed by any address and a channel: the look-and-feel's own
+// hovers (animatedHover) run on it too. `fresh` false starts it at the target.
+inline float fadeValue (const void* key, int channel, float target, float rate, bool fresh, bool& moving)
+{
+    struct State { float value = 0.0f; double time = 0.0; };
+    static std::map<std::pair<const void*, int>, State> states;
+    static double lastSweep = 0.0;
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    moving = false;
+
+    if (states.size() > 4096 && now - lastSweep > 1000.0)
+    {
+        lastSweep = now;
+        for (auto it = states.begin(); it != states.end();)
+            it = now - it->second.time > 60000.0 ? states.erase (it) : std::next (it);
+    }
+
+    auto& state = states[{ key, channel }];
+
+    if (! fresh || state.time <= 0.0 || now - state.time > 2000.0)
+    {
+        state = { target, now };
+        return target;
+    }
+
+    const auto dt = juce::jlimit (0.0, 0.1, (now - state.time) * 0.001);
+    state.time = now;
+    state.value += (target - state.value) * (1.0f - std::exp (-(float) dt * rate));
+
+    if (std::abs (target - state.value) < 0.004f)
+        state.value = target;
+    else
+        moving = true;
+
+    return state.value;
+}
+
+inline float fade (juce::Component& owner, int channel, float target, float rate = FadeRate::slide)
+{
+    auto moving = false;
+    const auto value = fadeValue (&owner, channel, target, rate, owner.isShowing(), moving);
+
+    if (moving)
+        owner.repaint();
+
+    return value;
+}
+
 inline void paintSwitch (juce::Graphics& g, juce::Rectangle<float> area, float amount, juce::Colour colour, float hover = 0.0f)
 {
+    // The component sheet's switch (.tg): 32 x 18, ink 4 with a hairline
+    // while off, filled with its colour while on (no glow); a 12 px knob
+    // 3 px in, grey while off, white while on.
     const auto h = juce::jmin (area.getHeight(), 18.0f);
 
     if (h < 6.0f)
         return;
 
-    const auto w = h * 1.8f;
+    const auto w = h * 32.0f / 18.0f;
     const auto pill = juce::Rectangle<float> (w, h).withCentre (area.getCentre());
+    const auto fill = Ui::track.interpolatedWith (colour, amount).interpolatedWith (juce::Colours::white, 0.06f * hover);
 
-    if (amount > 0.01f)
-        paintGlow (g, pill, h * 0.5f, colour, amount * (0.8f + 0.4f * hover));
-
-    g.setColour (Ui::track.interpolatedWith (colour, amount).interpolatedWith (juce::Colours::white, 0.05f * hover));
+    g.setColour (fill);
     g.fillRoundedRectangle (pill, h * 0.5f);
+    g.setColour (Ui::line.interpolatedWith (colour, amount));
+    g.drawRoundedRectangle (pill.reduced (0.5f), h * 0.5f - 0.5f, 1.0f);
 
-    const auto knob = h - 4.0f;
-    const auto x = pill.getX() + 2.0f + (w - 4.0f - knob) * amount;
-    g.setColour (juce::Colour (0xffc9ccd1).interpolatedWith (juce::Colours::white, amount));
-    g.fillEllipse (x, pill.getY() + 2.0f, knob, knob);
+    const auto inset = h / 6.0f;
+    const auto knob = h - 2.0f * inset;
+    const auto x = pill.getX() + inset + (w - 2.0f * inset - knob) * amount;
+    g.setColour (juce::Colour (0xff98a0ad).interpolatedWith (juce::Colours::white, amount));
+    g.fillEllipse (x, pill.getY() + inset, knob, knob);
 }
 
 // A pill's text: clickable, so at the interactive floor.
-inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, true); }
+inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, true).withKerningFactor (0.06f); }
 
 // A choice pill: the one style for every small selector (F1 / F2, 12 / 24
 // dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
 // in its colour with a bright edge; the others are quiet.
 inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juce::String& text, juce::Colour colour,
-                       bool active, float hover = 0.0f, bool enabled = true)
+                       float active, float hover = 0.0f, bool enabled = true)
 {
+    // The component sheet's pill (.pill): ink 3 with a hairline and t2
+    // text; chosen, its colour at 22 % over ink 3, a 75 % edge and t1 text.
+    // `active` may be between 0 and 1 while a choice fades (fade()).
+    active = juce::jlimit (0.0f, 1.0f, active);
     const auto radius = pill.getHeight() * 0.5f;
-    g.setColour (active ? colour.withAlpha (0.22f) : juce::Colours::white.withAlpha (0.03f + 0.05f * hover));
+    g.setColour (Ui::raised.interpolatedWith (colour, 0.22f * active).interpolatedWith (Ui::hover, 0.5f * hover));
     g.fillRoundedRectangle (pill, radius);
 
-    g.setColour (active ? colour.withAlpha (0.8f) : juce::Colours::white.withAlpha (0.06f + 0.08f * hover));
-    g.drawRoundedRectangle (pill.reduced (0.5f), radius, 1.0f);
+    g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.4f * hover).interpolatedWith (colour.withAlpha (0.75f), active));
+    g.drawRoundedRectangle (pill.reduced (0.5f), radius - 0.5f, 1.0f);
 
-    g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f)
-                        : juce::Colours::white.withAlpha ((enabled ? 0.55f : 0.3f) + 0.3f * hover));
+    g.setColour (Ui::text2.withAlpha (enabled ? 1.0f : 0.5f).interpolatedWith (Ui::text, juce::jmax (active, 0.5f * hover)));
     g.setFont (pillFont());
     g.drawText (text, pill, juce::Justification::centred);
 }
+// A card header's "EDIT ›" link (the sheet's .lk): bold caps tracked 0.08 em
+// in the card's colour, text only.
+inline juce::FontOptions linkFont() { return font (TextSize::minInteractive, true).withKerningFactor (0.08f); }
+
 // Draws a TextButton as a choice pill in `colour` when chosen.
 inline void makePill (juce::Button& button, juce::Colour colour)
 {
@@ -639,11 +791,17 @@ inline void makePill (juce::Button& button, juce::Colour colour)
 class IlanaLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
+    // A select's text (the sheet's 11.5 px).
+    static constexpr float selectText = 15.5f;
+
+    // A button's corners: 8 px at 30 px high, 6 px at 24 (the sheet's .btn and .btn.sm).
+    static float buttonRadius (float height) { return juce::jlimit (3.0f, 8.0f, height * 0.26f); }
+
     IlanaLookAndFeel()
     {
         using namespace IlanaTheme;
 
-        regularTypeface = regularTypefaceRef();
+        regularTypeface = mediumTypefaceRef(); // (the mockup's body weight, 500)
         boldTypeface = boldTypefaceRef();
 
         if (regularTypeface != nullptr)
@@ -663,7 +821,7 @@ public:
         setColour (juce::ComboBox::textColourId, Ui::text);
         setColour (juce::ComboBox::arrowColourId, Ui::text3);
 
-        setColour (juce::PopupMenu::backgroundColourId, Ui::raised);
+        setColour (juce::PopupMenu::backgroundColourId, Ui::raised.withAlpha (0.995f)); // (not opaque: a see-through window keeps the round corners)
         setColour (juce::PopupMenu::textColourId, Ui::text);
         setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
         setColour (juce::PopupMenu::headerTextColourId, Ui::text2);
@@ -691,6 +849,33 @@ public:
         setColour (juce::TextEditor::backgroundColourId, Ui::well);
         setColour (juce::TextEditor::outlineColourId, Ui::line);
         setColour (juce::TextEditor::textColourId, Ui::text);
+        setColour (juce::TextEditor::highlightedTextColourId, Ui::text);
+        setColour (juce::TextEditor::shadowColourId, juce::Colours::transparentBlack);
+
+        // Dialogs (the sheet's .dlg): ink 2 with a hairline rim.
+        setColour (juce::AlertWindow::backgroundColourId, Ui::panel);
+        setColour (juce::AlertWindow::textColourId, Ui::text);
+        setColour (juce::AlertWindow::outlineColourId, Ui::line);
+
+        // Lists and JUCE's own file browser (used where no native chooser is).
+        setColour (juce::ListBox::backgroundColourId, Ui::well);
+        setColour (juce::ListBox::outlineColourId, Ui::line);
+        setColour (juce::ListBox::textColourId, Ui::text);
+        setColour (juce::DirectoryContentsDisplayComponent::textColourId, Ui::text);
+        setColour (juce::FileBrowserComponent::currentPathBoxBackgroundColourId, Ui::well);
+        setColour (juce::FileBrowserComponent::currentPathBoxTextColourId, Ui::text);
+        setColour (juce::FileBrowserComponent::currentPathBoxArrowColourId, Ui::text3);
+        setColour (juce::FileBrowserComponent::filenameBoxBackgroundColourId, Ui::well);
+        setColour (juce::FileBrowserComponent::filenameBoxTextColourId, Ui::text);
+        setColour (juce::FileChooserDialogBox::titleTextColourId, Ui::text);
+        setColour (juce::DocumentWindow::textColourId, Ui::text);
+
+        setColour (juce::ProgressBar::backgroundColourId, Ui::track);
+        setColour (juce::BubbleComponent::backgroundColourId, Ui::raised);
+        setColour (juce::BubbleComponent::outlineColourId, Ui::hover);
+        setColour (juce::ScrollBar::backgroundColourId, juce::Colours::transparentBlack);
+        setColour (juce::TreeView::backgroundColourId, Ui::well);
+        setColour (juce::TreeView::linesColourId, Ui::line);
 
         applyAccent();
     }
@@ -699,6 +884,20 @@ public:
     {
         IlanaTheme::accentRef() = colour;
         applyAccent();
+    }
+
+    // Everything that is clicked to act or choose shows the hand, as the
+    // custom pills, tabs and chips do: every button and menu box (a cursor
+    // a component sets itself is kept).
+    juce::MouseCursor getMouseCursorFor (juce::Component& component) override
+    {
+        const auto cursor = LookAndFeel_V4::getMouseCursorFor (component);
+
+        if (cursor == juce::MouseCursor::NormalCursor && component.isEnabled()
+            && (dynamic_cast<juce::Button*> (&component) != nullptr || dynamic_cast<juce::ComboBox*> (&component) != nullptr))
+            return juce::MouseCursor::PointingHandCursor;
+
+        return cursor;
     }
 
     juce::Typeface::Ptr getTypefaceForFont (const juce::Font& font) override
@@ -721,21 +920,27 @@ public:
     // neighbours); only shorter boxes go to the interactive floor.
     juce::Font getComboBoxFont (juce::ComboBox& box) override
     {
-        return juce::Font (IlanaTheme::font (box.getHeight() >= 18 ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::minInteractive));
+        // (The sheet's select text is 11.5 px: 15.7 units; boxes under 22 px keep the body size.)
+        return juce::Font (IlanaTheme::font (box.getHeight() >= 22 ? selectText : box.getHeight() >= 18 ? IlanaTheme::TextSize::body
+                                                                                                          : IlanaTheme::TextSize::minInteractive));
     }
 
     juce::Font getPopupMenuFont() override
     {
-        return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body));
+        return juce::Font (IlanaTheme::font (selectText)); // (the sheet's menu text: 11.5 px)
     }
 
     juce::Font getLabelFont (juce::Label& label) override
     {
         // Labels are built once, but painted at every zoom level, so re-run the
         // size through IlanaTheme::font to keep device pixels whole.
+        // A knob's value is always bold, as the component sheet's (.kv: 700).
         const auto& current = label.getFont();
-        return juce::Font (IlanaTheme::font (current.getHeight(), current.isBold(),
-                                             label.getProperties().contains ("tabular")));
+        const auto isValue = dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr;
+        // (The label's letter-spacing is kept: names are tracked caps.)
+        return juce::Font (IlanaTheme::font (current.getHeight(), current.isBold() || isValue,
+                                             label.getProperties().contains ("tabular"))
+                               .withKerningFactor (current.getExtraKerningFactor()));
     }
 
     juce::Font getTextButtonFont (juce::TextButton& button, int buttonHeight) override
@@ -746,9 +951,11 @@ public:
             return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, 22.0f, (float) buttonHeight * 0.95f)));
 
 
-        // Never under the interactive floor, however short the button.
-        return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, IlanaTheme::TextSize::body,
-                                                           (float) buttonHeight * 0.72f)));
+        // Never under the interactive floor, however short the button; bold
+        // and tracked 0.04 em, as the sheet's .btn (11 px at 30, 10 px at 24).
+        return juce::Font (IlanaTheme::font (juce::jlimit (IlanaTheme::TextSize::minInteractive, 15.0f,
+                                                           (float) buttonHeight * 0.5f), true)
+                               .withKerningFactor (0.04f));
     }
 
     juce::Label* createSliderTextBox (juce::Slider& slider) override
@@ -756,8 +963,34 @@ public:
         auto* label = LookAndFeel_V4::createSliderTextBox (slider);
         label->getProperties().set ("tabular", true); // a live value
         label->setBorderSize ({ 1, 1, 1, 1 });          // (the value keeps its room, and its unit's space: V10-8)
-        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
+        label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true, true)); // bold, as the mockup's values
+
+        if (slider.getProperties().getWithDefault ("inlineKnob", false))
+        {
+            label->setJustificationType (juce::Justification::centredLeft);
+            label->setBorderSize ({ 1, 0, 1, 1 });
+            label->setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true));
+        }
+
         return label;
+    }
+
+    // An inline knob (a dial with its name and value to the right): the dial
+    // a square at the left, the value under the middle line.
+    juce::Slider::SliderLayout getSliderLayout (juce::Slider& slider) override
+    {
+        if (slider.getProperties().getWithDefault ("inlineKnob", false))
+        {
+            const auto area = slider.getLocalBounds();
+            // (40, or the knob's own inline size: the FX rack's taller rows.)
+            const auto dial = juce::jmin (area.getHeight(), (int) slider.getProperties().getWithDefault ("inlineDial", 40));
+            juce::Slider::SliderLayout layout;
+            layout.sliderBounds = juce::Rectangle<int> (dial, dial).withCentre ({ dial / 2, area.getCentreY() });
+            layout.textBoxBounds = { dial + 3, area.getCentreY(), juce::jmax (0, area.getWidth() - dial - 3), 14 };
+            return layout;
+        }
+
+        return LookAndFeel_V4::getSliderLayout (slider);
     }
 
     void applyAccent()
@@ -772,31 +1005,36 @@ public:
         setColour (juce::TextEditor::focusedOutlineColourId, accent);
         setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.35f));
         setColour (juce::CaretComponent::caretColourId, accent);
+        setColour (juce::ProgressBar::foregroundColourId, accent);
+        setColour (juce::DirectoryContentsDisplayComponent::highlightColourId, accent.withAlpha (0.15f));
+        setColour (juce::DirectoryContentsDisplayComponent::highlightedTextColourId, IlanaTheme::accentText());
+        setColour (juce::TreeView::selectedItemBackgroundColourId, accent.withAlpha (0.15f));
+    }
+
+    // The tab bar of the shell mockup: bold caps in grey (white while chosen),
+    // no pill, a 2 px accent underline under the chosen tab.
+    static juce::FontOptions tabFont() { return IlanaTheme::font (15.0f, true).withKerningFactor (0.08f); } // (the sheet's 11 px tabs)
+
+    int getTabButtonBestWidth (juce::TabBarButton& button, int) override
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (tabFont()), button.getButtonText()) + 26;
     }
 
     void drawTabButton (juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool isMouseDown) override
     {
-        const auto bounds = button.getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+        const auto bounds = button.getLocalBounds().toFloat();
         const auto active = button.getToggleState();
         const auto hover = animatedHover (&button, isMouseOver || isMouseDown, 14.0f);
         const auto lit = animatedHover (reinterpret_cast<const char*> (&button) + 1, active, 10.0f);
 
-        if (hover > 0.01f && ! active)
-        {
-            g.setColour (IlanaTheme::Ui::hover.withAlpha (0.6f * hover));
-            g.fillRoundedRectangle (bounds, 5.0f);
-        }
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (lit, hover * 0.7f)));
+        g.setFont (tabFont());
+        g.drawText (button.getButtonText(), bounds.withTrimmedBottom (1.0f), juce::Justification::centred);
 
-        g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (lit, hover * 0.6f)));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, active));
-        g.drawText (button.getButtonText(), bounds, juce::Justification::centred);
-
-        // The underline grows out from the centre and glows.
         if (lit > 0.01f)
         {
-            const auto width = (bounds.getWidth() - 16.0f) * lit;
+            const auto width = (bounds.getWidth() - 20.0f) * lit;
             const auto bar = juce::Rectangle<float> (width, 2.0f).withCentre ({ bounds.getCentreX(), bounds.getBottom() - 1.0f });
-            IlanaTheme::paintGlow (g, bar, 1.0f, IlanaTheme::accent(), lit * 1.4f);
             g.setColour (IlanaTheme::accent());
             g.fillRoundedRectangle (bar, 1.0f);
         }
@@ -810,13 +1048,24 @@ public:
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool) override
     {
         const auto box = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ 13.0f, (float) button.getHeight() * 0.5f });
-        g.setColour (highlighted ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised);
+        // The hover and the tick's rim fade (the shared animator); a
+        // keyboard focus rings the box in the accent.
+        const auto hover = IlanaTheme::fade (button, 0, highlighted ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+        const auto ticked = IlanaTheme::fade (button, 1, button.getToggleState() ? 1.0f : 0.0f);
+        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (IlanaTheme::Ui::hover, hover));
         g.fillRoundedRectangle (box, 4.0f);
-        g.setColour (button.getToggleState() ? IlanaTheme::accent() : IlanaTheme::Ui::text3);
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::accent(), ticked).withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
         g.drawRoundedRectangle (box, 4.0f, 1.4f);
 
-        if (button.getToggleState())
+        if (button.hasKeyboardFocus (false))
         {
+            g.setColour (IlanaTheme::accent().withAlpha (0.5f));
+            g.drawRoundedRectangle (box.expanded (2.5f), 6.0f, 1.0f);
+        }
+
+        if (ticked > 0.01f)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (ticked));
             juce::Path tick;
             tick.startNewSubPath (box.getX() + 4.5f, box.getCentreY());
             tick.lineTo (box.getX() + 7.8f, box.getBottom() - 5.0f);
@@ -837,11 +1086,17 @@ public:
 
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
         const auto hover = animatedHover (&slider, slider.isMouseOver() || slider.isMouseButtonDown(), 12.0f);
-        const auto radius = juce::jlimit (14.0f, 30.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f);
+        // (An inline knob with rings caps its dial so a ring fits its cell: "dialRadiusCap".)
+        const auto radius = juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                                        juce::jlimit (14.0f, 30.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f));
         const auto centre = bounds.getCentre();
         const auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-        const auto lineWidth = juce::jmax (2.5f, radius * 0.13f);
-        const auto arcRadius = radius - lineWidth * 0.5f;
+        // The component sheet's knob (lib.js knobSvg): for a cell of s px the
+        // arc runs at s/2 - 5 with a 3 px stroke, the cap is a disc 4 px
+        // inside it, the pointer a 2 px white line from near the centre to
+        // 3 px short of the arc.
+        const auto arcRadius = radius - 1.0f;
+        const auto lineWidth = arcRadius >= 12.0f ? 3.0f : 2.5f;
         const auto enabled = slider.isEnabled();
 
         // Recent movement makes the arc flare, then settle.
@@ -878,8 +1133,11 @@ public:
             dimmed = c->getAlpha() < 0.99f;
         }
 
-        const auto accent = enabled && ! dimmed ? slider.findColour (juce::Slider::rotarySliderFillColourId)
-                                                : Ui::text3;
+        // (The sheet dims an idle knob as a whole, .kn.dim, its arc keeping
+        // its colour under the fade; only a disabled one goes grey.)
+        juce::ignoreUnused (dimmed);
+        const auto accent = enabled ? slider.findColour (juce::Slider::rotarySliderFillColourId)
+                                    : Ui::text3;
 
         // Bipolar parameters (pan, fine, bend...) fill from the centre.
         auto originPos = 0.0f;
@@ -889,49 +1147,36 @@ public:
 
         const auto originAngle = rotaryStartAngle + originPos * (rotaryEndAngle - rotaryStartAngle);
 
+        // The value arc: flat, in the family colour (no glow); it brightens
+        // for a moment while the user moves it.
         if (std::abs (sliderPos - originPos) > 0.001f)
         {
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                     juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
-
-            // Glow under the arc: brighter on hover and while it moves.
-            const auto glow = 0.10f + 0.10f * hover + 0.22f * flare;
-            g.setColour (accent.withAlpha (glow * 0.5f));
-            g.strokePath (valueArc, juce::PathStrokeType (lineWidth * 3.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (accent.withAlpha (glow));
-            g.strokePath (valueArc, juce::PathStrokeType (lineWidth * 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.25f * flare));
+            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
-        // Flat cap with a pointer line; a soft ring lights on hover.
-        const auto bodyRadius = arcRadius - lineWidth * 1.4f;
+        // The cap: ink 3 with a hairline rim, a touch lighter on hover.
+        const auto bodyRadius = arcRadius - 4.0f;
         const auto bodyBounds = juce::Rectangle<float> (bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre (centre);
 
-        g.setColour (Ui::raised.interpolatedWith (juce::Colours::white, 0.04f * hover));
+        g.setColour (Ui::raised.interpolatedWith (Ui::hover, 0.5f * hover));
         g.fillEllipse (bodyBounds);
-        g.setColour (Ui::line.interpolatedWith (accent, 0.45f * hover));
+        g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.4f * hover));
         g.drawEllipse (bodyBounds.reduced (0.5f), 1.0f);
 
+        // The pointer, from near the centre to 3 px short of the arc.
         const auto dir = juce::Point<float> (std::cos (angle - juce::MathConstants<float>::halfPi),
                                              std::sin (angle - juce::MathConstants<float>::halfPi));
-        const auto p1 = centre + dir * (bodyRadius * 0.28f);
-        const auto p2 = centre + dir * (bodyRadius * 0.86f);
+        const auto p1 = centre + dir * juce::jmax (4.0f, arcRadius - 11.0f);
+        const auto p2 = centre + dir * (arcRadius - 3.0f);
+        juce::Path pointer;
+        pointer.startNewSubPath (p1);
+        pointer.lineTo (p2);
         g.setColour (enabled ? Ui::text : Ui::text3);
-        g.drawLine ({ p1, p2 }, juce::jmax (1.8f, radius * 0.085f));
-
-        // The value's tip on the arc, drawn even at the origin so a knob at
-        // zero still reads as live.
-        {
-            const auto tip = centre + dir * arcRadius;
-            const auto atOrigin = std::abs (sliderPos - originPos) <= 0.001f;
-            g.setColour (accent.withAlpha ((atOrigin ? 0.12f : 0.22f) + 0.25f * flare));
-            g.fillEllipse (juce::Rectangle<float> (lineWidth * 3.6f, lineWidth * 3.6f).withCentre (tip));
-            g.setColour (atOrigin ? accent.withAlpha (0.7f) : accent.interpolatedWith (juce::Colours::white, 0.55f));
-            g.fillEllipse (juce::Rectangle<float> (lineWidth * 1.3f, lineWidth * 1.3f).withCentre (tip));
-        }
+        g.strokePath (pointer, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         if (flare > 0.01f || (hover > 0.01f && hover < 0.99f))
             slider.repaint(); // keep the flare and hover easing
@@ -951,7 +1196,7 @@ public:
         if (button.getProperties().contains ("pill"))
         {
             paintPill (g, bounds, button.getButtonText(), button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f),
-                       button.getToggleState(), hover, button.isEnabled());
+                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled());
             return;
         }
 
@@ -960,22 +1205,42 @@ public:
             // Switches without an animation driver just show their state.
             const auto amount = button.getProperties().contains ("switchAmount")
                                     ? (float) button.getProperties()["switchAmount"]
-                                    : (button.getToggleState() ? 1.0f : 0.0f);
-            // Centred in its space, under its name when it has one.
-            paintSwitch (g, bounds, amount, accent(), hover);
+                                    : fade (button, 1, button.getToggleState() ? 1.0f : 0.0f); // (one without its own driver slides by the shared animator)
+            // A group's own name draws the state: a dot, then the name in the
+            // family colour, dimmed while off (drawn here, on the switch that
+            // takes the click, so nothing sits over its text).
+            if (button.getProperties().contains ("groupName"))
+            {
+                const auto on = juce::jlimit (0.0f, 1.0f, amount); // (fades as the switch slides)
+                const auto area = button.getLocalBounds().toFloat();
+                const auto groupColour = juce::Colour ((juce::uint32) (int) button.getProperties()["groupColour"]);
+                IlanaTheme::paintOnDot (g, { area.getX() + 4.0f, area.getCentreY() }, groupColour, on);
+                g.setColour (groupColour.withAlpha (0.55f + 0.35f * on));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (13),
+                                        juce::Justification::centredLeft, 1);
+                return;
+            }
+
+            // Centred in its space, under its name when it has one; in the
+            // owner's colour when it has one (an oscillator's).
+            const auto colour = button.getProperties().contains ("switchColour")
+                                    ? juce::Colour ((juce::uint32) (int) button.getProperties()["switchColour"])
+                                    : accent();
+            paintSwitch (g, bounds, amount, colour, hover);
             return;
         }
 
-        const auto on = button.getToggleState();
+        // The component sheet's button (.btn): ink 3 with a hairline, 8 px
+        // corners at 30 px and 6 px at 24 (.sm). Lit, its colour at 22 % over
+        // ink 3 with a 75 % edge, never a solid block.
+        // (Lit and unlit fade into each other: the shared animator.)
+        const auto on = fade (button, 2, button.getToggleState() ? 1.0f : 0.0f);
         const auto onColour = button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f);
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        const auto radius = buttonRadius (bounds.getHeight());
 
-        if (on && button.isEnabled())
-            paintGlow (g, bounds, radius, onColour, 0.7f + 0.5f * hover);
-
-        // Lit buttons are a tinted fill with a bright edge; others are flat.
-        auto fill = on ? Ui::raised.interpolatedWith (onColour, 0.28f) : backgroundColour;
-        fill = fill.interpolatedWith (juce::Colours::white, hover * 0.06f);
+        auto fill = backgroundColour.interpolatedWith (Ui::raised.interpolatedWith (onColour, 0.22f), on);
+        fill = fill.interpolatedWith (Ui::hover, hover * 0.5f);
 
         if (shouldDrawButtonAsDown)
             fill = fill.darker (0.2f);
@@ -983,9 +1248,8 @@ public:
         g.setColour (fill);
         g.fillRoundedRectangle (bounds, radius);
 
-        g.setColour (on ? onColour.withAlpha (0.75f)
-                        : Ui::line.interpolatedWith (accent(), 0.5f * hover));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.45f * hover).interpolatedWith (onColour.withAlpha (0.75f), on));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& button, bool highlighted, bool down) override
@@ -998,8 +1262,7 @@ public:
 
         if (button.getToggleState() && button.isEnabled())
         {
-            const auto onColour = button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f);
-            g.setColour (onColour.interpolatedWith (juce::Colours::white, 0.55f));
+            g.setColour (IlanaTheme::Ui::text);
             IlanaTheme::drawFitted (g, button.getButtonText(), button.getLocalBounds().reduced (4, 2),
                                     juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
             return;
@@ -1029,28 +1292,29 @@ public:
 
         if (hover > 0.01f && hover < 0.99f)
             box.repaint();
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        // The component sheet's select (.sel): ink 3, a hairline, 7 px
+        // corners, a small t3 chevron 8 px in from the right.
+        const auto radius = juce::jmin (7.0f, bounds.getHeight() * 0.27f);
 
-        g.setColour (box.findColour (juce::ComboBox::backgroundColourId).interpolatedWith (juce::Colours::white, 0.05f * hover));
+        g.setColour (box.findColour (juce::ComboBox::backgroundColourId).interpolatedWith (Ui::hover, 0.45f * hover));
         g.fillRoundedRectangle (bounds, radius);
-        g.setColour (box.findColour (juce::ComboBox::outlineColourId).interpolatedWith (accent(), 0.6f * hover));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        g.setColour (box.findColour (juce::ComboBox::outlineColourId).interpolatedWith (Ui::text3, 0.45f * hover));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 
-        // A small chevron, turning accent on hover.
         const auto size = juce::jmin (7.0f, (float) height * 0.28f);
-        const auto c = juce::Point<float> ((float) width - 11.0f, (float) height * 0.5f);
+        const auto c = juce::Point<float> ((float) width - 11.5f, (float) height * 0.5f);
         juce::Path chevron;
-        chevron.startNewSubPath (c.x - size * 0.6f, c.y - size * 0.3f);
-        chevron.lineTo (c.x, c.y + size * 0.3f);
-        chevron.lineTo (c.x + size * 0.6f, c.y - size * 0.3f);
-        g.setColour (box.findColour (juce::ComboBox::arrowColourId).interpolatedWith (accent(), hover)
+        chevron.startNewSubPath (c.x - size * 0.5f, c.y - size * 0.25f);
+        chevron.lineTo (c.x, c.y + size * 0.25f);
+        chevron.lineTo (c.x + size * 0.5f, c.y - size * 0.25f);
+        g.setColour (box.findColour (juce::ComboBox::arrowColourId).interpolatedWith (Ui::text, 0.6f * hover)
                         .withMultipliedAlpha (box.isEnabled() ? 1.0f : 0.5f));
-        g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
     {
-        label.setBounds (1, 1, box.getWidth() - 20, box.getHeight() - 2);
+        label.setBounds (4, 1, box.getWidth() - 23, box.getHeight() - 2); // (the sheet's 10 px of padding: 4 here, 6 the label's own)
         label.setFont (getComboBoxFont (box));
     }
 
@@ -1102,11 +1366,391 @@ public:
         }
     }
 
+    // The component sheet's menu (.menu): ink 3 with an ink 5 rim, 10 px
+    // corners and 5 px of padding; 26 px rows whose highlight (mouse or
+    // keys) is a rounded accent tint with its text in the light accent;
+    // section names in small tracked t3 caps; hairline separators; ticks
+    // in the accent. Every menu draws through here: the editor makes this
+    // look the process default while it is open (DefaultLookAndFeelScope),
+    // as a menu shown on the desktop never asks its target for one.
+    static constexpr int menuBorder = 5;
+    static constexpr int menuRowHeight = 26;
+    static constexpr int menuSeparatorHeight = 9;
+    static constexpr int menuSectionHeight = 27;
+    static constexpr float menuRadius = 10.0f;
+
+    static juce::Font menuSectionFont()
+    {
+        return juce::Font (IlanaTheme::font (13.0f, true).withKerningFactor (0.1f)); // (the sheet's 9.5 px, 800)
+    }
+
+    int getPopupMenuBorderSize() override { return menuBorder; }
+
+    void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
+                                    int& idealWidth, int& idealHeight) override
+    {
+        if (isSeparator)
+        {
+            idealWidth = 50;
+            idealHeight = menuSeparatorHeight;
+            return;
+        }
+
+        // A combo's menu asks for rows its box's height; the sheet's rows
+        // are 26 px whatever opened them.
+        idealHeight = juce::jmax (menuRowHeight, standardMenuItemHeight);
+        // 10 px padding, the tick column and its gap, the text, then room
+        // for a submenu's chevron and the right padding.
+        idealWidth = juce::GlyphArrangement::getStringWidthInt (getPopupMenuFont(), text) + 10 + 18 + 32;
+    }
+
+    void getIdealPopupMenuSectionHeaderSizeWithOptions (const juce::String& text, int, int& idealWidth, int& idealHeight,
+                                                        const juce::PopupMenu::Options&) override
+    {
+        idealHeight = menuSectionHeight;
+        idealWidth = juce::GlyphArrangement::getStringWidthInt (menuSectionFont(), text.toUpperCase()) + 24;
+    }
+
     void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
     {
-        g.fillAll (IlanaTheme::Ui::raised);
-        g.setColour (IlanaTheme::Ui::line);
-        g.drawRect (0, 0, width, height, 1);
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+
+        // Where the window can't be see-through its corners are filled
+        // in the darkest ink, as the menu's shadow.
+        if (! juce::Desktop::canUseSemiTransparentWindows())
+            g.fillAll (IlanaTheme::Ui::header);
+
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (bounds, menuRadius);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), menuRadius - 0.5f, 1.0f);
+    }
+
+    void drawPopupMenuUpDownArrow (juce::Graphics& g, int width, int height, bool isScrollUpArrow) override
+    {
+        using namespace IlanaTheme;
+        g.setGradientFill (juce::ColourGradient (Ui::raised, 0.0f, (float) height * 0.5f,
+                                                 Ui::raised.withAlpha (0.0f), 0.0f, isScrollUpArrow ? (float) height : 0.0f, false));
+        g.fillRect (1, 1, width - 2, height - 2);
+
+        const auto cx = (float) width * 0.5f;
+        const auto cy = (float) height * 0.5f;
+        const auto dy = isScrollUpArrow ? -2.0f : 2.0f;
+        juce::Path chevron;
+        chevron.startNewSubPath (cx - 4.0f, cy - dy);
+        chevron.lineTo (cx, cy + dy);
+        chevron.lineTo (cx + 4.0f, cy - dy);
+        g.setColour (Ui::text3);
+        g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
+                            bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
+                            const juce::String& shortcutKeyText, const juce::Drawable* icon, const juce::Colour* textColour) override
+    {
+        using namespace IlanaTheme;
+
+        if (isSeparator)
+        {
+            g.setColour (Ui::line);
+            g.fillRect (area.withSizeKeepingCentre (area.getWidth(), 1));
+            return;
+        }
+
+        const auto row = area.toFloat();
+        const auto lit = isHighlighted && isActive;
+
+        if (lit)
+        {
+            g.setColour (accent().withAlpha (0.15f));
+            g.fillRoundedRectangle (row, 6.0f);
+        }
+
+        auto colour = textColour != nullptr ? *textColour : Ui::text;
+        if (lit)
+            colour = accentText();
+        if (! isActive)
+            colour = Ui::text3;
+
+        auto r = area.reduced (10, 0);
+        auto shown = getPopupMenuFont();
+        shown = shown.withHeight (juce::jmin (shown.getHeight(), (float) area.getHeight() / 1.3f));
+
+        // The tick column, then an 8 px gap.
+        const auto tickArea = r.removeFromLeft (10).toFloat();
+        r.removeFromLeft (8);
+
+        if (icon != nullptr)
+        {
+            icon->drawWithin (g, tickArea.withSizeKeepingCentre (12.0f, 12.0f),
+                              juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize, 1.0f);
+        }
+        else if (isTicked)
+        {
+            const auto box = tickArea.withSizeKeepingCentre (9.0f, 8.0f);
+            juce::Path tick;
+            tick.startNewSubPath (box.getX(), box.getCentreY());
+            tick.lineTo (box.getX() + box.getWidth() * 0.38f, box.getBottom());
+            tick.lineTo (box.getRight(), box.getY());
+            g.setColour (isActive ? accent() : Ui::text3);
+            g.strokePath (tick, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        if (hasSubMenu)
+        {
+            // A chevron, as the sheet's "›".
+            const auto arrowArea = r.removeFromRight (10).toFloat();
+            const auto x = arrowArea.getCentreX() - 1.5f;
+            const auto cy = arrowArea.getCentreY();
+            juce::Path arrow;
+            arrow.startNewSubPath (x, cy - 3.5f);
+            arrow.lineTo (x + 3.5f, cy);
+            arrow.lineTo (x, cy + 3.5f);
+            g.setColour (lit ? accentText() : Ui::text3);
+            g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            r.removeFromRight (6);
+        }
+
+        if (shortcutKeyText.isNotEmpty())
+        {
+            const auto keyFont = shown.withHeight (shown.getHeight() * 0.88f);
+            const auto keyWidth = juce::GlyphArrangement::getStringWidthInt (keyFont, shortcutKeyText) + 2;
+            g.setColour (Ui::text3);
+            g.setFont (keyFont);
+            g.drawText (shortcutKeyText, r.removeFromRight (keyWidth), juce::Justification::centredRight, false);
+            r.removeFromRight (12);
+        }
+
+        g.setColour (colour);
+        g.setFont (shown);
+        IlanaTheme::drawFitted (g, text, r, juce::Justification::centredLeft, 1);
+    }
+
+    void drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& sectionName) override
+    {
+        g.setFont (menuSectionFont());
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText (sectionName.toUpperCase(), area.reduced (10, 0).withTrimmedTop (8).withTrimmedBottom (4),
+                    juce::Justification::centredLeft, true);
+    }
+
+    //==============================================================================
+    // Tooltips: a small menu-like card (ink 3, ink 5 rim, 7 px corners)
+    // with body text, wrapped at about 340 px.
+    static juce::TextLayout tooltipLayout (const juce::String& text, juce::Colour colour)
+    {
+        juce::AttributedString s;
+        s.setJustification (juce::Justification::centredLeft);
+        s.setLineSpacing (1.0f);
+        s.append (text.trim(), juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)), colour);
+        juce::TextLayout layout;
+        layout.createLayoutWithBalancedLineLengths (s, 340.0f);
+        return layout;
+    }
+
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override
+    {
+        const auto layout = tooltipLayout (tipText, IlanaTheme::Ui::text);
+        const auto w = (int) std::ceil (layout.getWidth()) + 22;
+        const auto h = (int) std::ceil (layout.getHeight()) + 14;
+
+        return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                     screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6,
+                                     w, h)
+            .constrainedWithin (parentArea);
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height) override
+    {
+        using namespace IlanaTheme;
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+        g.setColour (Ui::raised);
+        g.fillRoundedRectangle (bounds, 7.0f);
+        g.setColour (Ui::hover);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.5f, 1.0f);
+        tooltipLayout (text, Ui::text).draw (g, bounds.reduced (11.0f, 7.0f));
+    }
+
+    //==============================================================================
+    // Dialogs (the sheet's .dlg): ink 2, 14 px corners, the accent's rim
+    // as the save dialog's; a small tinted badge in place of JUCE's icons.
+    int getAlertWindowButtonHeight() override { return 32; }
+    juce::Font getAlertWindowTitleFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::display, true)); }
+    juce::Font getAlertWindowMessageFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::title)); }
+    juce::Font getAlertWindowFont() override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body)); }
+
+    void drawAlertBox (juce::Graphics& g, juce::AlertWindow& alert, const juce::Rectangle<int>& textArea, juce::TextLayout& textLayout) override
+    {
+        using namespace IlanaTheme;
+        juce::ignoreUnused (textArea);
+        const auto bounds = alert.getLocalBounds().toFloat();
+
+        if (alert.isOpaque())
+            g.fillAll (Ui::header);
+
+        g.setColour (Ui::panel);
+        g.fillRoundedRectangle (bounds, 14.0f);
+        g.setColour (accent().withAlpha (0.5f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 13.5f, 1.0f);
+
+        auto iconSpace = 0;
+
+        if (alert.getAlertType() != juce::MessageBoxIconType::NoIcon)
+        {
+            const auto warning = alert.getAlertType() == juce::MessageBoxIconType::WarningIcon;
+            const auto tone = warning ? accent() : Ui::text2;
+            const auto badge = juce::Rectangle<float> (26.0f, 30.0f, 34.0f, 34.0f);
+            g.setColour (tone.withAlpha (0.16f));
+            g.fillEllipse (badge);
+            g.setColour (tone.withAlpha (0.6f));
+            g.drawEllipse (badge.reduced (0.5f), 1.0f);
+            g.setColour (tone);
+            g.setFont (font (TextSize::large, true));
+            g.drawText (warning ? "!" : alert.getAlertType() == juce::MessageBoxIconType::InfoIcon ? "i" : "?",
+                        badge, juce::Justification::centred, false);
+            iconSpace = 80;
+        }
+
+        const juce::Rectangle<int> textBounds (1 + iconSpace, 30, alert.getWidth() - 2,
+                                               alert.getHeight() - getAlertWindowButtonHeight() - 20);
+        textLayout.draw (g, textBounds.toFloat());
+    }
+
+    //==============================================================================
+    // Call-out boxes: the menu's card on a soft shadow.
+    void drawCallOutBoxBackground (juce::CallOutBox& box, juce::Graphics& g, const juce::Path& path, juce::Image& cachedImage) override
+    {
+        if (cachedImage.isNull())
+        {
+            cachedImage = { juce::Image::ARGB, box.getWidth(), box.getHeight(), true };
+            juce::Graphics g2 (cachedImage);
+            juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 14, { 0, 6 }).drawForPath (g2, path);
+        }
+
+        g.setColour (juce::Colours::black);
+        g.drawImageAt (cachedImage, 0, 0);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillPath (path);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.strokePath (path, juce::PathStrokeType (1.0f));
+    }
+
+    float getCallOutBoxCornerSize (const juce::CallOutBox&) override { return menuRadius; }
+
+    //==============================================================================
+    // A slider's value bubble: the tooltip's card with bold body text.
+    void drawBubble (juce::Graphics& g, juce::BubbleComponent&, const juce::Point<float>&, const juce::Rectangle<float>& body) override
+    {
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (body, 6.0f);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.drawRoundedRectangle (body.reduced (0.5f), 5.5f, 1.0f);
+    }
+
+    juce::Font getSliderPopupFont (juce::Slider&) override { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)); }
+
+    //==============================================================================
+    // Progress: the slider's 3 px-style track, rounded, filled in the accent.
+    void drawProgressBar (juce::Graphics& g, juce::ProgressBar& bar, int width, int height, double progress, const juce::String& textToShow) override
+    {
+        using namespace IlanaTheme;
+        const auto track = juce::Rectangle<float> ((float) width, (float) height).withSizeKeepingCentre ((float) width, juce::jmin ((float) height, 6.0f));
+        g.setColour (bar.findColour (juce::ProgressBar::backgroundColourId));
+        g.fillRoundedRectangle (track, track.getHeight() * 0.5f);
+
+        if (progress >= 0.0 && progress <= 1.0)
+        {
+            g.setColour (bar.findColour (juce::ProgressBar::foregroundColourId));
+            g.fillRoundedRectangle (track.withWidth (track.getWidth() * (float) progress), track.getHeight() * 0.5f);
+        }
+        else
+        {
+            // Unknown progress: a sliding third of the track.
+            const auto phase = (float) std::fmod (juce::Time::getMillisecondCounterHiRes() * 0.0008, 1.0);
+            const auto seg = track.withWidth (track.getWidth() / 3.0f).withX (track.getX() + (track.getWidth() * 4.0f / 3.0f) * phase - track.getWidth() / 3.0f);
+            g.setColour (bar.findColour (juce::ProgressBar::foregroundColourId));
+            g.fillRoundedRectangle (seg.getIntersection (track), track.getHeight() * 0.5f);
+        }
+
+        if (textToShow.isNotEmpty() && height >= 14)
+        {
+            g.setColour (Ui::text);
+            g.setFont (font (TextSize::label, true));
+            g.drawText (textToShow, 0, 0, width, height, juce::Justification::centred, false);
+        }
+    }
+
+    //==============================================================================
+    // Text fields (the sheet's .inp): a well with 8 px corners and a
+    // hairline rim, the accent's rim while typing; selection in the
+    // accent at 35 %, the caret in the accent.
+    static float textFieldRadius (int height) { return juce::jmin (8.0f, (float) height * 0.27f); }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        const auto fill = editor.findColour (juce::TextEditor::backgroundColourId);
+
+        if (dynamic_cast<juce::ComboBox*> (editor.getParentComponent()) != nullptr || fill.isTransparent())
+        {
+            g.fillAll (fill);
+            return;
+        }
+
+        g.setColour (fill);
+        g.fillRoundedRectangle (juce::Rectangle<float> ((float) width, (float) height), textFieldRadius (height));
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        if (dynamic_cast<juce::ComboBox*> (editor.getParentComponent()) != nullptr)
+            return;
+
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+        const auto radius = textFieldRadius (height);
+        const auto typing = editor.isEnabled() && editor.hasKeyboardFocus (true) && ! editor.isReadOnly();
+        auto rim = editor.findColour (typing ? juce::TextEditor::focusedOutlineColourId : juce::TextEditor::outlineColourId);
+
+        if (rim.isTransparent())
+            return;
+
+        if (! editor.isEnabled())
+            rim = rim.withMultipliedAlpha (0.5f);
+
+        g.setColour (rim);
+        g.drawRoundedRectangle (bounds.reduced (typing ? 0.75f : 0.5f), radius, typing ? 1.5f : 1.0f);
+    }
+
+    //==============================================================================
+    // JUCE's own file browser rows (only where no native chooser exists).
+    void drawFileBrowserRow (juce::Graphics& g, int width, int height, const juce::File&, const juce::String& filename, juce::Image* icon,
+                             const juce::String& fileSizeDescription, const juce::String& fileTimeDescription,
+                             bool isDirectory, bool isItemSelected, int, juce::DirectoryContentsDisplayComponent& dcc) override
+    {
+        using namespace IlanaTheme;
+        auto row = juce::Rectangle<int> (width, height);
+
+        if (isItemSelected)
+        {
+            g.setColour (accent().withAlpha (0.15f));
+            g.fillRoundedRectangle (row.reduced (2, 1).toFloat(), 6.0f);
+        }
+
+        juce::ignoreUnused (icon, dcc);
+        row.removeFromLeft (10);
+        g.setColour (isDirectory ? Ui::text3 : (isItemSelected ? accent() : Ui::text3).withAlpha (0.8f));
+        g.fillEllipse (row.removeFromLeft (6).toFloat().withSizeKeepingCentre (6.0f, 6.0f));
+        row.removeFromLeft (8);
+
+        g.setFont (font (TextSize::body));
+        g.setColour (isItemSelected ? accentText() : Ui::text);
+        const auto details = width > 450 && ! isDirectory;
+        g.drawFittedText (filename, details ? row.withWidth (row.getWidth() * 3 / 5) : row, juce::Justification::centredLeft, 1);
+
+        if (details)
+        {
+            g.setColour (Ui::text3);
+            g.drawText (fileSizeDescription + "   " + fileTimeDescription, row, juce::Justification::centredRight, true);
+        }
     }
 
     void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height,
@@ -1131,7 +1775,9 @@ public:
             return;
         }
 
-        const auto trackHeight = 4.0f;
+        // The component sheet's slider (.ssl): a 3 px ink 4 track, the fill
+        // in its colour (no glow), an 11 px white thumb ringed in the card's ink.
+        const auto trackHeight = 3.0f;
         const auto centreY = (float) y + (float) height * 0.5f;
         const juce::Rectangle<float> track ((float) x, centreY - trackHeight * 0.5f, (float) width, trackHeight);
 
@@ -1151,16 +1797,15 @@ public:
 
         if (fill.getWidth() > 0.5f)
         {
-            IlanaTheme::paintGlow (g, fill, trackHeight * 0.5f, accent, 0.8f + 0.6f * hover);
             g.setColour (accent);
             g.fillRoundedRectangle (fill, trackHeight * 0.5f);
         }
 
         const auto thumbX = juce::jlimit ((float) x, (float) (x + width), sliderPos);
         const auto thumb = juce::Rectangle<float> (11.0f + 2.0f * hover, 11.0f + 2.0f * hover).withCentre ({ thumbX, centreY });
-        g.setColour (accent.withAlpha (0.25f * hover));
-        g.fillEllipse (thumb.expanded (4.0f));
-        g.setColour (juce::Colours::white.withAlpha (0.95f));
+        g.setColour (IlanaTheme::Ui::panel);
+        g.fillEllipse (thumb.expanded (2.0f));
+        g.setColour (juce::Colours::white);
         g.fillEllipse (thumb);
 
         if (hover > 0.01f && hover < 0.99f)
@@ -1168,47 +1813,12 @@ public:
     }
 
 private:
-    struct HoverState
-    {
-        float value = 0.0f;
-        double lastTime = 0.0;
-    };
-
-    static std::unordered_map<const void*, HoverState>& hoverStates()
-    {
-        static std::unordered_map<const void*, HoverState> states;
-        return states;
-    }
-
+    // A hover's ease for what the look-and-feel draws, on the shared
+    // animator (IlanaTheme::fadeValue); the caller repaints while it moves.
     float animatedHover (const void* key, bool isOver, float rate)
     {
-        auto& states = hoverStates();
-        const auto now = juce::Time::getMillisecondCounterHiRes();
-
-        // Keyed by component address and never told when one is deleted:
-        // drop entries not painted for a minute once there are many, so the
-        // map doesn't grow with every editor opened.
-        static double lastSweep = 0.0;
-
-        if (states.size() > 2048 && now - lastSweep > 1000.0)
-        {
-            lastSweep = now;
-            for (auto it = states.begin(); it != states.end();)
-                it = now - it->second.lastTime > 60000.0 ? states.erase (it) : std::next (it);
-        }
-
-        auto& state = states[key];
-        // Not painted for seconds (or a new component at a reused address):
-        // start from where it should be rather than from a stale glow.
-        if (state.lastTime > 0.0 && now - state.lastTime > 2000.0)
-            state.value = isOver ? 1.0f : 0.0f;
-        const auto dt = state.lastTime > 0.0 ? juce::jlimit (0.0, 0.1, (now - state.lastTime) * 0.001) : 0.016;
-        state.lastTime = now;
-
-        const auto target = isOver ? 1.0f : 0.0f;
-        state.value += (target - state.value) * juce::jlimit (0.0f, 1.0f, (float) (dt * (double) rate));
-
-        return state.value;
+        auto moving = false;
+        return IlanaTheme::fadeValue (key, -1, isOver ? 1.0f : 0.0f, rate, true, moving);
     }
 
     // 1 just after the user moves a knob, easing back to 0 over about half a
@@ -1245,4 +1855,44 @@ private:
 
     juce::Typeface::Ptr regularTypeface;
     juce::Typeface::Ptr boldTypeface;
+};
+
+// Makes one shared IlanaLookAndFeel the process's default while any editor
+// is open. A PopupMenu shown on the desktop (a knob's right-click menu, its
+// submenus, the header's and the dock's menus), an AlertWindow with no
+// owner and JUCE's own file browser never ask their target component for
+// a look: they use the default, which was JUCE's stock V4 grey (ilana's
+// Windows screenshots). The last editor to close hands the default back.
+class DefaultLookAndFeelScope
+{
+public:
+    DefaultLookAndFeelScope()
+    {
+        ++openScopes();
+        juce::LookAndFeel::setDefaultLookAndFeel (&shared.get());
+    }
+
+    ~DefaultLookAndFeelScope()
+    {
+        if (--openScopes() == 0 && &juce::LookAndFeel::getDefaultLookAndFeel() == &shared.get())
+        {
+            // Nothing may keep drawing with it once it's gone.
+            juce::PopupMenu::dismissAllActiveMenus();
+            juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        }
+    }
+
+    IlanaLookAndFeel& get() { return shared.get(); }
+
+private:
+    // (Counted here, on the message thread, as editors open and close.)
+    static int& openScopes()
+    {
+        static int count = 0;
+        return count;
+    }
+
+    juce::SharedResourcePointer<IlanaLookAndFeel> shared;
+
+    JUCE_DECLARE_NON_COPYABLE (DefaultLookAndFeelScope)
 };

@@ -55,6 +55,10 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
+    // Tests: keep the effects running through silence (no rack sleep).
+    inline static bool disableFxSleep = false;
+    // Tests: -1 follows MULTI-CORE, 0 one core, 1 several.
+    inline static int forceVoiceThreads = -1;
     static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
 
     EqSettings getEqSettings() const;
@@ -79,6 +83,12 @@ public:
     // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
     void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze[0].getBands (out); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    // What a slot did to the signal in the last blocks: its input and output
+    // levels (RMS, linear, smoothed), both 0 while the slot is empty or
+    // bypassed. A reading for the rack's signal rail only; it never touches
+    // the audio.
+    float getFxSlotInLevel (int slot) const { return fxSlotIn[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    float getFxSlotOutLevel (int slot) const { return fxSlotOut[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
@@ -316,6 +326,15 @@ public:
 
     static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
                                    const std::function<void (const juce::String&, float)>& set);
+    // Before the FM / DX7 type (2026-10-06) an operator was a Wavetable
+    // oscillator tuned by ratio or fixed Hz, or on the Operator EG: such an
+    // oscillator becomes FM / DX7 (OscMode::fmOperator), which renders the
+    // same. Works on stored values (get falls back to the default); returns
+    // how many oscillators moved. Idempotent.
+    static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
+                                     const std::function<void (const juce::String&, float)>& set);
+    // The same on the live parameters (after a bounce or a factory preset).
+    void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
     // Two slots routing the same source to the same destination (with the
@@ -333,6 +352,10 @@ public:
 
     static constexpr int scopeSize = 4096;
     void copyScopeData (float* left, float* right, int numSamples) const;
+    // The same window, but ending part-way into the newest block by the time
+    // since that block arrived (one block behind at most): the scope moves
+    // smoothly at the display's rate however large the host's buffer is.
+    void copyScopeDataSmooth (float* left, float* right, int numSamples) const;
 
     static constexpr int lfoDrawSteps = 64;
     void setLfoCustomPoint (int lfoIndex, int step, float value);
@@ -375,6 +398,16 @@ public:
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
     float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
+    // Voices still rendering, tails included (getActiveVoiceCount counts only
+    // those with their envelopes up). Audio thread or tests only.
+    int getRenderingVoiceCount() const
+    {
+        auto count = 0;
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (synth.getVoice (i)->isVoiceActive())
+                ++count;
+        return count;
+    }
 
     // Changes whenever something the editor draws may have changed: any
     // parameter, an edit to data that isn't a parameter (LFO curves and
@@ -465,7 +498,17 @@ public:
     int getRevealVersion() const { return revealVersion.load(); }
     // Shows an oscillator and switches it on, as adding one should sound.
     void addOscillator (int index);
+    // Adds it as that type: FM / DX7 starts as a sine operator tuned by
+    // ratio on the Operator EG (a DX7 operator's init state).
+    void addOscillator (int index, int mode);
     void removeOscillator (int index);
+    // Sets an oscillator's type (OscMode). Leaving FM / DX7 drops what only
+    // an operator has, so the new type's card shows everything that plays:
+    // TUNING goes back to semitones, and a Wavetable leaves the Operator EG
+    // for the Amp Env. Choosing FM / DX7 changes nothing else (the same
+    // sound, with the operator's controls). Message thread; wrap it in
+    // performEdit for one undo step.
+    void setOscillatorMode (int index, int mode);
     bool isOscillatorShown (int index) const;
 
     // M5: sets the FM matrix and the operators' outputs to one of the
@@ -520,6 +563,11 @@ public:
     bool loadUserSample (int oscIndex, const juce::File& file);
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
     void processEffects (juce::AudioBuffer<float>& buffer);
+    void processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer);
+    void processEffectsParallel (juce::AudioBuffer<float>& buffer);
+    void runFxSlot (int slot, juce::AudioBuffer<float>& buffer);
+    bool isFxSlotActive (int index);
+    void clearFxSlotMeters (int index);
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
@@ -782,6 +830,9 @@ private:
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
     ParamRef tuningOnRef { "tuning_on" };
     ParamRef masterRef { "master" }, outputTrimRef { "output_trim" };
+    ParamRef fxRoutingRef { "fx_routing" };
+    ParamRef multiCoreRef { "multi_core" };
+    ParamRef sustainVoicesRef { "sustain_voices" };
     // The Airwindows module (FX type 30): only the chosen algorithm runs.
     airwindows::Module airwindowsModule;
     ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
@@ -846,6 +897,8 @@ public:
 
 private:
     float lastOutput[2] {}, declick[2] {};
+    bool fxAsleep = false;
+    int fxSilentSamples = 0;
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
@@ -1029,6 +1082,8 @@ private:
 
     std::vector<float> scopeLeft, scopeRight;
     std::atomic<int> scopeWritePos { 0 };
+    std::atomic<int> scopeBlockSamples { 0 };
+    std::atomic<double> scopeBlockMs { 0.0 };
     mutable juce::SpinLock scopeLock;
 
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> lfoCustom {};
@@ -1154,6 +1209,7 @@ private:
     double stutterPosition = 0.0;
     float stutterRate = 1.0f;
     std::array<std::atomic<float>, numFxSlots> fxSlotCpu {};
+    std::array<std::atomic<float>, numFxSlots> fxSlotIn {}, fxSlotOut {};
     juce::String chainA, chainB;
     bool chainBValid = false;
     bool showingChainA = true;
@@ -1229,6 +1285,8 @@ private:
     };
     std::array<SplitFilter, (size_t) numFxSlots> fxSplit;
     juce::AudioBuffer<float> fxBand;
+    // PARALLEL routing: the rack's input, and one branch's copy of it.
+    juce::AudioBuffer<float> fxParallelIn, fxBranch;
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
     // KEEP DRY's wet copy, and how long its wet is still added after MIX

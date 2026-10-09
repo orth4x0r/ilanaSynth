@@ -231,8 +231,8 @@ inline juce::Colour modSourceColour (int sourceIndex)
     switch ((Mod::Source) sourceIndex)
     {
         case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
-        case Mod::Source::FilterEnv:  return juce::Colour (0xffc86bff);
-        case Mod::Source::FilterEnv2: return juce::Colour (0xff8f9dff);
+        case Mod::Source::FilterEnv:  return juce::Colour (0xffb46bff);
+        case Mod::Source::FilterEnv2: return juce::Colour (0xff7d86ff);
         case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
         case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
         // The performance sources: soft tints, each its own hue.
@@ -357,10 +357,11 @@ public:
             const auto& dot = dots[(size_t) i];
             const auto area = dotBounds (i);
             const auto colour = modSourceColour (dot.source);
-            const auto active = i == dragIndex || i == hoverIndex;
+            // (The hover's glow fades: the shared animator.)
+            const auto active = IlanaTheme::fade (*this, i, i == dragIndex || i == hoverIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
 
-            g.setColour (colour.withAlpha (active ? 0.35f : 0.16f));
-            g.fillEllipse (area.expanded (active ? 2.0f : 1.0f));
+            g.setColour (colour.withAlpha (0.16f + 0.19f * active));
+            g.fillEllipse (area.expanded (1.0f + active));
 
             // A plain disc in the source's colour: the ring shows the depth,
             // the badge only which source it is (review 7, V7-27: no pie).
@@ -380,8 +381,8 @@ public:
         if (hasOverflow())
         {
             const auto area = dotBounds (numShown());
-            const auto active = hoverIndex == overflowIndex;
-            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, active ? 0.15f : 0.0f));
+            const auto active = IlanaTheme::fade (*this, 1000, hoverIndex == overflowIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.15f * active));
             g.fillEllipse (area);
             g.setColour (IlanaTheme::Ui::text2);
             g.drawEllipse (area.reduced (0.5f), 1.0f);
@@ -626,7 +627,7 @@ inline bool handleMidiLearnResult (int result, IlanaSynthAudioProcessor& process
 // lives in the editor's scaled content and goes with it.
 class FloatingNote : public juce::Component,
                      private juce::ComponentListener,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     static void show (juce::Component& anchor, const juce::String& text)
@@ -690,7 +691,7 @@ private:
 
     void timerCallback() override
     {
-        life -= 1.0f / 30.0f;
+        life -= frameSeconds();
         setAlpha (juce::jlimit (0.0f, 1.0f, life / 0.4f));
         if (life <= 0.0f)
         {
@@ -713,6 +714,60 @@ private:
     float life = 2.2f;
 };
 
+// The knob's slider with Vital's drag feel: vertical only (the stock "rotary
+// horizontal + vertical" style adds the sideways movement in, so a wobbling
+// hand moves the value), 200 px for the whole range, linear in the
+// parameter's normalised value (skewed knobs feel even), Shift (or Ctrl /
+// Cmd) = 10x finer from where it is held, the cursor hidden and unbounded
+// while turning so a drag never runs out of screen. Ctrl-click resets to
+// the default (the double-click return value, set by KnobControl).
+class KnobSlider : public juce::Slider
+{
+public:
+    static constexpr float fullRangePixels = 200.0f;
+    static constexpr float fineDivisor = 10.0f;
+
+    KnobSlider() { setSliderStyle (juce::Slider::RotaryVerticalDrag); }
+
+    static bool wantsFine (const juce::ModifierKeys& mods) { return mods.isShiftDown() || mods.isCommandDown(); }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        juce::Slider::mouseDown (event);
+
+        // (a popup-menu press or a ctrl-click reset is not the start of a drag)
+        dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
+        lastY = event.position.y;
+        proportion = valueToProportionOfLength (getValue());
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! dragging)
+            return;
+
+        const auto step = (lastY - event.position.y) / fullRangePixels / (wantsFine (event.mods) ? fineDivisor : 1.0f);
+        lastY = event.position.y;
+        proportion = juce::jlimit (0.0, 1.0, proportion + (double) step);
+        setValue (proportionOfLengthToValue (proportion), juce::sendNotificationSync);
+
+        if (event.source.canDoUnboundedMovement())
+            event.source.enableUnboundedMouseMovement (true, false);
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        dragging = false;
+        juce::Slider::mouseUp (event);
+        event.source.enableUnboundedMouseMovement (false);
+    }
+
+private:
+    bool dragging = false;
+    float lastY = 0.0f;
+    double proportion = 0.0;
+};
+
 class KnobControl : public juce::Component,
                     public juce::DragAndDropTarget,
                     public juce::SettableTooltipClient,
@@ -729,7 +784,6 @@ public:
     {
         processorRef = dynamic_cast<IlanaSynthAudioProcessor*> (&state.processor);
 
-        slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 14);
         slider.setPopupDisplayEnabled (true, true, nullptr);
         slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
@@ -739,8 +793,10 @@ public:
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
         label.setBorderSize ({ 0, 1, 0, 1 }); // (a name takes its whole cell: layoutRow fits it by that)
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        // Bold, letter-spaced caps names as drawn in the mockup.
+        // (The sheet's .kl: 700, tracked 0.08 em, in t3.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.08f));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text3);
         addAndMakeVisible (label);
 
         dotStrip.onDepthChange = [this] (int slot, float depth)
@@ -793,7 +849,7 @@ public:
 
         if (parameter != nullptr)
         {
-            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
 
             applyModulatableMark();
         }
@@ -854,6 +910,57 @@ public:
     float getDialRadius() const { return dialRadius(); }
     float getRingRadius (int ring) const { return ringRadius (ring); }
     juce::Point<float> getDialCentre() const { return dialCentre(); }
+    // Where the name's line of letters draws (local; empty without a name),
+    // and the box the drawn rings cover with their strokes: the cut-text
+    // test keeps both inside the knob and its views, and apart.
+    juce::Rectangle<float> getNameTextBounds() const
+    {
+        if (! label.isVisible() || label.getText().isEmpty() || label.getWidth() <= 0)
+            return {};
+
+        auto& lf = label.getLookAndFeel();
+        const auto font = lf.getLabelFont (const_cast<juce::Label&> (label));
+        const auto area = lf.getLabelBorderSize (const_cast<juce::Label&> (label)).subtractedFrom (label.getLocalBounds()).toFloat();
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (font, label.getText(), area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                              label.getJustificationType(), 1, 1.0f);
+        return glyphs.getBoundingBox (0, -1, true).translated ((float) label.getX(), (float) label.getY());
+    }
+    // The ink of the name's letters (local; empty without a name): the
+    // rings keep 1 px of air under it, not under the label's whole line.
+    juce::Rectangle<float> getNameInkBounds() const
+    {
+        if (! label.isVisible() || label.getText().isEmpty() || label.getWidth() <= 0)
+            return {};
+
+        const auto key = label.getText() + label.getBounds().toString() + juce::String (label.getFont().getHeight());
+
+        if (key != nameInkKey)
+        {
+            auto& lf = label.getLookAndFeel();
+            const auto font = lf.getLabelFont (const_cast<juce::Label&> (label));
+            const auto area = lf.getLabelBorderSize (const_cast<juce::Label&> (label)).subtractedFrom (label.getLocalBounds()).toFloat();
+            juce::GlyphArrangement glyphs;
+            glyphs.addFittedText (font, label.getText(), area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                                  label.getJustificationType(), 1, 1.0f);
+            juce::Path ink;
+            glyphs.createPath (ink);
+            nameInk = ink.getBounds().translated ((float) label.getX(), (float) label.getY());
+            nameInkKey = key;
+        }
+
+        return nameInk;
+    }
+    juce::Rectangle<float> getRingsBounds() const
+    {
+        if (numRings() == 0 || knobRadiusFor (knobBounds) < 8.0f)
+            return {};
+
+        // The sweep passes the top and both sides; its ends sit 0.81 r below the centre.
+        const auto r = ringRadius (numRings() - 1) + 1.0f; // (the stroke's outer half)
+        const auto centre = dialCentre();
+        return juce::Rectangle<float>::leftTopRightBottom (centre.x - r, centre.y - r, centre.x + r, centre.y + r * 0.81f);
+    }
     // (The timer skips knobs that aren't on screen, as in the offscreen tests.)
     void syncRoutings() { refreshRoutings(); }
     ModDotStrip& getDotStrip() { return dotStrip; }
@@ -884,6 +991,26 @@ public:
         resized();
     }
 
+    // An inline knob (the design's WEST / BODY row and the signal-flow strip's
+    // BALANCE): the dial at the left, its name and value stacked beside it.
+    // The dial is the compact knob (no text box under it); the name is the
+    // label, the value is drawn here.
+    void setInline (bool shouldInline)
+    {
+        inlineText = shouldInline;
+        setCompact (shouldInline);
+        if (shouldInline)
+        {
+            label.setVisible (true);
+            label.setJustificationType (juce::Justification::centredLeft);
+            label.setBorderSize ({ 0, 0, 0, 0 });
+            slider.onValueChange = [this] { repaint(); };
+        }
+        resized();
+    }
+
+    bool isInline() const { return inlineText; }
+
     // The knob's role sets its largest dial (IlanaTheme::KnobSize: main,
     // small or mini); layoutRow and preferredControlHeight follow it.
     void setSizeRole (int largestDial)
@@ -892,10 +1019,75 @@ public:
         resized();
     }
 
+    // Inline (the OSC cards and the voice strip): the dial at the left with
+    // the name and the value stacked to its right, in a cell one dial high.
+    // The layout is the look-and-feel's (getSliderLayout) for a slider with
+    // the "inlineKnob" property.
+    void setInlineKnob (bool shouldBeInline)
+    {
+        if (inlineLayout == shouldBeInline)
+            return;
+
+        inlineLayout = shouldBeInline;
+        slider.getProperties().set ("inlineKnob", inlineLayout);
+        slider.setTextBoxStyle (inlineLayout ? juce::Slider::TextBoxRight : juce::Slider::TextBoxBelow, false, 60, 14);
+        label.setJustificationType (inlineLayout ? juce::Justification::centredLeft : juce::Justification::centred);
+        // (Back from inline, the name is the sheet's .kl again, as the
+        // constructor sets it: it used to come back in the body size,
+        // unbolded, so one strip's names were bigger than the next's.)
+        label.setFont (inlineLayout ? IlanaTheme::font (IlanaTheme::TextSize::label)
+                                    : IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.08f));
+        IlanaTheme::styleInlineValueBox (slider, inlineLayout);
+        resized();
+    }
+
+    bool isInlineKnob() const { return inlineLayout; }
+
+    // The largest dial an inline knob draws (40 everywhere; the FX rack's rows
+    // grow their dials with the row when the rack is short).
+    void setInlineDial (int largest)
+    {
+        if (inlineDial == largest)
+            return;
+        inlineDial = largest;
+        slider.getProperties().set ("inlineDial", largest); // (the look-and-feel's slider layout reads it)
+        resized();
+        slider.resized(); // (its bounds may not change, its layout does)
+    }
+
+    // A value drawn as a faded dash while `shown` says it does nothing (an
+    // amount whose stage is Off): the knob keeps its place and its size.
+    void setDashWhen (std::function<bool()> isIdle)
+    {
+        dashWhen = std::move (isIdle);
+        const auto base = slider.textFromValueFunction;
+        slider.textFromValueFunction = [this, base] (double value)
+        {
+            if (dashWhen != nullptr && dashWhen())
+                return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
+            return base != nullptr ? base (value) : juce::String (value);
+        };
+        slider.updateText();
+    }
+
+    void refreshValueText() { slider.updateText(); }
+
     int getMaxDial() const { return maxDial; }
     // The label's line, and 3 px more under it for a knob that draws modulation
     // rings, so the rings clear the name (V10-18); 0 without a name.
-    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : 13 + (ringConfig.destination != 0 ? 3 : 0); }
+    // (A knob that draws rings keeps 5 px under its name: room for three
+    // rings over the dial without reaching the name, design sweep.)
+    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : nameLineHeight() + (ringConfig.destination != 0 ? 5 : 0); }
+    // The name's line: 13, or the font's whole height when that is more (at
+    // 75 % the screen floor makes the name taller than 13 units, and its
+    // letters ran out of the top of the knob: ilana's PLAY strip).
+    // (From the name's size step, not its font, whose height was snapped at
+    // whatever zoom the knob was made in: every knob of a size gets one line.)
+    int nameLineHeight() const
+    {
+        const auto size = label.getFont().getHeight() >= 13.8f ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::label;
+        return juce::jmax (13, (int) std::ceil (IlanaTheme::tallestAtAnyZoom (size) - 0.01f));
+    }
     // The dial's drawn size right now (the UI test checks roles with it).
     int getDialSize() const { return knobBounds.getWidth() > 0 ? juce::jmin (knobBounds.getWidth(), (int) rotaryArea().getHeight()) : 0; }
 
@@ -1072,13 +1264,11 @@ public:
 
         // The outer rings pass behind the knob's name, not over it.
         const juce::Graphics::ScopedSaveState state (g);
-        if (label.isVisible() && label.getText().isNotEmpty())
-        {
-            const auto font = label.getFont();
-            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, label.getText()) + 6.0f;
-            // (4 px of air under the name: a ring's 2.5 px stroke used to touch it, V9-18.)
-            g.excludeClipRegion (label.getBounds().withSizeKeepingCentre (juce::roundToInt (width), label.getHeight()).withTrimmedBottom (-4));
-        }
+        // (The rings stop 1 px under the name's letters (ringRoom), so this
+        // only guards a grabbed ring's wider stroke; it used to cut the
+        // rings flat 4 px under the label's line, V9-18, design sweep.)
+        if (const auto ink = getNameInkBounds(); ! ink.isEmpty())
+            g.excludeClipRegion (ink.expanded (2.0f, 0.5f).getSmallestIntegerContainer());
 
         for (int i = count - 1; i >= 0; --i)
         {
@@ -1103,10 +1293,11 @@ public:
             else
                 range.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, a, b, true);
 
+            // The component sheet's modulation ring: a 2 px arc in the
+            // source's colour, solid; what it adds right now a brighter
+            // stretch; the depth handle shows while the ring is grabbed.
             const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
-            g.strokePath (range, juce::PathStrokeType (width + (tight ? 1.0f : 1.6f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (colour.withAlpha (quiet ? 0.22f : (hot ? 0.75f : 0.55f)));
+            g.setColour (colour.withAlpha (quiet ? 0.3f : (hot ? 1.0f : 0.95f)));
             g.strokePath (range, rounded);
 
             if (dot.bypass)
@@ -1117,40 +1308,89 @@ public:
             const auto liveAngle = angleOf (baseNorm + live * ringConfig.scale);
             const auto baseAngle = angleOf (baseNorm);
 
-            if (std::abs (liveAngle - baseAngle) > 0.01f)
+            if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
             {
                 juce::Path now;
                 now.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (baseAngle, liveAngle),
                                    juce::jmax (baseAngle, liveAngle), true);
-                g.setColour (colour.withAlpha (quiet ? 0.4f : 1.0f));
+                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f));
                 g.strokePath (now, rounded);
             }
 
-            // The depth handle, then the live dot.
-            const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
-            const auto handle = juce::Rectangle<float> (hot ? 6.5f : 5.0f, hot ? 6.5f : 5.0f).withCentre (handleAt);
-            g.setColour (IlanaTheme::Ui::bg);
-            g.fillEllipse (handle.expanded (1.0f));
-            g.setColour (colour.withAlpha (quiet ? 0.5f : 1.0f));
-            g.fillEllipse (handle);
-
-            if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
+            if (hot)
             {
-                const auto dotAt = centre.getPointOnCircumference (radius, liveAngle);
-                g.setColour (juce::Colours::white.withAlpha (0.95f));
-                g.fillEllipse (juce::Rectangle<float> (3.2f, 3.2f).withCentre (dotAt));
+                const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
+                const auto handle = juce::Rectangle<float> (6.5f, 6.5f).withCentre (handleAt);
+                g.setColour (IlanaTheme::Ui::bg);
+                g.fillEllipse (handle.expanded (1.0f));
+                g.setColour (colour);
+                g.fillEllipse (handle);
             }
         }
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! inlineText || inlineValueArea.isEmpty())
+            return;
+
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+        IlanaTheme::drawFitted (g, slider.getTextFromValue (slider.getValue()), inlineValueArea, juce::Justification::centredLeft, 1);
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
+        // (Only an inline knob caps its dial: set below; a knob switched
+        // back to stacked must not keep a small dial.)
+        slider.getProperties().remove ("dialRadiusCap");
+
+        if (compact && inlineText)
+        {
+            const auto dial = juce::jmin (area.getHeight(), maxDial);
+
+            // (As an inline knob: a modulatable dial a little smaller, so a ring fits the cell.)
+            if (ringConfig.destination != 0)
+                slider.getProperties().set ("dialRadiusCap", juce::jmax (9.0f, (float) dial * 0.5f - 4.0f));
+            else
+                slider.getProperties().remove ("dialRadiusCap");
+            knobBounds = area.removeFromLeft (dial).withSizeKeepingCentre (dial, dial);
+
+            slider.setBounds (knobBounds);
+            area.removeFromLeft (6);
+            const auto top = area.getY() + (area.getHeight() - 27) / 2;
+            label.setBounds (area.getX(), top, area.getWidth(), 13);
+            label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            inlineValueArea = { area.getX(), top + 13, area.getWidth(), 14 };
+            layoutDots();
+            return;
+        }
 
         if (compact)
         {
             knobBounds = area;
             slider.setBounds (area);
+            layoutDots();
+            return;
+        }
+
+        if (inlineLayout)
+        {
+            // The dial is a square as high as the cell; the name above the
+            // value, level with the dial's middle line, to its right.
+            const auto dial = juce::jmin (area.getHeight(), inlineDial);
+            // A modulatable dial in a low cell draws a little smaller, so at
+            // least one ring fits round it inside the cell (the mockup's
+            // inline knobs; none cut by the cell's edge, design sweep).
+            if (ringConfig.destination != 0)
+                slider.getProperties().set ("dialRadiusCap", juce::jmax (9.0f, (float) dial * 0.5f - 4.0f));
+            else
+                slider.getProperties().remove ("dialRadiusCap");
+            knobBounds = area.withWidth (dial).withSizeKeepingCentre (dial, dial);
+            slider.setBounds (area);
+            const auto textX = knobBounds.getRight() + 3;
+            label.setBounds (textX, area.getCentreY() - 13, juce::jmax (0, area.getRight() - textX), 13);
             layoutDots();
             return;
         }
@@ -1161,6 +1401,9 @@ public:
         // the top, where combo and toggle labels in the same row sit; a knob
         // without a label (a matrix cell) is centred instead.
         // (A knob that draws rings keeps 3 px more between its arcs and the value, V12-12.)
+        // (A dial stacked between its name and value is never capped: the cap belongs to the inline layouts above, and a knob that was
+        // inline a moment ago, in a card too low for its row, must not keep it, or its dial stays at half size.)
+        slider.getProperties().remove ("dialRadiusCap");
         const auto valueHeight = 16 + (ringConfig.destination != 0 ? 3 : 0);
         const auto hasLabel = label.getText().isNotEmpty();
         const auto labelHeight = labelBlockHeight();
@@ -1173,9 +1416,9 @@ public:
         const auto groupHeight = juce::jmin (area.getHeight(), (hasLabel ? labelHeight : 0) + dial + valueHeight);
         auto group = hasLabel ? area.removeFromTop (groupHeight) : area.withSizeKeepingCentre (area.getWidth(), groupHeight);
 
-        label.setBounds (hasLabel ? group.removeFromTop (13) : juce::Rectangle<int>());
+        label.setBounds (hasLabel ? group.removeFromTop (nameLineHeight()) : juce::Rectangle<int>());
         if (hasLabel)
-            group.removeFromTop (labelHeight - 13);
+            group.removeFromTop (labelHeight - nameLineHeight());
         knobBounds = group;
         slider.setBounds (group);
         layoutDots();
@@ -1260,23 +1503,48 @@ private:
     // every routing.
     static constexpr float ringStart = juce::MathConstants<float>::pi * 1.2f;
     static constexpr float ringEnd = juce::MathConstants<float>::pi * 2.8f;
-    static constexpr float ringPitch = 3.5f, ringGap = 3.0f;
+    static constexpr float ringPitch = 3.5f, ringGap = 2.5f; // (the sheet: the first ring at the arc's radius + 3.5)
     static constexpr int maxRings = 3;
 
-    int numRings() const { return juce::jmin ((int) routings.size(), maxRings); }
+    // As many rings as the knob's cell holds at their tightest (2.5 px
+    // apart, the first 1.5 px off the dial), up to three: a ring is never
+    // cut flat by the cell's edge or drawn into the name above. The
+    // routings past them get the badge ("+N"), as those past three do
+    // (ilana's FRAME on OSC, design sweep).
+    int ringCapacity() const
+    {
+        const auto spare = ringRoom() - (dialRadius() + 1.5f);
+        return spare < 0.0f ? 0 : juce::jmin (maxRings, 1 + (int) std::floor (spare / 2.5f + 0.001f));
+    }
+    int numRings() const { return juce::jmin ((int) routings.size(), ringCapacity()); }
+
+    // How far from the dial's centre a ring's middle may run: inside the
+    // knob's sides with its stroke and outline, and under the name above
+    // (1 px of air) or the knob's own top, with a grabbed ring's half stroke.
+    float ringRoom() const
+    {
+        const auto centre = dialCentre();
+        const auto dialTop = dialBounds().getY();
+        const auto nameAbove = label.isVisible() && label.getText().isNotEmpty() && (float) label.getBottom() <= dialTop + 2.0f
+                               && (float) label.getX() < centre.x && (float) label.getRight() > centre.x;
+        const auto ink = nameAbove ? getNameInkBounds() : juce::Rectangle<float>();
+        const auto ceiling = ink.isEmpty() ? 0.0f : ink.getBottom() + 1.0f;
+        return juce::jmin (juce::jmin (centre.x, (float) getWidth() - centre.x) - 2.5f, centre.y - ceiling - 1.5f);
+    }
 
     // Where the look-and-feel draws the dial: the slider's rotary bounds
     // (above its value box), less its 4 px inset, radius 14-30.
     juce::Rectangle<float> dialBounds() const
     {
-        auto& s = const_cast<juce::Slider&> (slider);
+        auto& s = const_cast<KnobSlider&> (slider);
         return s.getLookAndFeel().getSliderLayout (s).sliderBounds.toFloat().translated ((float) slider.getX(), (float) slider.getY()).reduced (4.0f);
     }
     juce::Point<float> dialCentre() const { return dialBounds().getCentre(); }
     float dialRadius() const
     {
         const auto area = dialBounds();
-        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+        return juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                           juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f));
     }
 
     // A knob in a narrow cell has little room either side of its dial: the
@@ -1285,8 +1553,8 @@ private:
     float ringRadius (int index) const
     {
         const auto count = numRings();
-        const auto centreX = dialCentre().x;
-        const auto room = juce::jmin (centreX, (float) getWidth() - centreX) - 2.5f; // (the stroke and its outline)
+        // (Nor past the cell's sides or into the name above: ringRoom.)
+        const auto room = ringRoom();
         const auto dial = dialRadius();
         auto base = dial + ringGap;
         auto pitch = ringPitch;
@@ -1482,7 +1750,8 @@ private:
         // Deliberately not reduced like the knob itself: the mod ring sits
         // just outside the value arc.
         const auto area = rotaryArea();
-        return juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
+        return juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
+                           juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f));
     }
 
     // The rotary is drawn above the value text box, so glow and mod ring must
@@ -1491,7 +1760,7 @@ private:
     {
         auto area = knobBounds.toFloat();
 
-        if (! compact)
+        if (! compact && ! inlineLayout)
             area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
 
         return area;
@@ -1521,14 +1790,25 @@ private:
         const auto centre = dialCentre();
         const auto dial = dialRadius();
         const auto stripW = ModDotStrip::stripWidth, pitch = ModDotStrip::dotPitch;
-        const auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
+        auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
+
+        // An inline knob's name and value stand right of its rings: the
+        // badges go after the longer of them, not over them.
+        if (inlineLayout && label.getText().isNotEmpty())
+        {
+            const auto value = slider.getTextFromValue (slider.getValue());
+            const auto textWidth = juce::jmax (juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText()),
+                                               juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)), value));
+            x = juce::jmax (x, label.getX() + textWidth + 4);
+        }
 
         // Beside the rings, a column of badges as tall as the dial, while
         // the knob is hovered (the rings are the legend the rest of the
         // time, V7-27). A knob too narrow for that leaves its routings to
         // the rings (and its card); only those past the three rings get a
         // badge, in its top-right corner: the routing's own, or "+N".
-        const auto roomBeside = getWidth() - x >= stripW - 1 && (badgesShown || (int) routings.size() > maxRings);
+        const auto shownRings = numRings();
+        const auto roomBeside = getWidth() - x >= stripW - 1 && (badgesShown || (int) routings.size() > shownRings);
         juce::Rectangle<int> bounds;
 
         if (roomBeside)
@@ -1540,8 +1820,8 @@ private:
         }
         else
         {
-            const auto extra = (int) routings.size() > maxRings ? std::vector<ModDotStrip::Dot> (routings.begin() + maxRings, routings.end())
-                                                                 : std::vector<ModDotStrip::Dot>();
+            const auto extra = (int) routings.size() > shownRings ? std::vector<ModDotStrip::Dot> (routings.begin() + shownRings, routings.end())
+                                                                   : std::vector<ModDotStrip::Dot>();
             dotStrip.setDots (extra);
             dotStrip.setMaxVisible (1);
             auto y = (int) (centre.y - dial) - pitch + 1;
@@ -1557,7 +1837,7 @@ private:
         }
 
         dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
-        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > maxRings));
+        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings));
 
         ringOverlay.setBounds (getLocalBounds());
         ringOverlay.setVisible (! routings.empty());
@@ -1656,13 +1936,14 @@ public:
         return sourceMenu;
     }
 
-private:
-    void showModMenu()
+    // The right-click menu (the snapshot tool draws it offscreen: a real
+    // menu window can't open under its X server).
+    juce::PopupMenu buildModMenu() const
     {
-        if (processorRef == nullptr)
-            return;
-
         juce::PopupMenu menu;
+
+        if (processorRef == nullptr)
+            return menu;
 
         if (ringConfig.destination != 0)
         {
@@ -1707,6 +1988,16 @@ private:
             addMidiLearnItems (menu, *processorRef, parameterId);
         }
 
+        return menu;
+    }
+
+private:
+    void showModMenu()
+    {
+        if (processorRef == nullptr)
+            return;
+
+        auto menu = buildModMenu();
         juce::Component::SafePointer<KnobControl> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
@@ -1880,7 +2171,7 @@ private:
         }
     }
 
-    juce::Slider slider;
+    KnobSlider slider;
     juce::Label label;
     ModDotStrip dotStrip;
     RingOverlay ringOverlay { *this };
@@ -1940,9 +2231,15 @@ private:
     bool dragHover = false;
     int dragSource = 0; // the source being dragged anywhere (V8-10)
     bool hover = false;
-    bool compact = false;
+    bool compact = false, inlineText = false;
+    juce::Rectangle<int> inlineValueArea;
+    bool inlineLayout = false;
+    int inlineDial = 40;
+    std::function<bool()> dashWhen;
     bool sourceKnob = false;
     bool badgesShown = false; // the mouse is on the knob (or its badges)
+    mutable juce::String nameInkKey; // (getNameInkBounds's cache)
+    mutable juce::Rectangle<float> nameInk;
     bool badgesForced = false; // (the tests and snapshots)
     int maxDial = IlanaTheme::KnobSize::main;
     juce::String baseTooltip, inactiveNote;
@@ -1959,8 +2256,9 @@ public:
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
         label.setBorderSize ({ 0, 4, 0, 1 }); // (layoutRow fits a menu's name by these 5 px)
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        // (The sheet's field name, .lbl: bold tracked caps in t3, as a knob's.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text3);
         addAndMakeVisible (label);
 
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (state.getParameter (parameterID)))
@@ -1984,8 +2282,28 @@ public:
     juce::ComboBox& getComboBox() { return combo; }
     juce::Label& getNameLabel() { return label; }
 
+    // A family-coloured menu as the mockup draws the VECTOR corners: a tinted
+    // outline and fill, the name in the family colour.
+    void setTint (juce::Colour tint)
+    {
+        if (tint == currentTint)
+            return;
+
+        currentTint = tint;
+        // (The sheet's .sel.c: the colour at 55 % into the hairline, 10 % into ink 3.)
+        combo.setColour (juce::ComboBox::outlineColourId, IlanaTheme::Ui::line.interpolatedWith (tint, 0.55f));
+        combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.1f));
+        // (Only the box takes the colour: the name stays the sheet's grey .lbl.)
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        combo.repaint();
+        label.repaint();
+    }
+
     // Replace the drop-down list with something else when clicked.
     void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+    // The arrow keys' step to the next or previous choice (+1 / -1), when a
+    // choice must go through more than its parameter (the oscillator type).
+    void setNudgeOverride (std::function<void (int)> override) { combo.nudgeOverride = std::move (override); }
 
     juce::String getLabelText() const { return label.getText(); }
     void setLabelText (const juce::String& text)
@@ -1994,9 +2312,35 @@ public:
             label.setText (text, juce::dontSendNotification);
     }
 
+    // A menu 18 px high under a 9 px name (the OSC cards and the voice strip).
+    void setCompactLayout (bool shouldBeCompact)
+    {
+        if (compactLayout == shouldBeCompact)
+            return;
+
+        compactLayout = shouldBeCompact;
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        combo.getProperties().set ("compactMenu", compactLayout);
+        resized();
+    }
+
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (compactLayout && label.getText().isNotEmpty())
+        {
+            label.setBounds (area.removeFromTop (10));
+            combo.setBounds (area.removeFromTop (18));
+            return;
+        }
+
+        if (compactLayout)
+        {
+            label.setBounds ({});
+            combo.setBounds (area.withSizeKeepingCentre (area.getWidth(), juce::jmin (20, area.getHeight())));
+            return;
+        }
 
         // A menu without a name (PLAY's strips: its value says what it is)
         // is just the box.
@@ -2013,11 +2357,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        if (hover > 0.01f)
-        {
-            g.setColour (IlanaTheme::accent().withAlpha (0.2f * hover));
-            g.fillRoundedRectangle (combo.getBounds().toFloat().expanded (2.0f), 5.0f);
-        }
+        // (Hover lights the select's own rim: drawComboBox.)
+        juce::ignoreUnused (g);
     }
 
 
@@ -2041,16 +2382,56 @@ private:
     struct PopupCombo : public juce::ComboBox
     {
         std::function<void()> popupOverride;
+        double lastOverrideOpen = 0.0;
+        std::function<void (int)> nudgeOverride;
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (nudgeOverride != nullptr)
+            {
+                if (key == juce::KeyPress::upKey || key == juce::KeyPress::leftKey)
+                {
+                    nudgeOverride (-1);
+                    return true;
+                }
+                if (key == juce::KeyPress::downKey || key == juce::KeyPress::rightKey)
+                {
+                    nudgeOverride (1);
+                    return true;
+                }
+            }
+            return juce::ComboBox::keyPressed (key);
+        }
+
+        // A select with its own menu opens it on the press only. ComboBox also
+        // asks for its popup on a drag and on repeated key events, and (its
+        // own "menu active" flag being cleared below) used to open a second
+        // menu over the first: a menu that opened, closed and opened again
+        // within a few frames (ilana's PC test).
+        void mouseDrag (const juce::MouseEvent& event) override
+        {
+            if (popupOverride == nullptr)
+                juce::ComboBox::mouseDrag (event);
+        }
 
         void showPopup() override
         {
             if (popupOverride != nullptr)
             {
-                popupOverride();
+                const auto now = juce::Time::getMillisecondCounterHiRes();
 
+                if (now - lastOverrideOpen < 150.0 || (now - lastOverrideOpen < 500.0 && juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown()))
+                    return;
+
+                lastOverrideOpen = now;
                 // ComboBox marks its menu active on click and only clears that
-                // when its own menu closes; without this, later clicks are ignored.
+                // when its own menu closes; without this, later clicks are
+                // ignored. Cleared first: hidePopup() dismisses every open
+                // menu, so after the override it closed the override's own
+                // menu as it opened, and nothing could be picked (ilana's
+                // Airwindows ALGORITHM select).
                 hidePopup();
+                popupOverride();
             }
             else
                 juce::ComboBox::showPopup();
@@ -2061,6 +2442,8 @@ private:
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float hover = 0.0f;
+    juce::Colour currentTint;
+    bool compactLayout = false;
 };
 
 class ToggleControl : public juce::Component,
@@ -2101,6 +2484,54 @@ public:
 
     juce::TextButton& getButton() { return button; }
 
+    // The switch in an owner's colour (an oscillator's) instead of the accent.
+    void setSwitchColour (juce::Colour colour)
+    {
+        button.getProperties().set ("switchColour", (int) colour.getARGB());
+        button.repaint();
+    }
+
+    // The name to the right of the switch, on one line (a row of knobs and
+    // switches in a card: "TUNED", "LOOP").
+    void setInlineLabel (bool shouldBeInline)
+    {
+        inlineLabel = shouldBeInline;
+        resized();
+        repaint();
+    }
+
+    // The name over the switch in the small size (the voice strip's LEGATO).
+    void setSmallName (bool shrunk)
+    {
+        smallName = shrunk;
+        repaint();
+    }
+
+    // Just the pill, filling the area (a card header's power switch).
+    void setBareSwitch (bool shouldBeBare)
+    {
+        bareSwitch = shouldBeBare;
+        resized();
+    }
+
+    // A group's name that is its own switch (the voice strip's SUB, STRINGS,
+    // SOUNDBOARD): a lit dot while on, the name in the family colour, all of
+    // it dimmed while off. The whole area takes the click.
+    void setGroupName (const juce::String& name, juce::Colour colour)
+    {
+        groupColour = colour;
+        groupText = name;
+        groupStyle = true;
+        button.getProperties().set ("groupName", true);
+        button.getProperties().set ("groupColour", (int) colour.getARGB());
+        button.getProperties().set ("groupText", name);
+        resized();
+        repaint();
+    }
+
+    bool isGroupName() const { return groupStyle; }
+    juce::String getGroupText() const { return groupText; }
+
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
 
     // (Every toggle is a switch now; kept for the call sites that ask.)
@@ -2116,12 +2547,25 @@ public:
     // steady glow (a glow that never settles keeps the whole UI busy).
     void paint (juce::Graphics& g) override
     {
+        if (groupStyle)
+            return; // (the switch draws its own dot and name: IlanaLookAndFeel)
+
+        if (inlineLabel && isSwitch())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.07f));
+            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineSwitchWidth + 5),
+                                    juce::Justification::centredLeft, 1);
+            return;
+        }
+
         // A named switch shows its name where other controls show a label.
         if (isSwitch() && button.getButtonText() != "ON")
         {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawText (button.getButtonText(), getLocalBounds().withHeight (13), juce::Justification::centred, true);
+            // (Named as a knob is: the sheet's .lbl, bold tracked caps in t3.)
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (smallName ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+            g.drawText (button.getButtonText(), getLocalBounds().withHeight (smallName ? 11 : 13), juce::Justification::centred, true);
             return;
         }
 
@@ -2138,6 +2582,19 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (groupStyle || bareSwitch)
+        {
+            button.setBounds (area);
+            return;
+        }
+
+        if (inlineLabel)
+        {
+            button.setBounds (area.removeFromLeft (inlineSwitchWidth).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
+            return;
+        }
+
         area.removeFromTop (13 + switchDrop);
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
@@ -2156,6 +2613,10 @@ public:
 
 private:
     int switchDrop = 0;
+    bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
+    juce::Colour groupColour;
+    juce::String groupText;
+    static constexpr int inlineSwitchWidth = 34;
 
     void timerCallback() override
     {
@@ -2259,7 +2720,7 @@ private:
 class ValueSliderControl : public juce::Component
 {
 public:
-    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID)
+    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID) : parameterId (parameterID)
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 16);
@@ -2280,8 +2741,10 @@ public:
     void resized() override { slider.setBounds (getLocalBounds()); }
 
     juce::Slider& getSlider() { return slider; }
+    const juce::String& getParameterId() const { return parameterId; }
 
 private:
+    juce::String parameterId;
     juce::Slider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Voice.h"
+#include "VoiceThreads.h"
 
 // juce::Synthesiser plus the voice modes a lead/bass synth needs:
 //   Poly    - normal polyphony, capped at a user voice count
@@ -124,7 +125,51 @@ public:
         Synthesiser::allNotesOff (midiChannel, allowTailOff);
     }
 
+    // MULTI-CORE: the sounding voices of a sub-block render on several
+    // cores (VoiceThreads), the same sound as one after another. Off the
+    // audio thread: numWorkers extra threads (0: one core), buffers for
+    // sub-blocks of up to maxSamples.
+    void prepareVoiceThreads (int numWorkers, int maxSamples)
+    {
+        voiceThreads.prepare (numWorkers, voices.size(), maxSamples,
+                              [this] (int voice, juce::AudioBuffer<float>& buffer, int start, int length)
+                              { voices.getUnchecked (voice)->renderNextBlock (buffer, start, length); });
+    }
+
+    void setVoiceThreadsEnabled (bool shouldUse) noexcept { useVoiceThreads = shouldUse; }
+
+    // SUSTAIN VOICES: at most this many voices ring on after their key is
+    // up (released, or held by the pedal); past it the oldest fade out over
+    // 40 ms. 0: no cap.
+    void setSustainVoiceCap (int newCap) noexcept { sustainVoiceCap = newCap; }
+
 protected:
+    void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int numSamples) override
+    {
+        if (sustainVoiceCap > 0)
+            capSustainedVoices();
+
+        int sounding[64] {};
+        auto numSounding = 0;
+        if (useVoiceThreads)
+            for (int i = 0; i < voices.size() && numSounding < 64; ++i)
+                if (voices.getUnchecked (i)->isVoiceActive())
+                    sounding[numSounding++] = i;
+
+        if (! useVoiceThreads || ! voiceThreads.canRender (buffer, startSample, numSamples, numSounding))
+        {
+            Synthesiser::renderVoices (buffer, startSample, numSamples);
+            return;
+        }
+
+        // Idle voices return at once (their own bookkeeping only), as before.
+        for (int i = 0; i < voices.size(); ++i)
+            if (! voices.getUnchecked (i)->isVoiceActive())
+                voices.getUnchecked (i)->renderNextBlock (buffer, startSample, numSamples);
+
+        voiceThreads.renderAndSum (sounding, numSounding, buffer, startSample, numSamples);
+    }
+
     juce::SynthesiserVoice* findFreeVoice (juce::SynthesiserSound* sound, int midiChannel,
                                            int midiNoteNumber, bool stealIfNoneAvailable) const override
     {
@@ -165,6 +210,31 @@ protected:
     }
 
 private:
+    void capSustainedVoices()
+    {
+        while (true)
+        {
+            auto count = 0;
+            Voice* oldest = nullptr;
+            for (auto* voice : voices)
+            {
+                auto* v = static_cast<Voice*> (voice);
+                if (! v->isVoiceActive() || v->isKeyDown() || v->isFadingOut())
+                    continue;
+                ++count;
+                if (oldest == nullptr || v->wasStartedBefore (*oldest))
+                    oldest = v;
+            }
+            if (count <= sustainVoiceCap || oldest == nullptr)
+                return;
+            oldest->startFadeOut ((int) (0.04 * getSampleRate()));
+        }
+    }
+
+    VoiceThreads voiceThreads;
+    bool useVoiceThreads = false;
+    int sustainVoiceCap = 0;
+
     Voice* monoVoice() const
     {
         return voices.isEmpty() ? nullptr : dynamic_cast<Voice*> (voices.getFirst());

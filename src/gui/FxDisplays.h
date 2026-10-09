@@ -203,12 +203,8 @@ private:
         g.drawDashedLine ({ plot.getBottomLeft(), plot.getTopRight() }, dashes, 2, 1.0f);
     }
 
-    // (Square on a card's own half row; wider, up to 2.5 : 1, on a full one.)
-    juce::Rectangle<float> squarePlot() const
-    {
-        auto plot = plotArea();
-        return plot.withSizeKeepingCentre (juce::jmin (plot.getWidth(), plot.getHeight() * 2.5f), plot.getHeight());
-    }
+    // The curve fills its picture, as the design draws it (a row's picture is wide and low).
+    juce::Rectangle<float> squarePlot() const { return plotArea(); }
 
     void paintTransfer (juce::Graphics& g)
     {
@@ -382,8 +378,8 @@ private:
         auto area = plotArea();
         const auto meters = area.removeFromRight (type == 20 ? 34.0f : 14.0f);
         area.removeFromRight (6.0f);
-        // (A card with the whole row, its picture wide: the curve stretches with it, V14-1.)
-        const auto plot = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), area.getHeight() * 3.0f), area.getHeight());
+        // (A row's picture is wide and low: the curve stretches with it, V14-1.)
+        const auto plot = area;
 
         const auto toX = [plot] (float db) { return plot.getX() + (db - floorDb) / (topDb - floorDb) * plot.getWidth(); };
         const auto toY = [plot] (float db) { return plot.getBottom() - (juce::jlimit (floorDb, topDb, db) - floorDb) / (topDb - floorDb) * plot.getHeight(); };

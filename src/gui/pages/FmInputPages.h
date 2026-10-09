@@ -142,7 +142,7 @@ public:
         addAndMakeVisible (moreButton);
 
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_tune", "_amp_env", "_on" })
+            for (const auto* suffix : { "_tune", "_amp_env", "_on", "_mode" })
                 tuneValues.push_back (p.apvts.getRawParameterValue (juce::String (prefix) + suffix));
 
         // The operator picker (the one oscillator picker, I8-10) and, past
@@ -156,6 +156,21 @@ public:
                                  "oscillator on the Operator Env follows them. Edited in MOD's pools, with TRANSPOSE and SCALE SHIFT.");
         pitchLfoLink.onClick = [] { FmOperatorInfo::openPitchAndLfo(); };
         addChildComponent (pitchLfoLink);
+        // An oscillator of another type: one click makes it an FM / DX7
+        // operator (the same sound, the operator's controls).
+        // (An action, not a jump: the pill the PHYSICAL page's SWITCH TO PHYSICAL is.)
+        makeOperator.setButtonText ("SWITCH TO FM / DX7");
+        IlanaTheme::makePill (makeOperator, fmColour());
+        makeOperator.setToggleState (true, juce::dontSendNotification);
+        makeOperator.setTooltip ("Make this oscillator an FM / DX7 operator: it sounds the same, and gets ratio and fixed tuning and the OP ENV");
+        makeOperator.onClick = [this]
+        {
+            OscRole::chooseMode (processorRef, selectedOperator, OscMode::fmOperator);
+            updateOperatorVisibility();
+            resized();
+            repaint();
+        };
+        addChildComponent (makeOperator);
         addChildComponent (envelope);
 
         refreshShown();
@@ -202,14 +217,20 @@ public:
         IlanaTheme::paintCardHeader (g, header, "OSC " + juce::String (selectedOperator + 1),
                                      (usesOperatorEnv (selectedOperator) ? juce::String (juce::String::fromUTF8 ("operator \xc2\xb7 ")) : juce::String()) + operatorText(), colour, reserve);
 
-        // An operator on another envelope: where that envelope is edited.
+        // An operator on another envelope: where that envelope is edited; an
+        // oscillator of another type: what it takes part in, and the way to
+        // the operator's own controls (FM / DX7).
         if (! usesOperatorEnv (selectedOperator))
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             const auto envelopeName = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
-            IlanaTheme::drawFitted (g, "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here.",
-                                    ampHint, juce::Justification::centredLeft, 1);
+            IlanaTheme::drawFitted (g, isFmType (selectedOperator)
+                                           ? "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here."
+                                           : OscRole::modeName (OscRole::mode (processorRef, selectedOperator))
+                                                 + ": tuned in semitones. Ratio and OP ENV are FM / DX7's.",
+                                    ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
+                                    juce::Justification::centredLeft, 3);
         }
 
         paintMatrix (g);
@@ -407,8 +428,8 @@ public:
             return FmAlgorithms::all()[(size_t) matching].name;
 
         // One that no tile matches names the nearest (V7-14).
-        if (const auto near = FmAlgorithmStrip::nearestBasic (processorRef); near >= 0)
-            return FmAlgorithmStrip::basicName (near) + ", EDITED"; // (review 12, I12-9)
+        if (const auto nearTile = FmAlgorithmStrip::nearestBasic (processorRef); nearTile >= 0)
+            return FmAlgorithmStrip::basicName (nearTile) + ", EDITED"; // (review 12, I12-9)
 
         for (const auto source : shown)
             for (const auto target : shown)
@@ -436,6 +457,7 @@ private:
     }
 
     bool usesOperatorEnv (int op) const { return FmOperatorInfo::usesOperatorEnv (processorRef, op); }
+    bool isFmType (int op) const { return OscRole::isOperator (processorRef, op); }
 
     bool anyOperatorEnv() const
     {
@@ -499,10 +521,16 @@ private:
         pitchLfoLink.setVisible (anyOperatorEnv());
 
         const auto opEnv = usesOperatorEnv (selectedOperator);
+        makeOperator.setVisible (! isFmType (selectedOperator) && ! opEnv);
         for (int op = 0; op < OscillatorIds::count; ++op)
         {
             auto& controls = *operators[(size_t) op];
             const auto selected = op == selectedOperator;
+            // Ratio, Fixed Hz and OP ENV are the FM / DX7 type's (a
+            // Wavetable's ENVELOPE has no OP ENV).
+            OscRole::showOperatorChoices (&controls.tune.getComboBox(), &controls.ampEnv.getComboBox(), isFmType (op),
+                                          OscRole::mode (processorRef, op) != OscMode::wavetable,
+                                          juce::roundToInt (read (FmOperatorInfo::prefixOf (op) + "_amp_env")));
             const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) op]) + "_tune"));
 
             for (auto* control : controls.all())
@@ -546,6 +574,88 @@ private:
         }
     }
 
+    // The operator card's two looks: the stacked row of the Operator Env's
+    // host area, or the plain card's grid of inline knobs (the design's
+    // 3 x 2 grid: the dial with its name and value beside it).
+    static void setOperatorCardStyle (OperatorControls& controls, bool grid)
+    {
+        for (auto* knob : { &controls.ratio, &controls.fixedHz, &controls.semi, &controls.fine, &controls.level,
+                            &controls.keyLevel, &controls.feedback })
+            knob->setInlineKnob (grid);
+        controls.feedbackType.setCompactLayout (grid);
+    }
+
+    // An operator on any envelope but the Operator Env: TUNING, SNAP and
+    // ENVELOPE in one row, two rows of three inline knobs, FB TYPE with the
+    // hint under them, and the envelope's graph filling the height at the
+    // right; no empty strip anywhere in the card.
+    void layoutPlainOperator (OperatorControls& controls)
+    {
+        for (auto& each : operators)
+            setOperatorCardStyle (*each, true);
+
+        auto inner = operatorCard.reduced (10, 0);
+        inner.removeFromTop (30);
+        inner.removeFromBottom (8);
+        const auto gridWidth = juce::jmin (336, inner.getWidth() * 62 / 100);
+        auto left = inner.removeFromLeft (gridWidth);
+        inner.removeFromLeft (10);
+        if (ampGraph != nullptr)
+            ampGraph->setBounds (inner);
+
+        const auto tune = juce::roundToInt (read (OscillatorIds::prefixes[(size_t) selectedOperator] + juce::String ("_tune")));
+        std::vector<juce::Component*> menus { &controls.tune };
+        if (tune == OscTuning::Ratio)
+            menus.push_back (&controls.snap);
+        menus.push_back (&controls.ampEnv);
+
+        std::vector<juce::Component*> knobsInGrid;
+        if (tune == OscTuning::Ratio)
+            knobsInGrid.push_back (&controls.ratio);
+        if (tune == OscTuning::Fixed)
+            knobsInGrid.push_back (&controls.fixedHz);
+        for (auto* knob : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel, &controls.feedback })
+            knobsInGrid.push_back (knob);
+        // Five knobs leave the grid's last cell: FB TYPE takes it, the hint
+        // then has the foot row to itself.
+        const auto fbInGrid = knobsInGrid.size() < 6;
+        if (fbInGrid)
+            knobsInGrid.push_back (&controls.feedbackType);
+
+        constexpr int menuHeight = 40, footHeight = 30, gap = 6, columns = 3;
+        layoutRow (left.removeFromTop (menuHeight), menus);
+        left.removeFromTop (gap);
+        auto foot = left.removeFromBottom (footHeight);
+        left.removeFromBottom (gap);
+        const auto rowHeight = (left.getHeight() - gap) / 2;
+        const auto cellWidth = left.getWidth() / columns;
+
+        for (size_t i = 0; i < knobsInGrid.size(); ++i)
+        {
+            const auto column = (int) i % columns, row = (int) i / columns;
+            auto cell = juce::Rectangle<int> (left.getX() + column * cellWidth, left.getY() + row * (rowHeight + gap), cellWidth, rowHeight);
+            if (knobsInGrid[i] == &controls.feedbackType)
+                cell = cell.withSizeKeepingCentre (cell.getWidth() - 8, 30);
+            else
+                cell = cell.reduced (2, 0);
+            knobsInGrid[i]->setBounds (cell);
+        }
+
+        if (fbInGrid)
+            ampHint = foot.withTrimmedLeft (2);
+        else
+        {
+            controls.feedbackType.setBounds (foot.removeFromLeft (92).withSizeKeepingCentre (92, 30));
+            ampHint = foot.withTrimmedLeft (8);
+        }
+        // Another type's way to the operator's controls, at the hint's end.
+        if (makeOperator.isVisible())
+        {
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), makeOperator.getButtonText()) + 26;
+            makeOperator.setBounds (ampHint.withLeft (ampHint.getRight() - width).withSizeKeepingCentre (width, 22));
+        }
+    }
+
     void layoutOperatorCard()
     {
         auto inner = operatorCard.reduced (10, 0);
@@ -572,6 +682,8 @@ private:
 
         auto& controls = *operators[(size_t) selectedOperator];
         const auto opEnv = usesOperatorEnv (selectedOperator);
+        for (auto& each : operators)
+            setOperatorCardStyle (*each, false);
         // On the Operator Env, the envelope's editor takes the card: its
         // graph at the right, its tabs and knobs along the bottom; the
         // operator's own controls go in the space it leaves.
@@ -582,16 +694,8 @@ private:
         }
         else
         {
-            // Its envelope's graph where the Operator Env's would be, and a
-            // line under the knobs on where that envelope is edited.
-            ampHint = inner.removeFromBottom (16).withTrimmedLeft (2);
-            inner.removeFromBottom (4);
-            const auto graph = inner.removeFromRight (inner.getWidth() / 3).withTrimmedLeft (8).reduced (0, 2);
-            if (ampGraph != nullptr)
-                ampGraph->setBounds (graph);
-            ampHint.setRight (graph.getX() - 8);
-            // The menus and knobs at their natural height, not stretched.
-            inner = inner.withHeight (juce::jmin (inner.getHeight(), 46 + 4 + 96));
+            layoutPlainOperator (controls);
+            return;
         }
         const auto tune = juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) selectedOperator]) + "_tune"));
 
@@ -699,13 +803,13 @@ private:
         const auto bottomHeight = extras ? 62 + 6 : 28;
         // (Three oscillators or fewer draw larger cells, so the matrix of a
         // small patch fills its card: UI review 9, V9-8.)
-        const auto small = count <= 3;
+        const auto fewOperators = count <= 3;
         // (Cells are sized for their count, not stretched to the card: a
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (small ? (count <= 2 ? 168 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
-        const auto columnWidth = juce::jmin (small ? 124 : 76, (inner.getWidth() - headWidth) / count);
+        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 168 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
+        const auto columnWidth = juce::jmin (fewOperators ? 124 : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
@@ -1029,7 +1133,7 @@ private:
     FmAlgorithmStrip algorithms;
     OperatorEnvEditor envelope;
     OscPicker picker;
-    juce::TextButton pitchLfoLink;
+    juce::TextButton pitchLfoLink, makeOperator;
     CardTabs pageTabs;
     ComboControl mode;
     ToggleControl hardSync;
@@ -1050,7 +1154,7 @@ private:
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
     juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, pairRow, pairText, ampHint, readoutArea;
     std::vector<std::atomic<float>*> tuneValues;
-    std::array<int, OscillatorIds::count * 3> lastTune {};
+    std::array<int, OscillatorIds::count * 4> lastTune {};
     std::vector<int> shown;
     int selectedOperator = 0, tabsLeft = 0, lastDiagramMinimum = 0;
     bool lastAnyOperatorEnv = false;

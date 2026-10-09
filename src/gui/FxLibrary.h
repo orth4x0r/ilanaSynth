@@ -61,7 +61,7 @@ public:
     }
 
     // Wide enough for the tag, the name and the chevron.
-    int preferredWidth() const { return IlanaTheme::cardTitleWidth (title) + 4; }
+    int preferredWidth() const { return IlanaTheme::cardTitleWidth (title) + 14; }
 
     void paint (juce::Graphics& g) override
     {
@@ -73,8 +73,8 @@ public:
 
         IlanaTheme::paintCardTitle (g, getLocalBounds(), title, colour);
 
-        // The chevron after the name.
-        const auto x = (float) IlanaTheme::cardTitleWidth (title) - 12.0f;
+        // The chevron, 6 px after the name's letters.
+        const auto x = 14.0f + juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::cardTitleFont()), title) + 6.0f;
         const auto y = (float) getHeight() * 0.5f;
         juce::Path chevron;
         chevron.startNewSubPath (x, y - 2.0f);
@@ -186,16 +186,20 @@ inline juce::String airwindowsBadgeTip (int type)
     return text + "a choice of " + names.joinIntoString (", ") + ".";
 }
 
-// A library entry: the effect's name on its family's tint, and a dot in its
-// colour once it is in the rack (V6-25: a dot, and a click on it shows its
-// card, as the rack takes each effect once; V7-42: its name dims, so it
-// doesn't read as a second one to add). An Airwindows model beside its
-// effect is a small "AIRWINDOWS" button; an Airwindows module without a twin
-// carries an AW tag.
+// A library entry, as the approved picker draws it (mockup "fxadd"): the
+// effect's name on its family's tint with a 3 px bar in the family colour at
+// its left edge, and the slot number in a small badge once the rack holds it
+// (V6-25: a click on it shows its card, as the rack takes each effect once;
+// V7-42: its name dims, so it doesn't read as a second one to add). An
+// Airwindows model beside its effect is a small "AIRWINDOWS" tag; an
+// Airwindows module without a twin draws the same tag inside its own button.
 class FxLibraryButton : public juce::TextButton
 {
 public:
     enum class Kind { effect, airwindowsModel, airwindowsOnly, more };
+
+    // The AIRWINDOWS tag's width and its gap to the effect.
+    static constexpr int tagWidth = 70, tagGap = 4;
 
     FxLibraryButton (int typeIn, const juce::String& name, Kind kindIn = Kind::effect)
         : juce::TextButton (kindIn == Kind::airwindowsModel ? juce::String ("AIRWINDOWS") : name.toUpperCase()), type (typeIn), kind (kindIn) {}
@@ -214,74 +218,111 @@ public:
 
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
-        const auto colour = fxColour (type);
-        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto colour = kind == Kind::more ? IlanaTheme::Ui::text3 : fxColour (type);
         const auto inRack = inRackSlot >= 0;
-        auto fill = IlanaTheme::Ui::raised.interpolatedWith (colour, highlighted ? 0.16f : (kind == Kind::airwindowsModel ? 0.04f : 0.08f));
-        if (down)
-            fill = fill.darker (0.2f);
-        g.setColour (fill);
-        g.fillRoundedRectangle (bounds, 5.0f);
-        g.setColour (highlighted ? colour.withAlpha (0.6f) : IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
-        const auto textColour = colour.interpolatedWith (juce::Colours::white, 0.35f).withAlpha (inRack ? 0.5f : 1.0f);
+        auto bounds = getLocalBounds().toFloat();
 
         if (kind == Kind::airwindowsModel)
         {
-            if (inRack)
-            {
-                g.setColour (colour);
-                g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ bounds.getRight() - 6.0f, bounds.getY() + 6.0f }));
-            }
-            g.setColour (textColour);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+            paintTag (g, bounds, colour, inRack, highlighted, down);
             return;
         }
 
-        g.setColour (colour.withAlpha (0.85f));
-        g.fillRoundedRectangle (bounds.withWidth (3.0f).reduced (0.0f, 6.0f).translated (4.0f, 0.0f), 1.5f);
-
-        auto text = getLocalBounds().reduced (12, 0);
-        if (inRack)
-        {
-            const auto dot = text.removeFromRight (10).toFloat();
-            g.setColour (colour);
-            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (dot.getCentre()));
-            text.removeFromRight (4);
-        }
         if (kind == Kind::airwindowsOnly)
         {
-            // The same small pill the effects with an Airwindows model carry as
-            // their AIRWINDOWS button, here the only model (V12-21).
-            // (The width of the twin buttons beside the other effects, flush at the same edge: V13-17.)
-            const auto pill = juce::Rectangle<int> (getWidth() - 3 - 76 + 12, 0, 76 - 12 + 0, getHeight()).withSizeKeepingCentre (76 - 12, juce::jmax (14, getHeight() - 10)).toFloat();
-            text.removeFromRight (76 - 12);
-            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.04f));
-            g.fillRoundedRectangle (pill, 4.0f);
-            g.setColour (IlanaTheme::Ui::line);
-            g.drawRoundedRectangle (pill.reduced (0.5f), 4.0f, 1.0f);
-            g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f).withAlpha (inRack ? 0.5f : 1.0f));
+            paintTag (g, bounds.removeFromRight ((float) tagWidth), colour, inRack, highlighted, down);
+            bounds.removeFromRight ((float) tagGap);
+        }
+
+        auto fill = kind == Kind::more ? IlanaTheme::Ui::panel
+                                       : IlanaTheme::Ui::raised.interpolatedWith (colour, inRack ? 0.22f : 0.09f);
+        if (highlighted)
+            fill = fill.interpolatedWith (colour, 0.10f);
+        if (down)
+            fill = fill.darker (0.2f);
+
+        juce::Path shape;
+        shape.addRoundedRectangle (bounds, radius);
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (shape);
+            g.setColour (fill);
+            g.fillRect (bounds);
+            g.setColour (colour);
+            g.fillRect (bounds.withWidth (3.0f));
+        }
+        if (highlighted)
+        {
+            g.setColour (colour.withAlpha (0.55f));
+            g.strokePath (shape, juce::PathStrokeType (1.0f));
+        }
+
+        auto text = bounds.toNearestInt().withTrimmedLeft (11).withTrimmedRight (6);
+        if (inRack)
+        {
+            const auto badge = text.removeFromRight (16).withSizeKeepingCentre (16, 16).toFloat();
+            g.setColour (colour);
+            g.fillRoundedRectangle (badge, 5.0f);
+            g.setColour (juce::Colour (0xff12080a));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("AIRWINDOWS", pill.toNearestInt(), juce::Justification::centred);
+            g.drawText (juce::String (inRackSlot + 1), badge.toNearestInt(), juce::Justification::centred, false);
             text.removeFromRight (6);
         }
 
-        g.setColour (textColour);
+        if (kind == Kind::more)
+        {
+            // MORE AIRWINDOWS, then what it is in the hint colour.
+            const auto font = juce::Font (IlanaTheme::pillFont());
+            const juce::String name ("MORE AIRWINDOWS");
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (font);
+            g.drawText (name, text, juce::Justification::centredLeft, false);
+            text.removeFromLeft (juce::roundToInt (juce::GlyphArrangement::getStringWidth (font, name)) + 8);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "every algorithm in one module", text, juce::Justification::centredLeft, 1);
+            return;
+        }
+
+        g.setColour (inRack ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::pillFont());
         IlanaTheme::drawFitted (g, getButtonText(), text, juce::Justification::centredLeft, 1);
     }
 
 private:
+    static constexpr float radius = 6.0f;
+
+    // The small AIRWINDOWS tag (ink 2, its family's tint once in the rack).
+    void paintTag (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool inRack, bool highlighted, bool down) const
+    {
+        auto fill = inRack ? IlanaTheme::Ui::raised.interpolatedWith (colour, 0.22f) : IlanaTheme::Ui::panel;
+        if (highlighted)
+            fill = fill.interpolatedWith (colour, 0.14f);
+        if (down)
+            fill = fill.darker (0.2f);
+        g.setColour (fill);
+        g.fillRoundedRectangle (area, radius);
+        if (highlighted)
+        {
+            g.setColour (colour.withAlpha (0.55f));
+            g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
+        }
+        g.setColour (inRack ? colour.interpolatedWith (juce::Colours::white, 0.35f) : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.04f));
+        IlanaTheme::drawFitted (g, "AIRWINDOWS", area.toNearestInt().reduced (3, 0), juce::Justification::centred, 1);
+    }
+
     int type;
     Kind kind;
     int inRackSlot = -1;
 };
 
-// The whole library in five columns, each group under a small heading, its
-// Airwindows models beside their effects, and "More Airwindows" under the
-// columns. The page shows it while the rack is empty; + ADD EFFECT opens a
-// copy in a call-out.
+// The whole library in five columns (the approved "fxadd" picker): each
+// group under a small heading in its family's colour, its Airwindows models
+// beside their effects, and a row under the columns with "More Airwindows"
+// and what the AIRWINDOWS tags are. The page shows it while the rack is
+// empty; + ADD EFFECT opens a copy in a call-out, and a card's type button
+// opens one that swaps that slot's effect.
 class FxLibraryView : public juce::Component
 {
 public:
@@ -294,9 +335,11 @@ public:
             auto button = std::make_unique<FxLibraryButton> (type, name, kind);
             button->onClick = [this, type]
             {
+                // (The pick can close the call-out: keep this alive until the end.)
+                juce::Component::SafePointer<FxLibraryView> safeThis (this);
                 if (onPick != nullptr)
                     onPick (type);
-                if (afterPick != nullptr)
+                if (safeThis != nullptr && afterPick != nullptr)
                     afterPick();
             };
             addAndMakeVisible (*button);
@@ -313,33 +356,79 @@ public:
                 if (entry.twin >= 0)
                     add (entry.twin, entry.twinName, FxLibraryButton::Kind::airwindowsModel);
             }
+
+        removeButton.setTooltip ("Take this effect out of the rack");
+        removeButton.onClick = [this]
+        {
+            juce::Component::SafePointer<FxLibraryView> safeThis (this);
+            if (onRemove != nullptr)
+                onRemove();
+            if (safeThis != nullptr && afterPick != nullptr)
+                afterPick();
+        };
+        addChildComponent (removeButton);
         refresh();
+    }
+
+    ~FxLibraryView() override
+    {
+        if (onGone != nullptr)
+            onGone();
     }
 
     // Called after a pick (the call-out closes itself with it).
     std::function<void()> afterPick;
+    // The REMOVE EFFECT button's action (shown while replacing a slot's effect).
+    std::function<void()> onRemove;
+    // Called as the view goes (its call-out closed).
+    std::function<void()> onGone;
 
-    static constexpr int columns = 5, buttonHeight = 26, headingHeight = 18, groupGap = 10, twinWidth = 76, legendHeight = 14;
+    // The mockup's measures: five columns 14 apart, 28 px entries 4 apart,
+    // a group's heading, 14 between groups, the row under the columns 10 below.
+    static constexpr int columns = 5, columnGap = 14, buttonHeight = 28, rowGap = 4, headingHeight = 18,
+                         groupGap = 14, footerGap = 10;
+    // Its width in a call-out, and the padding there (the call-out's bubble
+    // adds 4.5 px around it: 14 / 16 / 12 as drawn).
+    static constexpr int calloutWidth = 1012;
+    static inline const juce::BorderSize<int> calloutPadding { 10, 12, 8, 12 };
 
-    // The tallest column's height, buttons and headings, and the row under them.
-    static int preferredHeight()
+    // The tallest column, headings and entries, and the row under them.
+    static int preferredHeight (int rowStep = buttonHeight + rowGap)
     {
         std::array<int, columns> heights {};
-        auto below = 0;
         for (const auto& group : fxLibraryGroups())
         {
             if (group.column < 0)
-            {
-                below += groupGap + (int) group.entries.size() * buttonHeight;
                 continue;
-            }
             auto& height = heights[(size_t) group.column];
             if (height > 0)
                 height += groupGap;
-            height += headingHeight + (int) group.entries.size() * buttonHeight;
+            height += headingHeight + (int) group.entries.size() * rowStep - rowGap;
         }
-        return *std::max_element (heights.begin(), heights.end()) + below + groupGap + legendHeight;
+        return *std::max_element (heights.begin(), heights.end()) + footerGap + rowStep - rowGap;
     }
+
+    // In a call-out: padded, the size the mockup draws it.
+    void setPadding (juce::BorderSize<int> newPadding)
+    {
+        padding = newPadding;
+        resized();
+    }
+
+    // Replacing a slot's effect (its type button) rather than adding one:
+    // slot -1 is adding. The slot's own effect shows its badge; REMOVE EFFECT
+    // joins the row under the columns.
+    void setReplacing (int slot, int type)
+    {
+        replacingSlot = slot;
+        replacedType = type;
+        removeButton.setVisible (slot >= 0 && type > 0);
+        refresh();
+        resized();
+    }
+
+    int getReplacingSlot() const { return replacingSlot; }
+    juce::Button& getRemoveButton() { return removeButton; }
 
     // Marks what is in the rack, and says so in the tooltips.
     void refresh()
@@ -353,9 +442,16 @@ public:
             const auto name = button->getKind() == FxLibraryButton::Kind::airwindowsModel
                                   ? fxTypeName (twin) + ", Airwindows model (" + fxTypeName (type) + ")"
                                   : fxTypeName (type);
-            auto tip = slot >= 0 ? name + " is in slot " + juce::String (slot + 1)
-                                       + ": click to show its card (the rack takes each effect once)."
-                                 : "Add " + name + " to the first empty slot.";
+            juce::String tip;
+            if (replacingSlot >= 0 && slot == replacingSlot)
+                tip = name + " is this slot's effect.";
+            else if (slot >= 0)
+                tip = name + " is in slot " + juce::String (slot + 1) + ": click to show its card (the rack takes each effect once).";
+            else if (replacingSlot >= 0)
+                tip = "Put " + name + " in slot " + juce::String (replacingSlot + 1)
+                      + (replacedType > 0 ? " in place of " + fxTypeName (replacedType) : juce::String()) + ".";
+            else
+                tip = "Add " + name + " to the first empty slot.";
             if (button->getKind() == FxLibraryButton::Kind::effect && twin >= 0)
                 tip << "\nAIRWINDOWS beside it is its Airwindows model; a card switches between the two.";
             if (isAirwindowsFxType (type))
@@ -366,6 +462,7 @@ public:
             if (button->getKind() == FxLibraryButton::Kind::more)
                 button->setVisible (slot >= 0);
         }
+        resized();
         repaint();
     }
 
@@ -382,53 +479,49 @@ public:
     {
         for (const auto& heading : headings)
         {
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (heading.text, heading.bounds.withTrimmedLeft (2), juce::Justification::bottomLeft);
+            g.setColour (heading.colour);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+            g.drawText (heading.text, heading.bounds.withTrimmedLeft (1), juce::Justification::topLeft, false);
         }
 
-        // What the small AW boxes are (S10-11).
-        g.setColour (IlanaTheme::Ui::text2);
+        // What the AIRWINDOWS tags are (S10-11).
+        g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("AIRWINDOWS beside an effect is its Airwindows version; a card switches between the two.", legend, juce::Justification::centredLeft);
-
-        // A hairline over the row under the columns.
-        if (! moreRow.isEmpty() && std::any_of (buttons.begin(), buttons.end(), [] (const auto& b)
-                                                { return b->getKind() == FxLibraryButton::Kind::more && b->isVisible(); }))
-        {
-            g.setColour (IlanaTheme::Ui::line);
-            g.fillRect (moreRow.toFloat().withHeight (1.0f).translated (0.0f, -(float) groupGap * 0.5f));
-        }
+        g.drawText (legendText, legend, juce::Justification::centredRight, false);
     }
 
     void resized() override
     {
         headings.clear();
-        // The rows take the spare height (an empty rack is a whole page), up to
-        // a roomy button: the library fills its page rather than its top half.
-        const auto rowStep = juce::jlimit ((int) buttonHeight, 44, (int) buttonHeight + (getHeight() - preferredHeight()) / 9);
-        const auto gap = 10;
-        const auto columnWidth = (getWidth() - gap * (columns - 1)) / columns;
+        auto area = padding.subtractedFrom (getLocalBounds());
+        // On the page (an empty rack) the rows take the spare height, up to a
+        // roomy entry: the library fills its page rather than its top half.
+        const auto spare = area.getHeight() - preferredHeight();
+        const auto rowStep = juce::jlimit (buttonHeight + rowGap, 44, buttonHeight + rowGap + spare / 9);
+        const auto entryHeight = rowStep - rowGap;
+        const auto columnWidth = (area.getWidth() - columnGap * (columns - 1)) / columns;
         std::array<int, columns> y {};
+        y.fill (area.getY());
         size_t index = 0;
 
         const auto placeEntry = [&] (const FxLibraryEntry& entry, int x, int top, int width)
         {
-            const auto mainWidth = entry.twin >= 0 ? width - twinWidth - 3 : width;
-            buttons[index++]->setBounds (x, top, mainWidth, rowStep - 3);
+            const auto mainWidth = entry.twin >= 0 ? width - FxLibraryButton::tagWidth - FxLibraryButton::tagGap : width;
+            buttons[index++]->setBounds (x, top, mainWidth, entryHeight);
             if (entry.twin >= 0)
-                buttons[index++]->setBounds (x + mainWidth + 3, top, twinWidth, rowStep - 3);
+                buttons[index++]->setBounds (x + mainWidth + FxLibraryButton::tagGap, top, FxLibraryButton::tagWidth, entryHeight);
         };
 
         for (const auto& group : fxLibraryGroups())
         {
             if (group.column < 0)
                 continue;
-            const auto x = group.column * (columnWidth + gap);
+            const auto x = area.getX() + group.column * (columnWidth + columnGap);
             auto& top = y[(size_t) group.column];
-            if (top > 0)
+            if (top > area.getY())
                 top += groupGap;
-            headings.push_back ({ { x, top, columnWidth, headingHeight - 4 }, group.title });
+            headings.push_back ({ { x, top, columnWidth, headingHeight - 4 }, group.title,
+                                  group.entries.empty() ? IlanaTheme::Ui::text2 : fxColour (group.entries.front().type) });
             top += headingHeight;
 
             for (const auto& entry : group.entries)
@@ -438,19 +531,31 @@ public:
             }
         }
 
-        // The row under the columns, across them.
-        auto bottom = *std::max_element (y.begin(), y.end()) + groupGap;
-        legend = { 2, bottom - groupGap / 2, getWidth() - 4, legendHeight };
-        bottom += legendHeight;
-        moreRow = {};
+        // The row under the columns: More Airwindows (while a patch uses it),
+        // the AIRWINDOWS legend and, replacing a slot's effect, REMOVE EFFECT.
+        auto footer = juce::Rectangle<int> (area.getX(), *std::max_element (y.begin(), y.end()) - rowGap + footerGap,
+                                            area.getWidth(), entryHeight);
+        if (removeButton.isVisible())
+        {
+            removeButton.setBounds (footer.removeFromRight (136));
+            footer.removeFromRight (12);
+        }
+        const auto legendFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label));
+        const juce::String longLegend ("AIRWINDOWS beside an effect is its Airwindows version; a card switches between the two.");
+        const juce::String shortLegend ("AIRWINDOWS: the effect's Airwindows version.");
+
         for (const auto& group : fxLibraryGroups())
             if (group.column < 0)
                 for (const auto& entry : group.entries)
                 {
-                    moreRow = moreRow.isEmpty() ? juce::Rectangle<int> (0, bottom, getWidth(), rowStep - 3) : moreRow;
-                    placeEntry (entry, 0, bottom, columnWidth * 2 + gap);
-                    bottom += rowStep;
+                    auto& more = *buttons[index];
+                    placeEntry (entry, footer.getX(), footer.getY(), juce::jmin (columnWidth * 3 + columnGap * 2 - 30, footer.getWidth() / 2));
+                    if (more.isVisible())
+                        footer.setLeft (more.getRight() + 12);
                 }
+
+        legendText = juce::GlyphArrangement::getStringWidth (legendFont, longLegend) <= (float) footer.getWidth() ? longLegend : shortLegend;
+        legend = footer;
     }
 
 private:
@@ -458,13 +563,46 @@ private:
     {
         juce::Rectangle<int> bounds;
         juce::String text;
+        juce::Colour colour;
     };
 
     std::function<int (int)> slotOf;
     std::function<void (int)> onPick;
     std::vector<std::unique_ptr<FxLibraryButton>> buttons;
+    juce::TextButton removeButton { "REMOVE EFFECT" };
     std::vector<Heading> headings;
-    juce::Rectangle<int> moreRow, legend;
+    juce::Rectangle<int> legend;
+    juce::String legendText;
+    juce::BorderSize<int> padding;
+    int replacingSlot = -1, replacedType = 0;
+};
+
+// The picker's call-out, drawn as the mockup's: ink 3 with an ink 5 edge,
+// 12 px corners and a soft shadow (the editor's own look otherwise, so the
+// tooltips and the REMOVE button inside match the page).
+class FxPickerLook : public IlanaLookAndFeel
+{
+public:
+    int getCallOutBoxBorderSize (const juce::CallOutBox&) override { return 14; }
+    float getCallOutBoxCornerSize (const juce::CallOutBox&) override { return 12.0f; }
+
+    void drawCallOutBoxBackground (juce::CallOutBox&, juce::Graphics& g, const juce::Path& path, juce::Image&) override
+    {
+        juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 24, { 0, 10 }).drawForPath (g, path);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillPath (path);
+        g.setColour (IlanaTheme::Ui::hover);
+        g.strokePath (path, juce::PathStrokeType (1.0f));
+    }
+};
+
+// The page behind the picker, dimmed (the mockup's #05060a at 60 %), so the
+// rack shows where the new card lands.
+class FxPickerDimmer : public juce::Component
+{
+public:
+    FxPickerDimmer() { setInterceptsMouseClicks (false, false); }
+    void paint (juce::Graphics& g) override { g.fillAll (juce::Colour (0x9905060a)); }
 };
 
 // A card's model switch, for an effect with an Airwindows model (I7-28): two
@@ -525,6 +663,54 @@ public:
 private:
     bool isAirwindows = false, canSwitch = true;
     juce::Colour colour { IlanaTheme::accent() };
+};
+
+// An effect row's engine tag: BUILT-IN or AIRWINDOWS in the effect's colour.
+// On an effect with the other model a click swaps the slot to it (each model
+// keeps its own settings); on the rest it only says what runs.
+class FxEngineChip : public juce::Component,
+                     public juce::SettableTooltipClient
+{
+public:
+    std::function<void()> onClick;
+
+    void setState (const juce::String& newText, juce::Colour newColour, bool newClickable)
+    {
+        if (newText == text && newColour == colour && newClickable == clickable)
+            return;
+        text = newText;
+        colour = newColour;
+        clickable = newClickable;
+        setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto hot = clickable && isMouseOver();
+        g.setColour (colour.withAlpha (hot ? 0.28f : 0.16f));
+        g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+        g.setColour (colour.withAlpha (hot ? 0.9f : 0.6f));
+        g.drawRoundedRectangle (bounds, bounds.getHeight() * 0.5f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        IlanaTheme::drawFitted (g, text, getLocalBounds().reduced (6, 0), juce::Justification::centred, 1);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (clickable && onClick != nullptr && getLocalBounds().contains (event.getPosition()))
+            onClick();
+    }
+
+private:
+    juce::String text;
+    juce::Colour colour { IlanaTheme::accent() };
+    bool clickable = false;
 };
 
 // The FX chain's dice: the header's dice icon and "FX" (V7-43: "DICE FX"

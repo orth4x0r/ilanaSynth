@@ -62,6 +62,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("outputView");
         {
             const auto now = juce::Time::getMillisecondCounterHiRes();
             paintTicks = lastPaintMs > 0.0 ? (float) juce::jlimit (0.0, 300.0, (now - lastPaintMs) * 0.03) : 1.0f;
@@ -72,29 +73,23 @@ public:
 
         if (strip)
         {
-            processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+            processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
             // Quiet: it sits under the preset name, the most-read text, and
             // moves all the time (review 8, S8-41).
             // On a faint band of its own, so it doesn't read as an underline
             // of the preset name (UI review 9, S9-26).
             // A small display, well and rim, with its baseline, not a line
             // under the name (S10-14).
-            g.setColour (IlanaTheme::Ui::well.withAlpha (0.8f));
-            g.fillRoundedRectangle (bounds, 4.0f);
-            g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
-            // Named, so a flat line is a quiet output and not a border (V12-11).
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("OUT", bounds.reduced (6.0f, 0.0f).removeFromLeft (24.0f), juce::Justification::centredLeft);
-            drawWave (g, bounds.withTrimmedLeft (30.0f).reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
+            // In the preset display (the shell mockup): the wave alone,
+            // faint, with no well or rim of its own.
+            drawWave (g, bounds.reduced (0.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
             return;
         }
 
         IlanaTheme::paintCard (g, bounds, 6.0f, IlanaTheme::accent());
         IlanaTheme::paintWell (g, bounds.reduced (6.0f), 5.0f);
 
-        processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+        processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
         auto area = bounds.reduced (12.0f, 10.0f);
         const auto colour = IlanaTheme::accent();
 
@@ -130,8 +125,11 @@ public:
 private:
     void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool thin = false)
     {
-        g.setColour (juce::Colours::white.withAlpha (thin ? 0.14f : 0.06f));
-        g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
+        if (! thin)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
+        }
 
         // Start on a rising zero crossing so the trace holds still.
         auto start = 0;
@@ -156,8 +154,18 @@ private:
         for (int x = 0; x < width; ++x)
         {
             const auto index = start + x * span / width;
-            const auto sample = (scopeL[(size_t) index] + scopeR[(size_t) index]) * 0.5f * gain;
-            const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, sample) * area.getHeight() * 0.46f;
+            auto sample = (scopeL[(size_t) index] + scopeR[(size_t) index]) * 0.5f * gain;
+
+            if (thin) // the header's trace is a calm line: smoothed over a few pixels' samples
+            {
+                auto sum = 0.0f;
+                const auto taps = juce::jmax (1, 3 * span / width);
+                for (int k = 0; k < taps; ++k)
+                    sum += scopeL[(size_t) (index + k)] + scopeR[(size_t) (index + k)];
+                sample = sum / (2.0f * (float) taps) * gain;
+            }
+
+            const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, sample) * area.getHeight() * (thin ? 0.34f : 0.46f);
 
             if (x == 0)
                 path.startNewSubPath (area.getX(), y);
@@ -165,10 +173,13 @@ private:
                 path.lineTo (area.getX() + (float) x, y);
         }
 
-        g.setColour (colour.withMultipliedAlpha (0.2f));
-        g.strokePath (path, juce::PathStrokeType (thin ? 3.0f : 4.0f));
+        if (! thin)
+        {
+            g.setColour (colour.withMultipliedAlpha (0.2f));
+            g.strokePath (path, juce::PathStrokeType (4.0f));
+        }
         g.setColour (colour.withMultipliedAlpha (0.95f));
-        g.strokePath (path, juce::PathStrokeType (thin ? 1.1f : 1.5f));
+        g.strokePath (path, juce::PathStrokeType (thin ? 1.0f : 1.5f));
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour)

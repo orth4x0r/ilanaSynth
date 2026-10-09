@@ -176,6 +176,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
     };
 
+    // The oscillator types; FM / DX7 is appended (OscMode, OscillatorIds.h).
+    juce::StringArray oscModeChoices;
+    for (const auto* modeName : OscMode::names)
+        oscModeChoices.add (modeName);
+
     // OSC 1 and 2 retain their original parameter order and defaults.
     for (int osc = 0; osc < 2; ++osc)
     {
@@ -214,7 +219,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", oscModeChoices, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -310,7 +315,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Global
     addFloat ("amp_velocity", "Amp Velocity", 0.0f, 1.0f, 0.3f);
     addFloat ("filter_velocity", "Filter Velocity", 0.0f, 1.0f, 0.5f);
-    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.35f);
+    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.13f); // (skew 0.13: 10 ms sits at half the travel; most glides are 0-10 ms, the longer ones effects)
     addFloat ("bend_range", "Bend Range", 0.0f, 24.0f, 2.0f, 1.0f, 1.0f);
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
 
@@ -376,7 +381,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", oscModeChoices, 0);
         addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
@@ -687,7 +692,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc);
         const auto id = [&prefix] (const char* suffix) { return prefix + "_" + suffix; };
         addBool (id ("on"), name + " On", false);
-        addChoice (id ("mode"), name + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (id ("mode"), name + " Mode", oscModeChoices, 0);
         addChoice (id ("table"), name + " Table", getOscTableChoices(), 0);
         addFloat (id ("frame"), name + " Frame", 0.0f, 1.0f, 0.0f);
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, 0.6f);
@@ -1118,6 +1123,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Review 8 (V8-15): the heard noise's colour (SUB + NOISE), on the FM
     // noise's scale. White, as in every older patch.
     addFloat ("noise_color", "Noise Colour", 0.0f, 1.0f, 1.0f);
+
+    // Design round 2: the FX rack's routing. SERIES (each effect feeds the
+    // next one) as in every older patch; PARALLEL (every effect hears the
+    // rack's input, their outputs averaged; see processEffectsParallel).
+    addChoice ("fx_routing", "FX Routing", { "Series", "Parallel" }, 0);
+
+    // CPU round 7: the voices render on several cores (the same sound; off
+    // renders them on one, as before).
+    addBool ("multi_core", "Multi-Core Voices", true);
+
+    // At most this many voices ring on after their key is up (released or
+    // held by the pedal); past it the oldest fade out. Off as before.
+    addChoice ("sustain_voices", "Sustain Voices", { "Off", "4", "6", "8", "12", "16" }, 0);
 
     return layout;
 }

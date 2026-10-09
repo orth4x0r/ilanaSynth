@@ -37,7 +37,11 @@ public:
 
     std::function<void (int)> onSelect, onMenu;
 
-    StateTabs() { setRepaintsOnMouseActivity (true); }
+    StateTabs()
+    {
+        setRepaintsOnMouseActivity (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
 
     void setItems (std::vector<Item> newItems)
     {
@@ -92,31 +96,34 @@ public:
                 g.fillRect (tab.getX() - (float) groupGap * 0.5f - 0.5f, tab.getY() + 3.0f, 1.0f, tab.getHeight() - 6.0f);
             }
             const auto active = i == selected;
-            const auto hover = isMouseOver() && tab.contains (mouse.toFloat());
+            // The choice and the hover fade (the shared animator).
+            const auto chosen = IlanaTheme::fade (*this, i, active ? 1.0f : 0.0f);
+            const auto hover = IlanaTheme::fade (*this, 1000 + i, isMouseOver() && tab.contains (mouse.toFloat()) ? 1.0f : 0.0f,
+                                                 IlanaTheme::FadeRate::hover);
             const auto radius = tab.getHeight() * 0.5f;
 
-            g.setColour (active ? IlanaTheme::Ui::raised.interpolatedWith (item.colour, 0.2f)
-                                : IlanaTheme::Ui::panel.interpolatedWith (juce::Colours::white, hover ? 0.05f : 0.0f));
+            g.setColour (IlanaTheme::Ui::panel.interpolatedWith (juce::Colours::white, 0.05f * hover)
+                             .interpolatedWith (IlanaTheme::Ui::raised.interpolatedWith (item.colour, 0.2f), chosen));
             g.fillRoundedRectangle (tab, radius);
-            g.setColour (active ? item.colour.withAlpha (0.85f) : IlanaTheme::Ui::line.interpolatedWith (item.colour, hover ? 0.4f : 0.0f));
+            g.setColour (IlanaTheme::Ui::line.interpolatedWith (item.colour, 0.4f * hover).interpolatedWith (item.colour.withAlpha (0.85f), chosen));
             g.drawRoundedRectangle (tab.reduced (0.5f), radius, 1.0f);
 
             auto area = tab.reduced (stateLevel() >= 3 ? 8.0f : 12.0f, 0.0f);
             // The same on indicator as every switchable tab (review 7).
             if (item.dot)
             {
-                IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, item.lit);
+                IlanaTheme::paintOnDot (g, { area.getX() + 3.5f, area.getCentreY() }, item.colour, IlanaTheme::fade (*this, 2000 + i, item.lit ? 1.0f : 0.0f));
                 area.removeFromLeft (13.0f);
             }
 
-            g.setColour (active ? IlanaTheme::Ui::text : (item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3));
+            g.setColour ((item.lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3).interpolatedWith (IlanaTheme::Ui::text, chosen));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
             g.drawText (shownName (i, stateLevel()), area, juce::Justification::centredLeft);
 
             if (item.state.isNotEmpty() && showsState (i, stateLevel()))
             {
                 area.removeFromLeft ((float) nameWidth (i, stateLevel()) + 7.0f);
-                g.setColour (active ? item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f) : IlanaTheme::Ui::text3);
+                g.setColour (IlanaTheme::Ui::text3.interpolatedWith (item.colour.interpolatedWith (IlanaTheme::Ui::text2, 0.4f), chosen));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (item.state, area, juce::Justification::centredLeft);
             }
@@ -151,6 +158,7 @@ public:
             if (getTabBounds (i).contains (event.getPosition()))
                 tip = items[(size_t) i].tooltip;
         setTooltip (tip);
+        repaint(); // (the hover moves from tab to tab)
     }
 
 private:

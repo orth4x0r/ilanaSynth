@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "ParamInfo.h"
@@ -12,6 +13,7 @@
 #include "../dsp/LfoShape.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
+#include "LfoSimView.h"
 #include "AnimationUtils.h"
 
 // The mod slots a source takes part in (as the source or the VIA aux), and
@@ -205,6 +207,31 @@ inline std::vector<Placed> layout (const std::vector<int>& ids, int selected, bo
     return items;
 }
 
+// The cards sharing the whole view evenly (the design's pools: PLAY's and
+// MOD's), the "+" keeping `plusW`.
+inline void fillEvenly (std::vector<Placed>& items, int plusId, float view, float plusW)
+{
+    auto cards = 0;
+    auto hasPlus = false;
+    for (const auto& item : items)
+    {
+        cards += item.id == plusId ? 0 : 1;
+        hasPlus = hasPlus || item.id == plusId;
+    }
+
+    if (cards == 0)
+        return;
+
+    const auto width = (view - (hasPlus ? plusW + gap : 0.0f) - gap * (float) (cards - 1)) / (float) cards;
+    auto x = 0.0f;
+    for (auto& item : items)
+    {
+        item.bounds.setX (x);
+        item.bounds.setWidth (item.id == plusId ? plusW : width);
+        x += item.bounds.getWidth() + gap;
+    }
+}
+
 inline void paintOverflow (juce::Graphics& g, juce::Rectangle<float> card, int count, bool hovered)
 {
     IlanaTheme::paintWell (g, card, 6.0f);
@@ -324,6 +351,10 @@ public:
 
     int getPreferredWidth() const { return viewWidth; }
 
+    // PLAY: the cards share the whole bar evenly (the design's thumbnails)
+    // instead of keeping a quarter each.
+    void setFillWidth (bool fill, float plusWidth = PoolCards::plusWidth) { fillWidth = fill; plusW = plusWidth; repaint(); }
+
     // The cards folded into the overflow card right now (the UI test).
     std::vector<int> getFoldedCards() const
     {
@@ -371,6 +402,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("lfoThumbs");
         std::vector<int> folded;
         for (const auto& item : layoutItems (folded))
         {
@@ -533,8 +565,13 @@ private:
         for (const auto extra : visibleExtras())
             if (! extras[(size_t) extra].pinnedFirst)
                 ids.push_back (IlanaSynthAudioProcessor::numLfos + extra);
-        return PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
-                                  folded);
+        auto items = PoolCards::layout (ids, selected, withPlus, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), (float) getHeight(),
+                                        folded);
+
+        if (fillWidth && folded.empty() && ! ids.empty())
+            PoolCards::fillEvenly (items, plusId, (float) (viewWidth > 0 ? viewWidth : getWidth()), plusW);
+
+        return items;
     }
 
     std::vector<Item> layoutItems() const
@@ -691,44 +728,64 @@ private:
         return ! modSlotsUsing (processorRef, { Mod::lfoSourceFor (lfo), Mod::lfoBSourceFor (lfo) }).empty();
     }
 
-    // M8.1: a simulated shape's picture, a few seconds of it from a fresh
-    // start at RATE 1 Hz, rebuilt when its settings change.
-    float simValue (int lfo, const LfoSimSettings& settings, double phase) const
+    // M8.1: a simulated shape (attractor, physics, random walk) has no fixed
+    // cycle to draw: its card shows the live trace of the same simulation the
+    // MOD page's picture runs (LfoSimPreview), a rolling window of about two
+    // cycles that moves with the frames. The preview is created on first use
+    // and only advanced while the card is on screen.
+    LfoSimPreview& simPreviewOf (int lfo) const
     {
-        auto& cache = simTraces[(size_t) lfo];
-        if (cache.shape != settings.shape || cache.params != settings.p || cache.axis != settings.axis)
+        auto& slot = simPreviews[(size_t) lfo];
+        if (slot == nullptr)
         {
-            cache.shape = settings.shape;
-            cache.params = settings.p;
-            cache.axis = settings.axis;
-            LfoSim sim;
-            sim.sampleRate = 600.0;
-            sim.reset (settings, 3);
-            const auto seconds = LfoSimShapes::isPhysics (settings.shape) ? 3.0 : 4.0;
-            const auto perPoint = juce::jmax (1, (int) (seconds * 600.0 / (double) cache.values.size()));
-            for (auto& value : cache.values)
-                for (int i = 0; i < perPoint; ++i)
-                {
-                    float b = 0.0f;
-                    sim.next (settings, 1.0 / 600.0, value, b);
-                }
+            // A first look starts part-way along (the trace is never empty).
+            slot = std::make_unique<LfoSimPreview>();
+            const auto settings = processorRef.readLfoSimSettings (lfo);
+            for (int i = 0; i < 4; ++i)
+                slot->advance (settings, lfoRateHz (lfo), 2.0);
         }
-        const auto index = juce::jlimit (0, (int) cache.values.size() - 1, (int) (phase * (double) cache.values.size()));
-        return cache.values[(size_t) index];
+        return *slot;
     }
 
-    struct SimTrace
+    double lfoRateHz (int lfo) const
     {
-        int shape = -1, axis = 0;
-        std::array<float, LfoSimInfo::numParams> params {};
-        std::array<float, 128> values {};
-    };
-    mutable std::array<SimTrace, (size_t) IlanaSynthAudioProcessor::numLfos> simTraces;
+        if (readParam (lfo, "_sync") > 0.5f)
+        {
+            static const double beats[] = { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 0.75, 0.375 };
+            return (processorRef.getCurrentBpm() / 60.0) / beats[juce::jlimit (0, 10, (int) readParam (lfo, "_div"))];
+        }
+        return (double) readParam (lfo, "_rate");
+    }
+
+    // The preview, stepped by the real time since this card last drew it
+    // (so a card that was hidden catches up, and one not drawn costs nothing).
+    LfoSimPreview& liveSimPreview (int lfo) const
+    {
+        auto& preview = simPreviewOf (lfo);
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        auto& stamp = simStamps[(size_t) lfo];
+        if (stamp > 0.0)
+            preview.advance (processorRef.readLfoSimSettings (lfo), lfoRateHz (lfo), juce::jlimit (0.0, 0.25, (now - stamp) * 0.001));
+        stamp = now;
+        return preview;
+    }
+
+    bool anySimShown() const
+    {
+        for (const auto lfo : visibleLfos())
+            if (LfoSimShapes::isSim ((int) readParam (lfo, "_shape")))
+                return true;
+        return false;
+    }
+
+    mutable std::array<double, (size_t) IlanaSynthAudioProcessor::numLfos> simStamps {};
+    std::array<IlanaAnim::BlockSmoother, (size_t) IlanaSynthAudioProcessor::numLfos> phaseSmoothers;
+    mutable std::array<std::unique_ptr<LfoSimPreview>, (size_t) IlanaSynthAudioProcessor::numLfos> simPreviews;
 
     float shapeValue (int lfo, int shape, double phase) const
     {
         if (LfoSimShapes::isSim (shape))
-            return simValue (lfo, processorRef.readLfoSimSettings (lfo), juce::jlimit (0.0, 0.999999, phase));
+            return simPreviewOf (lfo).historyAt (juce::jlimit (0.0, 0.999999, phase));
 
         phase = LfoShapes::isPhysics (shape) ? juce::jlimit (0.0, 0.999999, phase)
                                              : phase - std::floor (phase);
@@ -830,6 +887,14 @@ private:
                 path.lineTo (x, y);
         }
 
+        // The wave filled down to the card's foot (the design's thumbnails).
+        auto filled (path);
+        filled.lineTo (plot.getRight(), plot.getBottom());
+        filled.lineTo (plot.getX(), plot.getBottom());
+        filled.closeSubPath();
+        g.setColour (colour.withAlpha (alpha * 0.16f));
+        g.fillPath (filled);
+
         g.setColour (colour.withAlpha (alpha));
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
@@ -866,12 +931,22 @@ private:
         const auto plot = inner.withTrimmedTop (7.0f).reduced (0.0f, 3.0f);
         const auto shape = (int) readParam (lfo, "_shape");
 
+        if (LfoSimShapes::isSim (shape))
+            liveSimPreview (lfo);
+
         // Unassigned LFOs are drawn faint.
         paintTrace (g, plot, colour, active ? 0.95f : (targets.isNotEmpty() ? 0.6f : 0.3f), false,
                     [this, lfo, shape] (double phase) { return shapeValue (lfo, shape, phase); });
 
-        const auto phase = (double) processorRef.getLfoPhase (lfo);
-        paintDot (g, plot, colour, phase, shapeValue (lfo, shape, phase));
+        // A simulated shape's dot rides the live end of its trace; the others
+        // follow the voice's phase along the cycle.
+        if (LfoSimShapes::isSim (shape))
+            paintDot (g, plot, colour, 1.0, simPreviewOf (lfo).latestA());
+        else
+        {
+            const auto phase = (double) phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), true);
+            paintDot (g, plot, colour, phase, shapeValue (lfo, shape, phase));
+        }
 
         // The hovered card's "x" takes the rate's corner. Nothing is drawn
         // over the trace (UI review 9, V9-16): a target tag too long for the
@@ -944,7 +1019,10 @@ private:
             // Routing an LFO elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)
                 layoutChanged();
-            if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ lfoPhases()))
+            // Simulated shapes move all the time: they redraw every frame
+            // (each card steps its simulation by the time since its last draw).
+            const auto simulating = anySimShown();
+            if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ lfoPhases()) || simulating)
                 repaint();
         }
     }
@@ -956,7 +1034,7 @@ private:
     {
         juce::uint64 signature = 0;
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            signature ^= IlanaAnim::phaseSignature (processorRef.getLfoPhase (lfo), lfo);
+            signature ^= IlanaAnim::phaseSignature (phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), true), lfo);
         for (int extra = 0; extra < (int) extras.size(); ++extra)
             if (extras[(size_t) extra].phase != nullptr)
                 signature ^= IlanaAnim::phaseSignature ((float) extras[(size_t) extra].phase(), 100 + extra);
@@ -971,5 +1049,7 @@ private:
     int hoverIndex = -1;
     bool hoverRemove = false, hoverB = false;
     int viewWidth = 0;
+    bool fillWidth = false;
+    float plusW = PoolCards::plusWidth;
     int lastCardCount = -1;
 };

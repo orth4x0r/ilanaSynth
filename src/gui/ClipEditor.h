@@ -1816,9 +1816,9 @@ public:
         auto area = getLocalBounds();
         label.setBounds (area.removeFromTop (13));
         auto row = area.removeFromTop (24);
-        const auto small = juce::jmin (28, row.getWidth() / 4);
-        out.setBounds (row.removeFromLeft (small));
-        in.setBounds (row.removeFromRight (small));
+        const auto sideWidth = juce::jmin (28, row.getWidth() / 4);
+        out.setBounds (row.removeFromLeft (sideWidth));
+        in.setBounds (row.removeFromRight (sideWidth));
         fit.setBounds (row.reduced (3, 0));
     }
 

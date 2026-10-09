@@ -219,6 +219,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
    #endif
 
     setLookAndFeel (&lookAndFeel);
+    tooltipWindow.setOpaque (false);
 
     {
         juce::PropertiesFile::Options options;
@@ -328,6 +329,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             page->selectShared (OscPage::sharedVoice);
         showPage ("OSC");
     };
+    getOscCardBounds = [this, oscViewport] (int osc) -> juce::Rectangle<int>
+    {
+        if (auto* page = oscViewport->getPage())
+            return getLocalArea (page, page->getCardBounds (osc));
+        return {};
+    };
     // PLAY's oscillator title: that oscillator's full page.
     mainPage->onEditOscillator = [this, oscViewport] (int osc)
     {
@@ -434,6 +441,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.addChildComponent (modHoverPopup);
 
     headerScope.setStrip (true);
+    headerScope.setInterceptsMouseClicks (false, false); // the preset display under it takes the click
     headerScope.onStripClick = [this]
     {
         scopeButton.setToggleState (! scopeButton.getToggleState(), juce::dontSendNotification);
@@ -446,13 +454,92 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     voicesArea.onClick = [this] { showVoicePanel(); };
     content.addAndMakeVisible (voicesArea);
 
+    // BPM and CPU are plain read-outs; VOICES opens the voice settings. All
+    // three live in the tab bar now (tiny bold caps, label grey, value light).
+    {
+        const auto readoutFont = [] { return IlanaTheme::font (13.2f, true, true).withKerningFactor (0.04f); };
+        const auto paintReadout = [readoutFont] (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& label, const juce::String& value,
+                                                 juce::Colour valueColour, juce::Colour labelColour)
+        {
+            const auto font = juce::Font (readoutFont());
+            const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (font, label + " ");
+            const auto valueWidth = juce::GlyphArrangement::getStringWidthInt (font, value);
+            auto at = area.withTrimmedLeft (juce::jmax (0, area.getWidth() - labelWidth - valueWidth));
+            g.setFont (readoutFont());
+            g.setColour (labelColour);
+            g.drawText (label, at.removeFromLeft (labelWidth), juce::Justification::centredLeft);
+            g.setColour (valueColour);
+            g.drawText (value, at, juce::Justification::centredLeft);
+        };
+
+        bpmArea.setInterceptsMouseClicks (false, false);
+        bpmArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
+        {
+            paintReadout (g, area, "BPM", juce::String (processorRef.getCurrentBpm(), 1), IlanaTheme::Ui::text2, IlanaTheme::Ui::text3); // (the sheet's .stat b: t2)
+        };
+        content.addAndMakeVisible (bpmArea);
+
+        cpuArea.setInterceptsMouseClicks (false, false);
+        cpuArea.onPaint = [this, paintReadout] (juce::Graphics& g, juce::Rectangle<int> area, bool)
+        {
+            const auto cpu = processorRef.getCpuUsage() * 100.0f;
+            const auto colour = cpu < 30.0f ? IlanaTheme::Ui::text2
+                                            : (cpu < 60.0f ? IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
+                                                           : IlanaTheme::accent().interpolatedWith (juce::Colours::red, juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
+            paintReadout (g, area, "CPU", juce::String (juce::roundToInt (cpu)) + "%", colour, IlanaTheme::Ui::text3);
+        };
+        content.addAndMakeVisible (cpuArea);
+
+        voicesArea.onPaint = [this, readoutFont] (juce::Graphics& g, juce::Rectangle<int> area, bool hover)
+        {
+            // The voice mode when it isn't the usual Poly, so Mono or Legato
+            // shows without opening the settings.
+            const auto* modeValue = processorRef.apvts.getRawParameterValue ("voice_mode");
+            const auto mode = modeValue != nullptr ? juce::roundToInt (modeValue->load()) : 0;
+            const juce::String label (mode == 1 ? "MONO" : (mode == 2 ? "LEGATO" : "VOICES"));
+            const auto font = juce::Font (readoutFont());
+            const auto activeVoices = getVoicesText().upToFirstOccurrenceOf ("/", false, false).getIntValue();
+            const auto maxVoices = getVoicesText().fromFirstOccurrenceOf ("/", false, false).getIntValue();
+            const juce::String active (activeVoices), maxText (" / " + juce::String (maxVoices));
+            const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (font, label + " ");
+            const auto activeWidth = juce::GlyphArrangement::getStringWidthInt (font, active);
+            const auto maxWidth = juce::GlyphArrangement::getStringWidthInt (font, maxText);
+            auto at = area.withTrimmedLeft (juce::jmax (0, area.getWidth() - labelWidth - activeWidth - maxWidth));
+            g.setFont (readoutFont());
+            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.drawText (label, at.removeFromLeft (labelWidth), juce::Justification::centredLeft);
+            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.drawText (active, at.removeFromLeft (activeWidth), juce::Justification::centredLeft);
+            g.drawText (maxText, at, juce::Justification::centredLeft);
+
+            if (hover)
+                g.fillRect (area.getX() + juce::jmax (0, area.getWidth() - labelWidth - activeWidth - maxWidth), area.getBottom() - 3,
+                            labelWidth + activeWidth + maxWidth - 2, 1);
+        };
+    }
+
+    // TUNING while a Scala scale (or an MTS-ESP master) retunes the notes: a
+    // small accent pill with the scale's name in the free space of the header.
     tuningArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     tuningArea.onClick = [this] { showSettingsMenu (true); };
+    tuningArea.onPaint = [this] (juce::Graphics& g, juce::Rectangle<int> area, bool hover)
+    {
+        const auto pill = area.toFloat().reduced (0.5f);
+        g.setColour (IlanaTheme::accent().withAlpha (hover ? 0.22f : 0.12f));
+        g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+        g.setColour (IlanaTheme::accent().withAlpha (0.7f));
+        g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, 1.0f);
+        g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::accent().interpolatedWith (IlanaTheme::Ui::text, 0.4f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (tuningText.fromFirstOccurrenceOf ("TUNING: ", false, false), area.reduced (8, 0), juce::Justification::centred, true);
+    };
     content.addChildComponent (tuningArea);
 
     content.addAndMakeVisible (*masterKnob);
 
     presetDisplay.onClick = [this] { togglePresetPanel(); };
+    prevButton.setFlat (true);
+    nextButton.setFlat (true);
 
     prevButton.onClick = [this]
     {
@@ -946,6 +1033,8 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
         chipFolded[i] = false;
 
     const auto regions = chipRegions (row);
+    chipSeparatorX = { juce::roundToInt (regions[0].getRight() + (regions[1].getX() - regions[0].getRight()) * 0.5f),
+                       juce::roundToInt (regions[1].getRight() + (regions[2].getX() - regions[1].getRight()) * 0.5f) };
 
     for (size_t g = 0; g < 3; ++g)
     {
@@ -986,7 +1075,7 @@ void IlanaSynthAudioProcessorEditor::layoutChips (juce::Rectangle<int> row)
         items += folded.empty() ? 0 : 1;
 
         const auto used = widthOf();
-        const auto spare = juce::jlimit (0.0f, 40.0f, (regions[g].getWidth() - used) / (float) juce::jmax (1, items));
+        const auto spare = 0.0f; // the dock's chips keep their natural width, left-aligned
         const auto squeeze = juce::jmin (1.0f, regions[g].getWidth() / juce::jmax (1.0f, used));
         auto x = regions[g].getX();
         const auto place = [&] (juce::Component& component, float natural)
@@ -1023,7 +1112,7 @@ std::array<juce::Rectangle<float>, 3> IlanaSynthAudioProcessorEditor::chipRegion
         { "OP PITCH", "AMP ENV", "FILT ENV", "FILT 2 ENV" },
         { "VELOCITY", "KEY TRACK", "MOD WHEEL", "PRESSURE", "RANDOM" },
     } };
-    constexpr float groupGap = 8.0f;
+    constexpr float groupGap = 14.0f; // room for the thin rule between groups
 
     std::array<float, 3> wanted {};
     auto total = 0.0f;
@@ -1186,7 +1275,9 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
-        content.repaint (0, 0, designWidth, 56);
+        bpmArea.repaint();
+        cpuArea.repaint();
+        voicesArea.repaint();
     }
 }
 
@@ -1235,101 +1326,41 @@ void IlanaSynthAudioProcessorEditor::paint (juce::Graphics& g)
 
 void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
 {
+    // The header (52 px).
     g.setColour (IlanaTheme::Ui::header);
-    g.fillRect (juce::Rectangle<int> (0, 0, designWidth, 56));
+    g.fillRect (juce::Rectangle<int> (0, 0, designWidth, headerHeight));
+    g.setColour (IlanaTheme::Ui::line2);
+    g.fillRect (juce::Rectangle<int> (0, headerHeight - 1, designWidth, 1));
 
+    // The preset display's field (its rim, flash and text are the display's
+    // own, over the live wave that sits on this field).
+    g.setColour (IlanaTheme::Ui::panel);
+    g.fillRoundedRectangle (presetDisplay.getBounds().toFloat().reduced (0.5f), 10.0f);
+
+    // The rule between the edit and tool groups.
     g.setColour (IlanaTheme::Ui::line);
-    g.fillRect (juce::Rectangle<int> (0, 55, designWidth, 1));
-
-    // Status line along the bottom edge of the header (tempo, voices and
-    // CPU at the right), clear of the buttons above.
-    const auto statusY = pillY;
-
-    // The rules between the action groups.
-    g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
     for (const auto x : headerSeparatorX)
         if (x > 0)
-            g.fillRect (juce::Rectangle<int> (x, 9, 1, 20));
+            g.fillRect (juce::Rectangle<int> (x, 15, 1, 22));
 
+    // The tab bar's ground and its hairline, under the tabs.
+    g.setColour (IlanaTheme::Ui::bg);
+    g.fillRect (juce::Rectangle<int> (0, headerHeight, designWidth, tabBarHeight));
+    g.setColour (IlanaTheme::Ui::line2);
+    g.fillRect (juce::Rectangle<int> (0, headerHeight + tabBarHeight - 1, designWidth, 1));
 
-    const auto cpu = processorRef.getCpuUsage() * 100.0f;
-
-    const auto cpuColour = cpu < 30.0f
-                               ? IlanaTheme::Ui::text3
-                               : (cpu < 60.0f
-                                      ? IlanaTheme::Ui::text3
-                                            .interpolatedWith (IlanaTheme::accent(), (cpu - 30.0f) / 30.0f)
-                                      : IlanaTheme::accent().interpolatedWith (juce::Colours::red,
-                                                                               juce::jlimit (0.0f, 1.0f, (cpu - 60.0f) / 40.0f)));
-
-    // (At the interactive floor: VOICES is a button, and the line is read
-    // at a glance.)
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, false, true)); // live numbers
-
-    // The three items of the line share one rim and one baseline (V12-10):
-    // the tempo and CPU are read-outs in the rim VOICES is a button in.
-    const auto paintReadout = [&g] (juce::Rectangle<int> area, const juce::String& text, juce::Colour colour)
+    // The dock (78 px): sources, then macros, master and the meter.
+    if (! dockBounds.isEmpty())
     {
-        const auto pill = area.toFloat().reduced (0.5f, 0.0f);
-        g.setColour (IlanaTheme::Ui::line.withAlpha (0.35f));
-        g.fillRoundedRectangle (pill, 5.0f);
-        g.setColour (IlanaTheme::Ui::line.brighter (0.2f).withAlpha (0.6f));
-        g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-        g.setColour (colour);
-        g.drawText (text, area, juce::Justification::centred);
-    };
-    // Three equal pills at one gap, right-aligned (UI review 13, V13-6):
-    // BPM, VOICES (a button) and CPU, in the brighter of the two greys.
-    paintReadout (cpuArea(), "CPU " + juce::String (juce::roundToInt (cpu)) + "%", cpu < 30.0f ? IlanaTheme::Ui::text2 : cpuColour);
-    paintReadout (bpmArea(), juce::String (processorRef.getCurrentBpm(), 1) + " BPM", IlanaTheme::Ui::text2);
-    {
-        // The voice mode when it isn't the usual Poly, so Mono or Legato
-        // shows without opening the settings.
-        const auto* modeValue = processorRef.apvts.getRawParameterValue ("voice_mode");
-        const auto mode = modeValue != nullptr ? juce::roundToInt (modeValue->load()) : 0;
-        const juce::String label (mode == 1 ? "MONO" : (mode == 2 ? "LEGATO" : "VOICES"));
-        const auto font = g.getCurrentFont();
+        g.setColour (IlanaTheme::Ui::header);
+        g.fillRect (dockBounds);
+        g.setColour (IlanaTheme::Ui::line2);
+        g.fillRect (dockBounds.withHeight (1));
 
-        // A small button, not a status: a rim and a drop-down arrow say it
-        // opens the voice settings (review 9, V9-27).
-        const auto pill = voicesArea.getBounds().toFloat().reduced (0.5f, 0.0f);
-        {
-            g.setColour (voicesArea.isMouseOver() ? IlanaTheme::accent().withAlpha (0.18f) : IlanaTheme::Ui::line.withAlpha (0.35f));
-            g.fillRoundedRectangle (pill, 5.0f);
-            g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::line.brighter (0.2f));
-            g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-            juce::Path arrow;
-            const auto ax = pill.getRight() - 11.0f, ay = pill.getCentreY();
-            arrow.addTriangle (ax - 3.5f, ay - 1.5f, ax + 3.5f, ay - 1.5f, ax, ay + 2.5f);
-            g.setColour (IlanaTheme::Ui::text3);
-            g.fillPath (arrow);
-        }
-
-        // "3/32": notes sounding, of the most that can; the count lights
-        // while anything plays. The group sits centred left of the arrow.
-        const auto activeVoices = getVoicesText().upToFirstOccurrenceOf ("/", false, false).getIntValue();
-        const auto maxVoices = getVoicesText().fromFirstOccurrenceOf ("/", false, false).getIntValue();
-        const juce::String active (activeVoices), maxText ("/" + juce::String (maxVoices));
-        const auto labelWidth = juce::GlyphArrangement::getStringWidthInt (font, label), activeWidth = juce::GlyphArrangement::getStringWidthInt (font, active),
-                   maxWidth = juce::GlyphArrangement::getStringWidthInt (font, maxText);
-        auto x = pill.getX() + (pill.getWidth() - 14.0f - (float) (labelWidth + 5 + activeWidth + maxWidth)) * 0.5f;
-        const auto line = [&] (float at, int width) { return juce::Rectangle<int> ((int) at, statusY, width + 2, pillHeight); };
-
-        g.setColour (voicesArea.isMouseOver() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-        g.drawText (label, line (x, labelWidth), juce::Justification::centredLeft);
-        x += (float) (labelWidth + 5);
-        g.setColour (activeVoices > 0 ? IlanaTheme::accent() : IlanaTheme::Ui::text2);
-        g.drawText (active, line (x, activeWidth), juce::Justification::centredLeft);
-        x += (float) activeWidth;
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText (maxText, line (x, maxWidth), juce::Justification::centredLeft);
-    }
-
-    // TUNING while a Scala scale (or an MTS-ESP master) retunes the notes.
-    if (tuningText.isNotEmpty())
-    {
-        g.setColour (tuningArea.isMouseOver() ? IlanaTheme::Ui::text : IlanaTheme::accent().interpolatedWith (IlanaTheme::Ui::text2, 0.35f));
-        g.drawText (tuningText, tuningArea.getBounds(), juce::Justification::centredRight, true);
+        g.setColour (IlanaTheme::Ui::line);
+        for (const auto x : chipSeparatorX)
+            if (x > 0)
+                g.fillRect (juce::Rectangle<int> (x, chipRowBounds.getCentreY() - 8, 1, 16));
     }
 }
 
@@ -1359,7 +1390,7 @@ void IlanaSynthAudioProcessorEditor::updateTuningIndicator()
     tuningArea.setTooltip (text.isNotEmpty() ? "Tuning\nThe notes play " + text.fromFirstOccurrenceOf ("TUNING: ", false, false)
                                                    + ", not 12-TET. Click to load another scale or switch back."
                                              : juce::String());
-    content.repaint (0, 36, designWidth, 20);
+    tuningArea.repaint();
 }
 
 void IlanaSynthAudioProcessorEditor::resized()
@@ -1380,56 +1411,47 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     auto area = content.getLocalBounds();
 
-    logo.setBounds (16, 5, 250, 46);
+    // ---- Header (52 px): the mark and name, the preset display with its
+    // prev / next segments and the live scope, star, SAVE and the menu; at
+    // the right undo, redo, history, A/B and the dice and settings keys.
+    logo.setBounds (14, 9, 160, 34);
     logo.version = juce::String ("v") + appVersion;
-    logo.nameCentreY = 19.0f - 5.0f; // the header buttons' centre line (they span 4 to 34)
 
-    // Header: preset display in the middle with its browse / save controls,
-    // editing tools on the right. Buttons sit in the top 36 px; the status
-    // line runs underneath them.
-    auto headerRow = area.removeFromTop (56).withTrimmedTop (4).withHeight (30).withTrimmedRight (14);
-    headerRow.removeFromLeft (292);
+    constexpr int key = 30, step = 10, rowY = 11;
+    int x = designWidth - 14;
+    const auto placeFromRight = [&] (juce::Component& c, int width)
+    {
+        x -= width;
+        c.setBounds (x, rowY, width, key);
+        x -= step;
+    };
+    placeFromRight (settingsButton, key);
+    placeFromRight (diceButton, key);
+    headerSeparatorX[1] = x - 1; // the rule between A/B and the tools: 10 px, 1 px, 10 px
+    x -= 11;
+    placeFromRight (abButton, 54);
+    placeFromRight (historyButton, key);
+    placeFromRight (redoButton, key);
+    placeFromRight (undoButton, key);
+    headerSeparatorX[0] = 0;
 
-    // Three groups, right to left: tools (dice, settings), edit (undo, redo,
-    // history, A/B) and file (star, save, menu), each pair of groups parted by
-    // a gap with a thin rule in it.
-    constexpr int key = 30, groupGap = 24;
-    settingsButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (4);
-    diceButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (groupGap);
-    headerSeparatorX[1] = headerRow.getRight() + groupGap / 2;
-    abButton.setBounds (headerRow.removeFromRight (58));
-    headerRow.removeFromRight (6);
-    historyButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (3);
-    redoButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (3);
-    undoButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (groupGap);
-    headerSeparatorX[0] = headerRow.getRight() + groupGap / 2;
+    presetDisplay.setBounds (180, 7, 330, 38);
+    prevButton.setBounds (180, 7, PresetDisplay::arrowWidth, 38);
+    nextButton.setBounds (180 + 330 - PresetDisplay::arrowWidth, 7, PresetDisplay::arrowWidth, 38);
+    headerScope.setBounds (330, 13, 150, 26);
+    favButton.setBounds (519, rowY, key, key);
+    saveButton.setBounds (559, rowY, 75, key);
+    moreButton.setBounds (644, rowY, key, key);
+    // TUNING (while a scale or MTS-ESP retunes the notes) in the free space between
+    // the file keys and the edit keys; its text is the scale's name.
+    tuningArea.setBounds (684, rowY + 4, juce::jmax (0, undoButton.getX() - step - 684), key - 8);
+    area.removeFromTop (headerHeight);
 
-    moreButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (4);
-    saveButton.setBounds (headerRow.removeFromRight (82));
-    headerRow.removeFromRight (4);
-    favButton.setBounds (headerRow.removeFromRight (key));
-    headerRow.removeFromRight (10);
-    nextButton.setBounds (headerRow.removeFromRight (26));
-    prevButton.setBounds (headerRow.removeFromLeft (26));
-    headerRow.removeFromLeft (3);
-    headerRow.removeFromRight (3);
-    presetDisplay.setBounds (headerRow.withTrimmedTop (-3).withHeight (headerRow.getHeight() + 6));
+    tutorial.setBounds (content.getLocalBounds());
+    confirmOverlay.setBounds (content.getLocalBounds());
+    saveOverlay.setBounds (content.getLocalBounds());
 
-    // The status line (y 41-52): the live waveform under the preset name,
-    // then tempo, VOICES and CPU at the right.
-    headerScope.setBounds (prevButton.getX(), 40, juce::jmin (nextButton.getRight(), bpmArea().getX() - 8) - prevButton.getX(), 14);
-    voicesArea.setBounds (voicesPillArea());
-    // TUNING sits left of the tempo, clear of the waveform strip.
-    tuningArea.setBounds (headerScope.getRight() + 8, pillY, bpmArea().getX() - headerScope.getRight() - 16, pillHeight);
-
-    // Bottom: source chips, the macro / performance strip, the info line and
-    // the optional keyboard.
+    // ---- Bottom: the optional keyboard, then the 78 px dock.
     if (keyboard != nullptr)
     {
         keyboard->setVisible (keyboardVisible);
@@ -1438,46 +1460,47 @@ void IlanaSynthAudioProcessorEditor::resized()
             keyboard->setBounds (area.removeFromBottom (32).reduced (14, 2));
     }
 
-    tutorial.setBounds (content.getLocalBounds());
-    confirmOverlay.setBounds (content.getLocalBounds());
-    saveOverlay.setBounds (content.getLocalBounds());
+    dockBounds = area.removeFromBottom (dockHeight);
 
-    // (The macro strip and the chips gave up a few pixels so the hover line
-    // could have its own strip without taking any from the pages: S8-11.)
-    auto strip = area.removeFromBottom (40).reduced (14, 1);
-    // The window's resize grip owns the corner: the meter keeps clear of
-    // it (review 8, S8-37, V8-30).
-    strip.removeFromRight (14);
-    outputMeter->setBounds (strip.removeFromRight (190).withSizeKeepingCentre (190, strip.getHeight()));
-    strip.removeFromRight (4);
-    masterKnob->setBounds (strip.removeFromRight (108));
+    // The macro row: the macros and + MACRO at the left, then the hover line
+    // in the free middle, MASTER and the meter at the right. The window's
+    // resize grip owns the corner: the meter keeps clear of it.
+    auto strip = dockBounds.withTrimmedTop (1 + 6 + 22 + 6).withTrimmedBottom (6).reduced (14, 0);
+    strip.removeFromRight (12); // (the meter ends 26 px from the edge: the resize grip's corner)
+    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 30));
+    strip.removeFromRight (8);
+    masterKnob->setBounds (strip.removeFromRight (100));
     strip.removeFromRight (10);
 
-    // The macros in use, side by side, and "+" for the next.
-    // The "+ MACRO" tile sits right after the last macro, not at the far end
-    // of the strip (review 11, S11-9).
-    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? 84 : 0;
-    const auto macroWidth = juce::jmin (230, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
+    // The "+ MACRO" tile sits right after the last macro (review 11, S11-9).
+    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? macroPlusButton.getIdealWidth() + 4 : 0;
+    const auto macroWidth = juce::jlimit (72, 92, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
 
-    macroPlusButton.setBounds (strip.getX() + shownMacros * macroWidth, strip.getCentreY() - DashedAddButton::standardHeight / 2, 76, DashedAddButton::standardHeight);
+    const auto macrosEnd = strip.getX() + shownMacros * macroWidth;
+    macroPlusButton.setBounds (macrosEnd, strip.getCentreY() - 12, macroPlusButton.getIdealWidth(), 24);
     macroPlusButton.setVisible (plusWidth > 0);
 
-    auto chipsRow = area.removeFromBottom (24).reduced (14, 1);
+    // The hover line: in what is left of the macro row, between the last
+    // macro (or + MACRO) and MASTER, so it never sits over a card or a chip.
+    {
+        const auto from = (plusWidth > 0 ? macroPlusButton.getRight() : macrosEnd) + 12;
+        const auto to = masterKnob->getX() - 8;
+        infoStrip.setBounds (juce::Rectangle<int> (from, strip.getCentreY() - infoLineHeight / 2, juce::jmax (0, to - from), infoLineHeight));
+        infoStrip.setVisible (infoStrip.getWidth() >= 140);
+    }
 
-    layoutChips (chipsRow);
-
-    // The hover line in a strip of its own just above the chips, so it never
-    // covers a card (review 8: S8-11, V8-31) and the sources stay in view
-    // while you look at a knob (S7-20); it stays away while the mouse is on
-    // the chips or the macros below them.
-    infoStrip.setBounds (area.removeFromBottom (infoLineHeight).reduced (14, 1));
-    infoStrip.setQuietArea ({ 0, chipsRow.getY() - 2, designWidth, designHeight - chipsRow.getY() + 2 });
+    infoStrip.setQuietArea (dockBounds.withTop (dockBounds.getY() - 2));
     infoStrip.toFront (false);
 
-    tabs.setBounds (area.reduced (14, 0));
+    // The source chips: one row, 22 px chips.
+    chipRowBounds = juce::Rectangle<int> (14, dockBounds.getY() + 5, designWidth - 28, 24);
+    layoutChips (chipRowBounds);
+
+    tabs.setTabBarDepth (tabBarHeight);
+    tabs.setBounds (area);
     layoutTabRow();
 
     if (scopePanel != nullptr)
@@ -1503,7 +1526,8 @@ void IlanaSynthAudioProcessorEditor::resized()
 // The pages' area: under the tab row, above the chips.
 juce::Rectangle<int> IlanaSynthAudioProcessorEditor::pageArea() const
 {
-    return tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth());
+    // (The overlays that dock over the pages keep a 14 px margin at each side.)
+    return tabs.getBounds().withTrimmedTop (tabs.getTabBarDepth()).reduced (14, 0);
 }
 
 SectionPage* IlanaSynthAudioProcessorEditor::currentSection() const
@@ -1626,19 +1650,37 @@ bool IlanaSynthAudioProcessorEditor::isScopeOpen() const
 // sit at the right end of the tab row.
 void IlanaSynthAudioProcessorEditor::layoutTabRow()
 {
-    const auto bar = tabs.getBounds().withHeight (tabs.getTabBarDepth());
-    auto row = bar.reduced (4, 5);
-    helpButton.setBounds (row.removeFromRight (28));
-    row.removeFromRight (4);
-    keysButton.setBounds (row.removeFromRight (84));
-    row.removeFromRight (4);
-    scopeButton.setBounds (row.removeFromRight (70));
-    row.removeFromRight (10);
+    const auto bar = tabs.getBounds().withHeight (tabBarHeight);
+    constexpr int gap = 6, buttonHeight = 24;
+    const auto y = bar.getY() + (tabBarHeight - buttonHeight) / 2;
+
+    // From the right: ?, KEYBOARD, SCOPE, a rule, then CPU, VOICES and BPM
+    // (moved here from the header).
+    auto x = bar.getRight() - 14;
+    const auto place = [&] (juce::Component& component, int width, int after)
+    {
+        x -= width;
+        component.setBounds (x, y, width, buttonHeight);
+        x -= after;
+    };
+    place (helpButton, 26, gap);
+    place (keysButton, keysButton.getIdealWidth(), gap);
+    place (scopeButton, scopeButton.getIdealWidth(), 14);
+
+    const auto textWidth = [] (const juce::String& text)
+    {
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.2f, true, true).withKerningFactor (0.04f)), text) + 2;
+    };
+    constexpr int readoutGap = 12;
+    place (cpuArea, textWidth ("CPU 100%"), readoutGap);
+    place (voicesArea, textWidth ("VOICES 32 / 32"), readoutGap);
+    place (bpmArea, textWidth ("BPM 120.0"), 0);
+    statusStartX = x;
 
     auto& tabBar = tabs.getTabbedButtonBar();
     auto* lastTab = tabBar.getNumTabs() > 0 ? tabBar.getTabButton (tabBar.getNumTabs() - 1) : nullptr;
-    const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : row.getX();
-    row.setLeft (juce::jmax (row.getX(), tabsRight + 24));
+    const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : bar.getX();
+    auto row = juce::Rectangle<int> (tabsRight + 12, bar.getY() + 3, juce::jmax (0, statusStartX - 12 - (tabsRight + 12)), tabBarHeight - 7);
 
     for (auto* section : sections)
     {
@@ -2618,19 +2660,19 @@ void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
     {
         setValue ("osc1_on", 1.0f);
         setValue ("sub_on", 1.0f);
-        setValue ("osc2_mode", 0.0f);
-        setValue ("sub_mode", 0.0f);
+        processorRef.setOscillatorMode (1, OscMode::wavetable); // (drops an operator's ratio and OP ENV)
+        processorRef.setOscillatorMode (2, OscMode::wavetable);
 
         if (random.nextFloat() < 0.25f)
         {
-            setValue ("osc1_mode", 1.0f);
+            processorRef.setOscillatorMode (0, OscMode::physical);
             setValue ("osc1_excite", (float) random.nextInt (4));
             setValue ("osc1_string_decay", randomRange (0.6f, 0.95f));
             setValue ("osc1_string_damp", randomRange (0.1f, 0.6f));
         }
         else
         {
-            setValue ("osc1_mode", 0.0f);
+            processorRef.setOscillatorMode (0, OscMode::wavetable);
         }
 
         setValue ("osc1_table", (float) random.nextInt (tableCount));

@@ -99,7 +99,9 @@ void save (juce::Component& editor, const juce::File& file)
     if (beforeSave() != nullptr)
         beforeSave()();
 
-    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
+    // ILANA_SNAPSHOT_SCALE: the pixel scale of the PNGs (1.5 by default; 3 for close-ups).
+    static const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, scale > 0.1f ? scale : 1.5f);
     file.deleteFile();
     juce::FileOutputStream stream (file);
     juce::PNGImageFormat().writeImageToStream (image, stream);
@@ -135,6 +137,7 @@ void expect (bool condition, const juce::String& message)
 #include "GlobalUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
+#include "OscTypeUiTests.h"
 #include "Review9T2Tests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
@@ -261,7 +264,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         editor.showPage ("OSC");
         settle (400);
         selectOscTab (0);
-        expect (oscTabState (0) == "OPERATOR", "OSC: a DX7 operator's tab tag is its kind, OPERATOR (" + oscTabState (0) + ")");
+        expect (oscTabState (0) == "FM / DX7", "OSC: a DX7 operator's tab tag is its type, FM / DX7 (" + oscTabState (0) + ")");
         loadNamed ("Neuro Wobble");
         editor.showPage ("OSC");
         settle (300);
@@ -309,13 +312,17 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<OperatorEnvDisplay> (editor, graphs);
         auto graph = false;
         for (auto* g : graphs)
-            graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 200);
+            graph = graph || (visibleInTree (g) && g->getPrefix() == "osc1" && g->getWidth() > 120); // (the approved card gives it its 150 px well)
         auto* wave = oscWave (0);
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
                     && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
-                "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread");
+                "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread ("
+                    + juce::String ((int) graph) + juce::String ((int) (knobFor ("osc1_eg_out", "OUTPUT") != nullptr)) + juce::String ((int) (knobFor ("osc1_level", "VOICE LEVEL") == nullptr))
+                    + juce::String ((int) (knobFor ("osc1_warp_amt") == nullptr)) + juce::String ((int) (knobFor ("osc1_spectral_amt") == nullptr))
+                    + juce::String ((int) (knobFor ("osc1_detune") == nullptr)) + juce::String ((int) (knobFor ("osc1_frame") == nullptr))
+                    + juce::String ((int) (buttonNamed (editOpEnv) != nullptr)) + ")");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
         // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
         expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
@@ -458,11 +465,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* decay = knobFor ("osc1_string_decay");
         auto* hammer = knobFor ("osc1_hammer_hard");
+        // (STRING and EXCITER are two rows of one grid: the hammer sits under the decay.)
         const auto sameLine = decay != nullptr && hammer != nullptr
-                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() == editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
+                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() < editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
         expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
-                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
-                "PHYSICAL: the string spans the page, STRING and EXCITER share one line, EDIT BODY > links to FILTER");
+                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba")) != nullptr,
+                "PHYSICAL: the string spans the page, STRING and EXCITER are rows of one grid, EDIT > links to FILTER");
         // The renamed exciter menu still shows its choice.
         juce::String exciteText;
         std::vector<ComboControl*> combos;
@@ -865,6 +873,8 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
 // state, for the wiring that unit tests can't see.
 int runUiTests()
 {
+    // The FILTER page's SIGNAL FLOW opens on hover or click: the tests hold it open.
+    filterFlowForcedOpen() = true;
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
     // ILANA_UITEST_ONLY=R6 runs just review 8's R6 checks (a quick loop).
@@ -1506,6 +1516,101 @@ int runUiTests()
                     "release handle follows the mouse (" + juce::String (get ("amp_release"), 3) + " s, expected "
                         + juce::String (expectedRelease, 3) + ")");
             juce::ignoreUnused (xR);
+
+            // Drag feel (ilana: "adjusting adsrs via the graph feels weird"): the first click does not
+            // jump the handle to the pointer, Shift is 10x finer, dragging left past the stage's start
+            // does not turn into a long time, a double-click resets.
+            {
+                set ("amp_attack", 0.25f);
+                set ("amp_decay", 0.3f);
+                set ("amp_sustain", 0.5f);
+                set ("amp_release", 0.5f);
+                const auto gesture = [&] (juce::Point<float> from, juce::Point<float> to, juce::ModifierKeys mods, int clicks = 1)
+                {
+                    const auto now = juce::Time::getCurrentTime();
+                    const auto make = [&] (juce::Point<float> at, bool dragged)
+                    {
+                        return juce::MouseEvent (source, at, mods.withFlags (juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                 amp, amp, now, from, now, clicks, dragged);
+                    };
+                    auto& component = static_cast<juce::Component&> (*amp);
+                    component.mouseDown (make (from, false));
+                    component.mouseDrag (make (to, true));
+                    component.mouseUp (make (to, true));
+                };
+                const auto attackHandle = amp->getHandlePosition (0);
+
+                gesture (attackHandle + juce::Point<float> (6.0f, 0.0f), attackHandle + juce::Point<float> (6.0f, 0.0f), {});
+                expect (std::abs (get ("amp_attack") - 0.25f) < 0.003f,
+                        "a press 6 px off the attack handle does not move it (" + juce::String (get ("amp_attack"), 4) + " s)");
+
+                const auto before = get ("amp_attack");
+                gesture (attackHandle, attackHandle + juce::Point<float> (20.0f, 0.0f), {});
+                const auto coarse = get ("amp_attack") - before;
+                set ("amp_attack", before);
+                gesture (attackHandle, attackHandle + juce::Point<float> (20.0f, 0.0f), juce::ModifierKeys::shiftModifier);
+                const auto fine = get ("amp_attack") - before;
+                expect (coarse > 0.0f && fine > 0.0f && fine < coarse * 0.2f,
+                        "Shift drags the handle about 10x finer (" + juce::String (fine, 4) + " vs " + juce::String (coarse, 4) + ")");
+
+                set ("amp_attack", 0.25f);
+                gesture (attackHandle, attackHandle - juce::Point<float> (400.0f, 0.0f), {});
+                expect (get ("amp_attack") < 0.01f,
+                        "dragging left of the stage's start gives the shortest time, not a long one (" + juce::String (get ("amp_attack"), 3) + " s)");
+
+                set ("amp_attack", 0.25f);
+                set ("amp_attack", 0.6f);
+                gesture (amp->getHandlePosition (0), amp->getHandlePosition (0), {}, 2);
+                static_cast<juce::Component&> (*amp).mouseDoubleClick (juce::MouseEvent (source, amp->getHandlePosition (0), {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                                                         amp, amp, juce::Time::getCurrentTime(), amp->getHandlePosition (0), juce::Time::getCurrentTime(), 2, false));
+                if (auto* parameter = processor.apvts.getParameter ("amp_attack"))
+                    expect (std::abs (get ("amp_attack") - parameter->convertFrom0to1 (parameter->getDefaultValue())) < 0.002f,
+                            "double-clicking the attack handle resets it");
+
+                // A knob: 20 px up moves it 10% of its range, Shift 1%, sideways nothing, Ctrl-click resets.
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*page, knobs);
+                KnobControl* knob = nullptr;
+                for (auto* candidate : knobs)
+                    if (visibleInTree (candidate) && candidate->getSlider().getInterval() == 0.0 && candidate->getSlider().isEnabled())
+                    {
+                        knob = candidate;
+                        break;
+                    }
+                if (knob != nullptr)
+                {
+                    auto& slider = knob->getSlider();
+                    slider.setPopupDisplayEnabled (false, false, nullptr); // never open a real popup window in a test
+                    const auto centre = juce::Point<float> (slider.getWidth() * 0.5f, slider.getHeight() * 0.5f);
+                    const auto press = [&] (juce::Point<float> from, juce::Point<float> to, juce::ModifierKeys mods)
+                    {
+                        const auto now = juce::Time::getCurrentTime();
+                        const auto make = [&] (juce::Point<float> at, bool dragged)
+                        {
+                            return juce::MouseEvent (source, at, mods.withFlags (juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                     &slider, &slider, now, from, now, 1, dragged);
+                        };
+                        slider.mouseDown (make (from, false));
+                        slider.mouseDrag (make (to, true));
+                        slider.mouseUp (make (to, true));
+                    };
+                    const auto proportion = [&slider] { return slider.valueToProportionOfLength (slider.getValue()); };
+                    slider.setValue (slider.proportionOfLengthToValue (0.5), juce::sendNotificationSync);
+                    press (centre, centre - juce::Point<float> (0.0f, 20.0f), {});
+                    expect (std::abs (proportion() - 0.6) < 0.002, "a knob moves 10% for a 20 px drag up (" + juce::String (proportion(), 4) + ")");
+                    slider.setValue (slider.proportionOfLengthToValue (0.5), juce::sendNotificationSync);
+                    press (centre, centre + juce::Point<float> (30.0f, 0.0f), {});
+                    expect (std::abs (proportion() - 0.5) < 0.002, "a sideways drag does not turn a knob (" + juce::String (proportion(), 4) + ")");
+                    press (centre, centre - juce::Point<float> (0.0f, 20.0f), juce::ModifierKeys::shiftModifier);
+                    expect (std::abs (proportion() - 0.51) < 0.002, "Shift turns a knob 10x finer (" + juce::String (proportion(), 4) + ")");
+                    press (centre, centre, juce::ModifierKeys::ctrlModifier);
+                    expect (std::abs (slider.getValue() - slider.getDoubleClickReturnValue()) < 1.0e-6, "Ctrl-click resets a knob to its default");
+                }
+                else
+                {
+                    expect (false, "ENV/LFO page has a continuous knob to drag");
+                }
+            }
         }
         else
         {
@@ -1568,7 +1673,12 @@ int runUiTests()
             auto* level1 = mainKnob ("osc1_level");
             auto* level3 = mainKnob (osc3 + "_level");
             expect (level1 != nullptr && level3 != nullptr && level1->getHeight() == level3->getHeight(),
-                    "PLAY's oscillator strips share one size");
+                    "PLAY's oscillator strips share one size"
+                        + (level1 != nullptr && level3 != nullptr ? " (" + juce::String (level1->getHeight()) + ", " + juce::String (level3->getHeight()) + "; "
+                                                                 + level1->getBoundsInParent().toString() + " / " + level3->getBoundsInParent().toString() + "; "
+                                                                 + juce::String (level1->labelBlockHeight()) + " " + juce::String (level3->labelBlockHeight()) + " "
+                                                                 + juce::String (level1->getNameLabel().getFont().getHeight()) + " " + juce::String (level3->getNameLabel().getFont().getHeight()) + ")" : juce::String()));
+            if (only == "STRIPS") return uiFailures == 0 ? 0 : 1; // (a quick loop for this check)
         }
 
         for (int osc = 3; osc < OscillatorIds::count; ++osc)
@@ -1651,9 +1761,9 @@ int runUiTests()
             std::vector<juce::Button*> allButtons;
             findAll<juce::Button> (*editor, allButtons);
             for (auto* button : allButtons)
-                if (button->getButtonText() == "+  ADD EFFECT" && visibleInTree (button))
+                if (button->getButtonText() == "+ ADD" && visibleInTree (button))
                     addEffect = button;
-            expect (addEffect != nullptr, "the rack has + ADD EFFECT");
+            expect (addEffect != nullptr, "the rack's top bar has + ADD");
 
             if (addEffect != nullptr)
             {
@@ -1933,11 +2043,45 @@ int runUiTests()
             loadFx ({ 27, 2, 20 });
             auto titles = typeButtons();
             auto* viewport = stackViewport();
-            expect (titles.size() == 3 && viewport != nullptr && titles[0]->getY() == titles[1]->getY()
-                        && titles[1]->getX() > viewport->getWidth() / 3,
-                    "Vowel and Drive sit side by side as half-width cards");
-            // The lone half card at the end keeps its width; + ADD EFFECT
-            // takes the other half (no knobs stranded across a full card).
+            // The design's rack: one row per effect, one under the other (10 px
+            // apart); a short rack's rows grow from 80 (up to 120) and a dashed
+            // + ADD EFFECT row takes the rest, so no band is left empty.
+            {
+                const auto step1 = titles.size() == 3 ? titles[1]->getY() - titles[0]->getY() : 0;
+                const auto step2 = titles.size() == 3 ? titles[2]->getY() - titles[1]->getY() : 0;
+                expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX() && step1 == step2
+                            && step1 > 90 && step1 <= 130,
+                        "Vowel, Drive and OTT are equal rows one under the other, taller than 80 px on a short rack ("
+                            + juce::String (step1) + ", " + juce::String (step2) + ")");
+                std::vector<DashedAddButton*> tiles;
+                findAll<DashedAddButton> (*editor, tiles);
+                DashedAddButton* tile = nullptr;
+                for (auto* candidate : tiles)
+                    if (candidate->getButtonText().contains ("ADD EFFECT") && visibleInTree (candidate))
+                        tile = candidate;
+                const auto tileBox = tile != nullptr ? editor->getLocalArea (tile, tile->getLocalBounds()) : juce::Rectangle<int>();
+                const auto viewBox = viewport != nullptr ? editor->getLocalArea (viewport, viewport->getLocalBounds()) : juce::Rectangle<int>();
+                expect (tile != nullptr && tileBox.getY() >= viewBox.getBottom() - 4 && tileBox.getY() <= viewBox.getBottom() + 2
+                            && tileBox.getHeight() >= 40,
+                        "a short rack ends in a dashed + ADD EFFECT row right under its last effect");
+                if (tile != nullptr)
+                {
+                    tile->triggerClick();
+                    settle (80); // (a call-out closes itself within 200 ms under xvfb)
+                    FxLibraryView* shown = nullptr;
+                    std::vector<FxLibraryView*> views;
+                    findAll<FxLibraryView> (*editor, views);
+                    for (auto* view : views)
+                        if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                            shown = view;
+                    expect (shown != nullptr, "the dashed + ADD EFFECT row opens the library in a call-out");
+                    if (shown != nullptr)
+                        if (auto* box = shown->findParentComponentOfClass<juce::CallOutBox>())
+                            box->dismiss();
+                    settle (300);
+                }
+            }
+            // The knobs sit at the row's right end (no knobs stranded mid-row).
             if (titles.size() == 3 && viewport != nullptr)
             {
                 std::vector<KnobControl*> knobs;
@@ -1946,14 +2090,7 @@ int runUiTests()
                 for (auto* knob : knobs)
                     if (knob->getParameterId() == "fx_ott_mix" && visibleInTree (knob))
                         ottMixRight = knob->getRight();
-                std::vector<DashedAddButton*> adds;
-                findAll<DashedAddButton> (*editor, adds);
-                auto belowLast = false;
-                for (auto* add : adds)
-                    if (visibleInTree (add))
-                        belowLast = belowLast || editor->getLocalArea (add, add->getLocalBounds()).getY() > editor->getLocalArea (titles[2], titles[2]->getLocalBounds()).getY();
-                expect (titles[2]->getY() > titles[0]->getY() && ottMixRight > 0 && (belowLast || ! adds.empty()),
-                        "a lone card at the end of the chain takes the row, the slim + ADD EFFECT row below it (V9-3)");
+                expect (ottMixRight > viewport->getWidth() - 40, "a row's knobs end at its right edge (V9-3)");
             }
 
             loadFx ({ 7, 2, 13, 20 });
@@ -3601,6 +3738,23 @@ int runUiTests()
                 thumbs->onSelect (0);
         setShape (LfoSimShapes::Lorenz);
         settle (300);
+        // The LFO cards (PLAY and MOD) draw a simulated shape from the live
+        // simulation, not one fixed picture: the card's pixels move between
+        // two moments, and its dot rides the trace's right-hand end.
+        if (auto* page = pages->getCurrentPage())
+            if (auto* cards = findChild<LfoThumbBar> (*page); cards != nullptr && cards->isCardShown (0))
+            {
+                const auto area = cards->boundsOfCard (0).toNearestInt();
+                const auto grab = [&] { return cards->createComponentSnapshot (area, false, 1.0f); };
+                const auto before = grab();
+                settle (500);
+                const auto after = grab();
+                auto changed = 0;
+                for (int y = 0; y < before.getHeight() && y < after.getHeight(); ++y)
+                    for (int x = 0; x < before.getWidth() && x < after.getWidth(); ++x)
+                        changed += before.getPixelAt (x, y) != after.getPixelAt (x, y) ? 1 : 0;
+                expect (changed > 20, "a simulated LFO's thumbnail moves with the live simulation (" + juce::String (changed) + " pixels changed in 0.5 s)");
+            }
         auto* p1 = knobFor ("lfo1_p1");
         auto* p4 = knobFor ("lfo1_p4");
         auto* start = knobFor ("lfo1_phase");
@@ -4023,8 +4177,8 @@ int runUiTests()
             bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
         // (UI review 8, V8-23: the body's switch and main controls are here
         // too now, with links to the rest.)
-        expect (pageButtons.contains (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba"))
-                    && pageButtons.contains (juce::CharPointer_UTF8 ("EDIT SOUNDBOARD \xe2\x80\xba")) && bodySwitch,
+        // (The design's rows carry one short "EDIT ›" each: the body's and the soundboard's.)
+        expect (std::count (pageButtons.begin(), pageButtons.end(), juce::String (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba"))) >= 2 && bodySwitch,
                 "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (SOUNDBOARD)");
 
         // UI review 9, I9-3: the string has one editor. The OSC card keeps
@@ -4198,13 +4352,15 @@ int runUiTests()
                     return knob;
             return (KnobControl*) nullptr;
         };
-        const auto foldedTogether = visibleKnob ("west_fold") == nullptr && visibleKnob ("body_material") == nullptr;
+        // (The design keeps them open, dimmed while off: controls dim in place.)
+        const auto foldedTogether = visibleKnob ("west_fold") != nullptr && visibleKnob ("west_fold")->getAlpha() < 0.99f
+                                    && visibleKnob ("body_material") != nullptr && visibleKnob ("body_material")->getAlpha() < 0.99f;
         setParam ("west_on", 1.0f);
         settle (400);
         const auto openTogether = visibleKnob ("west_fold") != nullptr && visibleKnob ("body_material") != nullptr;
         setParam ("west_on", 0.0f);
         settle (400);
-        expect (foldedTogether && openTogether, "WEST and BODY fold together and open together (I14-5)");
+        expect (foldedTogether && openTogether, "WEST and BODY dim together while off and light together when on (I14-5)");
 
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
@@ -4959,7 +5115,7 @@ int runUiTests()
 
             }
 
-            // On OSC the display opens in 3D, its views a WAVE | 3D | SPEC
+            // On OSC the display opens on the cycle (the design's 2D well), its views a WAVE | 3D | SPEC
             // control, its table named with arrows on it (UI review 5, V6,
             // V27; review 6, V21, V40).
             pages->showPage ("OSC");
@@ -4970,7 +5126,7 @@ int runUiTests()
             for (auto* candidate : waves)
                 if (visibleInTree (candidate) && candidate->getOscIndex() == 0)
                     wave = candidate;
-            expect (wave != nullptr && wave->getViewMode() == 1, "OSC opens OSC 1's display in 3D");
+            expect (wave != nullptr && wave->getViewMode() == 0, "OSC opens OSC 1's display on the cycle (WAVE), as the design draws it");
 
             if (wave != nullptr)
             {
@@ -4983,31 +5139,70 @@ int runUiTests()
                             return button;
                     return nullptr;
                 };
-                juce::StringArray seen;
-                for (const auto* name : { "WAVE", "3D", "SPEC" })
-                    if (auto* button = key (name))
+                // (OSC's card shows the display slim: its view chip and table arrows
+                // are drawn on its top line, so the test clicks them there.)
+                const auto clickSlim = [&] (int which)
+                {
+                    const auto at = wave->getSlimTarget (which);
+                    const auto now = juce::Time::getCurrentTime();
+                    const auto make = [&] (bool up)
                     {
-                        button->triggerClick();
-                        settle (60);
+                        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys::leftButtonModifier,
+                                                 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, wave, wave, now, at, now, 1, false);
+                    };
+                    static_cast<juce::Component*> (wave)->mouseDown (make (false));
+                    static_cast<juce::Component*> (wave)->mouseUp (make (true));
+                    settle (60);
+                };
+
+                juce::StringArray seen;
+                auto spec = juce::String();
+                if (wave->isSlim())
+                {
+                    // The chip cycles WAVE > 3D > SPEC > WAVE; it starts on WAVE.
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        clickSlim (0);
                         seen.add (juce::String (wave->getViewMode()));
-                        const auto image = wave->createComponentSnapshot (wave->getLocalBounds());
-                        juce::ignoreUnused (image);
+                        if (wave->getViewMode() == 2)
+                            spec = wave->getFrameReadout();
                     }
-                expect (seen.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
-                expect (wave->getFrameReadout().isEmpty(), "SPEC shows no frame readout");
-                if (auto* button = key ("3D"))
-                    button->triggerClick();
+                    juce::StringArray sorted (seen);
+                    sorted.sort (false);
+                    expect (sorted.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
+                    expect (spec.isEmpty(), "SPEC shows no frame readout");
+                    while (wave->getViewMode() != 1)
+                        clickSlim (0);
+                }
+                else
+                {
+                    for (const auto* name : { "WAVE", "3D", "SPEC" })
+                        if (auto* button = key (name))
+                        {
+                            button->triggerClick();
+                            settle (60);
+                            seen.add (juce::String (wave->getViewMode()));
+                        }
+                    expect (seen.joinIntoString (",") == "0,1,2", "WAVE, 3D and SPEC each pick their view (" + seen.joinIntoString (",") + ")");
+                    expect (wave->getFrameReadout().isEmpty(), "SPEC shows no frame readout");
+                    if (auto* button = key ("3D"))
+                        button->triggerClick();
+                }
                 settle (60);
                 expect (wave->getFrameReadout().startsWith ("frame "), "3D reads its frame under the plot (" + wave->getFrameReadout() + ")");
 
                 const auto table = [&processor] { return juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()); };
                 const auto before = table();
                 const auto nameBefore = wave->getTableName();
-                if (auto* next = key (">"))
+                if (wave->isSlim())
+                    clickSlim (2);
+                else if (auto* next = key (">"))
                     next->triggerClick();
                 settle (100);
                 const auto after = table();
-                if (auto* previous = key ("<"))
+                if (wave->isSlim())
+                    clickSlim (1);
+                else if (auto* previous = key ("<"))
                     previous->triggerClick();
                 settle (100);
                 expect (after != before && table() == before && wave->getTableName() == nameBefore && nameBefore.isNotEmpty(),
@@ -5753,7 +5948,42 @@ int runUiTests()
                 return nullptr;
             };
 
-            for (const auto* page : { "ENV/LFO", "MAIN" })
+            // PLAY's RATE is the design's slider (SYNC swaps it for the division in place).
+            {
+                pages->showPage ("MAIN");
+                settle (300);
+                const auto findSlider = [&editor] (const juce::String& id) -> ValueSliderControl*
+                {
+                    std::vector<ValueSliderControl*> sliders;
+                    findAll<ValueSliderControl> (*editor, sliders);
+                    for (auto* slider : sliders)
+                        if (slider->getParameterId() == id && visibleInTree (slider) && slider->getWidth() > 0)
+                            return slider;
+                    return nullptr;
+                };
+                auto* sync = processor.apvts.getParameter ("lfo1_sync");
+                auto* divParam = processor.apvts.getParameter ("lfo1_div");
+                if (sync != nullptr && divParam != nullptr)
+                {
+                    const auto syncBefore = sync->getValue();
+                    sync->setValueNotifyingHost (1.0f);
+                    settle (300);
+                    auto* division = findSlider ("lfo1_div");
+                    const auto divText = divParam->getText (divParam->getValue(), 0);
+                    const auto shownText = division != nullptr ? division->getSlider().getTextFromValue (division->getSlider().getValue()) : juce::String();
+                    expect (division != nullptr && shownText == divText && findSlider ("lfo1_rate") == nullptr,
+                            "MAIN: a synced LFO's RATE slider shows the division ('" + shownText + "', want '" + divText + "')");
+                    sync->setValueNotifyingHost (0.0f);
+                    settle (300);
+                    expect (findSlider ("lfo1_rate") != nullptr && findSlider ("lfo1_div") == nullptr, "MAIN: free-running, RATE is the Hz slider again");
+                    sync->setValueNotifyingHost (syncBefore);
+                    settle (100);
+                }
+                else
+                    expect (false, "MAIN: an LFO RATE slider is on the page");
+            }
+
+            for (const auto* page : { "ENV/LFO" })
             {
                 pages->showPage (page);
                 settle (300);
@@ -6371,6 +6601,76 @@ int runUiTests()
         editor->setSize (1060, 720);
         settle (300);
 
+        // Knob names and modulation rings are never cut (ilana's Windows
+        // screenshots, design sweep): on every page, at 75 %, 100 % and
+        // 150 %, each visible knob's name and the box its rings draw in sit
+        // inside the knob and inside every view above it, and the rings stay
+        // under the name. Neuro Wobble's FRAME has three rings.
+        const auto cutKnobText = [&editor] (juce::StringArray& names)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+            {
+                if (! visibleInTree (knob) || knob->getWidth() <= 0 || knob->getHeight() <= 0)
+                    continue;
+                const auto own = knob->getLocalBounds().toFloat().expanded (0.5f);
+                const auto name = knob->getNameTextBounds();
+                const auto rings = knob->getRingsBounds();
+                const auto whole = editor->getLocalArea (knob, knob->getLocalBounds());
+                // A knob scrolled wholly out of view is hidden, not cut.
+                auto hidden = false;
+                for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole);
+                if (hidden)
+                    continue;
+                juce::StringArray why;
+                if (! name.isEmpty() && ! own.contains (name))
+                    why.add ("name outside the knob");
+                if (! rings.isEmpty() && ! own.contains (rings))
+                    why.add ("rings outside the knob");
+                // (The rings may pass under the name's line, never into its letters.)
+                const auto ink = knob->getNameInkBounds();
+                if (! ink.isEmpty() && ! rings.isEmpty() && rings.getY() < ink.getBottom() + 0.5f
+                    && rings.getX() < ink.getRight() && rings.getRight() > ink.getX())
+                    why.add ("rings reach the name");
+                const std::pair<const char*, juce::Rectangle<float>> parts[] { { "name", name }, { "rings", rings } };
+                for (const auto& [what, part] : parts)
+                {
+                    if (part.isEmpty())
+                        continue;
+                    const auto area = editor->getLocalArea (knob, part.getSmallestIntegerContainer().reduced (1));
+                    for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
+                        if (! editor->getLocalArea (parent, parent->getLocalBounds()).contains (area))
+                        {
+                            why.add (juce::String (what) + " cut by " + parent->getName() + " " + juce::String (typeid (*parent).name()));
+                            break;
+                        }
+                }
+                if (! why.isEmpty())
+                    names.add (knob->getParameterId() + " (" + why.joinIntoString ("; ") + "; knob " + knob->getLocalBounds().toString()
+                               + ", name " + name.toString() + ", rings " + rings.toString() + ")");
+            }
+        };
+
+        loadNamed ("Neuro Wobble");
+        for (const auto width : { 795, 1060, 1590 })
+        {
+            editor->setSize (width, width * 720 / 1060);
+            settle (300);
+            for (const auto& page : pages->getPageIds())
+            {
+                pages->showPage (page);
+                settle (300);
+                juce::StringArray cut;
+                cutKnobText (cut);
+                expect (cut.isEmpty(), page + " at " + juce::String (width) + " px: no knob's name or rings are cut"
+                                           + (cut.isEmpty() ? juce::String() : " (" + cut.joinIntoString (", ") + ")"));
+            }
+        }
+        editor->setSize (1060, 720);
+        settle (300);
+
         // The DX7 voice's six operators: six strips on PLAY, each showing
         // its RATIO (it is an operator: UI review 6, V3, I6-5), nothing
         // cut; on OSC the OSC 4 tab shows OSC 4 alone.
@@ -6443,9 +6743,11 @@ int runUiTests()
             auto shown = 0;
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
                 shown += processor.isOscillatorShown (osc) ? 1 : 0;
-            expect (adds == 1 && switches == (juce::String (page) == "OSC" ? 1 : shown),
+            // (The approved OSC design stacks every shown oscillator as a card,
+            // each with its own switch, so OSC counts like PLAY now.)
+            expect (adds == 1 && switches == shown,
                     juce::String (page) + ": one ADD OSC button (" + juce::String (adds) + "), "
-                        + (juce::String (page) == "OSC" ? "the chosen oscillator's switch" : "a switch per oscillator") + " ("
+                        + "a switch per oscillator" + " ("
                         + juce::String (switches) + ")");
         }
 
@@ -6547,8 +6849,11 @@ int runUiTests()
             pages->showPage ("OSC");
             settle (300);
             auto* oscLevel = findKnob ("osc1_level");
-            expect (playDial > 0 && oscLevel != nullptr && oscLevel->getDialSize() >= playDial,
-                    "OSC's LEVEL dial (" + juce::String (oscLevel != nullptr ? oscLevel->getDialSize() : 0) + " px) is not smaller than PLAY's ("
+            // (The approved OSC design draws every oscillator as a compact card with
+            // a 26 px inline dial, so OSC's LEVEL is deliberately smaller than PLAY's.
+            // The check is now that it exists and is still a usable size.)
+            expect (playDial > 0 && oscLevel != nullptr && oscLevel->getDialSize() >= 24,
+                    "OSC's LEVEL dial (" + juce::String (oscLevel != nullptr ? oscLevel->getDialSize() : 0) + " px) is a usable inline dial (PLAY's is "
                         + juce::String (playDial) + " px)");
         }
 
@@ -6559,10 +6864,15 @@ int runUiTests()
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*editor, buttons);
             auto loadShown = false;
+            // (Every oscillator is a card on OSC now: look inside OSC 1's.)
             for (auto* button : buttons)
-                loadShown = loadShown || (visibleInTree (button) && button->getButtonText().startsWith ("LOAD"));
+                if (visibleInTree (button) && button->getButtonText().startsWith ("LOAD")
+                    && pages->getOscCardBounds (0).contains (editor->getLocalArea (button, button->getLocalBounds()).getCentre()))
+                    loadShown = true;
             expect (! loadShown && findKnob ("osc1_string_decay") != nullptr && findKnob ("osc1_unison") != nullptr,
-                    "a Physical card has no LOAD .WAV, and shows its string and voice rows");
+                    "a Physical card has no LOAD .WAV, and shows its string and voice rows (load "
+                        + juce::String ((int) loadShown) + ", decay " + juce::String ((int) (findKnob ("osc1_string_decay") != nullptr))
+                        + ", unison " + juce::String ((int) (findKnob ("osc1_unison") != nullptr)) + ")");
             setParam ("osc1_mode", 0.0f);
             settle (300);
         }
@@ -6637,9 +6947,60 @@ int runUiTests()
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
+    runOscTypeTests (processor, *pages);
+
+    // Design sweep: every pop-up draws in the design's look. A menu shown on
+    // the desktop never asks its target for a look, nor does an AlertWindow
+    // with no owner or JUCE's file browser: they use the process default,
+    // which is the editor's own look while it is open. A knob's right-click
+    // menu and its "Modulate with" submenu are windows of that look.
+    {
+        expect (&juce::LookAndFeel::getDefaultLookAndFeel() == &editor->getLookAndFeel()
+                    && dynamic_cast<IlanaLookAndFeel*> (&editor->getLookAndFeel()) != nullptr,
+                "sweep: while the editor is open its look is the default one (desktop menus, dialogs)");
+
+        // (Real menu windows can't open under xvfb: unit-level checks.) A
+        // second editor opening and closing leaves the default in place;
+        // only the last one to close hands it back.
+        {
+            DefaultLookAndFeelScope second;
+            expect (&second.get() == &editor->getLookAndFeel(), "sweep: every open editor shares one look");
+        }
+        expect (&juce::LookAndFeel::getDefaultLookAndFeel() == &editor->getLookAndFeel(),
+                "sweep: a second editor closing keeps the default look while one is still open");
+
+        // A menu with no look of its own (a knob's right-click menu, the
+        // header's and the dock's) takes the default; its submenus take
+        // their parent window's. The default's menu rows are the sheet's.
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+        int w = 0, h = 0;
+        lf.getIdealPopupMenuItemSize ("Modulate with", false, 18, w, h);
+        expect (h == IlanaLookAndFeel::menuRowHeight && lf.getPopupMenuBorderSize() == IlanaLookAndFeel::menuBorder,
+                "sweep: the default look's menu rows are the design's (26 px, 5 px border)");
+        const auto tip = lf.getTooltipBounds ("Frame\nWhere in the wavetable the oscillator plays.", { 100, 100 }, { 0, 0, 1000, 1000 });
+        expect (tip.getWidth() <= 362 && tip.getHeight() >= 30, "sweep: a tooltip is the design's small card");
+        // The one animator: a state change eases (it does not jump) and settles.
+        {
+            static const int key = 0;
+            auto moving = false;
+            IlanaTheme::fadeValue (&key, 0, 0.0f, IlanaTheme::FadeRate::slide, true, moving);
+            juce::Thread::sleep (30);
+            const auto early = IlanaTheme::fadeValue (&key, 0, 1.0f, IlanaTheme::FadeRate::slide, true, moving);
+            const auto wasMoving = moving;
+            juce::Thread::sleep (100);
+            const auto settled = IlanaTheme::fadeValue (&key, 0, 1.0f, IlanaTheme::FadeRate::slide, true, moving);
+            expect (early > 0.05f && early < 0.95f && wasMoving && settled > early,
+                    "sweep: a switch or a choice eases to its new state (" + juce::String (early, 2) + " then " + juce::String (settled, 2) + ")");
+        }
+        juce::Slider probe;
+        expect (dynamic_cast<IlanaLookAndFeel*> (&probe.getLookAndFeel()) != nullptr,
+                "sweep: a component outside the editor (a dialog's, a file browser's) draws in the design's look");
+    }
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
+    expect (dynamic_cast<IlanaLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel()) == nullptr,
+            "sweep: with no editor open the default look is JUCE's own again");
     std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
     return uiFailures == 0 ? 0 : 1;
 }
@@ -6823,7 +7184,15 @@ juce::String frameStats (const std::vector<double>& times, double windowMs)
 int runFps()
 {
     IlanaSynthAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 256);
+    const auto blockSize = juce::jmax (32, juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_BLOCK", "256").getIntValue());
+    processor.prepareToPlay (48000.0, blockSize);
+    // ILANA_FPS_PRESET=<factory preset> and ILANA_FPS_SET="id=value;..."
+    // (real values) set the patch the chord plays.
+    if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_PRESET", ""); preset.isNotEmpty())
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (preset));
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_SET", ""), ";", ""))
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1060, 720);
     HostWindow window (*editor);
@@ -6859,7 +7228,7 @@ int runFps()
     std::atomic<bool> running { true }, playing { false };
     std::thread audio ([&]
     {
-        juce::AudioBuffer<float> buffer (2, 256);
+        juce::AudioBuffer<float> buffer (2, blockSize);
         auto wasPlaying = false;
         auto next = juce::Time::getMillisecondCounterHiRes();
         while (running)
@@ -6872,7 +7241,7 @@ int runFps()
             wasPlaying = now;
             buffer.clear();
             processor.processBlock (buffer, midi);
-            next += 256.0 / 48.0;
+            next += (double) blockSize / 48.0;
             const auto wait = next - juce::Time::getMillisecondCounterHiRes();
             if (wait > 0.0)
                 std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
@@ -6900,11 +7269,16 @@ int runFps()
         settle (300);
         probe.times.clear();
         vblanks = 0;
+        IlanaAnim::paintStats().clear();
+        IlanaAnim::paintStatsOn() = true;
         const auto playStart = cpuSeconds();
         settle (1500);
         std::cout << id << "\n  switch:  " << switchStats << " (" << juce::String (switchCpu, 0) << "% cpu)"
                   << "\n  playing: " << frameStats (probe.times, 1500.0) << " (" << juce::String (100.0 * (cpuSeconds() - playStart) / 1.5, 0) << "% cpu, "
                   << juce::String (vblanks / 1.5, 0) << " vblanks/s)" << std::endl;
+        IlanaAnim::paintStatsOn() = false;
+        for (const auto& entry : IlanaAnim::paintStats())
+            std::cout << "    paints/s " << entry.first << ": " << juce::String ((double) entry.second / 1.5, 0) << std::endl;
     }
 
     running = false;
@@ -7076,6 +7450,185 @@ static int runLoopTest (const juce::String& presetName, bool allNotesOffAtLoop)
     return 0;
 }
 
+// CPU of a preset with twelve notes held (C2 to G5, struck at once, velocity
+// 100): percent of real time per second of audio, for 8 s
+// (ILANA_HELD_SECONDS). The preset is a
+// factory name or a file; ILANA_LOOP_SET applies as in --looptest.
+static int runHeldCpu (const juce::String& presetName)
+{
+    IlanaSynthAudioProcessor processor;
+    const auto rate = 48000.0;
+    const auto blockSize = 256;
+    processor.prepareToPlay (rate, blockSize);
+    if (juce::File::isAbsolutePath (presetName))
+        processor.loadPresetFromFile (juce::File (presetName));
+    else
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+    // ILANA_HELD_PRINT="id,id,...": print those parameters first.
+    for (const auto& id : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_PRINT", ""), ",", ""))
+        if (auto* parameter = processor.apvts.getParameter (id))
+            std::cout << id << " = " << parameter->getCurrentValueAsText() << std::endl;
+
+    const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    // ILANA_HELD_DUMP=file: the raw output (each block's left then right
+    // floats), to compare two builds sample for sample.
+    std::unique_ptr<juce::FileOutputStream> dump;
+    if (const auto dumpPath = juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_DUMP", ""); dumpPath.isNotEmpty())
+    {
+        juce::File (dumpPath).deleteFile();
+        dump = std::make_unique<juce::FileOutputStream> (juce::File (dumpPath));
+    }
+    // ILANA_HELD_NOTES=n: only the first n of them.
+    const auto heldNotes = juce::jlimit (1, 12, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_NOTES", "12").getIntValue());
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    const auto blocksPerSecond = (int) (rate / blockSize);
+    double total = 0.0, sumSquares = 0.0, worstBlock = 0.0;
+    const auto seconds = juce::jmax (1, juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_SECONDS", "8").getIntValue());
+    const auto releaseAfter = juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RELEASE", "0").getIntValue();
+    const auto arp = juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_ARP", "").isNotEmpty();
+    // ILANA_NO_RELEASE_SILENCE=1: released voices run their whole release.
+    Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
+    Voice::disableSlowEnvelopes = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_SLOW_ENVELOPES", "").isNotEmpty();
+    IlanaSynthAudioProcessor::forceVoiceThreads = juce::SystemStats::getEnvironmentVariable ("ILANA_THREADS", "-1").getIntValue();
+    IlanaSynthAudioProcessor::disableFxSleep = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_FX_SLEEP", "").isNotEmpty();
+    for (int second = 0; second < seconds; ++second)
+    {
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        for (int block = 0; block < blocksPerSecond; ++block)
+        {
+            juce::MidiBuffer midi;
+            // (ILANA_HELD_RESTRIKE=1: the chord again every 2 s, as in playing.)
+            // (ILANA_HELD_ARP=1: instead of the chord, the sustain pedal down
+            // and a new note every 0.1 s across four octaves, each let go
+            // after 0.05 s: the pedal holds them all, as in playing a piano.)
+            if (arp)
+            {
+                const auto blockIndex = second * blocksPerSecond + block;
+                const auto every = juce::jmax (1, (int) (0.1 * rate / blockSize));
+                if (blockIndex == 0)
+                    midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+                if (blockIndex % every == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 36 + (blockIndex / every * 7) % 48, (juce::uint8) 90), 0);
+                if (blockIndex % every == every / 2)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, 36 + (blockIndex / every * 7) % 48), 0);
+            }
+            else
+            // (ILANA_HELD_RELEASE=n: let go of the chord after n seconds.)
+            if (block == 0 && second > 0 && second == releaseAfter)
+                for (int n = 0; n < heldNotes; ++n)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, notes[n]), 0);
+            if (! arp && block == 0 && (second == 0 || (second % 2 == 0 && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_RESTRIKE", "").isNotEmpty())))
+                for (int n = 0; n < heldNotes; ++n)
+                {
+                    const auto note = notes[n];
+                    if (second > 0)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                }
+            buffer.clear();
+            const auto blockStart = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, midi);
+            const auto blockMs = juce::Time::getMillisecondCounterHiRes() - blockStart;
+            worstBlock = juce::jmax (worstBlock, blockMs);
+            if (blockMs > 1000.0 * blockSize / rate && juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_SPIKES", "").isNotEmpty())
+                std::cout << "  block " << second * blocksPerSecond + block << ": " << juce::String (100.0 * blockMs / (1000.0 * blockSize / rate), 0) << "%" << std::endl;
+            for (int i = 0; i < blockSize; ++i)
+                sumSquares += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+            if (dump != nullptr)
+                for (int channel = 0; channel < 2; ++channel)
+                    dump->write (buffer.getReadPointer (channel), (size_t) blockSize * sizeof (float));
+        }
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+        total += ms;
+        std::cout << "second " << second + 1 << ": " << juce::String (100.0 * ms / (1000.0 * blocksPerSecond * blockSize / rate), 1)
+                  << "% of real time, " << processor.getActiveVoiceCount() << " voices, "
+                  << processor.getRenderingVoiceCount() << " rendering" << std::endl;
+    }
+    std::cout << "mean " << juce::String (100.0 * total / (1000.0 * seconds * blocksPerSecond * blockSize / rate), 1) << "%, rms "
+              << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sumSquares / ((double) seconds * blocksPerSecond * blockSize)), -120.0f), 2)
+              << " dB, worst block " << juce::String (100.0 * worstBlock / (1000.0 * blockSize / rate), 0) << "% of its time" << std::endl;
+    return 0;
+}
+
+// CPU of every factory preset, then every preset file in a folder, with the
+// twelve notes of --heldcpu held for 2 s: one CSV row each (index, name,
+// percent of real time over the second second, voices, what it uses).
+//   ilanaSnapshot --cpurank [folder] > cpu.csv   (ILANA_RANK_FACTORY=0: the folder only)
+static int runCpuRank (const juce::File& folder)
+{
+    const auto rate = 48000.0;
+    const auto blockSize = 256;
+    const int notes[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
+    const auto blocksPerSecond = (int) (rate / blockSize);
+
+    juce::String lastTags;
+    const auto measure = [&] (const std::function<void (IlanaSynthAudioProcessor&)>& load) -> std::pair<double, int>
+    {
+        auto processor = std::make_unique<IlanaSynthAudioProcessor>();
+        processor->prepareToPlay (rate, blockSize);
+        load (*processor);
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        double ms = 0.0;
+        for (int block = 0; block < 2 * blocksPerSecond; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (auto note : notes)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            buffer.clear();
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            processor->processBlock (buffer, midi);
+            if (block >= blocksPerSecond)
+                ms += juce::Time::getMillisecondCounterHiRes() - start;
+        }
+        // What the patch uses, for finding what heavy presets share.
+        juce::StringArray tags;
+        const auto text = [&processor] (const juce::String& id)
+        {
+            auto* parameter = processor->apvts.getParameter (id);
+            return parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String();
+        };
+        const auto on = [&processor] (const juce::String& id)
+        {
+            auto* parameter = processor->apvts.getParameter (id);
+            return parameter != nullptr && parameter->getValue() > 0.5f;
+        };
+        for (const auto& osc : { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" })
+            if (on (juce::String (osc) + "_on"))
+                tags.add (juce::String (osc) + ":" + text (juce::String (osc) + "_mode") + "x" + text (juce::String (osc) + "_unison"));
+        if (on ("west_on")) tags.add ("west");
+        if (on ("res_on")) tags.add ("body:" + text ("body_type"));
+        if (on ("sym_on")) tags.add ("sym");
+        if (on ("oversampling")) tags.add ("oversample");
+        tags.add ("q:" + text ("quality"));
+        tags.add ("f1:" + text ("f1_type"));
+        for (int slot = 1; slot <= 10; ++slot)
+            if (auto* fx = processor->apvts.getParameter ("fx_slot" + juce::String (slot)); fx != nullptr && fx->getValue() > 0.0f)
+                tags.add ("fx:" + fx->getCurrentValueAsText());
+        lastTags = tags.joinIntoString (" ");
+        return { 100.0 * ms / (1000.0 * blocksPerSecond * blockSize / rate), processor->getActiveVoiceCount() };
+    };
+
+    std::cout << "index,name,cpu_percent,voices,uses" << std::endl;
+    const auto names = IlanaSynthAudioProcessor().getFactoryPresetNames();
+    const auto factory = juce::SystemStats::getEnvironmentVariable ("ILANA_RANK_FACTORY", "1") != "0";
+    for (int i = 0; factory && i < names.size(); ++i)
+    {
+        const auto [cpu, voices] = measure ([i] (IlanaSynthAudioProcessor& p) { p.loadFactoryPreset (i); });
+        std::cout << i << ",\"" << names[i] << "\"," << juce::String (cpu, 2) << "," << voices << ",\"" << lastTags << "\"" << std::endl;
+    }
+    if (folder.isDirectory())
+        for (const auto& file : folder.findChildFiles (juce::File::findFiles, true, "*.ilanapreset"))
+        {
+            const auto [cpu, voices] = measure ([file] (IlanaSynthAudioProcessor& p) { p.loadPresetFromFile (file); });
+            std::cout << "user,\"" << file.getFileNameWithoutExtension() << "\"," << juce::String (cpu, 2) << "," << voices << ",\"" << lastTags << "\"" << std::endl;
+        }
+    return 0;
+}
+
 // Loudness of each physical exciter on Init with OSC 1 switched to Physical:
 // one note held 1 s, RMS and peak in dBFS. ILANA_LOOP_SET applies as above.
 static int runExciterLevels()
@@ -7083,6 +7636,8 @@ static int runExciterLevels()
     const juce::StringArray names { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" };
     const auto rate = 48000.0;
     const auto blockSize = 512;
+    // ILANA_EXCITER_VELOCITY: the note-on velocity (100 by default).
+    const auto velocity = juce::jlimit (1, 127, juce::SystemStats::getEnvironmentVariable ("ILANA_EXCITER_VELOCITY", "100").getIntValue());
 
     for (const auto note : { 48, 60, 72 })
     {
@@ -7092,13 +7647,17 @@ static int runExciterLevels()
         {
             IlanaSynthAudioProcessor processor;
             processor.prepareToPlay (rate, blockSize);
-            processor.loadFactoryPreset (0);
+            // ILANA_EXCITER_PRESET: a factory preset by name instead of Init
+            // (its osc1 exciter is switched; the mode is left as it is).
+            const auto presetName = juce::SystemStats::getEnvironmentVariable ("ILANA_EXCITER_PRESET", "");
+            processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf (presetName)));
             const auto set = [&processor] (const juce::String& id, float value)
             {
                 if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (id)))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
             };
-            set ("osc1_mode", 1.0f);
+            if (presetName.isEmpty())
+                set ("osc1_mode", 1.0f);
             set ("osc1_excite", (float) excite);
             for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
                 set (pair.upToFirstOccurrenceOf ("=", false, false), pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
@@ -7107,12 +7666,27 @@ static int runExciterLevels()
             double sum = 0.0;
             float peak = 0.0f;
             int count = 0;
+            // The loudest 400 ms (what a percussive sound is heard at).
+            std::vector<double> squares, weighted;
+            // ITU-R BS.1770 K-weighting at 48 kHz (what loudness meters hear).
+            struct Biquad
+            {
+                double b0, b1, b2, a1, a2, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+                double process (double x)
+                {
+                    const auto y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+                    x2 = x1; x1 = x; y2 = y1; y1 = y;
+                    return y;
+                }
+            };
+            Biquad shelf { 1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585 };
+            Biquad highPass { 1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621 };
 
             for (int block = 0; block < (int) rate / blockSize; ++block)
             {
                 juce::MidiBuffer midi;
                 if (block == 0)
-                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
                 buffer.clear();
                 processor.processBlock (buffer, midi);
 
@@ -7120,12 +7694,31 @@ static int runExciterLevels()
                 {
                     const auto s = buffer.getSample (0, i);
                     sum += (double) s * s;
+                    squares.push_back ((double) s * s);
+                    const auto k = highPass.process (shelf.process ((double) s));
+                    weighted.push_back (k * k);
                     peak = juce::jmax (peak, std::abs (s));
                     ++count;
                 }
             }
 
+            const auto loudestOver = [rate] (const std::vector<double>& squares, double seconds)
+            {
+                const auto window = (size_t) (seconds * rate);
+                double windowSum = 0.0, loudest = 0.0;
+                for (size_t i = 0; i < squares.size(); ++i)
+                {
+                    windowSum += squares[i] - (i >= window ? squares[i - window] : 0.0);
+                    if (i + 1 >= window)
+                        loudest = juce::jmax (loudest, windowSum / (double) window);
+                }
+                return juce::Decibels::gainToDecibels ((float) std::sqrt (loudest), -120.0f);
+            };
+
             std::cout << "  " << names[excite].paddedRight (' ', 9) << " rms " << juce::String (juce::Decibels::gainToDecibels ((float) std::sqrt (sum / count), -120.0f), 1)
+                      << " dB, loudest 400 ms " << juce::String (loudestOver (squares, 0.4), 1)
+                      << " dB, 50 ms " << juce::String (loudestOver (squares, 0.05), 1)
+                      << " dB, K 400 ms " << juce::String (loudestOver (weighted, 0.4), 1)
                       << " dB, peak " << juce::String (juce::Decibels::gainToDecibels (peak, -120.0f), 1) << " dB" << std::endl;
         }
     }
@@ -7175,6 +7768,74 @@ static int runLoadState (const juce::File& file)
     return 0;
 }
 
+// A menu drawn offscreen row by row as its window draws it (border,
+// section headers, separators, ticks, submenu chevrons), `lit` the row
+// highlighted; several menus side by side on the page's ink.
+static juce::Image renderMenuSheet (juce::LookAndFeel& lf, std::vector<std::pair<juce::PopupMenu, int>> menus, float scale, int minWidth = 0)
+{
+    struct Row { juce::PopupMenu::Item item; int height; };
+    std::vector<std::vector<Row>> rows;
+    std::vector<juce::Point<int>> sizes;
+    const auto border = lf.getPopupMenuBorderSize();
+
+    for (auto& [menu, lit] : menus)
+    {
+        std::vector<Row> list;
+        auto width = minWidth, height = 2 * border;
+        for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+        {
+            const auto& item = it.getItem();
+            int w = 0, h = 0;
+            if (item.isSectionHeader)
+                lf.getIdealPopupMenuSectionHeaderSizeWithOptions (item.text, -1, w, h, juce::PopupMenu::Options());
+            else
+                lf.getIdealPopupMenuItemSize (item.text, item.isSeparator, -1, w, h);
+            list.push_back ({ item, h });
+            width = juce::jmax (width, w + 2 * border);
+            height += h;
+        }
+        rows.push_back (std::move (list));
+        sizes.push_back ({ width, height });
+    }
+
+    auto total = 20, tallest = 0;
+    for (const auto& size : sizes)
+    {
+        total += size.x + 20;
+        tallest = juce::jmax (tallest, size.y);
+    }
+
+    juce::Image image (juce::Image::ARGB, juce::roundToInt ((float) total * scale), juce::roundToInt ((float) (tallest + 40) * scale), true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale (scale));
+    g.fillAll (IlanaTheme::Ui::bg);
+    auto x = 20;
+
+    for (size_t m = 0; m < rows.size(); ++m)
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOrigin (x, 20);
+        g.reduceClipRegion (0, 0, sizes[m].x, sizes[m].y); // (a menu background may fill its whole clip)
+        lf.drawPopupMenuBackground (g, sizes[m].x, sizes[m].y);
+        auto y = border;
+        for (size_t i = 0; i < rows[m].size(); ++i)
+        {
+            const auto& [item, h] = rows[m][i];
+            const juce::Rectangle<int> row (border, y, sizes[m].x - 2 * border, h);
+            if (item.isSectionHeader)
+                lf.drawPopupMenuSectionHeader (g, row, item.text);
+            else
+                lf.drawPopupMenuItem (g, row, item.isSeparator, item.isEnabled, (int) i == menus[m].second, item.isTicked,
+                                      item.subMenu != nullptr, item.text, item.shortcutKeyDescription, item.image.get(),
+                                      item.colour != juce::Colour() ? &item.colour : nullptr);
+            y += h;
+        }
+        x += sizes[m].x + 20;
+    }
+
+    return image;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -7203,6 +7864,12 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--exciters")
         return runExciterLevels();
+
+    if (juce::String (argv[1]) == "--cpurank")
+        return runCpuRank (argc > 2 ? juce::File (juce::String (argv[2])) : juce::File());
+
+    if (juce::String (argv[1]) == "--heldcpu" && argc > 2)
+        return runHeldCpu (juce::String (argv[2]));
 
     if (juce::String (argv[1]) == "--looptest")
         return runLoopTest (argc > 2 ? juce::String (argv[2]) : juce::String ("Swarm"), argc > 3);
@@ -7283,6 +7950,172 @@ int main (int argc, char** argv)
     if (pages == nullptr)
         return 1;
 
+    // ILANA_SNAPSHOT_MENU: a menu drawn by the look-and-feel as the component
+    // sheet's MENU (a section name, a hovered item, a tick, a separator, a
+    // sub-menu), into menu.png at the snapshot scale; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_MENU", "").isNotEmpty())
+    {
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel(); // (what a desktop menu draws with)
+        const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+        struct Item { juce::String text; bool header, separator, highlighted, ticked, sub; };
+        const Item items[] { { "ADD EFFECT", true, false, false, false, false }, { "Vowel", false, false, true, false, false },
+                             { "Drive", false, false, false, true, false }, { "OTT", false, false, false, false, false },
+                             { {}, false, true, false, false, false }, { "Airwindows", false, false, false, false, true } };
+        const auto width = 200;
+        const auto border = lf.getPopupMenuBorderSize();
+        auto height = border;
+        std::vector<int> heights;
+        for (const auto& item : items)
+        {
+            int w = 0, h = 0;
+            if (item.header)
+                lf.getIdealPopupMenuSectionHeaderSizeWithOptions (item.text, -1, w, h, juce::PopupMenu::Options());
+            else
+                lf.getIdealPopupMenuItemSize (item.text, item.separator, -1, w, h);
+            heights.push_back (h);
+            height += heights.back();
+        }
+        height += border;
+        juce::Image image (juce::Image::ARGB, juce::roundToInt ((float) (width + 40) * scale), juce::roundToInt ((float) (height + 40) * scale), true);
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            g.fillAll (IlanaTheme::Ui::bg);
+            g.setOrigin (20, 20);
+            lf.drawPopupMenuBackground (g, width, height);
+            auto y = border;
+            for (size_t i = 0; i < std::size (items); ++i)
+            {
+                const auto& item = items[i];
+                const juce::Rectangle<int> row (border, y, width - 2 * border, heights[i]);
+                if (item.header)
+                    lf.drawPopupMenuSectionHeader (g, row, item.text);
+                else
+                    lf.drawPopupMenuItem (g, row, item.separator, true, item.highlighted, item.ticked, item.sub, item.text, {}, nullptr, nullptr);
+                y += heights[i];
+            }
+        }
+        const auto file = outDir.getChildFile ("menu.png");
+        file.deleteFile();
+        juce::FileOutputStream stream (file);
+        juce::PNGImageFormat().writeImageToStream (image, stream);
+        std::cout << file.getFullPathName() << std::endl;
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_WIDGETS: the real pop-ups, drawn by the look the user
+    // gets (the process default while the editor is open), then stop:
+    //   widgets-knob-menu.png   FRAME's right-click menu with "Modulate with"
+    //                           opened by the keys (the keyboard highlight)
+    //   widgets-combo-menu.png  a type box's list
+    //   widgets-sheet.png       tooltip, text fields (typing, with a selection,
+    //                           and empty), scroll bar, progress, call-out box
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_WIDGETS", "").isNotEmpty())
+    {
+        const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+        const auto writePng = [&outDir] (const juce::Image& image, const juce::String& name)
+        {
+            const auto file = outDir.getChildFile (name);
+            file.deleteFile();
+            juce::FileOutputStream stream (file);
+            juce::PNGImageFormat().writeImageToStream (image, stream);
+            std::cout << file.getFullPathName() << std::endl;
+        };
+
+        // Offscreen, as the menu windows draw them (a real menu window
+        // can't open under xvfb): the look is the process default, which
+        // is what a desktop menu with no look of its own takes.
+        pages->showPage ("MAIN");
+        settle (400);
+
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        KnobControl* knob = nullptr;
+        for (auto* candidate : knobs)
+            if (knob == nullptr && visibleInTree (candidate) && candidate->getNumRings() > 0)
+                knob = candidate;
+
+        if (knob != nullptr)
+        {
+            // The menu with "Modulate with" lit (keys), its submenu beside it.
+            const auto menu = knob->buildModMenu();
+            juce::PopupMenu sub;
+            for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+                if (it.getItem().subMenu != nullptr && sub.getNumItems() == 0)
+                    sub = *it.getItem().subMenu;
+            writePng (renderMenuSheet (lf, { { menu, 0 }, { sub, 1 } }, scale), "widgets-knob-menu.png");
+        }
+
+        std::vector<juce::ComboBox*> combos;
+        findAll<juce::ComboBox> (*editor, combos);
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getNumItems() > 3)
+            {
+                writePng (renderMenuSheet (combo->getLookAndFeel(), { { *combo->getRootMenu(), 2 } }, scale, combo->getWidth()),
+                          "widgets-combo-menu.png");
+                break;
+            }
+
+        // (No AlertWindow here: it is a top-level window, and a real window
+        // can't open under xvfb. It draws through drawAlertBox in the
+        // default look, which the uitest checks is the design's.)
+
+        {
+            struct Sheet : public juce::Component
+            {
+                void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::bg); }
+            } sheet;
+            sheet.setSize (640, 330);
+
+            // A tooltip as the editor's TooltipWindow draws it.
+            struct Tip : public juce::Component
+            {
+                juce::String text;
+                void paint (juce::Graphics& g) override { getLookAndFeel().drawTooltip (g, text, getWidth(), getHeight()); }
+            } tip;
+            tip.text = "Frame\nWhere in the wavetable the oscillator plays. Drag a modulation source here to sweep it.";
+            tip.setBounds (lf.getTooltipBounds (tip.text, { 0, 0 }, { 0, 0, 1000, 1000 }).withPosition (16, 16));
+            sheet.addAndMakeVisible (tip);
+
+            juce::TextEditor typing, empty;
+            typing.setText ("Neuro Wobble");
+            typing.setBounds (16, 120, 260, 30);
+            empty.setTextToShowWhenEmpty ("Optional", IlanaTheme::Ui::text3);
+            empty.setBounds (16, 160, 260, 30);
+            for (auto* field : { &typing, &empty })
+            {
+                field->setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true)));
+                field->setIndents (10, 7);
+                sheet.addAndMakeVisible (*field);
+            }
+
+            juce::ScrollBar scroll (true);
+            scroll.setRangeLimits (0.0, 100.0);
+            scroll.setCurrentRange (20.0, 35.0);
+            scroll.setBounds (300, 120, 10, 160);
+            sheet.addAndMakeVisible (scroll);
+
+            double progress = 0.62;
+            juce::ProgressBar bar (progress);
+            bar.setBounds (16, 210, 260, 12);
+            sheet.addAndMakeVisible (bar);
+
+            juce::Label callOutText ({}, "A call-out box");
+            callOutText.setJustificationType (juce::Justification::centred);
+            callOutText.setColour (juce::Label::textColourId, IlanaTheme::Ui::text);
+            callOutText.setSize (180, 60);
+
+            // (A child of the sheet, not a desktop window.)
+            juce::CallOutBox callOut (callOutText, { 420, 40, 20, 20 }, &sheet);
+            typing.setHighlightedRegion ({ 6, 12 });
+            settle (300);
+            writePng (sheet.createComponentSnapshot (sheet.getLocalBounds(), true, scale), "widgets-sheet.png");
+        }
+
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_PLAY: just PLAY (UI review 12): the patch as loaded, then
     // with oscillators 4 and 5 added, then all six; then stop.
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PLAY", "").isNotEmpty())
@@ -7297,6 +8130,219 @@ int main (int argc, char** argv)
         processor.addOscillator (5);
         settle (500);
         save (*editor, outDir.getChildFile ("play-6osc.png"));
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_OSC: just OSC, in the states the design is checked in
+    // (design review: oscillator counts 1, 3 and 6, a Sample, a String, an
+    // Operator EG, a Grain and a Live oscillator); then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_OSC", "").isNotEmpty())
+    {
+        const auto set = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto shot = [&] (const juce::String& name, int scrollTo = 0)
+        {
+            settle (500);
+            if (auto* viewport = dynamic_cast<juce::Viewport*> (pages->getCurrentPage()))
+            {
+                viewport->setViewPosition (0, scrollTo);
+                settle (200);
+            }
+            save (*editor, outDir.getChildFile (name + ".png"));
+        };
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-shot-sfz");
+        folder.createDirectory();
+        {
+            juce::AudioBuffer<float> tone (1, 22050);
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (0, i, 0.5f * std::sin ((float) i * 0.06f) * std::exp (-(float) i / 8000.0f) * (0.6f + 0.4f * std::sin ((float) i * 0.0011f)));
+            juce::WavAudioFormat wav;
+            auto file = folder.getChildFile ("tone.wav");
+            file.deleteFile();
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 44100.0, 1, 16, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+                }
+            folder.getChildFile ("test.sfz").replaceWithText ("<region> sample=tone.wav lokey=36 hikey=59 pitch_keycenter=48\n"
+                                                              "<region> sample=tone.wav lokey=60 hikey=84 pitch_keycenter=72\n");
+        }
+
+        // (ILANA_SNAPSHOT_SMALL: the 75 % window the UI tests also check.)
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SMALL", "").isNotEmpty())
+            editor->getTopLevelComponent()->setSize (795, 540);
+        pages->showPage ("OSC");
+        shot ("osc-as-loaded");
+        processor.addOscillator (2);
+        shot ("osc-3");
+        processor.addOscillator (3);
+        processor.addOscillator (4);
+        processor.addOscillator (5);
+        shot ("osc-6-top");
+        shot ("osc-6-bottom", 10000);
+        // One of each engine: Sample, String, FM / DX7 on the Operator EG, Grain, Live.
+        set ("osc1_mode", 2.0f);
+        set ("osc2_mode", 1.0f);
+        set ("sub_mode", 5.0f);
+        set ("sub_amp_env", 17.0f);
+        set ("sub_tune", 1.0f);
+        set ("osc4_mode", 3.0f);
+        set ("osc5_mode", 4.0f);
+        processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+        settle (400);
+        shot ("osc-mixed-1");
+        shot ("osc-mixed-2", 330);
+        shot ("osc-mixed-3", 10000);
+        // The sample alone, with its unison open.
+        for (const auto slot : { 1, 2, 3, 4, 5 })
+            processor.removeOscillator (slot);
+        shot ("osc-sample-alone");
+        set ("osc1_unison", 4.0f);
+        shot ("osc-sample-unison");
+        set ("osc1_mode", 1.0f);
+        shot ("osc-string-alone");
+        set ("osc1_mode", 5.0f);
+        set ("osc1_amp_env", 17.0f);
+        set ("osc1_tune", 1.0f);
+        shot ("osc-operator-alone");
+        // FM / DX7 on another envelope: its LEVEL where OUTPUT stands, the wave.
+        set ("osc1_amp_env", 0.0f);
+        set ("osc1_unison", 1.0f);
+        shot ("osc-fm-plain");
+        set ("osc1_tune", 0.0f);
+        set ("osc1_mode", 0.0f);
+        shot ("osc-1");
+        // The strip opened under MORE.
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->isShowing() && button->getButtonText().startsWith ("MORE"))
+                    button->triggerClick();
+        }
+        set ("sym_on", 1.0f);
+        set ("sym_manual", 1.0f);
+        shot ("osc-strip-open");
+        folder.deleteRecursively();
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_FX: the FX rack in the states the design is checked in
+    // (the mockup's five effects with one bypassed, a long rack, bands, the
+    // delay's taps, a duplicate, Airwindows models, an empty rack); then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FX", "").isNotEmpty())
+    {
+        pages->showPage ("FX");
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto clear = [&]
+        {
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                const auto prefix = "fx_slot" + juce::String (slot);
+                setParam (prefix, 0.0f);
+                setParam (prefix + "_bypass", 0.0f);
+                setParam (prefix + "_solo", 0.0f);
+                setParam (prefix + "_band", 0.0f);
+                setParam (prefix + "_mix", 1.0f);
+            }
+        };
+        const auto fill = [&] (std::vector<int> types)
+        {
+            clear();
+            auto slot = 1;
+            for (const auto type : types)
+                processor.assignFxSlot (slot++, type);
+        };
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("fx-" + name + ".png"));
+        };
+
+        fill ({ 27, 2, 20, 36, 34 });
+        setParam ("fx_slot4_bypass", 1.0f);
+        shot ("mock");
+        // The same rack routed in parallel (design round 2: the ladder rail).
+        setParam ("fx_routing", 1.0f);
+        shot ("mock-parallel");
+        setParam ("fx_routing", 0.0f);
+        fill ({ 27, 2, 20, 7, 13, 9, 18, 1 });
+        shot ("eight");
+        fill ({ 27, 2, 20, 7, 13, 9, 18, 1, 29, 4 });
+        shot ("ten");
+        fill ({ 9, 16, 29, 4 });
+        setParam ("fx_taps_on", 1.0f);
+        shot ("taps-gate");
+        fill ({ 12, 22, 19, 21, 31, 25, 17, 10 });
+        shot ("plain");
+        fill ({ 2, 6, 20, 4 });
+        setParam ("fx_slot2_band", 1.0f);
+        setParam ("fx_slot3_band", 2.0f);
+        setParam ("fx_slot4_band", 3.0f);
+        shot ("bands");
+        fill ({ 2, 2, 32, 34, 38, 37 });
+        shot ("duplicate-aw");
+        fill ({ 30, 13, 1, 3 });
+        shot ("aw-all");
+
+        // The effect picker (mockup "fxadd"): from the rack's + ADD EFFECT
+        // tile and from slot 1's type button, at 100 % and 75 %. (Saved
+        // quickly: a call-out closes itself within 200 ms under xvfb.)
+        const auto picker = [&] (const juce::String& name, bool fromTitle)
+        {
+            settle (400);
+            if (fromTitle)
+            {
+                std::vector<FxTypeButton*> titles;
+                findAll<FxTypeButton> (*editor, titles);
+                for (auto* title : titles)
+                    if (visibleInTree (title) && title->getTooltip().startsWith ("Slot 1:") && title->onClick != nullptr)
+                    {
+                        title->onClick();
+                        break;
+                    }
+            }
+            else
+            {
+                std::vector<DashedAddButton*> tiles;
+                findAll<DashedAddButton> (*editor, tiles);
+                for (auto* tile : tiles)
+                    if (visibleInTree (tile) && tile->getButtonText().contains ("ADD EFFECT"))
+                    {
+                        tile->triggerClick();
+                        break;
+                    }
+            }
+            settle (60);
+            save (*editor, outDir.getChildFile ("fx-" + name + ".png"));
+            std::vector<FxLibraryView*> views;
+            findAll<FxLibraryView> (*editor, views);
+            for (auto* view : views)
+                if (auto* box = view->findParentComponentOfClass<juce::CallOutBox>())
+                    box->dismiss();
+            settle (300);
+        };
+        fill ({ 32, 2, 20 });
+        picker ("picker-add", false);
+        picker ("picker-replace", true);
+        if (auto* top = editor->getTopLevelComponent())
+        {
+            const auto before = top->getBounds();
+            top->setSize (795, 540);
+            picker ("picker-replace-75", true);
+            top->setBounds (before);
+        }
+
+        clear();
+        shot ("empty");
         return 0;
     }
 
@@ -7348,6 +8394,15 @@ int main (int argc, char** argv)
             processor.applyDx7Algorithm (number.getIntValue());
             settle (300);
             save (*editor, outDir.getChildFile ("fm-dx7-algorithm-" + number + ".png"));
+        }
+        // Operator 1 on the Operator Env: the card as the DX7 voices have it.
+        if (auto* picker = findChild<OscPicker> (*page))
+            picker->pick (0);
+        if (auto* parameter = processor.apvts.getParameter ("osc1_amp_env"))
+        {
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) OperatorEg::envelopeChoice));
+            settle (400);
+            save (*editor, outDir.getChildFile ("fm-opeg.png"));
         }
         // OSC 2's WARP FM from OSC 1, drawn dashed beside the routes.
         for (const auto& [id, value] : { std::pair<const char*, float> { "osc2_warp", (float) Warp::Fm }, { "osc2_warp_amt", 0.5f } })
@@ -7670,9 +8725,16 @@ int main (int argc, char** argv)
     for (const auto& slot : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_ADDOSC", ""), ",", ""))
         processor.addOscillator (slot.getIntValue());
 
+    // ILANA_SNAPSHOT_SET="osc2_mode=1,osc3_mode=2": parameters set to plain values first.
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SET", ""), ",", ""))
+        if (auto* parameter = processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false)))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
+    // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
+    filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
 
     for (int i = 0; i < pageIds.size(); ++i)
     {
@@ -7683,6 +8745,17 @@ int main (int argc, char** argv)
         settle (450);
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
+
+        // ILANA_SNAPSHOT_KNOBS: every shown knob's id, cell and drawn dial (the dial-size guard's numbers).
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_KNOBS", "").isNotEmpty())
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getWidth() > 0)
+                    std::fprintf (stderr, "KNOB %s %s cell %dx%d maxDial %d dial %d radius %.1f\n", pageIds[i].toRawUTF8(), knob->getParameterId().toRawUTF8(),
+                                  knob->getWidth(), knob->getHeight(), knob->getMaxDial(), knob->getDialSize(), knob->getDialRadius());
+        }
 
         if (pageIds[i] == "OSC")
         {

@@ -267,8 +267,9 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         setParam ("body_coupling_mode", 0.0f);
         editor.showPage ("FILTER");
         settle (500);
-        const auto westOff = knobFor ("west_fold") == nullptr;
-        const auto bodyOff = knobFor ("res_amount") == nullptr;
+        // (The design keeps them open, dimmed while off.)
+        const auto westOff = knobFor ("west_fold") != nullptr && knobFor ("west_fold")->getAlpha() < 0.99f;
+        const auto bodyOff = knobFor ("res_amount") != nullptr && knobFor ("res_amount")->getAlpha() < 0.99f;
         setParam ("west_on", 1.0f);
         setParam ("res_on", 1.0f);
         settle (700);
@@ -315,8 +316,17 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         settle (300);
         const auto matrix = shownAddButtons();
         editor.showPage ("MAIN");
-        expect (play.size() == 1 && osc.size() == 1 && fx.size() == 1 && matrix.size() >= 1,
-                "PLAY, OSC, FX and the matrix each add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
+        // (Design round 2: a short FX rack ends in the same dashed add row,
+        // which fills the space its few effects leave; the rack's top bar
+        // keeps its + ADD for a long rack, where the row has no room.)
+        // (The oscillators' row adds a Wavetable, its right end an FM / DX7
+        // operator: one row, two ways in.)
+        const auto oscRow = [] (const juce::StringArray& texts)
+        {
+            return texts.size() == 2 && texts[0].startsWith ("+  ADD OSC") && texts[1] == "+  ADD FM / DX7";
+        };
+        expect (oscRow (play) && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
+                "PLAY, OSC, the matrix and a short FX rack add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }
 

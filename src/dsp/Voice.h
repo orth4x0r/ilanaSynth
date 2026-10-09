@@ -406,6 +406,14 @@ public:
     Voice();
 
     void setParams (const VoiceParams& newParams) { params = newParams; }
+    // Fade out over the given samples, then end (a voice over SUSTAIN
+    // VOICES); a new note on the voice cancels it.
+    void startFadeOut (int samples) noexcept
+    {
+        if (fadeTotal == 0)
+            fadeTotal = fadeRemaining = juce::jmax (1, samples);
+    }
+    bool isFadingOut() const noexcept { return fadeTotal > 0; }
 
     float getLastAmpValue() const { return lastAmpValue; }
     // Gain bringing each exciter's first-second RMS within ~2 dB of a plucked
@@ -418,6 +426,7 @@ public:
             case 5:  return 0.708f; // Hammer (classic), -3 dB
             case 7:  return 0.398f; // Tine, -8 dB
             case 8:  return 0.708f; // Reed, -3 dB
+            case 9:  return 2.0f;   // Piano, +6 dB (heard 2-6 dB under Hammer; the drive takes some back)
             default: return 1.0f;
         }
     }
@@ -498,6 +507,10 @@ public:
 private:
     void syncSamplePlayers();
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues);
+    double advanceGlideAndDrift (float driftMod);
+    void tuneBody (double driftedFrequency);
+    void renderBodyTail (float* left, float* right, int startSample, int numSamples, float wetGain);
+    bool envelopesActive() const;
     double oscFrequencyFactor (const VoiceParams::OscParams& settings) const;
     void updateFilterCoefficients (const float* mods, float filterEnvValue, float filter2EnvValue);
     void updateUnisonLayout();
@@ -507,8 +520,19 @@ private:
                        float filter2Value, float modValue, float env4Value) const;
     void evaluateMods (float* mods, int sampleIndex, float ampValue, float filterValue,
                        float filter2Value, float modValue, float env4Value) const;
+    void evaluateModGroup (int group, float* mods, int sampleIndex, float ampValue, float filterValue,
+                           float filter2Value, float modValue, float env4Value) const;
+    // evaluateMods in the per-sample loops: moving routes into what is read
+    // every sample (FM, frames, levels) every sample, the rest every
+    // modControlInterval samples, where they are read (Vital runs its
+    // modulation at a control rate).
+    void evaluateModsRated (float* mods, int sampleIndex, float ampValue, float filterValue,
+                            float filter2Value, float modValue, float env4Value);
+    static bool isPerSampleDestination (int destination, bool filterFm);
     void prepareModSlots();
-    void advanceVoiceLfos();
+    void advanceVoiceLfos (int sampleIndex);
+    void classifySlowLfos();
+    void classifySlowEnvelopes();
 
     // Per block: the per-voice LFOs and the extra envelopes in use, so the
     // sample loop walks short lists instead of testing every slot.
@@ -551,7 +575,7 @@ private:
     ResonatorBank resonatorL, resonatorR;
     MaterialBody materialBodyL, materialBodyR;
     // M8.3
-    Wavefolder westFolderL, westFolderR;
+    StereoWavefolder westFolder;
     LowPassGate westGateL, westGateR;
     int westStrikeRemaining = 0;
     bool bodyStrikePending = false;
@@ -565,35 +589,52 @@ private:
     // and the pair runs apart until the next reset.
     bool filter1Linked = true, filter2Linked = true;
     // Filter 2 while wide open (updateFilterCoefficients): a linear copy.
-    bool filter2Open = false, bothRouteActive = false;
+    bool filter1Open = false, filter2Open = false, bothRouteActive = false;
     static constexpr double openFilterHz = 19000.0;
-    Airwindows::OpenLowPass openFilter2L, openFilter2R;
-    double openCutoff2 = -1.0;
-    float openReso2 = -1.0f;
+    Airwindows::OpenLowPass openFilter1L, openFilter1R, openFilter2L, openFilter2R;
+    double openCutoff1 = -1.0, openCutoff2 = -1.0;
+    float openReso1 = -1.0f, openReso2 = -1.0f;
+    // Filter 1 is often swept by a macro: moving between its two models while
+    // it plays fades the old one out over filterFadeLength samples.
+    static constexpr int filterFadeLength = 32;
+    int filter1Fade = 0;
+    bool filter1FadeLinked = true, filter1Ran = false;
 
     // Like processFilterPair: one filter while both sides are equal. The
     // linear filters from equal states stay equal, so the right one follows
     // by copy until the sides first differ.
-    void processOpenPair (float inLeft, float inRight, float& outLeft, float& outRight)
+    static void processOpenPair (Airwindows::OpenLowPass& l, Airwindows::OpenLowPass& r, bool& linked,
+                                 float inLeft, float inRight, float& outLeft, float& outRight)
     {
-        if (filter2Linked)
+        if (linked)
         {
             if (inLeft == inRight)
             {
-                outLeft = outRight = openFilter2L.process (inLeft);
+                outLeft = outRight = l.process (inLeft);
                 return;
             }
 
-            openFilter2R = openFilter2L;
-            filter2Linked = false;
+            r = l;
+            linked = false;
         }
 
-        outLeft = openFilter2L.process (inLeft);
-        outRight = openFilter2R.process (inRight);
+        outLeft = l.process (inLeft);
+        outRight = r.process (inRight);
     }
 public:
     // Tests: run Filter 2 even when it is wide open.
     inline static bool disableOpenFilterBypass = false;
+    // Tests: keep released voices to the end of their release (no silence end).
+    inline static bool disableReleaseSilence = false;
+    // Tests: every envelope computed every sample (no control-rate envelopes).
+    inline static bool disableSlowEnvelopes = false;
+    // The block-wise source path (renderNextBlock); ILANA_NO_BLOCK_SOURCES
+    // keeps the per-sample loop everywhere, for comparing the two.
+    static bool blockSourcesEnabled()
+    {
+        static const bool enabled = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_BLOCK_SOURCES", "").isEmpty();
+        return enabled;
+    }
 private:
 
     static void processFilterPair (FilterUnit& left, FilterUnit& right, bool& linked,
@@ -635,10 +676,17 @@ private:
         FilterUnit::processStereoBlock (left, right, inLeft + start, inRight + start, outLeft + start, outRight + start, n - start);
     }
 
-    void processOpenPairBlock (const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
+    static void processOpenPairBlock (Airwindows::OpenLowPass& l, Airwindows::OpenLowPass& r, bool& linked,
+                                      const float* inLeft, const float* inRight, float* outLeft, float* outRight, int n)
     {
-        for (int s = 0; s < n; ++s)
-            processOpenPair (inLeft[s], inRight[s], outLeft[s], outRight[s]);
+        auto s = 0;
+        while (linked && s < n)
+        {
+            processOpenPair (l, r, linked, inLeft[s], inRight[s], outLeft[s], outRight[s]);
+            ++s;
+        }
+        if (s < n)
+            Airwindows::OpenLowPass::processPairBlock (l, r, inLeft + s, inRight + s, outLeft + s, outRight + s, n - s);
     }
 
     FilterUnit bothFilter1L, bothFilter1R, bothFilter2L, bothFilter2R;
@@ -683,6 +731,12 @@ private:
     std::array<float, Mod::maxSlots> slotAmounts {};
     std::array<bool, Mod::maxSlots> slotHeld {};
     bool modSlotsPrepared = false;
+
+    // Control-rate modulation (evaluateModsRated): each slot's group and the
+    // routed destinations of each. The interval is updateSubBlock's.
+    static constexpr int modControlInterval = 16;
+    std::array<std::array<int, Mod::maxSlots>, 2> groupSlots {}, groupDestinations {}; // [0] slow, [1] per sample
+    std::array<int, 2> numGroupSlots {}, numGroupDestinations {};
     std::array<float, (size_t) Mod::Destination::Count> sampleMods {};
 
     double lfoPhases[VoiceParams::numLfos] {};
@@ -690,6 +744,27 @@ private:
     float lfoHolds[VoiceParams::numLfos] {};
     LfoChaos lfoChaos[VoiceParams::numLfos];
     float lfoValues[VoiceParams::numLfos] {};
+    bool lfoSlow[VoiceParams::numLfos] {};
+    // Envelopes read only at the control points (classifySlowEnvelopes),
+    // by envelopeValues index: 0 ENV 1 (never), 1-4, 5-15 the extra ones.
+    bool envSlow[17] {};
+    // SUSTAIN VOICES fade (startFadeOut): samples left of fadeTotal.
+    int fadeTotal = 0, fadeRemaining = 0;
+    float ampGainFade = 1.0f;
+    bool modFilterFm = false;
+    float stepEnvelope (TensionAdsr& env, int index, bool control)
+    {
+        if (control || ! envSlow[index])
+            return env.getNextSample();
+        env.skip();
+        return env.getCurrentValue();
+    }
+    // Release silence: a released voice ends once its output stays under
+    // releaseSilence (-110 dB) for about 90 ms.
+    static constexpr float releaseSilence = 3.0e-6f;
+    bool watchReleaseSilence = false;
+    float releasePeak = 0.0f;
+    int releaseSilentSamples = 0;
     // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
     LfoSim lfoSims[VoiceParams::numLfos];
     LfoSmoother lfoSmoothers[VoiceParams::numLfos];

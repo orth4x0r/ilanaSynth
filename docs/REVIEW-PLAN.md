@@ -247,7 +247,9 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    merging duplicate routes (MatrixPage's merge menu and button), quantise and zoom in the clip editor (SEQ page), the
    "Recent" sort (the browser's SORT and its Recent filter) and the DX7 bank text (13.2) were done in later passes; the
    live input dot on the FX transfer curves is done (drive, amp, crush and the Airwindows saturators, `FxDisplays.h`).
-   Left: the scope as a dock (it touches the dock, which the modulation work on PLAY is rebuilding).
+   The scope as a dock is done too (2026-10-09, after PR #20's dock): the scope panel's WINDOW button opens it in its
+   own resizable window beside the synth, so it covers no page (the page area can't spare a strip's height). Step 14
+   has nothing left.
 15. **UI review 6 fixes** (the user, 2026-10-02: "full adversarial review pass and fix ... what feels separate from the normal
    engines ... a powerhouse, yet one thats not unwieldy"; "implement all ui suggestions the review process gave us"; the DX7
    fold-in reviewed too; "do two full cycles"). Reviews and the package plan (P1-P7) in `docs/ui-review/`. **Cycle 1 done**

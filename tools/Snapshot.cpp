@@ -725,6 +725,25 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         editor.setScopeOpen (false);
         settle (100);
 
+        // WINDOW pops the scope out beside the synth (step 14, S23), so it
+        // covers no page. (A real top-level window can't open under xvfb,
+        // which has no window manager: unit-level checks, as for menus.)
+        {
+            editor.setScopeOpen (true);
+            settle (200);
+            juce::TextButton* windowButton = nullptr;
+            if (auto* shown = findChild<ScopeDisplay> (editor); shown != nullptr && shown->getParentComponent() != nullptr)
+                for (auto* child : shown->getParentComponent()->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child); button != nullptr && button->getButtonText() == "WINDOW")
+                        windowButton = button;
+            expect (windowButton != nullptr && visibleInTree (windowButton) && windowButton->getTooltip().contains ("own window"),
+                    "the scope panel has WINDOW, which opens it in its own window");
+            expect (! editor.isScopeWindowOpen(), "the scope opens in the page until WINDOW is clicked");
+            editor.setScopeOpen (false);
+            settle (100);
+            expect (! editor.isScopeOpen(), "the scope closes");
+        }
+
         auto* meter = findChild<OutputMeter> (editor);
         expect (meter != nullptr && meter->getTooltip().contains ("dB") && ! meter->isClipLit(),
                 "the OUT meter has a clip light and a tooltip in dB");

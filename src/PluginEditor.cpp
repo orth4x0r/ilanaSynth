@@ -228,12 +228,16 @@ public:
           onClosed (std::move (closed))
     {
         setLookAndFeel (&look);
-        setUsingNativeTitleBar (true);
         setContentOwned (new Content (p), false);
         setResizable (true, false);
         setResizeLimits (320, 200, 1800, 1200);
         centreWithSize (560, 340);
+       #if ! JUCE_LINUX
+        // (On Linux these ask the window manager for atoms that a bare X
+        // server, the UI test's, doesn't have: JUCE's own title bar there.)
+        setUsingNativeTitleBar (true);
         setAlwaysOnTop (true);
+       #endif
     }
 
     ~ScopeWindow() override { setLookAndFeel (nullptr); }

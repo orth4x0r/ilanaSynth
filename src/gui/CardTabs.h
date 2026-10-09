@@ -18,9 +18,27 @@ public:
 
     std::function<void (int)> onSelect;
     std::function<void()> onOpen;
+    // Set for tabs that are engines with their own power (SEQ's PATTERN,
+    // review 7, V7-11): each tab's state is drawn as a small switch inside
+    // the pill, and a click on it calls this instead of selecting the tab.
+    // One place for "on" (the switch) and one for "shown" (the fill).
+    std::function<void (int)> onToggle;
 
     int getSelected() const { return selected; }
     const juce::StringArray& getNames() const { return names; }
+
+    // Replaces the pills (a pool that grows and shrinks: PLAY's envelope
+    // tabs); the selection is kept in range, without notifying.
+    void setNames (juce::StringArray newNames, std::vector<juce::Colour> newColours)
+    {
+        if (newNames == names && newColours == colours)
+            return;
+
+        names = std::move (newNames);
+        colours = std::move (newColours);
+        selected = names.isEmpty() ? selected : juce::jlimit (0, names.size() - 1, selected);
+        repaint();
+    }
 
     void setSelected (int index, bool notify)
     {
@@ -35,6 +53,31 @@ public:
 
         if (notify && onSelect != nullptr)
             onSelect (selected);
+    }
+
+    // A lit dot in a tab whose part is switched on (review 6, I6-15): cards
+    // whose tabs are separate engines (SEQ's PATTERN) show which are on, not
+    // only which is shown. Tabs that never get a state draw no dot.
+    void setTabOn (int index, bool on)
+    {
+        if (! juce::isPositiveAndBelow (index, names.size()))
+            return;
+
+        if (tabOn.empty())
+            tabOn.assign ((size_t) names.size(), -1);
+
+        const auto state = on ? 1 : 0;
+
+        if (tabOn[(size_t) index] == state)
+            return;
+
+        tabOn[(size_t) index] = state;
+        repaint();
+    }
+
+    bool isTabOn (int index) const
+    {
+        return juce::isPositiveAndBelow (index, (int) tabOn.size()) && tabOn[(size_t) index] == 1;
     }
 
     // Width the pills need, so a card can right-align them.
@@ -54,27 +97,42 @@ public:
             const auto colour = colourFor (i);
             const auto hovered = isMouseOver() && pill.contains (mouse);
 
-            IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
+            if (! hasDots())
+            {
+                IlanaTheme::paintPill (g, pill, names[i], colour, active, hovered ? 1.0f : 0.0f);
+                continue;
+            }
+
+            // The name shifts right of its dot: lit while on, a quiet ring
+            // while off.
+            const auto hover = hovered ? 1.0f : 0.0f;
+            IlanaTheme::paintPill (g, pill, {}, colour, active, hover);
+            g.setColour (active ? colour.interpolatedWith (juce::Colours::white, 0.2f) : juce::Colours::white.withAlpha (0.55f + 0.3f * hover));
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace()), juce::Justification::centred);
+
+            if (onToggle != nullptr)
+            {
+                // A switch, not a light: it is the engine's power.
+                const auto overSwitch = isMouseOver() && switchBounds (i).expanded (2.0f).contains (mouse);
+                IlanaTheme::paintSwitch (g, switchBounds (i), isTabOn (i) ? 1.0f : 0.0f, colour, overSwitch ? 1.0f : 0.0f);
+                continue;
+            }
+
+            IlanaTheme::paintOnDot (g, { pill.getX() + (float) padding() * 0.5f + 3.0f, pill.getCentreY() }, colour, isTabOn (i));
         }
 
         if (hasOpen)
         {
             const auto open = openBounds();
             const auto hovered = isMouseOver() && open.contains (mouse);
-            g.setColour (juce::Colours::white.withAlpha (hovered ? 0.9f : 0.45f));
-
-            // Two-arrow "expand" glyph.
-            const auto box = open.withSizeKeepingCentre (11.0f, 11.0f);
-            juce::Path glyph;
-            glyph.startNewSubPath (box.getX() + 4.0f, box.getY());
-            glyph.lineTo (box.getRight(), box.getY());
-            glyph.lineTo (box.getRight(), box.getY() + 7.0f);
-            glyph.startNewSubPath (box.getRight(), box.getY());
-            glyph.lineTo (box.getX() + 3.0f, box.getBottom() - 3.0f);
-            glyph.startNewSubPath (box.getX(), box.getY() + 4.0f);
-            glyph.lineTo (box.getX(), box.getBottom());
-            glyph.lineTo (box.getX() + 7.0f, box.getBottom());
-            g.strokePath (glyph, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            // The one "go to its full editor" idiom, "EDIT ›" (review 10,
+            // I10-2): the same words as the header links, not a glyph. Set
+            // apart from the pills by a gap and drawn as a link, text only in
+            // the accent colour, so it does not read as one more tab (V11-19).
+            g.setColour (hovered ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), open.withTrimmedLeft (12.0f), juce::Justification::centredRight);
         }
     }
 
@@ -82,6 +140,12 @@ public:
     {
         for (int i = 0; i < names.size(); ++i)
         {
+            if (onToggle != nullptr && hasDots() && switchBounds (i).expanded (3.0f, 4.0f).contains (event.position))
+            {
+                onToggle (i);
+                return;
+            }
+
             if (pillBounds (i).contains (event.position))
             {
                 setSelected (i, true);
@@ -95,18 +159,42 @@ public:
 
     void mouseMove (const juce::MouseEvent& event) override
     {
-        setTooltip (hasOpen && openBounds().contains (event.position) ? "Open the full page for this section" : juce::String());
+        juce::String tip;
+
+        for (int i = 0; i < names.size() && onToggle != nullptr && hasDots(); ++i)
+            if (switchBounds (i).expanded (3.0f, 4.0f).contains (event.position))
+                tip = names[i] + " is " + (isTabOn (i) ? "on" : "off") + "\nClick the switch to turn " + names[i]
+                    + (isTabOn (i) ? " off." : " on.");
+            else if (pillBounds (i).contains (event.position))
+                tip = "Show " + names[i] + "'s settings (the switch in the tab turns it on or off)";
+
+        setTooltip (hasOpen && openBounds().contains (event.position) ? juce::String ("Edit\nOpen the full page for this section") : tip);
+        repaint(); // the switch under the pointer
+    }
+
+    // Where tab `index`'s switch sits (the UI test clicks it).
+    juce::Rectangle<float> switchBounds (int index) const
+    {
+        const auto pill = pillBounds (index);
+        const auto height = juce::jlimit (6.0f, 10.0f, pill.getHeight() - 8.0f);
+        return juce::Rectangle<float> (height * 1.8f, height).withPosition (pill.getX() + (float) padding() * 0.5f, pill.getCentreY() - height * 0.5f);
     }
 
 private:
     static constexpr int gap = 4;
-    static constexpr int openWidth = 24;
+    static constexpr int openWidth = 72;
 
     static constexpr int idealPadding = 16;
 
+    // The dot, or the wider switch, left of the name.
+    int dotSpace() const { return onToggle != nullptr ? 22 : 10; }
+
+    bool hasDots() const { return ! tabOn.empty(); }
+
     int textWidth (int index) const
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index]);
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), names[index])
+             + (hasDots() ? dotSpace() : 0);
     }
 
     int widthWith (int padding) const
@@ -155,4 +243,5 @@ private:
     std::vector<juce::Colour> colours;
     bool hasOpen = false;
     int selected = 0;
+    std::vector<int> tabOn; // per tab: -1 no dot, 0 off, 1 on
 };

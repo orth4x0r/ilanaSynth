@@ -79,11 +79,11 @@ public:
         : processorRef (processor),
           fft (11)
     {
-        setTooltip ("Click to cycle scope, spectrum and split view.  Click a meter (L or R) to solo that channel; "
+        setTooltip ("Scope\nClick to cycle scope, spectrum and split view.  Click a meter (L or R) to solo that channel; "
                     "click the peak numbers or CLIP to reset them.");
 
         holdButton.setClickingTogglesState (true);
-        holdButton.setTooltip ("Freeze the display");
+        holdButton.setTooltip ("Freeze\nHold the picture still to look at it.");
         holdButton.onClick = [this]
         {
             hold = holdButton.getToggleState();
@@ -92,7 +92,7 @@ public:
 
         peakButton.setClickingTogglesState (true);
         peakButton.setToggleState (true, juce::dontSendNotification);
-        peakButton.setTooltip ("Peak hold in the level meters");
+        peakButton.setTooltip ("Peak hold\nThe level meters keep their peaks for a moment.");
         peakButton.onClick = [this]
         {
             peakHoldEnabled = peakButton.getToggleState();
@@ -125,23 +125,8 @@ public:
 
         viewButtons[2].setToggleState (true, juce::dontSendNotification);
 
-        oversamplingButton.setClickingTogglesState (true);
-        oversamplingButton.setTooltip ("Oversampling\nRun the voice engine at a higher sample rate: cleaner highs from "
-                                       "warps, FM and screaming filters, at the cost of CPU.  Pick 2x or 4x beside it.");
-        factorBox.addItemList ({ "2x", "4x" }, 1);
-        factorBox.setTooltip ("Oversampling factor");
-        addAndMakeVisible (factorBox);
-        factorAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-            processor.apvts, "os_factor", factorBox);
-        addAndMakeVisible (oversamplingButton);
-        oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            processor.apvts, "oversampling", oversamplingButton);
-        qualityBox.addItemList ({ "Eco", "Normal", "High" }, 1);
-        qualityBox.setTooltip ("Quality: Eco caps unison at four voices; Normal preserves the original sound; "
-                               "High uses two wavetable reads per sample for smoother highs.");
-        addAndMakeVisible (qualityBox);
-        qualityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-            processor.apvts, "quality", qualityBox);
+        // Engine quality and oversampling are engine settings (the settings
+        // menu), not views: they left this row in review 6.
 
         scopeSamplesL.assign (fftSize, 0.0f);
         scopeSamplesR.assign (fftSize, 0.0f);
@@ -162,15 +147,9 @@ public:
             viewButtons[(size_t) i].setBounds (row.removeFromLeft (52).withTrimmedRight (i < 2 ? 4 : 0));
 
         row.removeFromLeft (8);
-        peakButton.setBounds (row.removeFromRight (42));
+        peakButton.setBounds (row.removeFromRight (84));
         row.removeFromRight (4);
-        holdButton.setBounds (row.removeFromRight (42));
-        row.removeFromRight (4);
-        factorBox.setBounds (row.removeFromRight (42));
-        row.removeFromRight (4);
-        oversamplingButton.setBounds (row.removeFromRight (32));
-        row.removeFromRight (4);
-        qualityBox.setBounds (row.removeFromRight (juce::jmin (86, row.getWidth())));
+        holdButton.setBounds (row.removeFromRight (66));
     }
 
     void paint (juce::Graphics& g) override
@@ -252,7 +231,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (hold ? "HOLD" : "VIEW",
+        g.drawText (hold ? "FROZEN" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
@@ -644,15 +623,8 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     juce::dsp::FFT fft;
-    juce::TextButton holdButton { "HOLD" };
-    juce::TextButton peakButton { "PEAK" };
-    juce::TextButton oversamplingButton { "OS" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> oversamplingAttachment;
-    juce::ComboBox factorBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> factorAttachment;
-    juce::ComboBox qualityBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> qualityAttachment;
-
+    juce::TextButton holdButton { "FREEZE" };
+    juce::TextButton peakButton { "PEAK HOLD" };
     std::vector<float> scopeSamplesL, scopeSamplesR, windowBuffer;
     std::vector<std::complex<float>> fftInput, fftOutput;
     std::vector<float> spectrumSmoothed;

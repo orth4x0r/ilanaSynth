@@ -43,10 +43,11 @@ public:
 
                 // Octaves: each C named at the foot of its key (C3 = MIDI 60,
                 // as on the parameter readouts).
-                if (note == 0 && area.getHeight() >= 18.0f)
+                // Left out when a key is too narrow for it at the type floor.
+                if (note == 0 && area.getHeight() >= 18.0f && whiteWidth >= 14.0f)
                 {
                     g.setColour (juce::Colours::black.withAlpha (pressed ? 0.7f : 0.45f));
-                    g.setFont (IlanaTheme::font (juce::jmin (10.0f, whiteWidth * 0.55f), true));
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                     g.drawText ("C" + juce::String (noteNumber / 12 - 2),
                                 juce::Rectangle<float> (x + 1.0f, area.getBottom() - 15.0f, whiteWidth - 2.0f, 12.0f),
                                 juce::Justification::centred);

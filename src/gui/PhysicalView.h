@@ -11,10 +11,36 @@
 
 #include <array>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+
+// The exciters (oscN_excite) by one set of names on every page, and in
+// groups for the menus (UI review 7, I7-27). Choice 5, the M4 hammer kept
+// for old patches, reads "Bright Hammer" beside the Piano Hammer (display
+// only: the parameter's choices are unchanged).
+namespace Exciters
+{
+inline const juce::StringArray& names()
+{
+    static const juce::StringArray list { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In",
+                                          "Tine", "Reed", "Piano Hammer", "Feedback" };
+    return list;
+}
+
+inline juce::String name (int excite) { return names()[juce::jlimit (0, names().size() - 1, excite)]; }
+
+inline const std::vector<std::pair<const char*, std::vector<int>>>& groups()
+{
+    static const std::vector<std::pair<const char*, std::vector<int>>> list {
+        { "PLUCK", { 0, 1, 2, 3 } }, { "STRIKE", { 9, 5 } }, { "BOW", { 4 } }, { "ELECTRIC PIANO", { 7, 8 } }, { "DRIVEN", { 10, 6 } }
+    };
+    return list;
+}
+} // namespace Exciters
 
 class PhysicalView : public juce::Component,
                      public juce::SettableTooltipClient,
@@ -31,6 +57,7 @@ public:
     }
 
     void setOscillator (const juce::String& newPrefix) { prefix = newPrefix; restart(); }
+    const juce::String& getOscillator() const { return prefix; } // (the UI test reads it)
     // Drawn in the oscillator's identity colour, like the rest of its page.
     void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
 
@@ -40,7 +67,9 @@ public:
         IlanaTheme::paintWell (g, bounds, 8.0f);
         const auto accent = colour;
         auto area = bounds.reduced (18.0f, 14.0f);
-        const auto bodyArea = area.removeFromBottom (area.getHeight() * 0.38f);
+        // The body a slim band under the string, so the string keeps the
+        // room (UI review 7, S7-39).
+        const auto bodyArea = area.removeFromBottom (juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
         area.removeFromBottom (8.0f);
         const auto stringY = area.getCentreY() + area.getHeight() * 0.12f;
         const auto left = area.getX() + 12.0f, right = area.getRight() - 12.0f;
@@ -161,7 +190,7 @@ public:
             g.setColour (IlanaTheme::Ui::text3);
         }
 
-        g.drawText (bodyName(), bodyArea.reduced (12.0f, 6.0f), juce::Justification::bottomLeft);
+        g.drawText (bodyName(), bodyArea.reduced (12.0f, 2.0f), juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text2);
         g.drawText (exciteName (excite), area.withHeight (16.0f), juce::Justification::topRight);
 
@@ -170,11 +199,8 @@ public:
         {
             g.setColour (IlanaTheme::Ui::well.withAlpha (0.5f));
             g.fillRoundedRectangle (bounds, 8.0f);
-            // The card beside it says why and offers the switch; here only
-            // a quiet label, so the page doesn't say it twice.
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("PREVIEW  -  Physical oscillators only", bounds.reduced (14.0f, 10.0f), juce::Justification::topLeft);
+            // The card beside it says why and offers the switch; the picture
+            // carries no label (review 10, I10-12).
         }
     }
 
@@ -219,11 +245,7 @@ private:
         return readGlobal ("res_on") > 0.5f ? bodies[juce::jlimit (0, bodies.size() - 1, type)] : "NO BODY";
     }
 
-    static juce::String exciteName (int excite)
-    {
-        const juce::StringArray names { "BURST", "NOISE", "SAW", "PULSE", "BOW", "HAMMER (CLASSIC)", "OSC IN", "TINE", "REED", "PIANO HAMMER", "FEEDBACK" };
-        return names[juce::jlimit (0, names.size() - 1, excite)];
-    }
+    static juce::String exciteName (int excite) { return Exciters::name (excite).toUpperCase(); }
 
     void restart()
     {
@@ -301,3 +323,52 @@ private:
     unsigned lastNotes = 0;
     float bodyGlow = 0.0f;
 };
+
+// The physical oscillator's controls, one list for its OSC card and the
+// PHYSICAL page (UI review 6, S13, I6-18): rows named for the part of the
+// instrument, each control as its parameter suffix and label, for the
+// exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
+// hammer has no pick, pickup or buzz; HARDNESS and PICK POS shape only a
+// plucked burst, SLAP is a pluck's or a strike's: UI review 7, I7-27).
+struct PhysicalSpec
+{
+    const char* suffix;
+    const char* label;
+};
+
+inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalControlRows (int excite)
+{
+    if (excite == 7 || excite == 8)
+        return { { "STRING", { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_damper", "DAMPER" } } },
+                 { "HAMMER & PICKUP", { { "_excite", "EXCITE" }, { "_hammer_hard", "HAMMER" }, { "_ep_distance", "DISTANCE" },
+                                        { "_ep_position", "OFFSET" } } } };
+
+    const auto piano = excite == 9;
+    std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
+                                       { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
+                                       { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } }; // (I8-25)
+    std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
+
+    const auto plucked = excite <= 3 || excite == 10;
+
+    if (! piano && excite != 4)
+        exciter.push_back ({ "_string_slap", "SLAP" });
+
+    exciter.push_back ({ "_string_excite_pos", "EXCITE POS" });
+
+    if (plucked)
+        exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
+
+    if (excite == 5 || piano)
+        exciter.push_back ({ "_hammer_hard", "HAMMER" });
+    else if (excite == 4)
+        exciter.insert (exciter.end(), { { "_bow_pressure", "BOW PRESS" }, { "_bow_speed", "BOW SPEED" } });
+    else if (excite == 10)
+        exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
+
+    if (! piano)
+        exciter.insert (exciter.end(), { { "_string_pickup", "PICKUP" }, { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+
+    return { { "STRING", string }, { "EXCITER", exciter } };
+}

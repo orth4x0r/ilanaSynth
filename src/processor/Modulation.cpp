@@ -42,6 +42,118 @@ void IlanaSynthAudioProcessor::setLfoCurve (int lfoIndex, const LfoCurve& curve)
     lfoCurveTables[(size_t) lfoIndex] = table;
 }
 
+int IlanaSynthAudioProcessor::legacyMsegTargetLfo() const
+{
+    const auto param = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto routed = [this] (Mod::Source source)
+    {
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = readModSlot (slot);
+            if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+                return true;
+        }
+        return false;
+    };
+
+    // A one-shot MSEG is an envelope, which an LFO can't be; as an
+    // oscillator's ENVELOPE or warp envelope it plays per note.
+    if (param ("mseg_loop") <= 0.5f || ! routed (Mod::Source::Mseg))
+        return -1;
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        if (juce::roundToInt (param (prefix + "_amp_env")) == 16 || juce::roundToInt (param (prefix + "_pd_env")) == 17)
+            return -1;
+    }
+
+    // LFO 4 draws from the generator LFO 1-3, the Clocked S&H and the
+    // gate's Random pattern share: at a new rate its draws land elsewhere,
+    // so it takes the MSEG only when none of those is heard.
+    auto sharedRandomHeard = routed (Mod::Source::ClockSh);
+    for (int slot = 1; slot <= numFxSlots; ++slot)
+        sharedRandomHeard = sharedRandomHeard || juce::roundToInt (param ("fx_slot" + juce::String (slot))) == 16;
+    for (int lfo = 0; lfo < 3; ++lfo)
+    {
+        const auto shape = juce::roundToInt (param ("lfo" + juce::String (lfo + 1) + "_shape"));
+        const auto random = shape == LfoShapes::SampleHold || LfoShapes::isStateful (shape) || LfoSimShapes::isSim (shape);
+        sharedRandomHeard = sharedRandomHeard
+                            || (random && (routed (Mod::lfoSourceFor (lfo)) || routed (Mod::lfoBSourceFor (lfo))));
+    }
+
+    for (int lfo = sharedRandomHeard ? 4 : 0; lfo < numLfos; ++lfo)
+        if (! isLfoShown (lfo))
+            return lfo;
+    return -1;
+}
+
+bool IlanaSynthAudioProcessor::moveLegacyMsegToLfo()
+{
+    // ILANA_KEEP_MSEG_MODULE=1 keeps the module, to compare the two.
+    const auto lfo = legacyMsegTargetLfo();
+    if (lfo < 0 || juce::SystemStats::getEnvironmentVariable ("ILANA_KEEP_MSEG_MODULE", {}).isNotEmpty())
+        return false;
+
+    const auto param = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    const auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* parameter = apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    // Its four points at their places in the cycle and back to the first at
+    // the end, joined by straight lines, as the looping module plays them.
+    float levels[Mseg::numPoints], times[Mseg::numPoints], total = 0.0f;
+    for (int i = 0; i < Mseg::numPoints; ++i)
+    {
+        levels[i] = juce::jlimit (-1.0f, 1.0f, param ("mseg_level" + juce::String (i + 1)));
+        times[i] = juce::jmax (0.01f, param ("mseg_time" + juce::String (i + 1)));
+        total += times[i];
+    }
+
+    LfoCurve curve;
+    curve.points.clear();
+    auto x = 0.0f;
+    for (int i = 0; i < Mseg::numPoints; ++i)
+    {
+        curve.points.push_back ({ x, levels[i], 0.0f });
+        x += times[i] / total;
+    }
+    curve.points.push_back ({ 1.0f, levels[0], 0.0f });
+    setLfoCurve (lfo, curve);
+
+    const auto prefix = "lfo" + juce::String (lfo + 1);
+    set (prefix + "_shape", (float) curveShape);
+    set (prefix + "_rate", param ("mseg_rate"));
+    for (const auto* off : { "_sync", "_retrig", "_key", "_phase", "_smooth" })
+        set (prefix + off, 0.0f);
+
+    const auto lfoSource = Mod::lfoSourceFor (lfo);
+    for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto routing = readModSlot (slot);
+        if (routing.destination == 0)
+            continue;
+        if (routing.source == Mod::Source::Mseg)
+            setModSlotValue (slot, "src", (float) (int) lfoSource);
+        if (routing.aux == Mod::Source::Mseg)
+            setModSlotValue (slot, "aux", (float) (int) lfoSource);
+        if (routing.destination == (int) Mod::Destination::MsegRate)
+            setModSlotValue (slot, "dst", (float) (int) Mod::lfoRateDestinationFor (lfo));
+    }
+
+    setRevealed (Module::Lfo, lfo, true);
+    return true;
+}
+
 bool IlanaSynthAudioProcessor::isIdentityRemap (const LfoCurve& curve)
 {
     const auto& p = curve.points;
@@ -980,6 +1092,8 @@ float IlanaSynthAudioProcessor::globalSourceValue (Mod::Source source) const
         case Mod::Source::Random:     return monitorRandom.load();
         case Mod::Source::ClockSh:    return clockShValue;
         case Mod::Source::Mseg:       return lfoBuffers.getNumSamples() > 0 ? lfoBuffers.getSample (5, 0) : 0.0f;
+        case Mod::Source::OpLfo:      return monitorOpLfo.load();
+        case Mod::Source::OpPitchEnv: return monitorOpPitch.load();
         default:                      return staticSourceValue ((int) source);
     }
 }
@@ -1017,7 +1131,23 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
         if (Mod::extendedFmCellFor (Mod::paramDestinationFor (i)) >= 0)
             continue;
 
-        const auto offset = totals[Mod::paramDestinationFor (i)];
+        // The Operator Env's stage rates are times on their knobs (review 7,
+        // I7-3): a positive amount lengthens the stage, so it lowers the DX7
+        // rate the parameter stores. Every rate: ATTACK, DECAY 1 / 2 and
+        // RELEASE of each operator and of OP PITCH.
+        static const auto reversed = []
+        {
+            std::vector<bool> flags;
+            for (const auto& entry : Mod::getParamDestinations())
+            {
+                const juce::String id (entry.id);
+                flags.push_back (id.endsWith ("_eg_r1") || id.endsWith ("_eg_r2") || id.endsWith ("_eg_r3") || id.endsWith ("_eg_r4")
+                                || id.startsWith ("opeg_pitch_r"));
+            }
+            return flags;
+        }();
+        const auto offset = totals[Mod::paramDestinationFor (i)]
+                            * (juce::isPositiveAndBelow (i, (int) reversed.size()) && reversed[(size_t) i] ? -1.0f : 1.0f);
 
         if (offset != 0.0f && paramDestinations[(size_t) i].parameter != nullptr)
         {
@@ -1093,6 +1223,8 @@ float IlanaSynthAudioProcessor::getSourceDisplayValue (int sourceIndex) const
         case Mod::Source::Random:     return monitorRandom.load();
         case Mod::Source::Mseg:       return msegDisplay.load();
         case Mod::Source::InputEnv:   return inputEnvDisplay.load();
+        case Mod::Source::OpLfo:      return monitorOpLfo.load();
+        case Mod::Source::OpPitchEnv: return monitorOpPitch.load();
         default:                      return 0.0f;
     }
 }
@@ -1116,4 +1248,63 @@ float IlanaSynthAudioProcessor::staticSourceValue (int sourceIndex) const
         case Mod::Source::Expression: return expressionValue;
         default:                      return 0.0f;
     }
+}
+
+// Review 6 (V5-8, S5-9): duplicate matrix rows. Both rows add
+// depth * shape (source), so one row with the summed depth is the same
+// routing, as long as everything else that shapes it matches.
+bool IlanaSynthAudioProcessor::canMergeModSlots (int into, int from, juce::String* reason) const
+{
+    const auto fail = [reason] (const char* why)
+    {
+        if (reason != nullptr)
+            *reason = why;
+        return false;
+    };
+
+    if (into == from || ! juce::isPositiveAndBelow (into, Mod::maxSlots) || ! juce::isPositiveAndBelow (from, Mod::maxSlots))
+        return fail ("not two rows");
+
+    const auto a = readModSlot (into);
+    const auto b = readModSlot (from);
+
+    if (a.source != b.source || a.destination != b.destination || a.source == Mod::Source::None || a.destination == 0)
+        return fail ("they route different things");
+    if (a.aux != b.aux)
+        return fail ("their via sources differ");
+    if (a.polarity != b.polarity)
+        return fail ("their polarities differ");
+    if (a.bypass != b.bypass)
+        return fail ("one is switched off");
+    if (std::abs (a.curve - b.curve) > 1.0e-6f)
+        return fail ("their curves differ");
+    if (isModRemapOn (into) || isModRemapOn (from))
+        return fail ("one has a drawn remap curve");
+    if (std::abs (a.depth + b.depth) > 1.0f + 1.0e-6f)
+        return fail ("together they would pass 100%");
+
+    return true;
+}
+
+bool IlanaSynthAudioProcessor::mergeModSlots (int into, int from)
+{
+    if (! canMergeModSlots (into, from))
+        return false;
+
+    const auto depth = readModSlot (into).depth + readModSlot (from).depth;
+    setModSlotValue (into, "amt", juce::jlimit (-1.0f, 1.0f, depth));
+    clearModSlot (from);
+    return true;
+}
+
+int IlanaSynthAudioProcessor::mergeDuplicateModSlots()
+{
+    auto merged = 0;
+
+    for (int into = 0; into < Mod::maxSlots; ++into)
+        for (int from = into + 1; from < Mod::maxSlots; ++from)
+            if (mergeModSlots (into, from))
+                ++merged;
+
+    return merged;
 }

@@ -23,6 +23,7 @@
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Evolve.h"
+#include "dsp/FmAlgorithms.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -64,7 +65,7 @@ public:
     // M8.1: each LFO's output B follows, from channel numLfos + 2.
     static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
     static constexpr int numLfoChannels = 2 * numLfos + 2;
-    static constexpr int maxDestinations = 512;
+    static constexpr int maxDestinations = 1024;
 
     float getFxMod (Mod::Destination destination, float depth) const
     {
@@ -75,6 +76,8 @@ public:
     // last block, and OTT's LOW / MID / HIGH gains at the block's end.
     float getLimiterGainReduction() const { return limiterGainReduction.load(); }
     float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
+    // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
+    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze[0].getBands (out); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
@@ -115,6 +118,12 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+   #if JUCE_LINUX || JUCE_BSD
+    // Keeps the VST3 host's run loop alive; see HostRunLoopKeepAlive in
+    // PluginProcessor.cpp.
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &hostRunLoopKeepAlive; }
+   #endif
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
@@ -135,6 +144,8 @@ public:
 
     // M8.3: the loudest voice's WEST gate conductance, for the card.
     float getWestGateLevel() const { return westGateDisplay.load(); }
+    // The vocoder's band levels as it last ran (FX display; 0 while idle).
+    float getVocoderBandLevel (int band) const { return juce::isPositiveAndBelow (band, (int) vocoderBandDisplay.size()) ? vocoderBandDisplay[(size_t) band].load() : 0.0f; }
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
@@ -213,8 +224,24 @@ public:
     // an empty string is a macro with no name.
     juce::StringArray getFactoryMacroNames (int factoryIndex) const;
     juce::StringArray getAllPresetNames() const;
+    // The browser's view of every preset (factory, then user files): its
+    // category (DX7 voices under the kind of sound they are), its tags
+    // (factory presets from src/PresetTags.h, written by
+    // tools/tag_presets.py), and the DX7 bank it comes from ("" when it isn't
+    // a DX7 voice: ROM1A..., or an imported bank's folder).
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;
+    juce::StringArray getAllPresetBanks() const;
+    // For each preset, the earlier one it repeats parameter for parameter
+    // (the ROM cartridges carry some DX7 voices twice), or -1.
+    juce::Array<int> getPresetRepeats() const;
+    // Who made a preset and what its author says about it (user presets
+    // carry what Save As asked for; factory presets name their source).
+    struct PresetInfo
+    {
+        juce::String author, comment;
+    };
+    PresetInfo getPresetInfo (int index) const;
     bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
     void loadPresetByIndex (int index);
@@ -223,7 +250,7 @@ public:
     // from user preset files for the browser. Message thread only.
     static juce::StringArray getPresetCategoryChoices()
     {
-        return { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
+        return { "Bass", "Lead", "Brass", "Wind", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
     }
 
     void setPresetMeta (const juce::String& category, const juce::String& tags)
@@ -232,6 +259,14 @@ public:
         apvts.state.setProperty ("presetTags", tags, nullptr);
     }
 
+    void setPresetInfo (const juce::String& author, const juce::String& comment)
+    {
+        apvts.state.setProperty ("presetAuthor", author, nullptr);
+        apvts.state.setProperty ("presetComment", comment, nullptr);
+    }
+
+    juce::String getPresetAuthor() const { return apvts.state.getProperty ("presetAuthor").toString(); }
+    juce::String getPresetComment() const { return apvts.state.getProperty ("presetComment").toString(); }
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
@@ -246,6 +281,8 @@ public:
                                     std::array<juce::String, 4>& macroNames);
     static void applyPresetTrims (const char* presetName, const juce::String& category,
                                   std::vector<std::pair<juce::String, float>>& values);
+    // MASTER's value in a preset's values moves to output_trim (review 6).
+    static void moveLevelToTrim (std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
 
@@ -281,6 +318,16 @@ public:
                                    const std::function<void (const juce::String&, float)>& set);
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
+    // Two slots routing the same source to the same destination (with the
+    // same via, polarity, curve and bypass, and no drawn remap) play as one
+    // slot with the depths added, so they can be merged without changing
+    // the sound. canMergeModSlots says why not when they can't be (they
+    // differ, or the sum would pass 100%). mergeModSlots folds `from` into
+    // `into`; mergeDuplicateModSlots merges every such pair (factory presets
+    // load merged) and returns how many slots it freed. Message thread.
+    bool canMergeModSlots (int into, int from, juce::String* reason = nullptr) const;
+    bool mergeModSlots (int into, int from);
+    int mergeDuplicateModSlots();
     void setModSlotValue (int slotIndex, const juce::String& field, float value);
     juce::String getModSlotParamId (int slotIndex, const juce::String& field) const;
 
@@ -295,6 +342,16 @@ public:
     static constexpr int curveShape = 8;
     LfoCurve getLfoCurve (int lfoIndex) const;
     void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+
+    // The old four-point MSEG module (UI review 9, I9-2): a looping, routed
+    // MSEG that no oscillator plays as its ENVELOPE becomes an LFO drawn the
+    // same (SHAPE › MSEG, its four points, its RATE) with its routes, so a
+    // patch has one MSEG editor. Patch loads run it; the LFO is the first
+    // free one whose random draws nothing else hears (LFO 1-4 share a
+    // generator with the Clocked S&H and the gate). legacyMsegTargetLfo is
+    // that LFO, or -1 when the MSEG stays a module. Message thread.
+    int legacyMsegTargetLfo() const;
+    bool moveLegacyMsegToLfo();
 
     // A drawn remap curve per mod slot (Vital's per-route remap). A straight
     // line from -1 to 1 is off; the slot then shapes as before.
@@ -376,6 +433,10 @@ public:
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
+    // The Operator Env of the loudest voice: seconds since its note began
+    // and since its key was let go (-1: held, or no such note).
+    float getOpEnvMonitorSeconds() const { return monitorOpEnvSeconds.load(); }
+    float getOpEnvMonitorRelease() const { return monitorOpEnvRelease.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
     // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
     // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
@@ -411,10 +472,19 @@ public:
     // FmAlgorithms (adding the operators it needs). Existing routes keep
     // their amounts. Message thread.
     void applyFmAlgorithm (int index);
+    // The same for the DX7's algorithm 1-32 (all six operators), which the
+    // FM page then names.
+    void applyDx7Algorithm (int number);
     // The algorithm the current routing matches, or -1.
     int findMatchingFmAlgorithm() const;
+    // The DX7 algorithm (1-32) the routing is, or 0: six operators on, the
+    // DX7's routes and carriers, its feedback operator or none.
+    int findMatchingDx7Algorithm() const;
     // [source][target] FM parameter id, 0-based.
     static juce::String fmRouteId (int source, int target);
+private:
+    void applyFmRouting (const FmAlgorithms::Algorithm& algorithm, int dx7Number);
+public:
     // An operator's sounding ratio after SNAP (for display).
     double getSnappedRatio (int osc) const;
     // Added to the patch, or routed in the matrix (message thread).
@@ -652,6 +722,11 @@ private:
     juce::Random pseqRandom { 16180 };
     long long engineStepCount = 0;
     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
+    // The arp's step lanes (review 6): velocity, gate and transpose per step
+    // over ARP STEPS steps. At their defaults (100, 100 %, 0) every step plays
+    // as before.
+    std::array<ParamRef, 16> arpVelocityIds, arpLengthIds, arpPitchIds;
+    ParamRef arpStepsRef { "arp_steps" };
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
     // Clip sequencer: plays the current clip into the synth's MIDI.
     void processClip (juce::MidiBuffer& midi, int numSamples);
@@ -706,6 +781,7 @@ private:
         inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
     ParamRef tuningOnRef { "tuning_on" };
+    ParamRef masterRef { "master" }, outputTrimRef { "output_trim" };
     // The Airwindows module (FX type 30): only the chosen algorithm runs.
     airwindows::Module airwindowsModule;
     ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
@@ -810,7 +886,7 @@ private:
     std::array<OperatorIds, OscillatorIds::count> operatorIds;
     std::array<ParamRef, OscillatorIds::count> fmNoiseIds;
     // DAHDSR extras and rate key scaling for ENV 1..16.
-    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate; };
+    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate, attackCurve, decayCurve, releaseCurve; };
     std::array<EnvelopeExtraIds, 16> envelopeExtraIds;
     std::array<ParamRef, Mseg::numPoints> msegLevelIds, msegTimeIds;
     // ENV 6..16's ADSR, curve and velocity.
@@ -856,7 +932,7 @@ private:
     struct UserPresetMeta
     {
         juce::int64 modified = -1;
-        juce::String category, tags;
+        juce::String category, tags, author, comment;
     };
 
     const UserPresetMeta& getUserPresetMeta (const juce::File& file) const;
@@ -873,6 +949,7 @@ private:
     // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
     std::array<LfoSim, (size_t) numLfos> lfoSims;
     std::atomic<float> westGateDisplay { 0.0f };
+    std::array<std::atomic<float>, 24> vocoderBandDisplay {};
     // M8.5
     void updateEvolveAndVector (int numSamples);
     MacroEvolve evolve, vectorDrift;
@@ -1001,6 +1078,9 @@ private:
     std::atomic<float> envMonitorFilter2 { 0.0f };
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
+    // The loudest voice's Operator Env LFO and pitch envelope (review 6).
+    std::atomic<float> monitorOpLfo { 0.0f }, monitorOpPitch { 0.0f };
+    std::atomic<float> monitorOpEnvSeconds { -1.0f }, monitorOpEnvRelease { -1.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<float>, 16> envMonitorPositions {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
@@ -1015,6 +1095,14 @@ private:
     };
     std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 }, dataEpoch { 0 }, sampleEpoch { 0 };
     ParamEpoch paramEpochListener { paramEpoch };
+
+   #if JUCE_LINUX || JUCE_BSD
+    struct HostRunLoopKeepAlive final : juce::VST3ClientExtensions
+    {
+        void setIHostApplication (Steinberg::FUnknown* host) override;
+    };
+    HostRunLoopKeepAlive hostRunLoopKeepAlive;
+   #endif
 
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
@@ -1143,6 +1231,11 @@ private:
     juce::AudioBuffer<float> fxBand;
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
     juce::AudioBuffer<float> reverbScratch;
+    // KEEP DRY's wet copy, and how long its wet is still added after MIX
+    // reaches 0 (review 7); reverbWetOnly while that copy is processed.
+    juce::AudioBuffer<float> reverbDryScratch;
+    int reverbKeepDryHold = 0;
+    bool reverbWetOnly = false;
     std::atomic<float> compGainReduction { 1.0f };
     std::atomic<float> limiterGainReduction { 1.0f };
     std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };

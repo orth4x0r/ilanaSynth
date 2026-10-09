@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 
 // A mod slot's remap curve (Vital's per-route remap), drawn as the LFO curve
 // shape is: the source's range runs left to right, the amount it sends from
@@ -13,6 +14,7 @@
 // reverse. The live source shows as a line across the plot and a dot where
 // it meets the curve. The matrix docks it under its row; X closes it.
 class RemapEditor : public juce::Component,
+                    public juce::SettableTooltipClient,
                     private juce::Timer
 {
 public:
@@ -20,6 +22,10 @@ public:
         : processorRef (p), slotIndex (slotIndexIn), colour (colourIn)
     {
         curve = processorRef.getModRemap (slotIndex);
+        // The LFO curve's gestures and words.
+        setTooltip ("Remap\nThe source's range runs left to right, what the routing sends bottom to top.  Click to add a point, "
+                    "drag it, drag the dot on a line to curve it, double-click to delete (or straighten); right-click for "
+                    "shapes.  The value shows while you drag.");
 
         shapesButton.setButtonText (juce::String::fromUTF8 ("SHAPES  \xe2\x96\xbe"));
         shapesButton.setTooltip ("Curve presets, flip and reverse");
@@ -72,9 +78,27 @@ public:
         shapesButton.setBounds (top.removeFromRight (78));
     }
 
+    // Replaces the curve with one of the presets (SHAPES, or the matrix's
+    // quick shape tiles), as one undo step.
+    void applyShape (int index)
+    {
+        processorRef.beginEdit (editName());
+        curve = shape (index);
+        commit();
+        processorRef.endEdit();
+    }
+
+    const LfoCurve& getCurve() const { return curve; }
+
     static juce::StringArray getShapeNames()
     {
         return { "Straight", "Invert", "Ease In", "Ease Out", "S-Curve", "Dead Zone", "Peak", "Steps 4", "Gate" };
+    }
+
+    // The tiles' own names: short enough for a 64 px tile at full size.
+    static juce::StringArray getShortShapeNames()
+    {
+        return { "Line", "Invert", "Ease in", "Ease out", "S-curve", "Dead", "Peak", "Steps 4", "Gate" };
     }
 
     static LfoCurve shape (int index)
@@ -106,8 +130,8 @@ public:
         g.fillRoundedRectangle (bounds, 6.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText ("REMAP  " + titleSuffix, bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f),
-                    juce::Justification::centredLeft);
+        IlanaTheme::drawFitted (g, "REMAP  " + titleText(), bounds.removeFromTop (22.0f).reduced (6.0f, 0.0f).toNearestInt(),
+                          juce::Justification::centredLeft, 1);
 
         const auto plot = plotArea();
         IlanaTheme::paintWell (g, plot.expanded (6.0f), 5.0f);
@@ -181,6 +205,19 @@ public:
             g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (at));
         }
 
+        // The dragged point or curve's value beside it, as on the LFO graph.
+        if (dragPoint >= 0 && dragPoint < (int) curve.points.size())
+        {
+            const auto& point = curve.points[(size_t) dragPoint];
+            paintReadout (g, pointToScreen (point), "IN " + juce::String (juce::roundToInt (point.x * 100.0f)) + "%  OUT "
+                                                        + (point.y >= 0.0f ? "+" : "") + juce::String (point.y, 2), plot);
+        }
+        else if (dragTension >= 0 && dragTension + 1 < (int) curve.points.size())
+        {
+            const auto tension = curve.points[(size_t) dragTension].tension;
+            paintReadout (g, tensionHandle (dragTension), "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2), plot);
+        }
+
         // Axis ends: the source's range left to right, what it sends bottom to top.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
@@ -188,11 +225,22 @@ public:
         g.drawText ("OUT", juce::Rectangle<float> (plot.getX() - 10.0f, plot.getY() - 12.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
     }
 
-    // The title's slot or row label ("6", or "ROW 3  ·  slot 6").
+    // The title names the routing by what it joins ("REMAP  ·  LFO 1 →
+    // Filter 1 › Cutoff", V7-40), not by a row or slot number; a caller
+    // can set its own instead.
     void setTitle (const juce::String& text)
     {
         titleSuffix = text;
         repaint();
+    }
+
+    juce::String titleText() const
+    {
+        if (titleSuffix.isNotEmpty())
+            return titleSuffix;
+        const auto slot = processorRef.readModSlot (slotIndex);
+        return juce::String::fromUTF8 ("\xc2\xb7  ") + ModNames::source ((int) slot.source, &processorRef)
+               + (slot.destination != 0 ? juce::String::fromUTF8 (" \xe2\x86\x92 ") + ModNames::destination (slot.destination) : juce::String());
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -281,6 +329,21 @@ public:
     }
 
 private:
+    void paintReadout (juce::Graphics& g, juce::Point<float> anchor, const juce::String& text, juce::Rectangle<float> area) const
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 14.0f;
+        auto box = juce::Rectangle<float> (width, 17.0f).withCentre ({ anchor.x, anchor.y - 18.0f });
+        if (box.getY() < area.getY())
+            box.setY (anchor.y + 10.0f);
+        box.setX (juce::jlimit (area.getX(), juce::jmax (area.getX(), area.getRight() - width), box.getX()));
+        g.setColour (juce::Colours::black.withAlpha (0.7f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.3f));
+        g.setFont (font);
+        g.drawText (text, box, juce::Justification::centred);
+    }
+
     juce::String editName() const { return "Remap curve " + juce::String (slotIndex + 1); }
 
     void timerCallback() override
@@ -401,7 +464,64 @@ private:
     int dragPoint = -1, dragTension = -1;
     float dragStartTension = 0.0f;
     float liveInput = -1.0f;
-    juce::String titleSuffix { juce::String (slotIndex + 1) };
+    juce::String titleSuffix;
     juce::TextButton shapesButton, closeButton;
     std::function<void()> onClose;
+};
+
+// A preset remap curve as a small tile (the matrix's dock lists them beside
+// the open editor): its curve over a well, its name under it. A click
+// applies it.
+class RemapShapeTile : public juce::Button
+{
+public:
+    explicit RemapShapeTile (int shapeIndexIn)
+        : juce::Button (RemapEditor::getShapeNames()[shapeIndexIn]), shapeIndex (shapeIndexIn)
+    {
+        setTooltip (getName() + "\nUse this curve for the open routing.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    int getShapeIndex() const { return shapeIndex; }
+    juce::Colour colour = IlanaTheme::accent();
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        const auto nameArea = bounds.removeFromBottom (15.0f);
+        const auto plot = bounds.reduced (2.0f);
+        IlanaTheme::paintWell (g, plot, 4.0f);
+        if (highlighted || down)
+        {
+            g.setColour (colour.withAlpha (down ? 0.25f : 0.12f));
+            g.fillRoundedRectangle (plot, 4.0f);
+        }
+
+        const auto curve = RemapEditor::shape (shapeIndex);
+        const auto inner = plot.reduced (4.0f, 4.0f);
+        juce::Path path;
+        for (int i = 0; i <= 32; ++i)
+        {
+            const auto x = juce::jmin (0.9999f, (float) i / 32.0f);
+            const auto point = juce::Point<float> (inner.getX() + inner.getWidth() * (float) i / 32.0f,
+                                                   inner.getCentreY() - curve.valueAt (x) * inner.getHeight() * 0.5f);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setColour (colour.withAlpha (highlighted || down ? 1.0f : 0.8f));
+        g.strokePath (path, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        // (A narrow tile, at 75 % with the dock open, takes the last word: "EASE OUT" reads "OUT".)
+        auto name = RemapEditor::getShortShapeNames()[shapeIndex].toUpperCase();
+        if (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), name) > nameArea.getWidth() - 2.0f)
+            name = name.fromLastOccurrenceOf (" ", false, false);
+        IlanaTheme::drawFitted (g, name, nameArea.toNearestInt(), juce::Justification::centred, 1);
+    }
+
+private:
+    int shapeIndex;
 };

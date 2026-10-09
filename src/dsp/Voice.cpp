@@ -403,6 +403,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         oscEnableSmooth[osc].setCurrentAndTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
     }
     noiseSmooth.setCurrentAndTargetValue (params.noiseLevel);
+    noiseLow = 0.0f;
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
 
@@ -433,6 +434,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
             carriers[(size_t) osc] = params.oscOut[osc] && params.oscillators[osc].ampEnv == OperatorEg::envelopeChoice;
         dx7Note.start (eg, transposed, lastVelocity, sampleRate, carriers);
+        dx7Settings = eg;
         dx7Previous.fill (0.0f);
         dx7Current = dx7Note.getGains();
         dx7Count = 0;
@@ -1193,6 +1195,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
         anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
     }
+    // The heard noise's colour, on the FM noise's scale (about 200 Hz to
+    // white); 1 leaves it white.
+    auto heardNoiseCoeff = 1.0f, heardNoiseGain = 1.0f;
+    if (params.noiseColour < 0.999f)
+    {
+        const auto cutoff = juce::jmin (0.45 * sampleRate, 200.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, params.noiseColour)));
+        heardNoiseCoeff = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sampleRate));
+        heardNoiseGain = std::pow (heardNoiseCoeff / (2.0f - heardNoiseCoeff), -0.25f);
+    }
     const auto noiseCutoff = juce::jmin (0.45 * sampleRate,
                                          200.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, params.fmNoiseColour)));
     const auto noiseCoeff = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * noiseCutoff / sampleRate));
@@ -1459,6 +1470,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         {
             if (dx7Count == 0)
             {
+                // Settings turned (or modulated) since the note began.
+                if (params.operatorEg != dx7Settings)
+                {
+                    dx7Settings = params.operatorEg;
+                    dx7Note.update (dx7Settings);
+                }
                 dx7Previous = dx7Current;
                 dx7Note.step();
                 dx7Current = dx7Note.getGains();
@@ -1666,8 +1683,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
                     if (params.oscOut[osc])
                     {
-                        busL[routes[osc]] += (settings.sampleMode ? sampleL : raw) * gain * panGainL[osc][u];
-                        busR[routes[osc]] += (settings.sampleMode ? sampleR : raw) * gain * panGainR[osc][u];
+                        // Heard at the Operator Env's carrier scale too, so
+                        // picking it changes every mode's level alike.
+                        const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
+                        busL[routes[osc]] += (settings.sampleMode ? sampleL : raw) * heard * panGainL[osc][u];
+                        busR[routes[osc]] += (settings.sampleMode ? sampleR : raw) * heard * panGainR[osc][u];
                     }
                 }
 
@@ -1751,8 +1771,16 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         if (noiseLevel > 0.0f)
         {
-            const auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
-                               * (alternateAmpRouting ? ampValue : 1.0f);
+            auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
+                         * (alternateAmpRouting ? ampValue : 1.0f);
+            // NOISE COLOUR under white: a one-pole low-pass, part of the
+            // lost level made up (white skips it, so older patches are
+            // unchanged).
+            if (heardNoiseCoeff < 1.0f)
+            {
+                noiseLow += heardNoiseCoeff * (value - noiseLow);
+                value = noiseLow * heardNoiseGain;
+            }
             busL[routeSubOsc] += value;
             busR[routeSubOsc] += value;
         }
@@ -2218,6 +2246,8 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
         case Mod::Source::InputEnv:   return params.inputEnv != nullptr ? params.inputEnv[renderStart + sampleIndex] : 0.0f;
         case Mod::Source::VectorX:    return params.vectorX;
         case Mod::Source::VectorY:    return params.vectorY;
+        case Mod::Source::OpLfo:      return dx7Playing ? dx7Note.getLfoOutput() : 0.0f;
+        case Mod::Source::OpPitchEnv: return dx7Playing ? dx7Note.getPitchShape() : 0.0f;
         case Mod::Source::None:
         case Mod::Source::Count:
         default:                      return 0.0f;

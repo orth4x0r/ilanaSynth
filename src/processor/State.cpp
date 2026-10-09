@@ -202,8 +202,19 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
     if (! juce::isPositiveAndBelow (index, FmAlgorithms::count()))
         return;
 
-    const auto& algorithm = FmAlgorithms::all()[(size_t) index];
+    applyFmRouting (FmAlgorithms::all()[(size_t) index], 0);
+}
 
+void IlanaSynthAudioProcessor::applyDx7Algorithm (int number)
+{
+    if (number < 1 || number > 32)
+        return;
+
+    applyFmRouting (FmAlgorithms::dx7 (number), number);
+}
+
+void IlanaSynthAudioProcessor::applyFmRouting (const FmAlgorithms::Algorithm& algorithm, int dx7Number)
+{
     // One undo step for the whole routing.
     undoManager.beginNewTransaction ("FM algorithm: " + juce::String (algorithm.name));
 
@@ -221,6 +232,36 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
             }
         }
     };
+    const auto read = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+
+    // A patch on the Operator Env (a DX7 voice) keeps the DX7's terms: new
+    // routes at 100% (each modulator's OUTPUT sets the depth) and new
+    // feedback of the type its feedback already uses (DX7 if none); other
+    // patches start routes gently and feedback Filtered (UI review 6, I6-11).
+    // The feedback moves with the algorithm, as a DX7's FEEDBACK does: the
+    // strongest loop the patch had (amount and type) goes to the new
+    // algorithm's feedback operator (review 7, I7-9).
+    auto operatorEnv = false;
+    auto feedbackType = -1;
+    auto feedbackAmount = 0.0f;
+    for (int op = 0; op < OscillatorIds::count; ++op)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) op]);
+        if (! isOscillatorShown (op))
+            continue;
+        operatorEnv = operatorEnv || juce::roundToInt (read (prefix + "_amp_env")) == OperatorEg::envelopeChoice;
+        if (const auto amount = read (fmRouteId (op, op)); amount > 0.001f && amount > feedbackAmount)
+        {
+            feedbackAmount = amount;
+            feedbackType = juce::roundToInt (read (prefix + "_fb_type"));
+        }
+    }
+    if (feedbackType < 0)
+        feedbackType = operatorEnv ? FmFeedback::Dx7 : FmFeedback::Filtered;
 
     for (int op = 0; op < algorithm.numOperators; ++op)
         if (! isOscillatorShown (op) || apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() < 0.5f)
@@ -236,16 +277,64 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
                 set (id, 0.0f);
             else if (current < 0.001f)
             {
-                set (id, source == target ? FmAlgorithms::defaultFeedbackAmount : FmAlgorithms::defaultRouteAmount);
-                // New feedback starts Filtered (calm at high amounts); feedback
-                // the patch already had keeps its type.
                 if (source == target)
-                    set (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type", (float) FmFeedback::Filtered);
+                    set (id, feedbackAmount > 0.001f ? feedbackAmount
+                             : operatorEnv          ? FmAlgorithms::operatorEnvFeedbackAmount
+                                                    : FmAlgorithms::defaultFeedbackAmount);
+                else
+                    set (id, operatorEnv ? FmAlgorithms::operatorEnvRouteAmount : FmAlgorithms::defaultRouteAmount);
+                // Feedback the patch already had keeps its type.
+                if (source == target)
+                    set (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type", (float) feedbackType);
             }
         }
 
     for (int op = 0; op < algorithm.numOperators; ++op)
         set (oscCoreIds[(size_t) op].out, FmAlgorithms::isCarrier (algorithm, op) ? 1.0f : 0.0f);
+
+    set (OperatorEg::dx7AlgorithmId, (float) dx7Number);
+}
+
+int IlanaSynthAudioProcessor::findMatchingDx7Algorithm() const
+{
+    // All six operators, the DX7's routes and carriers. Feedback may be
+    // missing (a DX7 voice at feedback 0) but not elsewhere. Algorithms that
+    // differ only in their feedback loop then match alike: the number the
+    // routing was set from (a .syx voice, a click) breaks the tie.
+    for (int op = 0; op < OscillatorIds::count; ++op)
+        if (! isOscillatorShown (op) || apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() < 0.5f)
+            return 0;
+
+    const auto* stored = apvts.getRawParameterValue (OperatorEg::dx7AlgorithmId);
+    const auto preferred = stored != nullptr ? juce::roundToInt (stored->load()) : 0;
+    auto first = 0;
+
+    for (int number = 1; number <= 32; ++number)
+    {
+        const auto& algorithm = FmAlgorithms::dx7 (number);
+        auto matches = true;
+
+        for (int source = 0; source < OscillatorIds::count && matches; ++source)
+            for (int target = 0; target < OscillatorIds::count && matches; ++target)
+            {
+                const auto on = apvts.getRawParameterValue (fmRouteId (source, target))->load() > 0.001f;
+                matches = source == target ? (! on || algorithm.feedbackOperator == source)
+                                           : on == FmAlgorithms::hasRoute (algorithm, source, target);
+            }
+
+        for (int op = 0; op < OscillatorIds::count && matches; ++op)
+            matches = (apvts.getRawParameterValue (oscCoreIds[(size_t) op].out)->load() > 0.5f)
+                      == FmAlgorithms::isCarrier (algorithm, op);
+
+        if (! matches)
+            continue;
+        if (number == preferred)
+            return number;
+        if (first == 0)
+            first = number;
+    }
+
+    return first;
 }
 
 int IlanaSynthAudioProcessor::findMatchingFmAlgorithm() const
@@ -295,13 +384,15 @@ bool IlanaSynthAudioProcessor::isLfoShown (int index) const
     if (isRevealed (Module::Lfo, index))
         return true;
 
+    // Routed by its A or its B output.
     const auto source = Mod::lfoSourceFor (index);
+    const auto sourceB = Mod::lfoBSourceFor (index);
 
     for (int slot = 0; slot < Mod::maxSlots; ++slot)
     {
         const auto routing = readModSlot (slot);
 
-        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source || routing.source == sourceB || routing.aux == sourceB))
             return true;
     }
 
@@ -701,6 +792,8 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
     apvts.replaceState (state);
+    // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
+    moveLegacyMsegToLfo();
     updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
 }
 

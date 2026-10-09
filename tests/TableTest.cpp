@@ -3597,6 +3597,77 @@ void runArpHostStopTests()
                                     + juce::String (silentBlocks + loudBlocks) + " blocks without voices)");
     }
 }
+// Review 6: the arp's step lanes. At their defaults a render is the same as
+// without them; GATE 0 rests a step, a lower VELOCITY plays softer, ARP
+// STEPS 1 repeats the first step's lane values.
+void runArpLaneTests()
+{
+    const auto render = [] (const std::function<void (IlanaSynthAudioProcessor&)>& setUp, double& energy, int& silentBlocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        set ("arp_on", 1.0f);
+        set ("arp_div", 4.0f);
+        setUp (processor);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        energy = 0.0;
+        silentBlocks = 0;
+
+        for (int block = 0; block < 400; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+
+            if (block > 20)
+            {
+                energy += buffer.getRMSLevel (0, 0, 256);
+                silentBlocks += buffer.getMagnitude (0, 256) < 1.0e-5f ? 1 : 0;
+            }
+        }
+    };
+    const auto setAll = [] (IlanaSynthAudioProcessor& processor, const char* prefix, float value)
+    {
+        for (int step = 1; step <= 16; ++step)
+            if (auto* parameter = processor.apvts.getParameter (prefix + juce::String (step)))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    double plain = 0.0, defaults = 0.0, rests = 0.0, soft = 0.0, firstRest = 0.0;
+    int silentPlain = 0, silentDefaults = 0, silentRests = 0, silentSoft = 0, silentFirst = 0;
+    render ([] (IlanaSynthAudioProcessor&) {}, plain, silentPlain);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor)
+            {
+                setAll (processor, "arp_vel", 100.0f);
+                setAll (processor, "arp_len", 1.0f);
+                setAll (processor, "arp_pitch", 0.0f);
+            }, defaults, silentDefaults);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_len", 0.0f); }, rests, silentRests);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_vel", 15.0f); }, soft, silentSoft);
+    render ([] (IlanaSynthAudioProcessor& processor)
+            {
+                processor.apvts.getParameter ("arp_steps")->setValueNotifyingHost (processor.apvts.getParameter ("arp_steps")->convertTo0to1 (1.0f));
+                processor.apvts.getParameter ("arp_len1")->setValueNotifyingHost (0.0f);
+            }, firstRest, silentFirst);
+
+    check (plain > 0.1 && std::abs (plain - defaults) < 1.0e-9 * plain,
+           "the arp's lanes at their defaults render the same as before (" + juce::String (plain, 4) + ")");
+    check (rests < plain * 1.0e-3, "GATE 0 on every arp step rests them all (" + juce::String (rests, 6) + ")");
+    check (soft < plain * 0.9 && soft > 0.0, "a low arp VELOCITY lane plays softer (" + juce::String (soft / plain, 3) + " of the level)");
+    check (firstRest < plain * 1.0e-3, "ARP STEPS 1 repeats step 1's lane values: its rest silences every step");
+}
+
 // Releasing every key must silence the Scale Random arpeggiator, including
 // with note spray, chords, high notes and releases mid-step.
 void runScaleRandomReleaseTest()
@@ -5462,7 +5533,7 @@ void runM4Tests()
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
             check (choice != nullptr && choice->getAllValueStrings().size() >= 7
-                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer (classic)"
+                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Bright Hammer"
                        && choice->getAllValueStrings()[6] == "Osc In",
                    juce::String (id) + " appends Hammer and Osc In after Bow");
         }
@@ -9182,6 +9253,7 @@ int main()
     {
         runScaleRandomReleaseTest();
         runArpHostStopTests();
+        runArpLaneTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -9316,6 +9388,7 @@ int main()
     timedRun ("runPhysicalPatchMigrationTest", [] { runPhysicalPatchMigrationTest(); });
     timedRun ("runScaleRandomReleaseTest", [] { runScaleRandomReleaseTest(); });
     timedRun ("runArpHostStopTests", [] { runArpHostStopTests(); });
+    timedRun ("runArpLaneTests", [] { runArpLaneTests(); });
     timedRun ("runM4Tests", [] { runM4Tests(); });
     timedRun ("runM5DeepFmTests", [] { runM5DeepFmTests(); });
     timedRun ("runM6PhaseDistortionTests", [] { runM6PhaseDistortionTests(); });

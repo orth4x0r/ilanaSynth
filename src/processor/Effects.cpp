@@ -665,6 +665,33 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
+    // KEEP DRY (review 7): the reverb runs on a copy with no dry of its own,
+    // and that is added to the untouched signal only while there is some
+    // wet, so MIX 0 is the dry signal bit for bit.
+    if (getParam ("fx_reverb_on") > 0.5f && getParam ("fx_reverb_keep_dry") > 0.5f && ! reverbWetOnly)
+    {
+        if (reverbDryScratch.getNumChannels() < numChannels || reverbDryScratch.getNumSamples() < numSamples)
+            reverbDryScratch.setSize (numChannels, numSamples, false, false, true);
+        juce::AudioBuffer<float> wet (reverbDryScratch.getArrayOfWritePointers(), numChannels, numSamples);
+        for (int channel = 0; channel < numChannels; ++channel)
+            wet.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+
+        reverbWetOnly = true;
+        processReverb (wet);
+        reverbWetOnly = false;
+
+        // (Held a moment after MIX reaches 0, while the reverb's own wet
+        // gain glides down.)
+        if (getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f) > 0.0f)
+            reverbKeepDryHold = juce::roundToInt (currentSampleRate * 0.05);
+        else
+            reverbKeepDryHold = juce::jmax (0, reverbKeepDryHold - numSamples);
+        if (reverbKeepDryHold > 0)
+            for (int channel = 0; channel < numChannels; ++channel)
+                buffer.addFrom (channel, 0, wet, channel, 0, numSamples);
+        return;
+    }
+
     if (getParam ("fx_reverb_on") > 0.5f)
     {
         const auto type = juce::jlimit (0, 6, (int) getParam ("fx_reverb_type"));
@@ -683,6 +710,8 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
 
             const auto wet = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
 
+            if (reverbWetOnly)
+                buffer.clear();
             for (int channel = 0; channel < numChannels; ++channel)
                 buffer.addFrom (channel, 0, reverbScratch, channel, 0, numSamples, wet);
 
@@ -694,7 +723,7 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
         reverbParams.damping = getParam ("fx_reverb_damping");
         reverbParams.width = getParam ("fx_reverb_width");
         reverbParams.wetLevel = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
-        reverbParams.dryLevel = 1.0f - reverbParams.wetLevel;
+        reverbParams.dryLevel = reverbWetOnly ? 0.0f : 1.0f - reverbParams.wetLevel;
         reverbParams.freezeMode = 0.0f;
 
         switch (type)
@@ -772,7 +801,8 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
                     gatedReverbEnvelope *= gateCoefficient;
 
                 for (int channel = 0; channel < numChannels; ++channel)
-                    buffer.addSample (channel, i, reverbScratch.getSample (channel, i) * gatedReverbEnvelope * gateGain);
+                    buffer.setSample (channel, i, (reverbWetOnly ? 0.0f : buffer.getSample (channel, i))
+                                                      + reverbScratch.getSample (channel, i) * gatedReverbEnvelope * gateGain);
             }
         }
         else
@@ -1222,6 +1252,10 @@ void IlanaSynthAudioProcessor::processVocoder (juce::AudioBuffer<float>& buffer)
     auto* left = buffer.getWritePointer (0);
     auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
     vocoder.process (left, right, numSamples, modulator, settings);
+
+    // For the card's band display (read only; the sound doesn't change).
+    for (size_t band = 0; band < vocoderBandDisplay.size(); ++band)
+        vocoderBandDisplay[band].store (vocoder.getBandLevel ((int) band), std::memory_order_relaxed);
 }
 
 // Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.
@@ -1635,9 +1669,16 @@ void IlanaSynthAudioProcessor::randomizeFxChain()
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
     };
 
+    // Each effect at most once: the rack keeps one set of settings per type,
+    // so a second copy would only mirror the first (V7-42).
+    std::vector<bool> used ((size_t) typeCount + 1, false);
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        const auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount);
+        auto type = random.nextFloat() < 0.15f ? 0 : 1 + random.nextInt (typeCount);
+        while (type > 0 && used[(size_t) type])
+            type = 1 + random.nextInt (typeCount);
+        if (type > 0)
+            used[(size_t) type] = true;
         assignFxSlot (slot, type);
         set ("fx_slot" + juce::String (slot) + "_bypass", 0.0f);
         set ("fx_slot" + juce::String (slot) + "_mix", 0.6f + random.nextFloat() * 0.4f);

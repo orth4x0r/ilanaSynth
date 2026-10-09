@@ -24,6 +24,39 @@ public:
 };
 } // namespace
 
+#if JUCE_LINUX || JUCE_BSD
+JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wzero-as-null-pointer-constant", "-Wshadow", "-Wextra-semi",
+                                     "-Wnon-virtual-dtor", "-Wsign-conversion")
+ #include <pluginterfaces/base/funknown.h>
+JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+
+// A host built with JUCE (pluginval, AudioPluginHost, Waveform...) gives
+// every plugin instance a host context, and all of them share one run loop
+// (RunLoop::Impl, a SharedResourcePointer) that holds the FDs our JUCE
+// registers through IRunLoop. When the last instance is deleted, the
+// context release frees that run loop from inside LinuxEventLoop's
+// dispatchPendingEvents(), which has already copied the callbacks of every
+// FD that was ready in that poll. If one of ours was ready (a timer
+// message, which APVTS posts several times a second), the copied callback
+// then runs on the freed run loop and writes into its freed map:
+// valgrind shows it on the first "Open plugin (cold)" teardown, and the
+// corrupted heap made pluginval segfault after printing SUCCESS now and
+// then. The plugin can't reach into the host's loop, so it keeps the first
+// host context it is given for the rest of the process (one reference,
+// never released: releasing it later would only move the same free into
+// another dispatch pass, and releasing at exit would call into a host
+// that is shutting down). Linux only: the shared run loop is the Linux
+// IRunLoop.
+void IlanaSynthAudioProcessor::HostRunLoopKeepAlive::setIHostApplication (Steinberg::FUnknown* host)
+{
+    static std::atomic<Steinberg::FUnknown*> kept { nullptr };
+    Steinberg::FUnknown* none = nullptr;
+
+    if (host != nullptr && kept.compare_exchange_strong (none, host))
+        host->addRef();
+}
+#endif
+
 // Built once per process, on all cores (the 120 tables take a few
 // seconds on one).
 FactoryTables::FactoryTables()
@@ -78,6 +111,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         pseqChanceIds[(size_t) step] = "pseq_chance" + n;
         pseqRangeIds[(size_t) step] = "pseq_range" + n;
         pseqRatchetIds[(size_t) step] = "pseq_ratchet" + n;
+        arpVelocityIds[(size_t) step] = "arp_vel" + n;
+        arpLengthIds[(size_t) step] = "arp_len" + n;
+        arpPitchIds[(size_t) step] = "arp_pitch" + n;
     }
 
     for (auto* parameter : getParameters())
@@ -265,7 +301,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
         for (int env = 0; env < 16; ++env)
         {
             const auto prefix = envelopePrefix (env);
-            envelopeExtraIds[(size_t) env] = { prefix + "_delay", prefix + "_hold", prefix + "_keyrate" };
+            envelopeExtraIds[(size_t) env] = { prefix + "_delay", prefix + "_hold", prefix + "_keyrate",
+                                               prefix + "_acurve", prefix + "_dcurve", prefix + "_rcurve" };
         }
 
         for (int point = 0; point < Mseg::numPoints; ++point)
@@ -568,6 +605,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     gatePhase = 0.0;
     gateEnvelope = 1.0f;
     gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
     duckEnvelope = 0.0f;
 
     for (int channel = 0; channel < 2; ++channel)
@@ -643,6 +681,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 
     reverb.setSampleRate (sampleRate);
     reverb.reset();
+    reverbDryScratch.setSize (2, samplesPerBlock, false, false, true);
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
     for (auto& module : awCategoryModules)
         module.prepare (sampleRate, samplesPerBlock);
@@ -712,6 +751,7 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     gatePhase = 0.0;
     gateEnvelope = 1.0f;
     gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
     duckEnvelope = 0.0f;
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -1156,6 +1196,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     }
 
     p.noiseLevel = getParam ("noise_level");
+    p.noiseColour = getParam ("noise_color");
 
     p.filter1.type = juce::jlimit (0, FilterType::Count - 1, (int) getParam ("f1_type"));
     p.filter1.slope24 = getParam ("f1_slope") > 0.5f;
@@ -1487,6 +1528,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                      : env == 3 ? p.modEnv : env == 4 ? p.env4 : p.extraEnvs[(size_t) (env - 5)];
         target.delay = delay;
         target.hold = hold;
+        target.attackCurve = getParam (ids.attackCurve);
+        target.decayCurve = getParam (ids.decayCurve);
+        target.releaseCurve = getParam (ids.releaseCurve);
         p.envKeyRate[(size_t) env] = getParam (ids.keyRate);
     }
 
@@ -1648,6 +1692,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     monitorVelocity.store (voice->getVelocity());
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
+                    monitorOpLfo.store (voice->getOpLfoValue());
+                    monitorOpPitch.store (voice->getOpPitchValue());
+                    monitorOpEnvSeconds.store (voice->getOpEnvSeconds());
+                    monitorOpEnvRelease.store (voice->getOpEnvReleaseSeconds());
                 }
             }
         }
@@ -1655,6 +1703,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
 
         activeVoiceCount.store (activeVoices);
+        if (activeVoices == 0)
+        {
+            monitorOpLfo.store (0.0f);
+            monitorOpPitch.store (0.0f);
+            monitorOpEnvSeconds.store (-1.0f);
+            monitorOpEnvRelease.store (-1.0f);
+        }
         envMonitorAmp.store (bestAmp);
         envMonitorFilter.store (filterValue);
         envMonitorFilter2.store (filter2Value);
@@ -1728,7 +1783,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processEffects (buffer);
     blockDc (1);
 
-    buffer.applyGain (juce::Decibels::decibelsToGain (getParam ("master")));
+    // MASTER plus the preset's own level (output_trim, 0 unless a factory
+    // preset set it), summed in dB.
+    buffer.applyGain (juce::Decibels::decibelsToGain (getParam (masterRef) + getRawParam (outputTrimRef)));
 
     if (getParam ("master_clip") > 0.5f)
     {

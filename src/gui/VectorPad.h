@@ -14,6 +14,99 @@
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
+// One cycle (128 points) of the wavetable frame an oscillator plays, for the
+// pictures on the VECTOR page; false while the oscillator isn't a plain
+// wavetable one (a sample, an operator or a physical string has no table).
+inline bool vectorCornerCycle (IlanaSynthAudioProcessor& processor, int osc, std::array<float, 128>& out)
+{
+    if (osc < 0 || osc >= OscillatorIds::count || ! processor.isOscillatorShown (osc))
+        return false;
+
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+    const auto choice = [&] (const juce::String& id)
+    {
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id)))
+            return param->getIndex();
+        return 0;
+    };
+
+    if (choice (prefix + "_mode") != 0)
+        return false;
+
+    const auto* table = processor.getWavetable (choice (prefix + "_table"));
+
+    if (table == nullptr || table->getNumFrames() == 0)
+        return false;
+
+    const auto* frameParam = processor.apvts.getParameter (prefix + "_frame");
+    const auto frame = juce::jlimit (0, table->getNumFrames() - 1,
+                                     juce::roundToInt ((frameParam != nullptr ? frameParam->getValue() : 0.0f) * (float) (table->getNumFrames() - 1)));
+    const auto* data = table->getFrameData (0, frame);
+
+    for (int i = 0; i < (int) out.size(); ++i)
+        out[(size_t) i] = data[juce::jlimit (1, Wavetable::frameSize, i * Wavetable::frameSize / (int) out.size() + 1)];
+
+    return true;
+}
+
+// The picture of one corner's oscillator in its own colour, for the CORNERS
+// box under the corner's menu (V14-2: the page shows what it mixes).
+class VectorCornerWave : public juce::Component,
+                         private IlanaAnim::FrameTimer
+{
+public:
+    VectorCornerWave (IlanaSynthAudioProcessor& p, int cornerIn)
+        : processorRef (p), corner (cornerIn)
+    {
+        setInterceptsMouseClicks (false, false);
+        startTimerHz (20);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto area = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, area, 5.0f);
+        const auto osc = processorRef.getVectorCorner (corner);
+        std::array<float, 128> cycle {};
+        const auto plot = area.reduced (8.0f, 8.0f);
+
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawHorizontalLine ((int) plot.getCentreY(), plot.getX(), plot.getRight());
+
+        if (! vectorCornerCycle (processorRef, osc, cycle))
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, false));
+            const auto shown = osc >= 0 && osc < OscillatorIds::count && processorRef.isOscillatorShown (osc);
+            g.drawText (shown ? "NOT A WAVETABLE" : "NOT ADDED", area, juce::Justification::centred);
+            return;
+        }
+
+        juce::Path path;
+        for (int i = 0; i < (int) cycle.size(); ++i)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (cycle.size() - 1);
+            const auto y = plot.getCentreY() - cycle[(size_t) i] * plot.getHeight() * 0.5f;
+            if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+        }
+
+        const auto on = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on")->load() > 0.5f;
+        g.setColour (IlanaTheme::oscColour (osc).withAlpha (on ? 1.0f : 0.4f));
+        g.strokePath (path, juce::PathStrokeType (1.6f));
+    }
+
+private:
+    void timerCallback() override
+    {
+        if (isShowing() && changeGate.check (processorRef.getUiEpoch()))
+            repaint();
+    }
+
+    IlanaAnim::ChangeGate changeGate;
+    IlanaSynthAudioProcessor& processorRef;
+    int corner;
+};
+
 class VectorPadDisplay : public juce::Component,
                          public juce::SettableTooltipClient,
                          private IlanaAnim::FrameTimer
@@ -53,7 +146,7 @@ public:
             // nothing: it is greyed and says so (UI review 4, S27).
             const auto sounding = isCornerSounding (c);
 
-            if (sounding)
+            if (sounding && read ("vec_on") > 0.5f)
             {
                 const auto radius = area.getWidth() * (0.12f + 0.3f * weights[(size_t) c]);
                 juce::ColourGradient glow (accent.withAlpha (0.35f * weights[(size_t) c] + 0.05f), corners[c],
@@ -71,13 +164,56 @@ public:
             g.drawText (label, box, c % 2 == 0 ? juce::Justification::centredLeft : juce::Justification::centredRight);
         }
 
-        // While VECTOR is off the pad does nothing (the page dims it too).
+        // The mix itself: the four corners' cycles at the puck's weights,
+        // one trace across the pad, so the pad is a picture of what it
+        // makes (V14-2).
+        {
+            std::array<float, 128> mix {}, one {};
+            auto any = false;
+            for (int c = 0; c < 4; ++c)
+                if (isCornerSounding (c) && vectorCornerCycle (processorRef, processorRef.getVectorCorner (c), one))
+                {
+                    any = true;
+                    for (size_t i = 0; i < mix.size(); ++i)
+                        mix[i] += one[i] * weights[(size_t) c];
+                }
+
+            if (any)
+            {
+                const auto plot = area.reduced (24.0f, 0.0f);
+                juce::Path trace;
+                for (int i = 0; i < (int) mix.size(); ++i)
+                {
+                    const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (mix.size() - 1);
+                    const auto y = area.getCentreY() - juce::jlimit (-1.2f, 1.2f, mix[(size_t) i]) * area.getHeight() * 0.3f;
+                    if (i == 0) trace.startNewSubPath (x, y); else trace.lineTo (x, y);
+                }
+                g.setColour (accent.withAlpha (read ("vec_on") > 0.5f ? 0.55f : 0.4f));
+                g.strokePath (trace, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved));
+            }
+        }
+
+        // While VECTOR is off the pad does nothing (the page dims it too), but
+        // it still shows what it would mix: each corner in its oscillator's
+        // colour, dim (V11-24).
         if (read ("vec_on") < 0.5f)
         {
+            for (int c = 0; c < 4; ++c)
+            {
+                const auto osc = processorRef.getVectorCorner (c);
+                if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+                    continue;
+                const auto tint = IlanaTheme::oscColour (osc);
+                juce::ColourGradient glow (tint.withAlpha (0.22f), corners[c], tint.withAlpha (0.0f),
+                                           corners[c].translated (area.getWidth() * 0.4f, 0.0f), true);
+                g.setGradientFill (glow);
+                g.fillEllipse (juce::Rectangle<float> (area.getWidth() * 0.8f, area.getWidth() * 0.8f).withCentre (corners[c]));
+            }
+
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText ("VECTOR OFF  -  switch on to mix the corners",
-                        area.withSizeKeepingCentre (area.getWidth(), 18.0f).translated (0.0f, -24.0f),
+            g.drawText (juce::String::fromUTF8 ("VECTOR OFF  \xc2\xb7  switch on to mix the corners"),
+                        area.withSizeKeepingCentre (area.getWidth(), 18.0f).withY (area.getBottom() - 44.0f),
                         juce::Justification::centred);
         }
 
@@ -171,11 +307,21 @@ public:
         return read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f;
     }
 
+    // "OSC 1  25%" while the vector plays; "OSC 4: none" for an
+    // oscillator the patch doesn't have, ": off" for one switched off; no
+    // share while the vector is off (UI review 6, V29).
     juce::String getCornerLabel (int corner, float weight) const
     {
-        const auto name = "OSC " + juce::String (processorRef.getVectorCorner (corner) + 1);
-        return isCornerSounding (corner) ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%"
-                                         : name + " (off)";
+        const auto osc = processorRef.getVectorCorner (corner);
+        const auto name = "OSC " + juce::String (osc + 1);
+
+        if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+            return name + ": none";
+
+        if (! isCornerSounding (corner))
+            return name + ": off";
+
+        return read ("vec_on") > 0.5f ? name + "  " + juce::String (juce::roundToInt (weight * weight * 100.0f)) + "%" : name;
     }
 
 private:

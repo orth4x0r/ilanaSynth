@@ -84,13 +84,50 @@ void addAll (juce::Component& parent, Components&... components)
     (parent.addAndMakeVisible (components), ...);
 }
 
-// A page section's heading (a display, a pool, the rack): drawn like a card
-// title, with a neutral tag, so every section on every page is headed the
-// same way.
+// A page section's heading (a display, a pool, the rack): the title in the
+// label colour, with no rule under it (an underline reads as a selected tab: V11-13) and no dot (review 6: a dot
+// reads as a power light, and on cards it means a module's colour beside a
+// real switch). The text starts where a card's tag does, so headings line
+// up with the cards under them.
 void paintSectionTitle (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
                         const juce::String& subtitle = {})
 {
-    IlanaTheme::paintCardHeader (g, area, text, subtitle, IlanaTheme::Ui::text2, 0);
+    const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+    const auto width = juce::GlyphArrangement::getStringWidthInt (font, text);
+    g.setColour (IlanaTheme::Ui::text2);
+    g.setFont (font);
+    g.drawText (text, area, juce::Justification::centredLeft);
+
+    if (subtitle.isEmpty())
+        return;
+
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+    const auto room = area.withTrimmedLeft (width + 16);
+    g.drawText (IlanaTheme::fittedHint (IlanaTheme::captionFragment (subtitle), juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label)), (float) room.getWidth()),
+                room, juce::Justification::centredLeft, false);
+}
+
+// The one title of a box inside a card (SEQ's GENERATE parts, VECTOR's
+// boxes, PHYSICAL's BODY and SOUNDBOARD; review 10, I10-7): the name in the
+// label font, a quiet state word after it, and the box's switch at the right
+// (reserveRight leaves its room).
+void paintSubBoxTitle (juce::Graphics& g, juce::Rectangle<int> header, const juce::String& title, const juce::String& state,
+                       bool on, int reserveRight = 0)
+{
+    header.removeFromRight (reserveRight);
+    const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+    const auto width = juce::GlyphArrangement::getStringWidthInt (font, title);
+    g.setColour (on ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+    g.setFont (font);
+    g.drawText (title, header, juce::Justification::centredLeft);
+
+    if (state.isEmpty())
+        return;
+
+    g.setColour (IlanaTheme::Ui::text3);
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+    g.drawText (state, header.withTrimmedLeft (width + 8), juce::Justification::centredLeft, true);
 }
 
 // Page headings sit where a card's title does: 12 px in from the card edge

@@ -121,14 +121,40 @@ public:
     void paint (juce::Graphics& g, juce::Rectangle<float> area, const LfoSimSettings& settings, juce::Colour colour) const
     {
         const auto& info = LfoSimInfo::get (settings.shape);
-        auto scene = LfoSimShapes::isRandom (settings.shape) ? juce::Rectangle<float>()
-                                                             : area.removeFromLeft (juce::jmin (area.getWidth() * 0.45f, area.getHeight() * 1.25f));
+        const auto scene = sceneArea (area, settings.shape);
         if (! scene.isEmpty())
-        {
             paintScene (g, scene.reduced (6.0f), settings, colour);
-            area.removeFromLeft (8.0f);
-        }
-        paintScope (g, area, colour, info);
+        paintScope (g, scopeArea (area, settings.shape), colour, info);
+    }
+
+    // The picture's two parts: the object or attractor on the left (none
+    // for the random shapes) and the scope of outputs A and B.
+    static juce::Rectangle<float> sceneArea (juce::Rectangle<float> area, int shape)
+    {
+        return LfoSimShapes::isRandom (shape) ? juce::Rectangle<float>()
+                                              : area.removeFromLeft (juce::jmin (area.getWidth() * 0.45f, area.getHeight() * 1.25f));
+    }
+
+    static juce::Rectangle<float> scopeArea (juce::Rectangle<float> area, int shape)
+    {
+        const auto scene = sceneArea (area, shape);
+        return scene.isEmpty() ? area : area.withTrimmedLeft (scene.getWidth() + 8.0f);
+    }
+
+    // The scope's "OUT 1: ..." and "OUT 2: ..." tags along its top, which drag the
+    // LFO's two outputs onto knobs (UI review 6, I6-24).
+    static juce::Rectangle<float> outputTagBounds (juce::Rectangle<float> scope, const juce::String& text, bool outputB)
+    {
+        const auto width = juce::jmin (scope.getWidth() * 0.5f - 4.0f,
+                                       (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), text) + 14.0f);
+        auto row = scope.removeFromTop (16.0f);
+        return outputB ? row.removeFromRight (width) : row.removeFromLeft (width);
+    }
+
+    static juce::String outputTagText (const LfoSimInfo::Shape& info, int axis, bool outputB)
+    {
+        const auto names = outputNames (info, axis);
+        return outputB ? "OUT 2: " + names.second : "OUT 1: " + names.first; // spelt out (UI review 9, V9-20)
     }
 
 private:
@@ -145,13 +171,21 @@ private:
 
     void paintScope (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, const LfoSimInfo::Shape& info) const
     {
-        const auto labels = area.removeFromTop (14.0f);
-        const auto names = outputNames (info, lastAxis);
+        // The two outputs as tags, outlined like chips: each drags its output.
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (colour);
-        g.drawText ("Output A: " + names.first, labels, juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.drawText ("Output B: " + names.second, labels, juce::Justification::centredRight);
+        for (const auto outputB : { false, true })
+        {
+            const auto text = outputTagText (info, lastAxis, outputB);
+            const auto tag = outputTagBounds (area, text, outputB);
+            const auto tagColour = outputB ? IlanaTheme::Ui::text2 : colour;
+            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.6f));
+            g.fillRoundedRectangle (tag, 7.0f);
+            g.setColour (tagColour.withAlpha (0.55f));
+            g.drawRoundedRectangle (tag.reduced (0.5f), 7.0f, 1.0f);
+            g.setColour (tagColour);
+            IlanaTheme::drawFitted (g, text, tag.reduced (7.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
+        }
+        area.removeFromTop (18.0f);
 
         const auto centre = area.getCentreY();
         const auto half = area.getHeight() * 0.45f;

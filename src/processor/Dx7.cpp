@@ -10,13 +10,19 @@ void IlanaSynthAudioProcessor::loadDx7Voice (const Dx7::Voice& voice, const juce
 {
     // Init underneath, then the voice's operators, matrix and macros.
     loadFactoryPreset (0);
+    std::vector<std::pair<juce::String, float>> values;
     for (const auto& value : Presets::Dx7Import::values (voice))
-        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.id)))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value.value));
+        values.push_back ({ juce::String (value.id), value.value });
+    moveLevelToTrim (values); // MASTER at 0 dB, as on the factory voices
+    for (const auto& value : values)
+        if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value.second));
     for (int macro = 0; macro < 4; ++macro)
-        setMacroName (macro, Presets::Dx7Import::macroNames[macro]);
+        setMacroName (macro, Presets::Dx7Import::macroNamesFor (Presets::Dx7Import::soundCategory (Presets::dx7VoiceName (name), &voice))[(size_t) macro]);
     setCurrentPresetName (name);
-    setPresetMeta ("DX7", {});
+    // Filed by sound (Keys, Bass...) like the factory voices; the DX7 tag
+    // keeps it with them under the browser's DX7 chip.
+    setPresetMeta (Presets::Dx7Import::soundCategory (Presets::dx7VoiceName (name), &voice), "DX7, FM");
 }
 
 namespace

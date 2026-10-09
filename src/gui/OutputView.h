@@ -73,7 +73,21 @@ public:
         if (strip)
         {
             processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
-            drawWave (g, bounds.reduced (2.0f, 1.0f), IlanaTheme::accent().withMultipliedAlpha (0.8f), true);
+            // Quiet: it sits under the preset name, the most-read text, and
+            // moves all the time (review 8, S8-41).
+            // On a faint band of its own, so it doesn't read as an underline
+            // of the preset name (UI review 9, S9-26).
+            // A small display, well and rim, with its baseline, not a line
+            // under the name (S10-14).
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.8f));
+            g.fillRoundedRectangle (bounds, 4.0f);
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.8f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
+            // Named, so a flat line is a quiet output and not a border (V12-11).
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("OUT", bounds.reduced (6.0f, 0.0f).removeFromLeft (24.0f), juce::Justification::centredLeft);
+            drawWave (g, bounds.withTrimmedLeft (30.0f).reduced (3.0f, 2.0f), IlanaTheme::accent().withMultipliedAlpha (0.55f), true);
             return;
         }
 
@@ -108,16 +122,15 @@ public:
         if (! specArea.isEmpty())
             drawSpectrum (g, specArea, colour);
 
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("OUTPUT", bounds.reduced (14.0f, 8.0f).removeFromTop (12.0f), juce::Justification::topLeft);
+        // (No name in the view: the PLAY card's title says OUTPUT, and the label
+        // sat under the trace: V14-10.)
         IlanaTheme::paintGlassOverlay (g, bounds.reduced (6.0f), 5.0f);
     }
 
 private:
     void drawWave (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, bool thin = false)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.setColour (juce::Colours::white.withAlpha (thin ? 0.14f : 0.06f));
         g.fillRect (juce::Rectangle<float> (area.getWidth(), 1.0f).withCentre (area.getCentre()));
 
         // Start on a rising zero crossing so the trace holds still.

@@ -8,6 +8,8 @@
 // banks (Dx7Banks.h), File > Import DX7 bank, and patches saved by the old
 // DX7 mode (their "Dx7" child, converted on load).
 
+#include <array>
+#include <cstring>
 #include <deque>
 #include <string>
 #include <vector>
@@ -51,6 +53,24 @@ inline std::string fmId (int source, int target) // 1-based
 constexpr float opLevel = 0.5f;
 inline const char* const macroNames[4] { "BRIGHT", "TONE", "DRIFT", "SPACE" };
 
+// The four macros named for the kind of sound (UI review 7: every voice
+// showed BRIGHT, TONE, DRIFT, SPACE). Only the names change: the first
+// still deepens the modulators, the second closes the filter, the third
+// detunes and the fourth opens the reverb.
+inline std::array<const char*, 4> macroNamesFor (const juce::String& soundCategory)
+{
+    if (soundCategory == "Keys")  return { "BARK", "DARKEN", "WOBBLE", "ROOM" };
+    if (soundCategory == "Bass")  return { "GROWL", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "Pluck") return { "TWANG", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "Pad")   return { "SHIMMER", "DARKEN", "DRIFT", "SPACE" };
+    if (soundCategory == "Brass") return { "BLARE", "DARKEN", "DETUNE", "HALL" };
+    if (soundCategory == "Wind")  return { "BREATHY", "DARKEN", "DETUNE", "HALL" };
+    if (soundCategory == "Drums") return { "CLANG", "DARKEN", "DETUNE", "ROOM" };
+    if (soundCategory == "FX")    return { "METAL", "DARKEN", "DRIFT", "SPACE" };
+    if (soundCategory == "Lead")  return { "EDGE", "DARKEN", "DETUNE", "SPACE" };
+    return { macroNames[0], macroNames[1], macroNames[2], macroNames[3] };
+}
+
 // The voice's envelope side as Operator EG parameters (each one byte of the
 // voice, see OperatorEgParams.h).
 inline std::vector<Value> egValues (const Dx7::Voice& v)
@@ -84,7 +104,11 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     set ("f1_drive", 1);
     set ("f1_env", 0);
     set ("f2_cutoff", 20000);
-    set ("fx_slot1", 13); // a reverb at mix 0, for SPACE
+    // A reverb at mix 0 for SPACE, switched on: KEEP DRY makes it the dry
+    // signal exactly until SPACE opens it (review 7, I7-4).
+    set ("fx_slot1", 13);
+    set ("fx_reverb_on", 1);
+    set ("fx_reverb_keep_dry", 1);
     set ("fx_reverb_mix", 0);
     set ("master", 3.0f); // Dexed's own loudness (E.PIANO 1 measured against it)
 
@@ -123,20 +147,25 @@ inline std::vector<Value> values (const Dx7::Voice& v)
                 set (fmId (s + 1, t + 1), 1.0f);
     if (r.feedbackOp >= 0 && v[135] > 0)
         set (fmId (r.feedbackOp + 1, r.feedbackOp + 1), std::exp2 (-(8.0f - (float) v[135])));
+    set (OperatorEg::dx7AlgorithmId, (float) (v[134] + 1));
 
     // Macros as mod slots: BRIGHT deepens the modulators, TONE closes the
     // filter, DRIFT detunes, SPACE opens the reverb.
     static const auto destinations = Mod::getDestinationNames();
     auto slot = 1;
-    const auto route = [&] (int macro, const juce::String& destination, float amount)
+    const auto routeFrom = [&] (Mod::Source source, const juce::String& destination, float amount)
     {
         const auto d = destinations.indexOf (destination);
         if (d <= 0)
             return;
         const auto prefix = "mod" + std::to_string (slot++);
-        set (prefix + "_src", (float) ((int) Mod::Source::Macro1 + macro));
+        set (prefix + "_src", (float) (int) source);
         set (prefix + "_dst", (float) d);
         set (prefix + "_amt", amount);
+    };
+    const auto route = [&] (int macro, const juce::String& destination, float amount)
+    {
+        routeFrom ((Mod::Source) ((int) Mod::Source::Macro1 + macro), destination, amount);
     };
     // With no modulators (organs, alg 32) BRIGHT lifts the upper carriers.
     auto anyModulator = false;
@@ -148,7 +177,84 @@ inline std::vector<Value> values (const Dx7::Voice& v)
     route (1, "Filter1 Cutoff", -0.55f);
     route (2, "Drift", 0.6f);
     route (3, "Reverb Mix", 0.35f);
+    // The wheel and pressure add vibrato, as a DX7's do with their range at
+    // 99 on PITCH (the LFO's PITCH DEPTH, scaled by PITCH SENS). They move
+    // nothing until touched.
+    routeFrom (Mod::Source::ModWheel, "OP LFO Pitch Depth", 1.0f);
+    routeFrom (Mod::Source::Aftertouch, "OP LFO Pitch Depth", 1.0f);
     return out;
+}
+
+// The kind of sound a DX7 voice is, for the browser (UI review 6: DX7
+// voices sit under Keys, Bass, Pad... with the bank as a filter). From the
+// name first: the keyword that starts earliest wins (the longer one on a
+// tie, so BASSOON is not a bass and HARPSICH is not a harp), so "STRG-CHIME"
+// is strings and "CHIME-STRG" a chime. A name with no keyword falls back on
+// the carriers' envelopes when the voice is known: no sustain is a pluck, a
+// slow attack a pad, anything else a lead.
+inline const char* soundCategory (const juce::String& voiceName, const Dx7::Voice* voice = nullptr)
+{
+    static const std::pair<const char*, const char*> keywords[] {
+        { "BASSOON", "Wind" }, { "BASS", "Bass" }, { "FRETLESS", "Bass" },
+        { "B.DRM", "Drums" }, { "DRUM", "Drums" }, { "SNAR", "Drums" }, { "TIMPANI", "Drums" }, { "BLOCK", "Drums" },
+        { "COW BELL", "Drums" }, { "COWBELL", "Drums" }, { "STEEL DRUM", "Pluck" },
+        { "PIANO", "Keys" }, { "PNO", "Keys" }, { "E.P", "Keys" }, { "GRAND", "Keys" }, { "HONKY", "Keys" },
+        { "CLAV", "Keys" }, { "CLV", "Keys" }, { "HARPSI", "Keys" }, { "ORGAN", "Keys" }, { "ORG-", "Keys" },
+        { "PIPES", "Keys" }, { "CALIOPE", "Keys" }, { "ACCORDION", "Keys" }, { "CELESTE", "Keys" }, { "VIBE", "Keys" },
+        { "MARIM", "Keys" }, { "XYLOPHONE", "Keys" }, { "GLOKEN", "Keys" }, { "CHIME", "Keys" }, { "ORCH-CHIME", "Keys" },
+        { "BELL", "Keys" }, { "T.BL", "Keys" },
+        { "GUIT", "Pluck" }, { "GTR", "Pluck" }, { "KOTO", "Pluck" }, { "SITAR", "Pluck" }, { "LUTE", "Pluck" },
+        { "BANJO", "Pluck" }, { "HARP", "Pluck" }, { "PIZZ", "Pluck" }, { "PLUCK", "Pluck" },
+        { "STRING", "Pad" }, { "STRG", "Pad" }, { "STGS", "Pad" }, { "STG", "Pad" }, { "ORCH", "Pad" }, { "VOICE", "Pad" },
+        { "VOX", "Pad" }, { "CHOIR", "Pad" }, { "SHIMMER", "Pad" }, { "EVOLUTION", "Pad" }, { "WATER", "Pad" }, { "PAD", "Pad" },
+        { "VIOLA", "Pad" }, { "BOW", "Pad" },
+        { "BRASS", "Brass" }, { "BRS", "Brass" }, { "HORN", "Brass" }, { "TRUMPET", "Brass" }, { "TBONE", "Brass" },
+        { "SAX", "Wind" }, { "FLUTE", "Wind" }, { "PICCOLO", "Wind" }, { "OBOE", "Wind" }, { "CLARINET", "Wind" },
+        { "RECORDER", "Wind" }, { "HARMONICA", "Wind" }, { "HRMNCA", "Wind" }, { "LEAD", "Lead" }, { "SAW", "Lead" },
+        { "TRAIN", "FX" }, { "TAKE OFF", "FX" }, { "LASER", "FX" }, { "EXPLOSION", "FX" }, { "HELENS", "FX" },
+        { "PRIX", "FX" }, { "GRAND PRIX", "FX" }, { "PLUCK BASS", "Bass" }, { "WASP", "FX" }, { "DESCENT", "FX" }, { "OCTAVE WAR", "FX" }, { "GOTCHA", "FX" }, { "BOAR", "FX" },
+        { "ERUPT", "FX" }, { "THUNDER", "FX" }, { "ENCOUNTER", "FX" }, { "RUMBLE", "FX" }, { "SWP", "FX" },
+        { "SWEEP", "FX" }, { "RISE", "FX" }, { "WHISL", "FX" }, { "WHISTLE", "FX" }, { "FLEXATONE", "FX" },
+        { "GONG", "FX" }, { "ECHO", "FX" }, { "WOBBLE", "FX" }
+    };
+
+    const auto upper = voiceName.toUpperCase();
+    const char* best = nullptr;
+    int bestAt = 1 << 30, bestLength = 0;
+
+    for (const auto& [word, category] : keywords)
+    {
+        const auto at = upper.indexOf (word);
+        const auto length = (int) std::strlen (word);
+
+        if (at >= 0 && (at < bestAt || (at == bestAt && length > bestLength)))
+        {
+            best = category;
+            bestAt = at;
+            bestLength = length;
+        }
+    }
+
+    if (best != nullptr || voice == nullptr)
+        return best != nullptr ? best : "Keys";
+
+    // The heard operators' envelopes: R1 is the attack rate and L3 the
+    // sustain level (0-99), output level at byte 16.
+    const auto r = Dx7::routing ((*voice)[134]);
+    auto sustain = 0, slowestAttack = 99;
+
+    for (int k = 1; k <= 6; ++k)
+    {
+        const auto* o = Dx7::op (*voice, k);
+
+        if (! r.carrier[(size_t) (k - 1)] || o[16] < 50)
+            continue;
+
+        sustain = juce::jmax (sustain, (int) o[6]);
+        slowestAttack = juce::jmin (slowestAttack, (int) o[0]);
+    }
+
+    return sustain < 40 ? "Pluck" : (slowestAttack < 55 ? "Pad" : "Lead");
 }
 
 // The preloaded banks as factory presets, "NAME (BANK)", category DX7.
@@ -160,8 +266,10 @@ inline std::vector<FactoryPreset> bankPresets()
         {
             const auto voice = Dx7::unpack (bank.data + i * 128);
             FactoryPreset preset { intern (Dx7::name (voice) + " (" + bank.label + ")"), values (voice) };
-            preset.macroNames = { macroNames[0], macroNames[1], macroNames[2], macroNames[3] };
             preset.category = "DX7";
+            preset.browseCategory = soundCategory (Dx7::name (voice), &voice);
+            const auto named = macroNamesFor (preset.browseCategory);
+            preset.macroNames = { named[0], named[1], named[2], named[3] };
             list.push_back (std::move (preset));
         }
     return list;

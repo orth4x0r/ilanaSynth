@@ -61,7 +61,8 @@ void runAlgorithmFeedbackTest()
 }
 
 // No choice parameter is host-automatable (a list that grows would move
-// recorded lanes); the continuous knobs still are.
+// recorded lanes); the continuous knobs still are, all but the hidden
+// per-preset level (output_trim, review 6), which is no knob.
 void runAutomationTest()
 {
     IlanaSynthAudioProcessor processor;
@@ -73,7 +74,7 @@ void runAutomationTest()
             ++choices;
             automatableChoices += parameter->isAutomatable() ? 1 : 0;
         }
-        else if (dynamic_cast<juce::AudioParameterFloat*> (parameter) != nullptr)
+        else if (auto* knob = dynamic_cast<juce::AudioParameterFloat*> (parameter); knob != nullptr && knob->getParameterID() != "output_trim")
         {
             ++floats;
             automatableFloats += parameter->isAutomatable() ? 1 : 0;

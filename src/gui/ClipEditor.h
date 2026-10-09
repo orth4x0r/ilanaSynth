@@ -7,15 +7,22 @@
 #include "AnimationUtils.h"
 #include "GenerativeWidgets.h"
 
-// The clip sequencer's piano roll: the notes of the clip chosen by CLIP,
-// with a velocity lane under it. Double-click empty space to add a note (on
-// the GRID, at the last velocity set), click a note to select it (shift-click
-// adds), drag on empty space to select a group, drag notes to move them and
-// a note's right edge to resize, right-click to delete. Keys: Ctrl+A, Delete,
-// Ctrl+C / V / D, arrows nudge (shift: an octave or a bar). The wheel
-// scrolls the pitches, Ctrl+wheel zooms in time, shift+wheel scrolls it.
-// Edits go straight to the patch's clips (ClipState), one undo step per
-// click, drag or key; a note placed or picked plays briefly.
+// The clip sequencer's piano roll (review 6, after Serum 2's): a keyboard
+// column (black and white keys, every C named; click a key to hear it, drag
+// it to scroll), a bar / beat ruler with the playhead (drag it to scroll,
+// double-click to fit the clip), the note grid, and a velocity lane under
+// it. Double-click empty space to add a note (on the GRID, at the last
+// velocity set), click a note to select it (shift-click adds), drag on empty
+// space to select a group, drag notes to move them and a note's right edge
+// to resize, right-click to delete. DRAW (D) makes a click place a note and a
+// drag paint a run of them (review 7, S7-18). Keys: Ctrl+A, Delete,
+// Ctrl+C / V / D, Q quantises, arrows nudge (shift: an octave or a bar). The
+// wheel scrolls the pitches, Alt+wheel zooms them, Ctrl+wheel zooms in time,
+// shift+wheel scrolls it; the bar at the right edge scrolls the pitches too.
+// The roll opens fitted to the clip's notes, and notes out of view are
+// counted at the top and bottom edges (S7-17). Edits go straight to the
+// patch's clips (ClipState), one undo step per click, drag or key; a note
+// placed or picked plays briefly.
 class ClipEditor : public juce::Component,
                    public juce::SettableTooltipClient,
                    private IlanaAnim::FrameTimer
@@ -41,9 +48,11 @@ public:
     ClipEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip ("Clip piano roll. Double-click to add a note, click to select (shift adds), drag empty space to select "
-                    "several. Drag to move, drag the right edge to resize, right-click to delete. Delete, Ctrl+C / V / D, "
-                    "arrows nudge (shift: octave / bar). Drag the lane below for velocity. Wheel: pitch, Ctrl+wheel: zoom.");
+        setTooltip ("Clip piano roll. Double-click to add a note (DRAW or D: a click adds, a drag paints a run), click to "
+                    "select (shift adds), drag empty space to select several. Drag to move, drag the right edge to resize, "
+                    "right-click to delete. Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar). Drag "
+                    "the lane below for velocity. Wheel: pitch, Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to "
+                    "scroll. Click a key to hear it.");
         setWantsKeyboardFocus (true);
         reload (true);
         startTimerHz (30);
@@ -58,6 +67,49 @@ public:
     }
 
     int getGrid() const { return gridIndex; }
+
+    // DRAW: a click on empty space places a note, a drag paints a run.
+    void setDrawMode (bool shouldDraw)
+    {
+        if (drawMode == shouldDraw)
+            return;
+
+        drawMode = shouldDraw;
+
+        if (onDrawModeChanged != nullptr)
+            onDrawModeChanged (drawMode);
+
+        repaint();
+    }
+
+    bool isDrawMode() const { return drawMode; }
+    std::function<void (bool)> onDrawModeChanged;
+
+    // Notes of the clip above and below the rows shown (the edge markers).
+    std::pair<int, int> notesOutOfView() const
+    {
+        auto above = 0, below = 0;
+        const auto highest = lowNote + visibleRows() - 1;
+
+        for (const auto& n : clip.notes)
+        {
+            above += n.note > highest ? 1 : 0;
+            below += n.note < lowNote ? 1 : 0;
+        }
+
+        return { above, below };
+    }
+
+    // Selects the notes starting in [from, to) beats (the snapshot tool).
+    void selectStartingIn (float from, float to)
+    {
+        selected.assign (clip.notes.size(), false);
+
+        for (size_t i = 0; i < clip.notes.size(); ++i)
+            selected[i] = clip.notes[i].start >= from && clip.notes[i].start < to;
+
+        repaint();
+    }
     float getZoom() const { return zoom; }
     const Clip& getShownClip() const { return clip; }
 
@@ -69,6 +121,54 @@ public:
         repaint();
     }
 
+    // Zoom in time around the view's centre (the zoom buttons); 1 shows the
+    // whole clip.
+    void zoomBy (float factor)
+    {
+        const auto centre = viewStart + viewBeats() * 0.5f;
+        zoom *= factor;
+        clampView();
+        viewStart = centre - viewBeats() * 0.5f;
+        clampView();
+        repaint();
+    }
+
+    void resized() override
+    {
+        // The roll opens on its notes once it has a size (S7-17), and keeps
+        // them in view through a resize until the pitches are scrolled.
+        if (! pitchViewTouched)
+            fitPitchToNotes();
+        else
+            lowNote = juce::jlimit (0, 128 - visibleRows(), lowNote);
+    }
+
+    void zoomToFit()
+    {
+        zoom = 1.0f;
+        viewStart = 0.0f;
+        repaint();
+    }
+
+    // Where the view shows: the UI test and the zoom buttons' state.
+    float getViewStart() const { return viewStart; }
+    float getViewBeats() const { return viewBeats(); }
+
+    // Geometry for the UI test: a beat's x, a note row's centre y, a
+    // velocity's y in the lane, and the areas.
+    float xForBeat (float beat) const { return beatToX (beat); }
+    float yForNote (int note) const { return noteBounds ({ 0.0f, 1.0f, note, 100 }).getCentreY(); }
+    float yForVelocity (int velocity) const
+    {
+        const auto lane = laneBounds();
+        return lane.getBottom() - (lane.getHeight() - headSize) * (float) velocity / 127.0f;
+    }
+    juce::Rectangle<float> getGridArea() const { return gridBounds(); }
+    juce::Rectangle<float> getKeysArea() const { return keysBounds(); }
+    juce::Rectangle<float> getRulerArea() const { return rulerBounds(); }
+    int getLowestShownNote() const { return lowNote; }
+    int getNumShownRows() const { return visibleRows(); }
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
@@ -77,45 +177,80 @@ public:
         const auto on = GenerativeWidgets::read (processorRef, "clip_on") > 0.5f;
         const auto grid = gridBounds();
         const auto lane = laneBounds();
+        const auto keys = keysBounds();
+        const auto ruler = rulerBounds();
         const auto rows = visibleRows();
         const auto rowHeight = grid.getHeight() / (float) rows;
         const auto viewEnd = viewStart + viewBeats();
+        const auto playhead = processorRef.getClipPlayhead();
+        const auto playing = on && playhead >= 0.0f;
+        const auto mouse = getMouseXYRelative().toFloat();
+        const auto hoverNote = isMouseOver() && (grid.contains (mouse) || keys.contains (mouse)) && dragMode == Drag::none
+                                   ? yToNote (mouse.y) : -1;
 
-        // Rows: black keys darker, C rows labelled on the keyboard strip.
+        // The notes sounding under the playhead light their keys.
+        std::array<bool, 128> sounding {};
+        if (playing)
+            for (const auto& n : clip.notes)
+                if (playhead >= n.start && playhead < n.start + n.length)
+                    sounding[(size_t) juce::jlimit (0, 127, n.note)] = true;
+
+        // Rows: black keys' rows darker, every C a line; the row under the
+        // pointer faintly lit.
         for (int row = 0; row < rows; ++row)
         {
             const auto note = lowNote + row;
             const auto y = grid.getBottom() - (float) (row + 1) * rowHeight;
             const auto black = juce::MidiMessage::isMidiNoteBlack (note);
-            g.setColour (juce::Colours::white.withAlpha (black ? 0.0f : 0.035f));
+            g.setColour (juce::Colours::white.withAlpha (note == hoverNote ? 0.07f : black ? 0.0f : 0.035f));
             g.fillRect (juce::Rectangle<float> (grid.getX(), y, grid.getWidth(), rowHeight));
 
             if (note % 12 == 0)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.setColour (juce::Colours::white.withAlpha (0.1f));
                 g.fillRect (grid.getX(), y + rowHeight - 0.5f, grid.getWidth(), 1.0f);
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
-                            juce::Rectangle<float> (bounds.getX() + 4.0f, y, keyWidth - 6.0f, rowHeight).toNearestInt(),
-                            juce::Justification::centredLeft);
+            }
+            else if (note % 12 == 5)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.04f)); // E | F
+                g.fillRect (grid.getX(), y + rowHeight - 0.5f, grid.getWidth(), 1.0f);
             }
         }
+
+        paintKeys (g, keys, rows, rowHeight, hoverNote, sounding);
 
         // The velocity lane's floor and label.
         g.setColour (juce::Colours::black.withAlpha (0.18f));
         g.fillRect (lane);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("VEL", juce::Rectangle<float> (bounds.getX() + 4.0f, lane.getY(), keyWidth - 6.0f, lane.getHeight()).toNearestInt(),
+        g.drawText ("VEL", juce::Rectangle<float> (bounds.getX() + 6.0f, lane.getY(), keys.getWidth() - 6.0f, lane.getHeight()).toNearestInt(),
                     juce::Justification::centredLeft);
+
+        // Its scale, as the arp's VEL lane has (review 9, S9-11): 127 at the
+        // top, 1 at the foot, 64 between when there is room.
+        if (lane.getHeight() >= 28.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto tick = [&] (int velocity)
+            {
+                const auto y = lane.getBottom() - (lane.getHeight() - headSize) * (float) velocity / 127.0f;
+                g.drawText (juce::String (velocity), juce::Rectangle<float> (keys.getRight() - 30.0f, y - 6.0f, 26.0f, 12.0f).toNearestInt(),
+                            juce::Justification::centredRight, false);
+            };
+            tick (127);
+            tick (1);
+
+            if (lane.getHeight() >= 52.0f)
+                tick (64);
+        }
 
         // Grid lines (when they are far enough apart), beats, the bars stronger.
         const auto step = gridStep();
 
         if (beatToX (step) - beatToX (0.0f) >= 5.0f)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.025f));
+            g.setColour (juce::Colours::white.withAlpha (0.03f));
 
             for (auto k = std::ceil (viewStart / step - 1.0e-4f); k * step <= viewEnd + 1.0e-4f; k += 1.0f)
                 g.fillRect (beatToX (k * step), grid.getY(), 1.0f, grid.getHeight());
@@ -124,10 +259,13 @@ public:
         for (auto beat = (int) std::ceil (viewStart - 1.0e-4f); (float) beat <= viewEnd + 1.0e-4f; ++beat)
         {
             const auto x = juce::jmin (grid.getRight() - 1.0f, beatToX ((float) beat));
-            g.setColour (juce::Colours::white.withAlpha (beat % ClipState::beatsPerBar == 0 ? 0.16f : 0.06f));
-            g.fillRect (x, grid.getY(), 1.0f, grid.getHeight());
+            const auto bar = beat % ClipState::beatsPerBar == 0;
+            g.setColour (juce::Colours::white.withAlpha (bar ? 0.18f : 0.07f));
+            g.fillRect (x, grid.getY(), bar ? 1.5f : 1.0f, grid.getHeight());
             g.fillRect (x, lane.getY(), 1.0f, lane.getHeight());
         }
+
+        paintRuler (g, ruler, playing ? playhead : -1.0f);
 
         // The root note (C3) plays the clip as written.
         if (ClipState::rootNote >= lowNote && ClipState::rootNote < lowNote + rows)
@@ -136,53 +274,59 @@ public:
             g.fillRect (grid.getX(), grid.getBottom() - (float) (ClipState::rootNote - lowNote) * rowHeight - 0.5f, grid.getWidth(), 1.0f);
         }
 
+        const auto anySelected = getNumSelected() > 0;
+
         {
             juce::Graphics::ScopedSaveState clipToGrid (g);
             juce::RectangleList<int> region (grid.toNearestInt());
             region.add (lane.expanded (3.0f, 3.0f).withRight (lane.getRight()).toNearestInt()); // a velocity head on beat 0 or at 127
             g.reduceClipRegion (region);
 
-            for (size_t i = 0; i < clip.notes.size(); ++i)
-            {
-                const auto& n = clip.notes[i];
-                const auto isSelected = i < selected.size() && selected[i];
-                const auto shade = 0.45f + 0.55f * (float) n.velocity / 127.0f;
-                const auto fill = (isSelected ? colour.interpolatedWith (juce::Colours::white, 0.3f) : colour)
-                                      .withAlpha (shade * (on ? 1.0f : 0.6f));
-
-                // Its velocity: a stem with a head at the level.
-                const auto x = beatToX (n.start);
-
-                if (x >= grid.getX() - 4.0f && x <= grid.getRight())
+            // Unselected notes first, the selection over them.
+            for (const auto drawSelected : { false, true })
+                for (size_t i = 0; i < clip.notes.size(); ++i)
                 {
-                    const auto top = lane.getBottom() - (lane.getHeight() - headSize) * (float) n.velocity / 127.0f;
-                    g.setColour (fill);
-                    g.fillRect (x, top, 1.5f, lane.getBottom() - top);
-                    g.fillEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize);
+                    const auto isSelected = i < selected.size() && selected[i];
 
-                    if (isSelected)
-                    {
-                        g.setColour (juce::Colours::white.withAlpha (0.9f));
-                        g.drawEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize, 1.0f);
-                    }
+                    if (isSelected == drawSelected)
+                        paintNote (g, clip.notes[i], isSelected, anySelected, on, grid, lane, rowHeight);
                 }
+        }
 
-                const auto r = noteBounds (n);
+        // A stem's value, on hover and while its bar is dragged.
+        {
+            auto shownNote = -1;
 
-                if (! r.intersects (grid))
-                    continue;
+            if (dragMode == Drag::none && isMouseOver() && lane.expanded (0.0f, 2.0f).contains (mouse))
+                for (size_t i = 0; i < clip.notes.size(); ++i)
+                    if (std::abs (beatToX (clip.notes[i].start) - mouse.x) <= 4.0f)
+                        shownNote = (int) i;
 
-                g.setColour (fill);
-                g.fillRoundedRectangle (r.reduced (0.0f, 0.5f), 2.0f);
-                g.setColour (juce::Colours::white.withAlpha (isSelected ? 0.95f : 0.25f));
-                g.drawRoundedRectangle (r.reduced (0.0f, 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
+            if (shownNote >= 0 || dragMode == Drag::velocity)
+            {
+                const auto value = shownNote >= 0 ? clip.notes[(size_t) shownNote].velocity : lastVelocity;
+                const auto x = shownNote >= 0 ? beatToX (clip.notes[(size_t) shownNote].start) : mouse.x;
+                const auto text = juce::String (value);
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+                const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 8.0f;
+                const auto flag = juce::Rectangle<float> (width, 13.0f)
+                                      .withPosition (juce::jlimit (grid.getX(), grid.getRight() - width, x + 6.0f), lane.getY() + 1.0f);
+                g.setColour (IlanaTheme::Ui::bg.withAlpha (0.9f));
+                g.fillRoundedRectangle (flag, 3.0f);
+                g.setColour (IlanaTheme::Ui::text);
+                g.setFont (font);
+                g.drawText (text, flag.toNearestInt(), juce::Justification::centred, false);
             }
         }
 
-        if (const auto playhead = processorRef.getClipPlayhead(); on && playhead >= viewStart && playhead <= viewEnd)
+        if (playing && playhead >= viewStart && playhead <= viewEnd)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.8f));
-            g.fillRect (beatToX (playhead), grid.getY(), 1.5f, grid.getHeight());
+            const auto x = beatToX (playhead);
+            g.setColour (colour.withAlpha (0.12f));
+            g.fillRect (x - 5.0f, grid.getY(), 5.0f, lane.getBottom() - grid.getY());
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.fillRect (x - 0.75f, grid.getY(), 1.5f, grid.getHeight());
+            g.fillRect (x - 0.75f, lane.getY(), 1.5f, lane.getHeight());
         }
 
         if (dragMode == Drag::select)
@@ -194,42 +338,50 @@ public:
             g.drawRect (band, 1.0f);
         }
 
-        // Zoomed in: where the view sits in the clip, along the top edge.
-        if (zoom > 1.001f)
-        {
-            const auto length = (float) lengthBeats();
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRect (grid.getX(), bounds.getY() + 1.0f, grid.getWidth(), 2.0f);
-            g.setColour (colour.withAlpha (0.8f));
-            g.fillRect (grid.getX() + grid.getWidth() * viewStart / length, bounds.getY() + 1.0f,
-                        grid.getWidth() * viewBeats() / length, 2.0f);
-        }
-
-        // The keyboard strip's edge.
+        // The keyboard's and the ruler's edges.
         g.setColour (IlanaTheme::Ui::line);
-        g.fillRect (grid.getX() - 1.0f, grid.getY(), 1.0f, lane.getBottom() - grid.getY());
+        g.fillRect (grid.getX() - 1.0f, ruler.getY(), 1.0f, lane.getBottom() - ruler.getY());
+        g.fillRect (keys.getX(), grid.getY() - 1.0f, grid.getRight() - keys.getX(), 1.0f);
 
-        if (! on)
+        paintPitchScroll (g, grid, rows);
+
+        // What the roll is waiting for, on a plate in the grid (CLIP off only
+        // dims the notes: the PATTERN header says it is off).
+        const auto message = clip.notes.empty() ? juce::String (drawMode ? "EMPTY: click to place a note, drag to paint a run, or IMPORT MIDI"
+                                                                         : "EMPTY: double-click to add a note (or DRAW), or IMPORT MIDI")
+                                                : juce::String();
+
+        if (message.isNotEmpty() && dragMode == Drag::none)
         {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("CLIP OFF", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
-        }
-        else if (clip.notes.empty())
-        {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText ("EMPTY: double-click to add notes", bounds.reduced (8.0f, 4.0f), juce::Justification::topRight);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto plate = juce::Rectangle<float> ((float) juce::GlyphArrangement::getStringWidthInt (font, message) + 24.0f, 22.0f)
+                                   .withPosition (grid.getRight() - 8.0f - ((float) juce::GlyphArrangement::getStringWidthInt (font, message) + 24.0f),
+                                                  grid.getY() + 6.0f);
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.9f));
+            g.fillRoundedRectangle (plate, 11.0f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (plate.reduced (0.5f), 11.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (font);
+            g.drawText (message, plate.toNearestInt(), juce::Justification::centred);
         }
     }
 
     void mouseMove (const juce::MouseEvent& event) override
     {
         const auto hit = noteAt (event.position);
-        setMouseCursor (laneBounds().contains (event.position)          ? juce::MouseCursor::UpDownResizeCursor
+        setMouseCursor (laneBounds().contains (event.position)            ? juce::MouseCursor::UpDownResizeCursor
+                        : rulerBounds().contains (event.position)         ? juce::MouseCursor::LeftRightResizeCursor
+                        : keysBounds().contains (event.position)          ? juce::MouseCursor::PointingHandCursor
+                        : pitchScrollBounds().contains (event.position)
+                              || markerAt (event.position) != 0          ? juce::MouseCursor::PointingHandCursor
                         : hit >= 0 && onResizeEdge (hit, event.position) ? juce::MouseCursor::LeftRightResizeCursor
-                                                                          : juce::MouseCursor::NormalCursor);
+                        : hit < 0 && drawMode && gridBounds().contains (event.position) ? juce::MouseCursor::CrosshairCursor
+                                                                           : juce::MouseCursor::NormalCursor);
+        repaint(); // the row under the pointer
     }
+
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
 
     void mouseDown (const juce::MouseEvent& event) override
     {
@@ -241,6 +393,58 @@ public:
 
         const auto position = event.position;
         const auto grid = gridBounds();
+
+        // An edge marker brings its notes into view; the bar at the right
+        // edge scrolls the pitches.
+        if (const auto marker = markerAt (position); marker != 0)
+        {
+            showOutOfView (marker > 0);
+            return;
+        }
+
+        if (pitchScrollBounds().expanded (2.0f, 0.0f).contains (position))
+        {
+            dragMode = Drag::pitchScroll;
+            scrollOrigin = (float) lowNote;
+            pitchViewTouched = true;
+            const auto rows = visibleRows();
+            const auto thumb = pitchThumb();
+
+            // A click off the thumb jumps it there first.
+            if (! thumb.contains (position))
+            {
+                lowNote = juce::jlimit (0, 128 - rows, juce::roundToInt ((grid.getBottom() - position.y) / grid.getHeight() * 128.0f
+                                                                         - (float) rows * 0.5f));
+                scrollOrigin = (float) lowNote;
+                repaint();
+            }
+
+            return;
+        }
+
+        // The ruler: drag to scroll in time, double-click to fit the clip.
+        if (rulerBounds().contains (position))
+        {
+            if (event.getNumberOfClicks() >= 2)
+            {
+                zoomToFit();
+                return;
+            }
+
+            dragMode = Drag::scroll;
+            scrollOrigin = viewStart;
+            return;
+        }
+
+        // A key: plays its note; dragging scrolls the pitches.
+        if (keysBounds().contains (position))
+        {
+            dragMode = Drag::keys;
+            pitchViewTouched = true;
+            scrollOrigin = (float) lowNote;
+            audition (yToNote (position.y), lastVelocity);
+            return;
+        }
 
         // The velocity lane: drag across the bars to set them (only the
         // selected notes when the bar grabbed is one of them).
@@ -306,6 +510,35 @@ public:
         if (! grid.contains (position))
             return;
 
+        // DRAW: a click places a note in the cell under it, dragging on
+        // paints a run along the grid at the pointer's pitch (Alt: stretches
+        // the placed note instead).
+        if (drawMode)
+        {
+            if ((int) clip.notes.size() >= ClipState::maxNotes)
+                return;
+
+            const auto stretch = event.mods.isAltDown();
+            startGesture (stretch ? Drag::resize : Drag::paint, stretch ? "Add clip note" : "Draw clip notes");
+            ClipNote n;
+            n.start = floorToGrid (xToBeat (position.x));
+            n.length = lastLength;
+            n.note = yToNote (position.y);
+            n.velocity = lastVelocity;
+            constrain (n);
+            clip.notes.push_back (n);
+            selectOnly ((int) clip.notes.size() - 1);
+            dragHit = (int) clip.notes.size() - 1;
+            dragOrigin = clip;
+            dragNote = n.note;
+            paintOrigin = n.start;
+            paintCells.clear();
+            paintCells.push_back (0);
+            commit();
+            audition (n.note, n.velocity);
+            return;
+        }
+
         // A double-click on empty space adds a note in the grid cell under
         // it; dragging on moves it.
         if (event.getNumberOfClicks() >= 2)
@@ -343,6 +576,38 @@ public:
     void mouseDrag (const juce::MouseEvent& event) override
     {
         const auto position = event.position;
+
+        if (dragMode == Drag::scroll)
+        {
+            viewStart = scrollOrigin - (float) event.getDistanceFromDragStartX() / gridBounds().getWidth() * viewBeats();
+            clampView();
+            repaint();
+            return;
+        }
+
+        if (dragMode == Drag::pitchScroll)
+        {
+            const auto rows = visibleRows();
+            lowNote = juce::jlimit (0, 128 - rows, juce::roundToInt (scrollOrigin - (float) event.getDistanceFromDragStartY()
+                                                                                     / gridBounds().getHeight() * 128.0f));
+            repaint();
+            return;
+        }
+
+        if (dragMode == Drag::paint)
+        {
+            paintRun (position);
+            return;
+        }
+
+        if (dragMode == Drag::keys)
+        {
+            const auto rowHeight = gridBounds().getHeight() / (float) visibleRows();
+            lowNote = juce::jlimit (0, 128 - visibleRows(),
+                                    juce::roundToInt (scrollOrigin + (float) event.getDistanceFromDragStartY() / rowHeight));
+            repaint();
+            return;
+        }
 
         if (dragMode == Drag::velocity)
         {
@@ -423,7 +688,21 @@ public:
         const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
         const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
 
-        if (event.mods.isCommandDown() || event.mods.isCtrlDown())
+        if (event.mods.isAltDown() || ! (event.mods.isCommandDown() || event.mods.isCtrlDown() || event.mods.isShiftDown()
+                                         || std::abs (wheel.deltaX) > std::abs (wheel.deltaY)))
+            pitchViewTouched = true;
+
+        if (event.mods.isAltDown())
+        {
+            // Zoom the pitches (taller or shorter rows) around the pointer's note.
+            const auto anchor = yToNote (event.position.y);
+            const auto fromBottom = anchor - lowNote;
+            const auto before = visibleRows();
+            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * (direction > 0 ? 1.2f : direction < 0 ? 1.0f / 1.2f : 1.0f));
+            const auto rows = visibleRows();
+            lowNote = juce::jlimit (0, 128 - rows, anchor - juce::roundToInt ((float) fromBottom * (float) rows / (float) before));
+        }
+        else if (event.mods.isCommandDown() || event.mods.isCtrlDown())
         {
             // Zoom in time around the pointer.
             const auto anchor = xToBeat (event.position.x);
@@ -484,6 +763,15 @@ public:
             return true;
         }
 
+        if (letter == 'Q' && ! modifiers.isAltDown())
+            return quantise();
+
+        if (letter == 'D' && ! modifiers.isAltDown())
+        {
+            setDrawMode (! drawMode);
+            return true;
+        }
+
         const auto shift = modifiers.isShiftDown();
 
         if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
@@ -514,8 +802,17 @@ public:
         selected.assign (clip.notes.size(), false); // the order may have changed
         clampView();
 
+        // A clip opened (or replaced from outside: a preset, an import, an
+        // undo) fits its notes, unless the pitches were scrolled by hand and
+        // some of its notes are still in view.
+        const auto [above, below] = notesOutOfView();
+        const auto noneInView = ! clip.notes.empty() && above + below == (int) clip.notes.size();
+
         if (changedClip || force)
-            centreOnNotes();
+            pitchViewTouched = false;
+
+        if (changedClip || force || ! pitchViewTouched || noneInView)
+            fitPitchToNotes();
 
         repaint();
     }
@@ -595,6 +892,36 @@ public:
         insert (notes, range.second, "Duplicate clip notes");
     }
 
+    // QUANTISE: moves the selected notes' starts (every note's, with none
+    // selected) to the nearest GRID line, as one undo step. False when
+    // nothing moved.
+    bool quantise()
+    {
+        reload (false);
+        const auto all = getNumSelected() == 0;
+        auto changed = false;
+
+        for (size_t i = 0; i < clip.notes.size(); ++i)
+            changed = changed || ((all || selected[i]) && std::abs (snap (clip.notes[i].start) - clip.notes[i].start) > 1.0e-4f);
+
+        if (! changed)
+            return false;
+
+        processorRef.performEdit ("Quantise clip notes", [this, all]
+        {
+            for (size_t i = 0; i < clip.notes.size(); ++i)
+                if (all || selected[i])
+                {
+                    clip.notes[i].start = snap (clip.notes[i].start);
+                    constrain (clip.notes[i]);
+                }
+
+            commit();
+        });
+
+        return true;
+    }
+
     // Moves the selection by beats and semitones, as far as it fits.
     bool nudge (float beats, int notes)
     {
@@ -631,10 +958,11 @@ public:
     }
 
 private:
-    static constexpr float keyWidth = 34.0f;
+    static constexpr float keyWidth = 46.0f;
+    static constexpr float rulerHeight = 18.0f;
     static constexpr float headSize = 5.0f; // a velocity stem's head
     static constexpr int auditionMs = 250;
-    enum class Drag { none, move, resize, velocity, select };
+    enum class Drag { none, move, resize, velocity, select, scroll, keys, pitchScroll, paint };
 
     struct Clipboard
     {
@@ -647,6 +975,203 @@ private:
     {
         static Clipboard shared;
         return shared;
+    }
+
+    // The keyboard: white keys light, black keys dark and shorter, each C
+    // named on its key; the key under the pointer and the keys the playhead
+    // is sounding lit.
+    void paintKeys (juce::Graphics& g, juce::Rectangle<float> keys, int rows, float rowHeight, int hoverNote,
+                    const std::array<bool, 128>& sounding) const
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (keys.toNearestInt());
+
+        const auto whiteKey = juce::Colour (0xffb9bec6);
+        const auto blackKey = juce::Colour (0xff1c1e22);
+        const auto lit = [this, hoverNote, &sounding] (int note, juce::Colour base)
+        {
+            return sounding[(size_t) juce::jlimit (0, 127, note)] ? colour.interpolatedWith (base, 0.15f)
+                 : note == hoverNote                               ? base.interpolatedWith (colour, 0.45f)
+                                                                   : base;
+        };
+
+        g.setColour (whiteKey);
+        g.fillRect (keys);
+
+        for (int row = 0; row < rows; ++row)
+        {
+            const auto note = lowNote + row;
+            const auto y = keys.getBottom() - (float) (row + 1) * rowHeight;
+            const auto key = juce::Rectangle<float> (keys.getX(), y, keys.getWidth(), rowHeight);
+
+            if (juce::MidiMessage::isMidiNoteBlack (note))
+                continue;
+
+            g.setColour (lit (note, whiteKey));
+            g.fillRect (key);
+
+            // The line under a white key that has a white key below it
+            // (C over B, F over E); the others sit on a black key.
+            if (note % 12 == 0 || note % 12 == 5)
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.35f));
+                g.fillRect (key.getX(), key.getBottom() - 0.5f, key.getWidth(), 1.0f);
+            }
+
+            if ((note % 12 == 0 || note == hoverNote) && rowHeight >= 9.0f)
+            {
+                g.setColour (juce::Colour (0xff2a2d33));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
+                            key.withTrimmedRight (4.0f).toNearestInt(), juce::Justification::centredRight, false);
+            }
+        }
+
+        // Black keys over the white ones, short of the column's right edge,
+        // with a faint line through their middle where the white keys meet.
+        for (int row = 0; row < rows; ++row)
+        {
+            const auto note = lowNote + row;
+
+            if (! juce::MidiMessage::isMidiNoteBlack (note))
+                continue;
+
+            const auto y = keys.getBottom() - (float) (row + 1) * rowHeight;
+            g.setColour (juce::Colours::black.withAlpha (0.3f));
+            g.fillRect (keys.getX(), y + rowHeight * 0.5f - 0.5f, keys.getWidth(), 1.0f);
+            const auto key = juce::Rectangle<float> (keys.getX(), y, keys.getWidth() * 0.62f, rowHeight).reduced (0.0f, 0.5f);
+            g.setColour (lit (note, blackKey));
+            g.fillRoundedRectangle (key, 1.5f);
+
+            // The key under the pointer names itself (white keys do above).
+            if (note == hoverNote && rowHeight >= 9.0f)
+            {
+                g.setColour (juce::Colour (0xff2a2d33));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText (juce::MidiMessage::getMidiNoteName (note, true, true, 3),
+                            juce::Rectangle<float> (keys.getX(), y, keys.getWidth(), rowHeight).withTrimmedRight (4.0f).toNearestInt(),
+                            juce::Justification::centredRight, false);
+            }
+        }
+    }
+
+    // The ruler: bar numbers, beat ticks (and beat numbers when there is
+    // room), where the view sits in the clip while zoomed, and the playhead.
+    void paintRuler (juce::Graphics& g, juce::Rectangle<float> ruler, float playhead) const
+    {
+        const auto grid = gridBounds();
+        const auto strip = ruler.withLeft (grid.getX()).withRight (grid.getRight());
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
+        g.fillRect (strip);
+
+        const auto beatWidth = beatToX (1.0f) - beatToX (0.0f);
+        const auto viewEnd = viewStart + viewBeats();
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+
+        for (auto beat = (int) std::ceil (viewStart - 1.0e-4f); (float) beat <= viewEnd + 1.0e-4f; ++beat)
+        {
+            const auto x = beatToX ((float) beat);
+            const auto bar = beat % ClipState::beatsPerBar == 0;
+            const auto barNumber = beat / ClipState::beatsPerBar + 1;
+            g.setColour (juce::Colours::white.withAlpha (bar ? 0.4f : 0.18f));
+            g.fillRect (x, bar ? strip.getY() + 3.0f : strip.getBottom() - 5.0f, 1.0f, bar ? strip.getHeight() - 3.0f : 5.0f);
+
+            if (bar && beat < (int) lengthBeats())
+            {
+                g.setColour (IlanaTheme::Ui::text2);
+                g.drawText (juce::String (barNumber), juce::Rectangle<float> (x + 4.0f, strip.getY(), 30.0f, strip.getHeight() - 2.0f).toNearestInt(),
+                            juce::Justification::centredLeft, false);
+            }
+            else if (! bar && beatWidth >= 34.0f)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (juce::String (barNumber) + "." + juce::String (beat % ClipState::beatsPerBar + 1),
+                            juce::Rectangle<float> (x + 3.0f, strip.getY(), 30.0f, strip.getHeight() - 2.0f).toNearestInt(),
+                            juce::Justification::centredLeft, false);
+            }
+        }
+
+        // Zoomed in: where the view sits in the clip, along the ruler's foot.
+        if (zoom > 1.001f)
+        {
+            const auto length = (float) lengthBeats();
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.fillRect (strip.getX(), strip.getBottom() - 2.0f, strip.getWidth(), 2.0f);
+            g.setColour (colour.withAlpha (0.8f));
+            g.fillRect (strip.getX() + strip.getWidth() * viewStart / length, strip.getBottom() - 2.0f,
+                        strip.getWidth() * viewBeats() / length, 2.0f);
+        }
+
+        // The playhead: a marker on the ruler.
+        if (playhead >= viewStart && playhead <= viewEnd)
+        {
+            const auto x = beatToX (playhead);
+            juce::Path marker;
+            marker.addTriangle (x - 5.0f, strip.getY() + 2.0f, x + 5.0f, strip.getY() + 2.0f, x, strip.getBottom() - 1.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.95f));
+            g.fillPath (marker);
+        }
+
+        // (The corner over the keys stays empty: GRID is the menu below the
+        // roll, review 7, S7-38.)
+    }
+
+    // One note: a block in its row (velocity sets its strength), a stem in
+    // the velocity lane, and its name when it is wide enough. The selection
+    // is drawn bright with a white outline; with a selection made, the other
+    // notes step back.
+    void paintNote (juce::Graphics& g, const ClipNote& n, bool isSelected, bool anySelected, bool on,
+                    juce::Rectangle<float> grid, juce::Rectangle<float> lane, float rowHeight) const
+    {
+        // With a selection made the others go grey and faint, so the picked
+        // notes read at a glance (review 7, V7-38).
+        const auto shade = 0.5f + 0.5f * (float) n.velocity / 127.0f;
+        const auto stepsBack = anySelected && ! isSelected;
+        const auto strength = (on ? 1.0f : 0.6f) * (stepsBack ? 0.4f : 1.0f);
+        const auto fill = isSelected ? colour.interpolatedWith (juce::Colours::white, 0.45f)
+                                     : (stepsBack ? colour.withMultipliedSaturation (0.35f) : colour).withAlpha (shade * strength);
+
+        // Its velocity: a stem with a head at the level.
+        const auto x = beatToX (n.start);
+
+        if (x >= grid.getX() - 4.0f && x <= grid.getRight())
+        {
+            const auto top = lane.getBottom() - (lane.getHeight() - headSize) * (float) n.velocity / 127.0f;
+            g.setColour (fill);
+            g.fillRect (x, top, 1.5f, lane.getBottom() - top);
+            g.fillEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize);
+
+            if (isSelected)
+            {
+                g.setColour (juce::Colours::white);
+                g.drawEllipse (x + 0.75f - headSize * 0.5f, top - headSize * 0.5f, headSize, headSize, 1.2f);
+            }
+        }
+
+        const auto r = noteBounds (n).reduced (0.0f, rowHeight >= 8.0f ? 1.0f : 0.5f);
+
+        if (! r.intersects (grid))
+            return;
+
+        if (isSelected)
+        {
+            g.setColour (colour.withAlpha (0.45f));
+            g.fillRoundedRectangle (r.expanded (2.5f), 4.0f);
+        }
+
+        g.setColour (fill);
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (isSelected ? juce::Colours::white : juce::Colours::black.withAlpha (stepsBack ? 0.25f : 0.45f));
+        g.drawRoundedRectangle (r.reduced (isSelected ? 0.75f : 0.5f), 2.0f, isSelected ? 1.5f : 1.0f);
+
+        // A wide enough note names itself.
+        if (r.getWidth() >= 32.0f && r.getHeight() >= 9.0f)
+        {
+            g.setColour (juce::Colours::black.withAlpha (isSelected ? 0.85f : 0.7f * strength));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::MidiMessage::getMidiNoteName (n.note, true, true, 3), r.withTrimmedLeft (4.0f).toNearestInt(),
+                        juce::Justification::centredLeft, false);
+        }
     }
 
     void timerCallback() override
@@ -678,21 +1203,211 @@ private:
         viewStart = juce::jlimit (0.0f, length - viewBeats(), viewStart);
     }
 
-    float laneHeight() const { return juce::jlimit (18.0f, 44.0f, ((float) getHeight() - 8.0f) * 0.22f); }
+    float laneHeight() const { return juce::jlimit (18.0f, 48.0f, ((float) getHeight() - 8.0f) * 0.18f); }
+
+    juce::Rectangle<float> rulerBounds() const
+    {
+        return getLocalBounds().toFloat().reduced (0.0f, 3.0f).removeFromTop (rulerHeight).withTrimmedRight (6.0f);
+    }
 
     juce::Rectangle<float> gridBounds() const
     {
-        auto area = getLocalBounds().toFloat().reduced (0.0f, 4.0f);
-        return area.withTrimmedLeft (keyWidth).withTrimmedRight (6.0f).withTrimmedBottom (laneHeight() + 4.0f);
+        auto area = getLocalBounds().toFloat().reduced (0.0f, 3.0f);
+        area.removeFromTop (rulerHeight + 1.0f);
+        return area.withTrimmedLeft (keyWidth).withTrimmedRight (6.0f).withTrimmedBottom (laneHeight() + 5.0f);
+    }
+
+    juce::Rectangle<float> keysBounds() const
+    {
+        const auto grid = gridBounds();
+        return { 1.0f, grid.getY(), keyWidth - 2.0f, grid.getHeight() };
     }
 
     juce::Rectangle<float> laneBounds() const
     {
         const auto grid = gridBounds();
-        return { grid.getX(), grid.getBottom() + 4.0f, grid.getWidth(), laneHeight() };
+        return { grid.getX(), grid.getBottom() + 5.0f, grid.getWidth(), laneHeight() };
     }
 
-    int visibleRows() const { return juce::jlimit (12, 48, juce::roundToInt (gridBounds().getHeight() / 7.0f)); }
+    // Rows of about 12 px (Alt+wheel makes them taller or shorter), 8 to 72
+    // of them.
+    int visibleRows() const { return juce::jlimit (8, 72, juce::roundToInt (gridBounds().getHeight() / (12.0f * rowScale))); }
+
+    // The bar at the grid's right edge: the rows shown out of the 128, the
+    // clip's pitch span marked on its track.
+    juce::Rectangle<float> pitchScrollBounds() const
+    {
+        const auto grid = gridBounds();
+        return { grid.getRight() + 1.5f, grid.getY(), 4.0f, grid.getHeight() };
+    }
+
+    juce::Rectangle<float> pitchThumb() const
+    {
+        const auto track = pitchScrollBounds();
+        const auto rows = (float) visibleRows();
+        const auto top = track.getBottom() - track.getHeight() * ((float) lowNote + rows) / 128.0f;
+        return { track.getX(), top, track.getWidth(), juce::jmax (8.0f, track.getHeight() * rows / 128.0f) };
+    }
+
+    void paintPitchScroll (juce::Graphics& g, juce::Rectangle<float> grid, int rows) const
+    {
+        const auto track = pitchScrollBounds();
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRoundedRectangle (track, 2.0f);
+
+        if (! clip.notes.empty())
+        {
+            auto lowest = 127, highest = 0;
+
+            for (const auto& n : clip.notes)
+            {
+                lowest = juce::jmin (lowest, n.note);
+                highest = juce::jmax (highest, n.note);
+            }
+
+            const auto y = [&track] (float note) { return track.getBottom() - track.getHeight() * note / 128.0f; };
+            g.setColour (colour.withAlpha (0.55f));
+            g.fillRect (juce::Rectangle<float> (track.getX() + 1.0f, y ((float) highest + 1.0f), 2.0f,
+                                                juce::jmax (2.0f, y ((float) lowest) - y ((float) highest + 1.0f))));
+        }
+
+        const auto hovered = isMouseOver() && pitchScrollBounds().expanded (2.0f, 0.0f).contains (getMouseXYRelative().toFloat());
+        g.setColour (juce::Colours::white.withAlpha (dragMode == Drag::pitchScroll || hovered ? 0.6f : 0.35f));
+        g.drawRoundedRectangle (pitchThumb().reduced (0.5f), 2.0f, 1.0f);
+
+        // Notes above or below the rows shown: "▲ 3" / "▼ 2" at the edges.
+        const auto [above, below] = notesOutOfView();
+
+        for (const auto up : { true, false })
+        {
+            const auto count = up ? above : below;
+
+            if (count == 0)
+                continue;
+
+            const auto plate = markerBounds (up);
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.92f));
+            g.fillRoundedRectangle (plate, 8.0f);
+            g.setColour (colour.withAlpha (0.8f));
+            g.drawRoundedRectangle (plate.reduced (0.5f), 8.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::String (juce::CharPointer_UTF8 (up ? "\xe2\x96\xb2 " : "\xe2\x96\xbc ")) + juce::String (count),
+                        plate.toNearestInt(), juce::Justification::centred, false);
+        }
+
+        juce::ignoreUnused (grid, rows);
+    }
+
+    juce::Rectangle<float> markerBounds (bool up) const
+    {
+        const auto grid = gridBounds();
+        const auto plate = juce::Rectangle<float> (40.0f, 16.0f);
+        return up ? plate.withPosition (grid.getRight() - 46.0f, grid.getY() + 4.0f)
+                  : plate.withPosition (grid.getRight() - 46.0f, grid.getBottom() - 20.0f);
+    }
+
+    // +1 over the "above" marker, -1 over the "below" one, else 0.
+    int markerAt (juce::Point<float> position) const
+    {
+        const auto [above, below] = notesOutOfView();
+
+        if (above > 0 && markerBounds (true).contains (position))
+            return 1;
+
+        return below > 0 && markerBounds (false).contains (position) ? -1 : 0;
+    }
+
+    // Scrolls just far enough to bring the nearest notes out of view above
+    // (or below) to the edge.
+    void showOutOfView (bool up)
+    {
+        const auto rows = visibleRows();
+        const auto highest = lowNote + rows - 1;
+        auto target = up ? 128 : -1;
+
+        for (const auto& n : clip.notes)
+            target = up ? (n.note > highest ? juce::jmin (target, n.note) : target)
+                        : (n.note < lowNote ? juce::jmax (target, n.note) : target);
+
+        if (target < 0 || target > 127)
+            return;
+
+        // Up: the nearest note above lands a row under the top; down: the
+        // nearest below a row over the foot.
+        lowNote = juce::jlimit (0, 128 - rows, up ? target - rows + 2 : target - 1);
+        pitchViewTouched = true;
+        repaint();
+    }
+
+    // DRAW's run: a note in every grid cell the pointer crosses (cells of the
+    // last length, on the grid), at the pointer's pitch, never two in one cell.
+    void paintRun (juce::Point<float> position)
+    {
+        const auto spacing = juce::jmax (gridStep(), ceilToGrid (lastLength));
+        const auto cell = (int) std::floor ((xToBeat (position.x) - paintOrigin) / spacing + 1.0e-4f);
+        const auto last = paintCells.empty() ? 0 : paintCells.back();
+        const auto direction = cell >= last ? 1 : -1;
+        auto added = false;
+
+        for (auto c = last; c != cell + direction; c += direction)
+        {
+            const auto start = paintOrigin + (float) c * spacing;
+
+            if (std::find (paintCells.begin(), paintCells.end(), c) != paintCells.end()
+                || start < -1.0e-4f || start > (float) lengthBeats() - shortestNote() + 1.0e-4f
+                || (int) clip.notes.size() >= ClipState::maxNotes)
+                continue;
+
+            ClipNote n;
+            n.start = start;
+            n.length = lastLength;
+            n.note = yToNote (position.y);
+            n.velocity = lastVelocity;
+            constrain (n);
+            clip.notes.push_back (n);
+            selected.push_back (true);
+            paintCells.push_back (c);
+            added = true;
+        }
+
+        if (added)
+        {
+            commit();
+            const auto note = clip.notes.back().note;
+
+            if (note != dragNote)
+            {
+                dragNote = note;
+                audition (note, lastVelocity);
+            }
+        }
+    }
+
+    // Rows tall enough to show every note of the clip, down to 9 px (the
+    // notes keep their names), then the view that shows the most of them.
+    void fitPitchToNotes()
+    {
+        rowScale = 1.0f;
+
+        if (! clip.notes.empty() && getHeight() > 0)
+        {
+            auto lowest = 127, highest = 0;
+
+            for (const auto& n : clip.notes)
+            {
+                lowest = juce::jmin (lowest, n.note);
+                highest = juce::jmax (highest, n.note);
+            }
+
+            const auto span = highest - lowest + 3; // a row spare at each side
+
+            if (span > visibleRows())
+                rowScale = juce::jlimit (0.75f, 1.0f, gridBounds().getHeight() / (12.0f * (float) span));
+        }
+
+        centreOnNotes();
+    }
 
     void centreOnNotes()
     {
@@ -713,6 +1428,25 @@ private:
 
         const auto rows = visibleRows();
         lowNote = juce::jlimit (0, 128 - rows, centre - rows / 2);
+
+        // A clip wider than the rows: the window holding the most notes,
+        // the one nearest the centre among equals (the edge markers count
+        // the rest).
+        auto best = -1;
+
+        for (auto low = juce::jmax (0, lowNote - rows); low <= juce::jmin (128 - rows, lowNote + rows); ++low)
+        {
+            auto inView = 0;
+
+            for (const auto& n : clip.notes)
+                inView += n.note >= low && n.note < low + rows ? 1 : 0;
+
+            if (inView > best || (inView == best && std::abs (low - (centre - rows / 2)) < std::abs (lowNote - (centre - rows / 2))))
+            {
+                best = inView;
+                lowNote = low;
+            }
+        }
     }
 
     float beatToX (float beat) const { return gridBounds().getX() + gridBounds().getWidth() * (beat - viewStart) / viewBeats(); }
@@ -914,16 +1648,23 @@ private:
     unsigned shownEpoch = 0;
     int lowNote = 48;
     int gridIndex = defaultGrid;
-    float zoom = 1.0f, viewStart = 0.0f;
+    float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
+    // On by default (review 8, the Serum 2 speed table): the first click
+    // in an empty roll writes a note. D, or the DRAW button, turns it off.
+    bool drawMode = true;
+    bool pitchViewTouched = false; // the pitches scrolled or zoomed by hand
+    float paintOrigin = 0.0f;      // DRAW: the first note's start
+    std::vector<int> paintCells;   // DRAW: the cells painted, in order
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;
     int dragHit = -1, dragNote = -1;
-    float grabBeat = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f;
+    float grabBeat = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f, scrollOrigin = 0.0f;
     int lastVelocity = 100;
     juce::Point<float> bandStart, bandEnd;
     int auditionNote = -1;
     juce::uint32 auditionEnd = 0;
 };
+
 
 // GRID: the piano roll's snap, a menu like the parameter combos (a view
 // setting of the roll, not part of the patch).
@@ -1037,4 +1778,64 @@ private:
     juce::ComboBox combo;
     juce::Label label;
     bool updating = false;
+};
+
+// ZOOM: the piano roll's zoom in time, out / fit / in, under a label like the
+// menus beside it (the wheel with Ctrl does the same around the pointer).
+class ClipZoomControl : public juce::Component,
+                        private juce::Timer
+{
+public:
+    ClipZoomControl (ClipEditor& editorIn, const juce::String& labelText)
+        : editor (editorIn)
+    {
+        label.setText (labelText, juce::dontSendNotification);
+        label.setJustificationType (juce::Justification::centredLeft);
+        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        label.setColour (juce::Label::textColourId, IlanaTheme::Ui::text2);
+        addAndMakeVisible (label);
+
+        out.setButtonText (juce::CharPointer_UTF8 ("\xe2\x88\x92"));
+        in.setButtonText ("+");
+        fit.setButtonText ("FIT");
+        out.setTooltip ("Zoom out in time (Ctrl+wheel over the roll zooms around the pointer)");
+        in.setTooltip ("Zoom in in time (Ctrl+wheel over the roll zooms around the pointer)");
+        out.onClick = [this] { editor.zoomBy (0.5f); refresh(); };
+        in.onClick = [this] { editor.zoomBy (2.0f); refresh(); };
+        fit.onClick = [this] { editor.zoomToFit(); refresh(); };
+
+        for (auto* button : { &out, &fit, &in })
+            addAndMakeVisible (button);
+
+        refresh();
+        startTimerHz (8);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        label.setBounds (area.removeFromTop (13));
+        auto row = area.removeFromTop (24);
+        const auto small = juce::jmin (28, row.getWidth() / 4);
+        out.setBounds (row.removeFromLeft (small));
+        in.setBounds (row.removeFromRight (small));
+        fit.setBounds (row.reduced (3, 0));
+    }
+
+private:
+    // A greyed FIT says why (review 8, S8-39).
+    void refresh()
+    {
+        const auto zoomed = editor.getZoom() > 1.001f;
+        fit.setEnabled (zoomed);
+        out.setEnabled (zoomed);
+        fit.setTooltip (zoomed ? "Fit\nShow the whole clip (or double-click the roll's ruler)."
+                               : "Fit\nThe whole clip is shown already: zoom in with + (or Ctrl+wheel over the roll) first.");
+    }
+
+    void timerCallback() override { refresh(); }
+
+    ClipEditor& editor;
+    juce::Label label;
+    juce::TextButton out, fit, in;
 };

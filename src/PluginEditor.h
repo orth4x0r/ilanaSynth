@@ -36,6 +36,7 @@ class WavetableEditor;
 
 class IlanaSynthAudioProcessorEditor : public juce::AudioProcessorEditor,
                                        public juce::DragAndDropContainer,
+                                       public juce::FileDragAndDropTarget,
                                        private juce::ChangeListener,
                                        private juce::Timer
 {
@@ -54,9 +55,13 @@ public:
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
     // Pages by id ("MAIN", "VECTOR", "OSC", "PHYSICAL", "FILTER", "ENV/LFO",
-    // "STEPS", "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
+    // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
+    // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
+    std::function<void()> showVoicePanel;
+    // An oscillator's Operator EG: the FM page with that operator chosen.
+    void showOperatorEnvelope (int op);
     juce::String getCurrentPageId() const;
     juce::StringArray getPageIds() const;
     juce::Component* getCurrentPage() const;
@@ -77,6 +82,31 @@ public:
     void savePreset();
     void savePresetAs();
     SavePresetOverlay& getSaveOverlay() { return saveOverlay; }
+
+    // Review 6: the header's EDITED badge as drawn (the confirm reads the
+    // same isPatchEdited, and refreshes the badge before it asks); the
+    // DX7 bank import (the browser's IMPORT .SYX); the docked browser.
+    bool isEditedBadgeShown() const { return presetDisplay.isShowingModified(); }
+    void importSyxFile (const juce::File& file);
+    // A .syx bank dropped anywhere on the window imports like IMPORT .SYX
+    // (the oscillators' sample drop zones take their own files first).
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+    bool isPresetDockOpen() const { return presetDockShown; }
+    InfoStrip& getHoverLine() { return infoStrip; }
+    // The header's VOICES count as drawn ("3/32") and its tuning text ("" in
+    // 12-TET), for the tests.
+    juce::String getVoicesText() const;
+    juce::String getTuningIndicatorText() const { return tuningArea.isVisible() ? tuningText : juce::String(); }
+    // The preset's own level (output_trim, review 7): as MASTER's hover
+    // reads it, and the preset menu's reset; MASTER's hover text.
+    juce::String presetLevelText() const;
+    void resetPresetLevel();
+    juce::String getMasterTooltip()
+    {
+        updateMasterTooltip();
+        return masterKnob != nullptr ? masterKnob->getKnob().getTooltip() : juce::String();
+    }
 
     // GPU drawing on macOS and Linux (settings menu > GPU rendering, saved as
     // "gpuRendering", on by default; ILANA_NO_GPU=1 turns it off for a run).
@@ -102,15 +132,18 @@ private:
     void exportPreset();
     void loadPreset();
     void togglePresetPanel();
-    // The browser docked at the side: the window grows by dockWidth.
+    // The browser docked over the page area (the window keeps its size).
     void createPresetPanel();
     void setPresetDockShown (bool shown);
     bool isPresetDockShown() const { return presetDockShown; }
-    int currentDesignWidth() const { return designWidth + (presetDockShown ? dockWidth : 0); }
+    juce::Rectangle<int> pageArea() const;
+    void chooseSyxFile();
+    int currentDesignWidth() const { return designWidth; }
     void applyAspectAndLimits();
     void showPresetMenu();
     void showDiceMenu();
-    void showSettingsMenu (bool voicesOnly = false);
+    void showSettingsMenu (bool tuningOnly = false);
+
     void randomize();
     void randomizeGroup (int group);
     void mutate (float amount);
@@ -138,13 +171,15 @@ private:
     float displayScale() const;
     float hostScaleFactor() const;
 
+    // The hover line's own strip, between the pages and the source chips.
+    static constexpr int infoLineHeight = 16;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
-    static constexpr int dockWidth = 340;
     static constexpr const char* appVersion = "1.3";
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, (size_t) Mod::Source::Count> usedModSources {};
+    std::vector<bool> chipSecondOutputs; // the LFO chips showing a "B" (they lay out wider)
     IlanaLookAndFeel lookAndFeel;
     juce::TooltipWindow tooltipWindow { this, 900 };
     Content content;
@@ -168,17 +203,17 @@ private:
     IconButton undoButton { "undo", IlanaIcons::Icon::Undo, "Undo  (Ctrl+Z)" };
     IconButton redoButton { "redo", IlanaIcons::Icon::Redo, "Redo  (Ctrl+Shift+Z)" };
     IconButton historyButton { "history", IlanaIcons::Icon::History, "History\nJump back to any earlier change." };
-    juce::TextButton abButton { "A" };
+    ABButton abButton;
     IconButton diceButton { "dice", IlanaIcons::Icon::Dice, "Randomise\nRoll a new patch, or randomise one part of it." };
     IconButton settingsButton { "settings", IlanaIcons::Icon::Gear, "Settings\nVoice mode, voices and pitch-bend range, skin, interface size, keyboard and the welcome tour." };
-    juce::TextButton keysButton { "KEYS" };
+    juce::TextButton keysButton { "KEYBOARD" };
+    juce::TextButton helpButton { "?" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<WavetableEditor> wavetableEditor;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<PresetPanel> presetPanel;
     ModHoverPopup modHoverPopup { processorRef };
-    Content dockHolder; // the docked browser's column, right of content
     // The header's live waveform strip (click: the scope).
     OutputView headerScope { processorRef };
     // VOICES in the status line: a click opens the voice settings.
@@ -192,15 +227,46 @@ private:
         }
     };
     ClickArea voicesArea;
+    // TUNING in the status line while a Scala scale or MTS-ESP plays (a
+    // click opens the tuning menu).
+    ClickArea tuningArea;
+    juce::String tuningText;
+    void updateTuningIndicator();
+    // After "Save and load": the load waiting for SAVE AS to finish.
+    std::function<void()> afterSave;
     bool presetDocked = false;     // the user's choice: dock rather than drop down
     bool presetDockShown = false;  // the docked browser is open
+    // "Load anyway" was chosen once while browsing: the rest of that
+    // browsing session loads without asking (review 7, S7-32).
+    bool browsingAccepted = false;
+    void updateMasterTooltip();
+    juce::String masterBaseTooltip, shownPresetLevel;
+    // The gap between the status line's tempo and its VOICES group.
+    static constexpr int statusGroupGap = 16;
+    // The status line's three pills: one width, one gap, flush right (V13-6).
+    static constexpr int pillY = 36, pillHeight = 18, pillWidth = 104, pillGap = 6;
+    static juce::Rectangle<int> cpuArea() { return { designWidth - 14 - pillWidth, pillY, pillWidth, pillHeight }; }
+    static juce::Rectangle<int> voicesPillArea() { return cpuArea().translated (-(pillWidth + pillGap), 0); }
+    static juce::Rectangle<int> bpmArea() { return voicesPillArea().translated (-(pillWidth + pillGap), 0); }
 
     std::vector<std::unique_ptr<ModSourceChip>> chips;
     // Every LFO and envelope has a chip, shown while that module is in the
     // pool (or the matrix uses it). Parallel to chips; kind -1 for the
-    // performance sources, which always show.
+    // performance sources, which always show; -2 the Operator Env's (while
+    // an oscillator plays it), -3 the vector's (while it is on), -4 the
+    // patch MSEG (while routed).
     std::vector<std::pair<int, int>> chipReveal;
     std::vector<bool> chipWanted;
+    // Wanted, but folded into its region's "+N" chip because it is full.
+    std::vector<bool> chipFolded;
+    // Each chip's group (0 LFOs, 1 envelopes, 2 the rest).
+    std::vector<int> chipGroup;
+    // Each region's "+N": the chips it folds away, in a tray.
+    std::array<std::unique_ptr<ModSourceGroupChip>, 3> groupChips;
+    static constexpr int chipPickerWidth = 34;
+    static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
+    ModSourceTray chipTray;
+    std::unique_ptr<ModSourceChip> makeSourceChip (int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
     juce::TextButton moreChipsButton;
     void updateChipVisibility();
@@ -212,17 +278,20 @@ public:
     void addPoolSource (int chipIndex);
 
 private:
+    std::function<void (int)> editOperator;
     std::unique_ptr<KeyboardStrip> keyboard;
+    // All eight macros exist; the strip shows the first four, and more once
+    // they are named, routed or added with "+" (review 10, S10-10).
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
-    juce::TextButton macroPageButton; // shows macros 1-4 or 5-8 in the strip
-    int macroPage = 0;
-    void showMacroPage (int page);
-    // (Voices, pitch-bend range and voice mode live in the settings menu.)
-    std::unique_ptr<StripKnob> glideKnob, masterKnob;
+    juce::TextButton macroPlusButton { "+ MACRO" };
+    int shownMacros = 4, addedMacros = 0;
+    void updateMacroStrip();
+    // (Voices, pitch-bend range, voice mode, glide and legato live in the
+    // VOICES menu.)
+    std::unique_ptr<StripKnob> masterKnob;
     std::unique_ptr<OutputMeter> outputMeter;
     // Where the header's action groups (file, edit, tools) part, in header x.
     std::array<int, 2> headerSeparatorX {};
-    std::unique_ptr<ToggleControl> legatoToggle;
     bool keyboardVisible = false;
     juce::int64 loadedFingerprint = 0;
     void rememberLoadedFingerprint();
@@ -233,7 +302,7 @@ private:
     int currentPresetIndex = -1;
     juce::String shownPresetName;
     int themeIndex = 0;
-    juce::String shownCategory;
+    juce::String shownCategory, presetDisplayName;
 
     // Display-rate animation: the page transition and the preset flash.
     struct Animator : IlanaAnim::FrameTimer

@@ -13,6 +13,7 @@
 // MATRIX, for example), picked with a segmented switch whose lit pill
 // slides to the chosen page.
 class SectionSwitcher : public juce::Component,
+                        public juce::SettableTooltipClient,
                         private IlanaAnim::FrameTimer
 {
 public:
@@ -37,6 +38,25 @@ public:
     }
 
     int getSelected() const { return selected; }
+
+    // A page with nothing to edit in this patch greys its switch, with the
+    // reason as the tooltip (it still opens). An empty reason clears it.
+    void setItemDimmed (int index, const juce::String& reason)
+    {
+        if (index < 0)
+            return;
+
+        while (dimReasons.size() <= index)
+            dimReasons.add ({});
+
+        if (dimReasons[index] != reason)
+        {
+            dimReasons.set (index, reason);
+            repaint();
+        }
+    }
+
+    bool isItemDimmed (int index) const { return dimReasons[index].isNotEmpty(); }
 
     int getIdealWidth() const
     {
@@ -83,6 +103,9 @@ public:
             if (i == hover && i != selected)
                 colour = colour.interpolatedWith (Ui::text, 0.6f);
 
+            if (isItemDimmed (i) && i != selected)
+                colour = colour.withMultipliedAlpha (0.4f);
+
             g.setColour (colour);
             g.drawText (items[i], segmentBounds (i), juce::Justification::centred);
         }
@@ -95,6 +118,7 @@ public:
         if (index != hover)
         {
             hover = index;
+            setTooltip (index >= 0 ? dimReasons[index] : juce::String());
             repaint();
         }
     }
@@ -157,7 +181,7 @@ private:
         repaint();
     }
 
-    juce::StringArray items;
+    juce::StringArray items, dimReasons;
     int selected = 0, hover = -1;
     float pill = 0.0f;
 };

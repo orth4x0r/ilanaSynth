@@ -256,6 +256,15 @@ public:
             if (clip.notes.empty())
                 continue;
 
+            // A file that says where it ends (an exported clip does) keeps
+            // that length, whole bars.
+            for (int e = track->getNumEvents() - 1; e >= 0; --e)
+                if (track->getEventPointer (e)->message.isEndOfTrackMetaEvent())
+                {
+                    lastEnd = juce::jmax (lastEnd, track->getEventPointer (e)->message.getTimeStamp() / (double) ticks);
+                    break;
+                }
+
             clip.bars = juce::jlimit (1, maxBars, (int) std::ceil (lastEnd / beatsPerBar - 1.0e-6));
             const auto lengthBeats = (float) (clip.bars * beatsPerBar);
             clip.notes.erase (std::remove_if (clip.notes.begin(), clip.notes.end(),
@@ -267,6 +276,42 @@ public:
 
         error = "No notes in " + file.getFileName();
         return false;
+    }
+
+    // Writes a clip as a Standard MIDI File (one track, 480 ticks per
+    // quarter note, 120 BPM): what IMPORT MIDI reads back (review 9, S9-10).
+    static bool exportMidi (const Clip& clip, const juce::File& file, juce::String& error)
+    {
+        constexpr int ticksPerQuarter = 480;
+        juce::MidiMessageSequence sequence;
+        sequence.addEvent (juce::MidiMessage::tempoMetaEvent (500000), 0.0);
+        sequence.addEvent (juce::MidiMessage::timeSignatureMetaEvent (beatsPerBar, 4), 0.0);
+
+        for (const auto& note : clip.notes)
+        {
+            const auto start = (double) note.start * ticksPerQuarter;
+            const auto end = start + juce::jmax (1.0, (double) note.length * ticksPerQuarter - 1.0);
+            sequence.addEvent (juce::MidiMessage::noteOn (1, juce::jlimit (0, 127, note.note), (juce::uint8) juce::jlimit (1, 127, note.velocity)), start);
+            sequence.addEvent (juce::MidiMessage::noteOff (1, juce::jlimit (0, 127, note.note)), end);
+        }
+
+        sequence.updateMatchedPairs();
+        // The clip's length: the track ends on its last bar line.
+        sequence.addEvent (juce::MidiMessage::endOfTrack(), (double) (clip.bars * beatsPerBar * ticksPerQuarter));
+
+        juce::MidiFile midi;
+        midi.setTicksPerQuarterNote (ticksPerQuarter);
+        midi.addTrack (sequence);
+        file.deleteFile();
+        juce::FileOutputStream stream (file);
+
+        if (! stream.openedOk() || ! midi.writeTo (stream))
+        {
+            error = "Couldn't write " + file.getFileName();
+            return false;
+        }
+
+        return true;
     }
 
     static constexpr const char* treeType = "Clips";

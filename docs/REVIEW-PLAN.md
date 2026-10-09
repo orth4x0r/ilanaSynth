@@ -238,3 +238,8 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    the theme's font-height units (about 9.2 / 8 px em), not a global type-scale bump. Left: offering to merge duplicate
    routes (they are flagged), quantise and zoom buttons in the clip editor, a "Recent" sort (nothing records it), a live
    input dot on the FX transfer curves, the scope as a dock, DX7 rows still carry "(ROM1A)" (13.2).
+15. **UI review 6 fixes** (the user, 2026-10-02: "full adversarial review pass and fix ... what feels separate from the normal
+   engines ... a powerhouse, yet one thats not unwieldy"; "implement all ui suggestions the review process gave us"; the DX7
+   fold-in reviewed too; "do two full cycles"). Reviews and the package plan (P1-P7) in `docs/ui-review/`. **Cycle 1 done**
+   2026-10-04 (branch `claude/project-thread-smvgfk`): every finding of reviews 5 and 6 fixed except the ones HANDOFF lists
+   as not done on purpose, plus the 10 % type scale-up. **Cycle 2** (review 7 and its fixes) is next.

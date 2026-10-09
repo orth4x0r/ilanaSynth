@@ -18,32 +18,38 @@ public:
           filterDisplay (p),
           lfoThumbs (p, [] (int index) { return lfoColour (index); }),
           filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
-          envTabs ({ "AMP ENV", "FILT ENV", "FILT 2 ENV", "MOD ENV", "ENV 5" },
-                   { envColour (0), envColour (1), envColour (2), envColour (3), envColour (4) }, true),
+          envTabs ({ envelopeTitle (0) }, { envColour (0) }, true),
           lfoTabs ({}, {}, true)
     {
         const auto colours = [] (int osc) { return IlanaTheme::oscColour (osc); };
 
+        // The oscillators as strips in their order, then one "+ ADD OSC" row
+        // and SUB + NOISE (UI review 5, S8; review 6, V19; review 7, V7-4,
+        // S7-2: no empty slots): a strip is a picture, MODE and TABLE (or
+        // EXCITE), four knobs and the switch; full editing is on OSC.
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             waves[(size_t) osc] = std::make_unique<WaveDisplay> (
                 p, prefix + "_table", prefix + "_frame", prefix + "_unison", prefix + "_spread",
                 prefix + "_detune", false, juce::String {}, prefix + "_mode", osc, colours (osc), false);
+            waves[(size_t) osc]->setCompact (true);
             oscColumn.addAndMakeVisible (*waves[(size_t) osc]);
             auto strip = std::make_unique<OscStrip>();
             const auto colour = colours (osc);
 
+            // Menus without a label line (their values name them: "Wavetable",
+            // "Neuro"), stacked beside the picture; the tooltip says which.
             strip->on = std::make_unique<ToggleControl> (p.apvts, prefix + "_on", "ON");
-            strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "MODE");
-            strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "EXCITE");
-            strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "TABLE");
+            strip->mode = std::make_unique<ComboControl> (p.apvts, prefix + "_mode", "");
+            strip->excite = std::make_unique<ComboControl> (p.apvts, prefix + "_excite", "");
+            groupExciteMenu (*strip->excite);
+            strip->table = std::make_unique<ComboControl> (p.apvts, prefix + "_table", "");
             strip->table->setPopupOverride ([this, table = strip->table.get(), id = prefix + "_table", colour]
             {
                 TableBrowser::show (processorRef, id, colour, table->getComboBox());
             });
-            strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "WARP");
-            // One row of knobs per oscillator mode: wavetable, string, sample, granular.
+            strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "");
             const auto knob = [&] (const juce::String& suffix, const juce::String& label)
             {
                 const auto id = prefix + suffix;
@@ -53,150 +59,104 @@ public:
                         return existing.second.get();
 
                 strip->allKnobs.push_back ({ id + label, std::make_unique<KnobControl> (p.apvts, id, label, colour, false) });
+                strip->allKnobs.back().second->setSizeRole (IlanaTheme::KnobSize::minimum);
                 oscColumn.addChildComponent (*strip->allKnobs.back().second);
                 return strip->allKnobs.back().second.get();
             };
 
-            // The OSC page's knobs, a subset in the same order and with the
-            // same names.
-            strip->modeKnobs[0] = { knob ("_frame", "FRAME"), knob ("_warp_amt", "WARP AMT"), knob ("_level", "LEVEL"),
-                                    knob ("_semi", "SEMI"), knob ("_unison", "UNISON"), knob ("_detune", "DETUNE") };
-            strip->modeKnobs[1] = { knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP"),
-                                    knob ("_string_sustain", "SUSTAIN"), knob ("_level", "LEVEL"), knob ("_semi", "SEMI"),
-                                    knob ("_unison", "UNISON") };
-            strip->modeKnobs[2] = { knob ("_sample_start", "START"), knob ("_sample_end", "END"),
-                                    knob ("_sample_fade_out", "FADE OUT"), knob ("_level", "LEVEL"), knob ("_semi", "SEMI"),
-                                    knob ("_unison", "UNISON") };
-            strip->modeKnobs[3] = { knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE"),
-                                    knob ("_grain_density", "DENSITY"), knob ("_grain_spray", "SPRAY"), knob ("_level", "LEVEL"),
-                                    knob ("_semi", "SEMI") };
+            // Four columns in one order for every mode (UI review 7, V7-26,
+            // S7-3): the pitch (SEMI, or a wavetable's RATIO or FIXED), LEVEL,
+            // then the mode's two main knobs. An operator on the Operator Env
+            // follows the FM card's order: RATIO, FINE, its OUTPUT in dB, the
+            // oscillator's own LEVEL (I7-2, I7-19; review 8, V8-5; 9, I9-7).
+            strip->pitchKnobs = { knob ("_semi", "SEMI"), knob ("_ratio", "RATIO"), knob ("_fixed_hz", "FIXED") };
+            strip->modeKnobs[0] = { knob ("_level", "LEVEL"), knob ("_frame", "FRAME"), knob ("_unison", "UNISON") };
+            strip->warpKnob = knob ("_warp_amt", "WARP");
+            strip->detuneKnob = knob ("_detune", "DETUNE");
+            strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
+            strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
+            strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
-            strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN") };
+            strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
+            // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
+            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
 
-            // A wavetable's WARP AMT does nothing while WARP is Off, nor DETUNE
-            // with one unison voice.
-            effectRules.add (*strip->modeKnobs[0][1], effectRules.choiceIsNot (prefix + "_warp", 0), "WARP is Off");
-            effectRules.add (*strip->modeKnobs[0][5], effectRules.isAbove (prefix + "_unison", 1.5f), "UNISON is 1");
+            // The slots by role, the same on every strip (review 12, I12-10).
+            for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains or the live input." },
+                                              { strip->table.get(), "SOURCE\nThe wavetable (or sample) this oscillator plays." },
+                                              { strip->excite.get(), "SOURCE\nWhat excites the string: a hammer, a bow, a pluck..." },
+                                              { strip->warp.get(), "WARP MODE\nHow the table is bent. Off leaves it as it is." } })
+            {
+                combo->setTooltip (tip);
+                combo->getComboBox().setTooltip (tip);
+            }
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp);
             oscColumn.addChildComponent (*strip->excite);
 
-            // Switching an oscillator on by hand keeps its card open when
-            // the column folds cards to fit.
-            strip->on->addMouseListener (this, true);
-
             strips.push_back (std::move (strip));
         }
 
-        // The ADD button sits in a card's header (the PATCH tile's, or the
-        // last oscillator's), not as a bar of its own.
-        addOscButton.setButtonText ("+  ADD OSC");
-        addOscButton.setTooltip ("Add the next oscillator, switched on");
+        // One way to add an oscillator: one row after the strips (UI review
+        // 6, S33; review 7, V7-4).
+        addOscButton.setTooltip ("Add this oscillator, switched on");
         addOscButton.onClick = [this]
         {
-            for (int osc = 0; osc < OscillatorIds::count; ++osc)
-                if (! processorRef.isOscillatorShown (osc))
-                {
-                    processorRef.addOscillator (osc);
-                    pinnedCard = osc;
-                    break;
-                }
+            if (const auto next = firstEmptySlot(); next >= 0)
+                processorRef.performEdit ("Add OSC " + juce::String (next + 1), [this, next] { processorRef.addOscillator (next); });
 
             updateStrips();
         };
         oscColumn.addChildComponent (addOscButton);
         oscColumn.addChildComponent (patchFlow);
-
-        // Sub and noise under the oscillators: the rest of the sources, laid
-        // out like the filter card (menus stacked left, knobs on the
-        // oscillators' knob grid).
-        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "SHAPE");
-        subOctave = std::make_unique<ComboControl> (p.apvts, "sub_octave", "OCTAVE");
-        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB LEVEL", subColour(), true);
-        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", IlanaTheme::Ui::text2, false);
-        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel);
         oscColumn.addChildComponent (outputView);
-        // A folded SUB + NOISE opens on a click (the noise has no switch of
-        // its own); an opened one closes again the same way while both are off.
-        // A card folded to fit opens on a click on its title line (another
-        // one folds instead). Right-click an oscillator's title for its menu.
+
+        // Sub and noise in the last slot: the sub's shape and octave stacked
+        // as the oscillators' menus are, its level and the noise.
+        // The switch is the sub's alone, and says so; the noise has its
+        // own level and colour (V8-14, V8-15).
+        subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
+        subShape = std::make_unique<ChoicePills> (p.apvts, "sub_shape", juce::StringArray { "Sine", "Square", "Saw" }, subColour(),
+                                                   juce::StringArray { "Sin", "Sqr", "Saw" });
+        subOctave = std::make_unique<ChoicePills> (p.apvts, "sub_octave", juce::StringArray { "-1 Oct", "-2 Oct" }, subColour());
+        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", subColour(), true);
+        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", noiseTint(), false);
+        subLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
+        noiseColour = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", noiseTint(), false);
+        noiseLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
+        noiseColour->setSizeRole (IlanaTheme::KnobSize::minimum);
+        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel, *noiseColour);
+
+        // Right-click an oscillator's title for its menu (switch, remove).
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
         {
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            {
-                const auto& card = oscCards[(size_t) osc];
-
-                if (! shownStrips[(size_t) osc] || ! card.contains (point) || point.y >= card.getY() + 30)
-                    continue;
-
-                if (popup)
-                    showOscMenu (osc);
-                else if (autoFolded[(size_t) osc])
+                if (shownStrips[(size_t) osc] && ! isFolded (osc)
+                    && (titleArea (oscCards[(size_t) osc]).reduced (0, 6).removeFromTop (16).contains (point) || editLinkArea (oscCards[(size_t) osc]).contains (point)))
                 {
-                    pinnedCard = osc;
-                    resized();
+                    // Right-click: the menu; click: all of this oscillator's
+                    // controls on OSC (review 9, S9-4: PLAY's strip is the
+                    // quick copy).
+                    if (popup)
+                        showOscMenu (osc);
+                    else if (onEditOscillator != nullptr)
+                        onEditOscillator (osc);
                 }
-
-                return;
-            }
-
-            if (popup || ! subCard.contains (point) || point.y >= subCard.getY() + 30 || subOn == nullptr
-                || subOn->getBounds().contains (point))
-                return;
-
-            if (subAutoFolded)
-            {
-                pinnedCard = subCardId;
-                resized();
-            }
-            else if (subIsIdle())
-            {
-                subExpanded = ! subExpanded;
-                pinnedCard = subExpanded ? subCardId : pinnedCard;
-                resized();
-            }
         };
 
-        oscColumn.onPaint = [this] (juce::Graphics& g)
+        oscColumn.onHover = [this] (juce::Point<int> point)
         {
-            if (! subCard.isEmpty())
-            {
-                const auto folded = subFolded || subAutoFolded;
-                paintCard (g, subCard, "SUB + NOISE", subColour(), folded);
-
-                if (folded)
-                {
-                    g.setColour (IlanaTheme::Ui::text3);
-                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                    g.drawText (subAutoFolded ? "folded to fit  -  click to open" : "OFF  -  switch on, or click to reach the noise",
-                                subCard.withTrimmedLeft (110).withHeight (16).withY (titleCentreY (subCard, true) - 8),
-                                juce::Justification::centredLeft);
-                }
-            }
-
-            if (! patchCard.isEmpty())
-                paintCard (g, patchCard, "PATCH", IlanaTheme::accent());
-
+            auto now = -1;
             for (int osc = 0; osc < OscillatorIds::count; ++osc)
-                if (shownStrips[(size_t) osc])
-                {
-                    const auto folded = ! isOpen (osc);
-                    paintCard (g, oscCards[(size_t) osc], "OSC " + juce::String (osc + 1), OscPage::oscColour (osc), folded);
-
-                    if (folded)
-                    {
-                        static const char* const modeNames[] { "WAVETABLE", "PHYSICAL", "SAMPLE", "GRANULAR", "LIVE" };
-                        const juce::String mode (modeNames[juce::jlimit (0, 4, readInt (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode"))]);
-                        g.setColour (IlanaTheme::Ui::text3);
-                        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive));
-                        g.drawText (autoFolded[(size_t) osc] ? mode + "  -  folded to fit  -  click to open"
-                                                             : "OFF  -  " + mode + "  -  switch on to edit",
-                                    oscCards[(size_t) osc].withTrimmedLeft (80).withHeight (18).withY (titleCentreY (oscCards[(size_t) osc], true) - 9),
-                                    juce::Justification::centredLeft);
-                    }
-                }
+                if (shownStrips[(size_t) osc] && ! isFolded (osc) && editLinkArea (oscCards[(size_t) osc]).contains (point))
+                    now = osc;
+            if (now != hoverEditLink)
+            {
+                hoverEditLink = now;
+                oscColumn.repaint();
+            }
         };
+        oscColumn.onPaint = [this] (juce::Graphics& g) { paintColumn (g); };
         oscView.setViewedComponent (&oscColumn, false);
         oscView.setScrollBarsShown (true, false);
         oscView.setScrollBarThickness (6);
@@ -232,7 +192,13 @@ public:
 
             for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" },
                                       { "_drive", "DRIVE" }, { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" } })
+            {
                 set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, filterColour (f), false));
+                // A DX7 voice has no filter: its knobs but CUTOFF, which
+                // brings one in, dim and say why (review 14, I14-3).
+                if (juce::String (spec.first) != "_cutoff")
+                    effectRules.add (*set->items.back(), [this] { return ! operatorFilterOff; }, "a DX7 voice has no filter: turn CUTOFF down to bring one in");
+            }
 
             for (auto& item : set->items)
                 addChildComponent (*item);
@@ -240,12 +206,13 @@ public:
             filterSets.push_back (std::move (set));
         }
 
-        // Envelopes: graph plus ADSR per envelope, swapped by the tabs.
+        // Envelopes: graph plus ADSR per envelope, swapped by the tabs (one
+        // per envelope the MOD page's pool shows: UI review 6, S6-34).
         const char* const envPrefixes[] { "amp", "fe", "f2e", "me", "e4" };
 
-        for (int e = 0; e < 5; ++e)
+        for (int e = 0; e < 16; ++e)
         {
-            const juce::String prefix (envPrefixes[e]);
+            const juce::String prefix (e < 5 ? juce::String (envPrefixes[e]) : "env" + juce::String (e + 1));
             auto set = std::make_unique<ControlSet>();
             set->display = std::make_unique<EnvelopeDisplay> (p, prefix, envColour (e), e == 0);
 
@@ -261,12 +228,34 @@ public:
             envSets.push_back (std::move (set));
         }
 
+        // AMP ENV dims, and says why, while nothing plays it (an operator
+        // patch on its Operator EG: UI review 6, V3, I6-2); EDIT OP ENV opens
+        // the operator's envelope on FM.
+        for (auto* control : { static_cast<juce::Component*> (envSets[0]->display.get()), envSets[0]->items[0].get(),
+                               envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
+            effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
+
+        styleJumpLink (opEgButton, "OP ENV");
+        opEgButton.setTooltip ("Open the Operator Env's editor. Each operator plays its own copy; it shapes their levels, and AMP ENV is unused.");
+        opEgButton.onClick = [this]
+        {
+            if (onEditOperator != nullptr)
+                onEditOperator (juce::jmax (0, firstOperatorEg()));
+        };
+        addChildComponent (opEgButton);
+
+        // OP ENV, first among the envelope tabs on a patch that plays it
+        // (UI review 8, I8-18): its picture, and a link to its one editor.
+        opEnvOverview.onClick = [this] { opEgButton.triggerClick(); };
+        addChildComponent (opEnvOverview);
+
         // LFOs: the cards plus the selected LFO's main controls.
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
         {
             const auto prefix = "lfo" + juce::String (lfo + 1);
             auto set = std::make_unique<ControlSet>();
             set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
+            LfoShapeMenu::apply (static_cast<ComboControl&> (*set->items.back()), p); // MOD's names and grouped list (I7-44)
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
             set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
 
@@ -288,7 +277,7 @@ public:
         lfoThumbs.onLayoutChanged = [this] { resized(); };
 
         filterTabs.onSelect = [this] (int) { updateVisibility(); };
-        envTabs.onSelect = [this] (int) { updateVisibility(); };
+        envTabs.onSelect = [this] (int index) { envTabPicked (index); };
         lfoTabs.onSelect = [this] (int index)
         {
             lfoThumbs.setSelected (index);
@@ -296,16 +285,27 @@ public:
         };
 
         filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
-        envTabs.onOpen = [this] { if (onEditEnvelope != nullptr) onEditEnvelope (envTabs.getSelected()); };
+        // On OP ENV the header's EDIT opens the operator's editor, so no second
+        // link sits under the paragraph (review 11, I11-14).
+        envTabs.onOpen = [this]
+        {
+            if (selectedEnv == opEnvTab && onEditOperator != nullptr)
+                onEditOperator (juce::jmax (0, firstOperatorEg()));
+            else if (onEditEnvelope != nullptr)
+                onEditEnvelope (selectedEnv);
+        };
         lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
 
         addAll (*this, filterTabs, envTabs, lfoTabs);
+        refreshEnvTabs();
         updateVisibility();
         updateStrips();
 
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on" })
+            for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
+        for (const auto* id : { "subosc_on", "noise_level" })
+            processorRef.apvts.addParameterListener (id, this);
 
         startTimerHz (8);
     }
@@ -313,11 +313,13 @@ public:
     ~MainPage() override
     {
         for (const auto* prefix : OscillatorIds::prefixes)
-            for (const auto* suffix : { "_mode", "_on" })
+            for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
+        for (const auto* id : { "subosc_on", "noise_level" })
+            processorRef.apvts.removeParameterListener (id, this);
     }
 
-    std::function<void (int)> onEditLfo, onEditEnvelope;
+    std::function<void (int)> onEditLfo, onEditEnvelope, onEditOperator, onEditOscillator;
     std::function<void (const juce::String&)> onOpenPage;
 
     static juce::Colour lfoColour (int index)
@@ -327,16 +329,110 @@ public:
 
     static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
 
-    static juce::Colour envColour (int index)
+    static juce::Colour envColour (int index) { return EnvSection::colourOf (index); }
+
+    // The envelope PLAY shows (ENV 1-16, 0-based; opEnvTab for OP ENV).
+    int getSelectedEnvelope() const { return selectedEnv; }
+
+    // The OP ENV tab's id, after ENV 1-16 (as the MOD page numbers it).
+    static constexpr int opEnvTab = EnvSection::opEnvId;
+
+    static juce::String envTabTitle (int env) { return env == opEnvTab ? juce::String ("OP ENV") : envelopeTitle (env); }
+
+    juce::Colour envTabColour (int env) const
     {
-        switch (index)
+        if (env == opEnvTab)
+            return OperatorPool::colour();
+        // AMP ENV dims on a voice whose oscillators all play OP ENV.
+        if (env == 0 && shownAmpNote.isNotEmpty())
+            return IlanaTheme::Ui::text3;
+        return envColour (env);
+    }
+
+    // PLAY's envelope tabs: the envelopes the MOD page's pool shows, as
+    // many as fit the card's header, the selected one always among them,
+    // and "+N" for the rest (a menu).
+    void refreshEnvTabs()
+    {
+        std::vector<int> shown;
+        if (operatorPoolShown (processorRef))
+            shown.push_back (opEnvTab);
+        for (int env = 0; env < (int) envSets.size(); ++env)
+            if (envelopeShown (processorRef, env))
+                shown.push_back (env);
+        if (shown.empty())
+            shown.push_back (0);
+        if (std::find (shown.begin(), shown.end(), selectedEnv) == shown.end())
+            selectedEnv = shown.front();
+
+        const auto room = envCard.isEmpty() ? 1000 : envCard.getWidth() - 16 - 110 /* the card's title */;
+        const auto namesFor = [] (const std::vector<int>& envs, int hidden)
         {
-            case 1: return juce::Colour (0xffc86bff);
-            case 2: return juce::Colour (0xff8f9dff);
-            case 3: return juce::Colour (0xff8fff3b);
-            case 4: return juce::Colour (0xff5b8cff);
-            default: return modSourceColour ((int) Mod::Source::AmpEnv);
+            juce::StringArray names;
+            for (const auto env : envs)
+                names.add (envTabTitle (env));
+            if (hidden > 0)
+                names.add (juce::String (hidden) + " MORE"); // (as the MOD pool says it: V13-16)
+            return names;
+        };
+
+        auto tabs = shown;
+        auto hidden = 0;
+        while (tabs.size() > 1)
+        {
+            CardTabs probe (namesFor (tabs, hidden), {}, true);
+            if (probe.getIdealWidth() <= room)
+                break;
+            // Drop the last one that isn't selected.
+            for (auto it = tabs.rbegin(); it != tabs.rend(); ++it)
+                if (*it != selectedEnv)
+                {
+                    tabs.erase (std::next (it).base());
+                    ++hidden;
+                    break;
+                }
         }
+
+        std::vector<juce::Colour> colours;
+        for (const auto env : tabs)
+            colours.push_back (envTabColour (env));
+        if (hidden > 0)
+            colours.push_back (IlanaTheme::Ui::text3);
+
+        envTabEnvs = tabs;
+        envHiddenEnvs.clear();
+        for (const auto env : shown)
+            if (std::find (tabs.begin(), tabs.end(), env) == tabs.end())
+                envHiddenEnvs.push_back (env);
+
+        envTabs.setNames (namesFor (tabs, hidden), colours);
+        envTabs.setSelected ((int) (std::find (tabs.begin(), tabs.end(), selectedEnv) - tabs.begin()), false);
+    }
+
+    void envTabPicked (int index)
+    {
+        if (index < (int) envTabEnvs.size())
+        {
+            selectedEnv = envTabEnvs[(size_t) index];
+            updateVisibility();
+            return;
+        }
+
+        // "+N": the envelopes that didn't fit.
+        envTabs.setSelected ((int) (std::find (envTabEnvs.begin(), envTabEnvs.end(), selectedEnv) - envTabEnvs.begin()), false);
+        juce::PopupMenu menu;
+        for (const auto env : envHiddenEnvs)
+            menu.addItem (env + 1, envTabTitle (env));
+        juce::Component::SafePointer<MainPage> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&envTabs), [safeThis] (int id)
+        {
+            if (safeThis == nullptr || id <= 0)
+                return;
+            safeThis->selectedEnv = id - 1;
+            safeThis->refreshEnvTabs();
+            safeThis->resized();
+            safeThis->updateVisibility();
+        });
     }
 
     void paint (juce::Graphics& g) override
@@ -344,99 +440,221 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintCard (g, filterCard, "FILTER", filterColour (filterTabs.getSelected()));
-        paintCard (g, envCard, "ENVELOPE", envColour (envTabs.getSelected()));
+
+        // A DX7 voice has no filter: the response says so instead of
+        // drawing a flat line (I14-3).
+        if (operatorFilterOff)
+        {
+            const auto well = filterDisplay.getBounds().toFloat();
+            IlanaTheme::paintWell (g, well, 6.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            IlanaTheme::drawFitted (g, "FILTER OFF", well.toNearestInt().withTrimmedBottom ((int) (well.getHeight() / 2.0f)), juce::Justification::centredBottom, 1);
+            g.setColour (IlanaTheme::Ui::text3);
+            const auto noteFont = IlanaTheme::font (IlanaTheme::TextSize::label);
+            g.setFont (noteFont);
+            const juce::String note ("a DX7 voice has none: turn CUTOFF down to bring one in");
+            // (A box only as wide and tall as the words, so it never reaches the controls around the well.)
+            auto noteArea = well.toNearestInt().withTrimmedTop ((int) (well.getHeight() / 2.0f) + 2).reduced (8, 0);
+            noteArea = noteArea.withSizeKeepingCentre (juce::jmin (noteArea.getWidth(), juce::GlyphArrangement::getStringWidthInt (noteFont, note) + 2), noteArea.getHeight())
+                               .withHeight (juce::jmin (noteArea.getHeight(), 2 * (int) std::ceil (noteFont.getHeight()) + 2));
+            IlanaTheme::drawFitted (g, note, noteArea, juce::Justification::centredTop, 2);
+        }
+        paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
+
+        // OP ENV: what plays it, beside its picture: each operator's OUTPUT as
+        // a bar (V12-13; the sentence on what the Operator Env does is in
+        // the tooltip of EDIT OP ENV).
+        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
+        {
+            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+            const auto count = (int) operators.size();
+            auto area = opEnvNoteArea;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            // (Said shorter when the card is narrow: no cut word, V14-17.)
+            const auto heading = area.removeFromTop (14);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            auto sentence = juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV");
+            for (const auto& shorter : { juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
+                                         juce::String (count) + (count == 1 ? " PLAYS THE OP ENV" : " PLAY THE OP ENV") })
+                if (juce::GlyphArrangement::getStringWidthInt (font, sentence) > heading.getWidth())
+                    sentence = shorter;
+            IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
+            area.removeFromTop (4);
+            const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
+            for (int i = 0; i < count && rowHeight >= 10; ++i)
+            {
+                const auto osc = operators[(size_t) i];
+                const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
+                if (parameter == nullptr)
+                    continue;
+                auto row = area.removeFromTop (rowHeight);
+                g.setColour (OscPage::oscColour (osc));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.drawText ("OSC " + juce::String (osc + 1), row.removeFromLeft (46), juce::Justification::centredLeft);
+                const auto value = row.removeFromRight (62);
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText (parameter->getCurrentValueAsText(), value, juce::Justification::centredRight);
+                const auto bar = row.withSizeKeepingCentre (row.getWidth() - 6, 6).toFloat();
+                g.setColour (juce::Colours::white.withAlpha (0.07f));
+                g.fillRoundedRectangle (bar, 3.0f);
+                g.setColour (OscPage::oscColour (osc).withAlpha (0.85f));
+                g.fillRoundedRectangle (bar.withWidth (juce::jmax (3.0f, bar.getWidth() * parameter->getValue())), 3.0f);
+            }
+        }
+
+        if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, shownAmpNote, ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0).withTrimmedLeft (4),
+                              juce::Justification::centredLeft, 2);
+        }
         paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
+
+        // How the selected LFO runs, in MOD's words (UI review 9, I9-19).
+        if (! lfoCard.isEmpty() && shownLfoCaption.isNotEmpty())
+        {
+            const auto centreY = titleCentreY (lfoCard);
+            const auto titleRight = lfoCard.getX() + 24
+                                    + juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), "LFO") + 10;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, shownLfoCaption, juce::Rectangle<int> (titleRight, centreY - 8, lfoCard.getRight() - 12 - titleRight, 16),
+                                    juce::Justification::centredLeft, 1);
+        }
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (12, 10);
-        auto left = area.removeFromLeft ((int) ((float) area.getWidth() * 0.54f));
+        auto left = area.removeFromLeft ((int) ((float) area.getWidth() * 0.56f));
         area.removeFromLeft (10);
         auto right = area;
 
-        // Open cards keep the three-oscillator size (no taller than their
-        // controls need); switched-off ones fold to a title line.
+        // The added oscillators' strips and SUB + NOISE, with one slim
+        // "+ ADD OSC" row between them while a slot is free (UI review 7,
+        // V7-4, S7-2). The strips share the column's height (UI review 9,
+        // V9-1, V9-2): few of them grow up to a cap, so the column ends
+        // where the right one does; five or six shrink to compact rows, so
+        // a six-operator voice shows whole without scrolling. A
+        // switched-off oscillator folds to a slim strip with its switch
+        // (V8-17); only a window too small even for compact rows scrolls.
         oscView.setBounds (left);
-        const auto anyHidden = std::find (shownStrips.begin(), shownStrips.end(), false) != shownStrips.end();
-        const auto oscHeight = juce::jmin ((left.getHeight() - 16) / 3, openOscHeight);
-        subFolded = subIsIdle() && ! subExpanded;
-        updateFolds (left.getHeight(), oscHeight);
-        const auto subHeight = subFolded || subAutoFolded ? foldedHeight : subCardHeight;
-        const auto columnHeight = neededHeight (oscHeight);
-
+        const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
+        auto shown = 0, folded = 0;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (shownStrips[(size_t) osc])
+            {
+                ++shown;
+                folded += isFolded (osc) ? 1 : 0;
+            }
+        const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
+        folded += subFolded ? 1 : 0;
+        const auto flexible = shown + 1 - folded; // the open strips and SUB + NOISE
+        const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
+        // The strips fill the column first, up to a cap (ilana, 2026-10-05: the
+        // pictures and knobs get the room); the PATCH tile (and the OUTPUT
+        // view) take only the height left over. When that is too little for a
+        // tile the strips take it instead, up to a larger cap, so the column
+        // never ends in a bare band (V10-2, V10-4).
+        auto slotHeight = juce::jlimit (minSlotHeight, maxSlotHeight, free / juce::jmax (1, flexible));
+        {
+            const auto spare = free - flexible * slotHeight - slotGap;
+            if (spare < patchMinHeight)
+                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, free / juce::jmax (1, flexible));
+            else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
+                slotHeight = juce::jlimit (minSlotHeight, maxGrownSlotHeight, slotHeight + (spare - maxPatchOnlyHeight) / juce::jmax (1, flexible));
+        }
+        auto columnHeight = 0, lastWholeBottom = 0;
+        std::vector<int> cardTops;
+        const auto addCard = [&] (int height)
+        {
+            columnHeight += columnHeight > 0 ? slotGap : 0;
+            cardTops.push_back (columnHeight);
+            columnHeight += height;
+            if (columnHeight <= left.getHeight())
+                lastWholeBottom = columnHeight;
+        };
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (shownStrips[(size_t) osc])
+                addCard (isFolded (osc) ? foldedHeight : slotHeight);
+        if (addRow > 0)
+            addCard (addRowHeight);
+        addCard (subFolded ? foldedHeight : slotHeight);
         const auto scrolls = columnHeight > left.getHeight();
-        oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0),
-                           juce::jmax (columnHeight, left.getHeight()));
+        // A scrolling column ends its view at a strip's foot, so no strip
+        // shows cut in half (V13, S8).
+        if (scrolls && lastWholeBottom > left.getHeight() / 2)
+            oscView.setBounds (left.withHeight (lastWholeBottom));
+        oscView.setSingleStepSizes (16, slotHeight + slotGap);
+        // The column's foot is padded so that scrolled to its end the view
+        // also starts at a strip's top, and the view snaps to a strip's top.
+        const auto viewHeight = oscView.getHeight();
+        auto paddedHeight = juce::jmax (columnHeight, left.getHeight());
+        auto snappedY = 0;
+        if (scrolls)
+        {
+            const auto lastTop = *std::find_if (cardTops.begin(), cardTops.end(),
+                                                [&] (int top) { return columnHeight - top <= viewHeight; });
+            paddedHeight = juce::jmax (columnHeight, lastTop + viewHeight);
+            for (const auto top : cardTops)
+                if (top <= juce::jmin (oscView.getViewPositionY() + slotHeight / 2, lastTop))
+                    snappedY = top;
+        }
+        oscColumn.setSize (left.getWidth() - (scrolls ? oscView.getScrollBarThickness() + 3 : 0), paddedHeight);
+        oscView.setViewPosition (0, snappedY);
         auto column = oscColumn.getLocalBounds();
-        auto lastShown = -1;
+        addOscButton.setVisible (false);
+        addRowArea = {};
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
-            showStrip (osc);
+            oscCards[(size_t) osc] = {};
 
-            if (! shownStrips[(size_t) osc])
+            if (shownStrips[(size_t) osc])
             {
-                oscCards[(size_t) osc] = {};
-                continue;
+                oscCards[(size_t) osc] = column.removeFromTop (isFolded (osc) ? foldedHeight : slotHeight);
+                column.removeFromTop (slotGap);
             }
 
-            oscCards[(size_t) osc] = column.removeFromTop (isOpen (osc) ? oscHeight : foldedHeight);
-            column.removeFromTop (8);
+            showStrip (osc);
             layoutStrip (osc, oscCards[(size_t) osc]);
-            lastShown = osc;
         }
 
-        // Height the column doesn't need goes to a tile that shows the patch
-        // live (the signal flow, clickable as on FILTER, with the ADD button
-        // in its header) and, with room to spare, a live output view; the
-        // sub card ends level with the LFO card rather than leaving a gap.
-        const auto leftover = scrolls ? 0 : juce::jmax (0, column.getHeight() - subHeight);
-        const auto showOutput = leftover >= (anyHidden ? patchWithOutputHeight + 8 : 8) + outputMinHeight;
-        const auto showPatch = anyHidden && leftover >= patchMinHeight + 8;
-        auto tile = juce::Rectangle<int>();
-        outputCard = {};
-
-        if (showOutput)
+        if (const auto next = firstEmptySlot(); next >= 0)
         {
-            const auto patchHeight = showPatch ? juce::jlimit (patchWithOutputHeight, patchWithOutputHeight + 30, leftover / 2) : 0;
-            tile = column.removeFromTop (patchHeight);
-            column.removeFromTop (showPatch ? 8 : 0);
-            outputCard = column.removeFromTop (leftover - patchHeight - (showPatch ? 16 : 8));
-            column.removeFromTop (8);
-        }
-        else if (showPatch)
-        {
-            tile = column.removeFromTop (leftover - 8);
-            column.removeFromTop (8);
+            addRowArea = column.removeFromTop (addRowHeight);
+            column.removeFromTop (slotGap);
+            addOscButton.setLabel ("+  ADD OSC " + juce::String (next + 1));
+            addOscButton.setBounds (addRowArea);
+            addOscButton.setVisible (true);
         }
 
-        patchCard = showPatch ? tile : juce::Rectangle<int>();
-        patchFlow.setVisible (showPatch);
-        addOscButton.setVisible (anyHidden && (showPatch || lastShown >= 0));
+        subCard = column.removeFromTop (subFolded ? foldedHeight : slotHeight);
+        layoutSubCard();
 
+        // Height the strips don't take goes to a live PATCH tile (the signal
+        // flow, as on FILTER) and, with room to spare, a live output view, so
+        // the left column never ends in dead space.
+        patchCard = outputCard = {};
+        column.removeFromTop (slotGap);
+        const auto spare = scrolls ? 0 : column.getHeight();
+        const auto showPatch = spare >= patchMinHeight;
+        const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
         if (showPatch)
         {
-            auto header = tile.reduced (8, 0).withHeight (26).reduced (0, 3);
-            addOscButton.setBounds (header.removeFromRight (104));
-            patchFlow.setBounds (tile.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
+            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : juce::jmin (spare, maxPatchOnlyHeight));
+            column.removeFromTop (slotGap);
+            if (showOutput)
+                outputCard = column.removeFromTop (column.getHeight());
+            patchFlow.setBounds (patchCard.withTrimmedTop (30).reduced (12, 0).withTrimmedBottom (12));
+            outputView.setBounds (outputCard.withTrimmedTop (22).reduced (6, 0).withTrimmedBottom (8));
         }
-        else if (lastShown >= 0)
-        {
-            // In the last oscillator's title line, left of its switch.
-            const auto& card = oscCards[(size_t) lastShown];
-            const auto centreY = titleCentreY (card, ! isOpen (lastShown));
-            const auto switchBounds = IlanaTheme::cardSwitchBounds (card, centreY);
-            addOscButton.setBounds (switchBounds.getX() - 96, centreY - 9, 88, 18);
-        }
-
-        subCard = column.removeFromTop (subHeight + (showPatch || showOutput ? 0 : leftover));
-        outputView.setVisible (! outputCard.isEmpty());
-
-        if (! outputCard.isEmpty())
-            outputView.setBounds (outputCard);
-
-        layoutSubCard();
+        patchFlow.setVisible (showPatch);
+        outputView.setVisible (showOutput);
         oscColumn.repaint();
 
         const auto lfoHeight = juce::jlimit (132, 170, right.getHeight() / 3);
@@ -454,6 +672,7 @@ public:
         };
 
         placeTabs (filterTabs, filterCard);
+        refreshEnvTabs();
         placeTabs (envTabs, envCard);
         placeTabs (lfoTabs, lfoCard);
 
@@ -477,11 +696,27 @@ public:
             auto displayArea = inner.removeFromLeft (juce::jmin (230, inner.getWidth() / 2));
             inner.removeFromLeft (6);
 
+            // An unused AMP ENV says so under its knobs.
+            ampNoteArea = shownAmpNote.isNotEmpty() ? inner.removeFromBottom (28) : juce::Rectangle<int>();
+            auto noteArea = ampNoteArea;
+            opEgButton.setBounds (noteArea.removeFromRight (100).withSizeKeepingCentre (96, 22));
+
             for (auto& set : envSets)
             {
                 set->display->setBounds (displayArea);
                 layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(), set->items[3].get() });
             }
+
+            // OP ENV: its picture where the graph is, a line on what plays
+            // it, and EDIT OP ENV under it.
+            opEnvOverview.setBounds (displayArea);
+            opEnvNoteArea = {};
+            if (selectedEnv == opEnvTab)
+            {
+                opEnvNoteArea = inner.reduced (4, 6);
+            }
+
+            updateVisibility();
         }
 
         {
@@ -512,11 +747,77 @@ private:
     {
         std::unique_ptr<ToggleControl> on;
         std::unique_ptr<ComboControl> mode, excite, table, warp;
+        juce::Component *warpKnob = nullptr, *detuneKnob = nullptr; // the wavetable's extra knobs, shown on a roomy strip
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
+        // The first column by TUNING (semitones, ratio, fixed Hz); the other
+        // three by mode, or the Operator Env's.
+        std::array<juce::Component*, 3> pitchKnobs {};
         std::array<std::vector<juce::Component*>, 5> modeKnobs;
+        std::vector<juce::Component*> operatorEnvKnobs;
         int shownMode = -1;
+        int shownTuning = 0; // a wavetable's TUNING (the pitch knob)
         bool shownOn = true;
-        bool shownOpen = false;
+        juce::String role, tableTip;
+        bool opEg = false;
+        OperatorEnvThumb thumb;
+
+        std::vector<juce::Component*> knobs (bool roomy = false) const
+        {
+            const auto mode = juce::jmax (0, shownMode);
+            std::vector<juce::Component*> result { mode == 4 ? nullptr : pitchKnobs[(size_t) (mode == 0 ? shownTuning : 0)] };
+            const auto& rest = opEg ? operatorEnvKnobs : modeKnobs[(size_t) mode];
+            result.insert (result.end(), rest.begin(), rest.end());
+
+            // Every wavetable strip has six controls, roomy or compact (UI
+            // review 13, V13-4): five or six strips shrink the picture, not
+            // the controls.
+            if (mode == 0 && ! opEg)
+            {
+                // SEMI, LEVEL, FRAME, WARP, UNISON, DETUNE
+                result.insert (result.begin() + 3, warpKnob);
+                result.push_back (detuneKnob);
+            }
+
+            return result;
+        }
+    };
+
+    // A short choice as pills (SUB's shape and octave), as SLOPE's two: the
+    // options all in view, one click each, no list to open.
+    class ChoicePills : public ParamBoundComponent
+    {
+    public:
+        ChoicePills (juce::AudioProcessorValueTreeState& state, const juce::String& id, juce::StringArray labelsIn, juce::Colour colourIn,
+                     juce::StringArray shortLabelsIn = {})
+            : ParamBoundComponent (state, id), labels (std::move (labelsIn)), shortLabels (std::move (shortLabelsIn)), colour (colourIn)
+        {
+            setTooltip (state.getParameter (id)->getName (40));
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto bounds = getLocalBounds().toFloat();
+            const auto width = bounds.getWidth() / (float) labels.size();
+
+            // A narrow pill (a low card) says it shorter rather than cut.
+            const auto fits = [&] (const juce::String& text) { return juce::GlyphArrangement::getStringWidth (IlanaTheme::pillFont(), text) <= width - 10.0f; };
+            auto shown = labels;
+            if (shortLabels.size() == labels.size() && ! std::all_of (labels.begin(), labels.end(), fits))
+                shown = shortLabels;
+
+            for (int option = 0; option < labels.size(); ++option)
+                IlanaTheme::paintPill (g, bounds.withWidth (width).withX (bounds.getX() + width * (float) option).reduced (2.0f, 1.0f),
+                                       shown[option], colour, option == current);
+        }
+
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            setValue (juce::jlimit (0, labels.size() - 1, (int) (event.position.x / (float) getWidth() * (float) labels.size())));
+        }
+
+    private:
+        juce::StringArray labels, shortLabels;
+        juce::Colour colour;
     };
 
     // SLOPE as on the FILTER page: its 12 dB / 24 dB pills, under a label
@@ -555,8 +856,8 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
-    // Tracks the added oscillators, each one's mode and switch; the layout
-    // then shows the controls of the open ones.
+    // Tracks each slot's oscillator (added or not, its mode, its switch, and
+    // whether it is an FM operator); a change lays the strips out again.
     void updateStrips()
     {
         auto changed = false;
@@ -565,114 +866,124 @@ private:
         for (int index = 0; index < (int) strips.size(); ++index)
         {
             auto& strip = *strips[(size_t) index];
-            const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+            const auto prefix = OscRole::prefix (index);
             const auto mode = juce::jlimit (0, 4, readInt (prefix + "_mode"));
             const auto on = readInt (prefix + "_on") > 0;
             const auto shown = processorRef.isOscillatorShown (index);
+            const auto tuning = OscRole::tuning (processorRef, index);
+            const auto role = OscRole::roleLine (processorRef, index);
+            const auto opEg = mode == 0 && OscRole::usesOperatorEg (processorRef, index);
 
-            if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn)
+            // A modulator's OUTPUT is a depth (I12-3).
+            if (auto* outKnob = dynamic_cast<KnobControl*> (strip.operatorEnvKnobs[1]))
+                if (const auto name = juce::String (OscRole::outputKnobName (processorRef, index)); outKnob->getLabelText() != name)
+                    outKnob->setLabelText (name);
+
+            if (role != strip.role || (opEg && strip.thumb.update (processorRef, index)))
+            {
+                strip.role = role;
+                oscColumn.repaint();
+            }
+
+            if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn || tuning != strip.shownTuning
+                || opEg != strip.opEg)
             {
                 strip.shownMode = mode;
                 strip.shownOn = on;
+                strip.shownTuning = tuning;
+                strip.opEg = opEg;
                 shownStrips[(size_t) index] = shown;
                 changed = true;
             }
+        }
+
+        // SUB + NOISE folds like a switched-off oscillator while the sub is off
+        // and there is no noise (as on OSC; V12-7).
+        const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
+        const auto subFold = readInt ("subosc_on") == 0 && (noise == nullptr || noise->load() < 0.0005f);
+        if (subFold != subFolded)
+        {
+            subFolded = subFold;
+            changed = true;
         }
 
         if (changed)
             resized();
     }
 
-    // An oscillator card shows its controls when the oscillator is on and
-    // the column hasn't folded it to fit.
-    bool isOpen (int osc) const
+    // A switched-off oscillator's strip folds to its title, what it plays
+    // and its switch (UI review 8, V8-17); switching it on unfolds it.
+    bool isFolded (int osc) const { return shownStrips[(size_t) osc] && ! strips[(size_t) osc]->shownOn; }
+
+    // What a folded strip plays: "Wavetable · Basic".
+    juce::String foldedSummary (int osc) const
     {
-        return shownStrips[(size_t) osc] && strips[(size_t) osc]->shownOn && ! autoFolded[(size_t) osc];
+        const auto& strip = *strips[(size_t) osc];
+        const auto mode = juce::jmax (0, strip.shownMode);
+        auto text = strip.mode->getComboBox().getText();
+        const auto detail = mode == 0 ? strip.table->getComboBox().getText()
+                                       : mode == 1 ? strip.excite->getComboBox().getText() : juce::String();
+        if (detail.isNotEmpty())
+            text << juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) << detail;
+        return text;
     }
 
+    int firstEmptySlot() const
+    {
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (! shownStrips[(size_t) osc])
+                return osc;
+
+        return -1;
+    }
+
+    // A strip shows its mode's controls (an operator's when it is one); a
+    // switched-off oscillator's stay in place, dimmed, until it is on.
     void showStrip (int index)
     {
         auto& strip = *strips[(size_t) index];
-        const auto open = isOpen (index);
+        const auto shown = shownStrips[(size_t) index];
         const auto mode = juce::jmax (0, strip.shownMode);
+        const auto enabled = shown && strip.shownOn;
 
         for (auto& entry : strip.allKnobs)
             entry.second->setVisible (false);
 
-        for (auto* item : strip.modeKnobs[(size_t) mode])
-            item->setVisible (open);
-
-        strip.table->setVisible (open && mode == 0);
-        strip.warp->setVisible (open && mode == 0);
-        strip.excite->setVisible (open && mode == 1);
-        strip.on->setVisible (shownStrips[(size_t) index]);
-        strip.mode->setVisible (open);
-        wave (index).setVisible (open);
-        strip.shownOpen = open;
-    }
-
-    // The column's height with the cards as folded now.
-    int neededHeight (int oscHeight) const
-    {
-        auto height = (subFolded || subAutoFolded ? foldedHeight : subCardHeight);
-
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            if (shownStrips[(size_t) osc])
-                height += (isOpen (osc) ? oscHeight : foldedHeight) + 8;
-
-        return height;
-    }
-
-    // No card is cut mid-knob (UI review 4, V13 and S8): while the column
-    // overflows, its lowest open card folds to its title line (SUB + NOISE
-    // first, then the oscillators from the last; the first stays open, as
-    // does the card last opened by hand). Only when nothing more can fold
-    // does the column scroll.
-    void updateFolds (int available, int oscHeight)
-    {
-        autoFolded.fill (false);
-        subAutoFolded = false;
-
-        std::vector<int> candidates;
-
-        if (! subFolded && pinnedCard != subCardId)
-            candidates.push_back (subCardId);
-
-        auto first = -1;
-        for (int osc = 0; osc < OscillatorIds::count && first < 0; ++osc)
-            if (shownStrips[(size_t) osc] && strips[(size_t) osc]->shownOn)
-                first = osc;
-
-        for (int osc = OscillatorIds::count - 1; osc > first; --osc)
-            if (shownStrips[(size_t) osc] && strips[(size_t) osc]->shownOn && pinnedCard != osc)
-                candidates.push_back (osc);
-
-        const auto setFolded = [this] (int card, bool folded)
+        if (isFolded (index))
         {
-            if (card == subCardId)
-                subAutoFolded = folded;
-            else
-                autoFolded[(size_t) card] = folded;
-        };
-
-        std::vector<int> folded;
-
-        for (const auto card : candidates)
-        {
-            if (neededHeight (oscHeight) <= available)
-                break;
-
-            setFolded (card, true);
-            folded.push_back (card);
+            for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
+                                   (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) &wave (index) })
+                control->setVisible (false);
+            strip.on->setVisible (true);
+            return;
         }
 
-        // A card folded early may fit again in the room a later one left.
-        for (auto card = folded.rbegin(); card != folded.rend(); ++card)
-        {
-            setFolded (*card, false);
+        std::vector<juce::Component*> controls { strip.mode.get(), strip.table.get(), strip.excite.get(), strip.warp.get(), &wave (index) };
 
-            if (neededHeight (oscHeight) > available)
-                setFolded (*card, true);
+        if (strip.opEg)
+            strip.thumb.update (processorRef, index);
+
+        for (auto* item : strip.knobs (roomy (oscCards[(size_t) index])))
+            if (item != nullptr)
+            {
+                item->setVisible (shown);
+                controls.push_back (item);
+            }
+
+        strip.table->setVisible (shown && mode == 0);
+        strip.warp->setVisible (shown && mode == 0 && ! strip.opEg && roomy (oscCards[(size_t) index]));
+        strip.excite->setVisible (shown && mode == 1);
+        // An operator names itself where the MODE menu goes (its mode is
+        // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
+        strip.mode->setVisible (shown && ! strip.opEg);
+        strip.on->setVisible (shown);
+        // An operator on the Operator Env shows its envelope instead.
+        wave (index).setVisible (shown && ! strip.opEg);
+
+        for (auto* control : controls)
+        {
+            control->setEnabled (enabled);
+            control->setAlpha (enabled ? 1.0f : offAlpha);
         }
     }
 
@@ -705,9 +1016,6 @@ private:
                                         parameter->setValueNotifyingHost (on ? 0.0f : 1.0f);
                                         parameter->endChangeGesture();
                                     });
-
-                                if (result == 1 && ! on)
-                                    safe->pinnedCard = osc;
 
                                 safe->updateStrips();
                             });
@@ -769,16 +1077,6 @@ private:
                && FilterType::usesSlope (type);
     }
 
-    void mouseDown (const juce::MouseEvent& event) override
-    {
-        // A hand on an oscillator's switch: that card stays open if it
-        // turns on.
-        for (int osc = 0; osc < (int) strips.size(); ++osc)
-            if (auto* toggle = strips[(size_t) osc]->on.get();
-                toggle != nullptr && (event.eventComponent == toggle || toggle->isParentOf (event.eventComponent)) && ! strips[(size_t) osc]->shownOn)
-                pinnedCard = osc;
-    }
-
     struct ControlSet
     {
         std::unique_ptr<EnvelopeDisplay> display;
@@ -802,24 +1100,81 @@ private:
         };
 
         showSets (filterSets, filterTabs.getSelected());
-        showSets (envSets, envTabs.getSelected());
+        showSets (envSets, selectedEnv);
         showSets (lfoSets, lfoTabs.getSelected());
         for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
             lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
+        opEgButton.setVisible (selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0);
+        opEnvOverview.setVisible (selectedEnv == opEnvTab);
         repaint();
     }
 
     void timerCallback() override
     {
-        if (processorRef.getRevealVersion() != lastRevealVersion)
-            updateStrips();
+        // (Polled, not only on the reveal version: FM routes have no
+        // listener here.)
+        updateStrips();
 
-        // SUB + NOISE folds to one line while both are off (and opens again the
-        // moment either is used).
-        if ((subIsIdle() && ! subExpanded) != subFolded)
-            resized();
+        // The envelope tabs follow the pool (an envelope added, removed, or
+        // put to use by a route or an oscillator).
+        {
+            auto shownEnvs = operatorPoolShown (processorRef) ? (1u << opEnvTab) : 0u;
+            for (int env = 0; env < (int) envSets.size(); ++env)
+                shownEnvs |= envelopeShown (processorRef, env) ? (1u << env) : 0u;
+            if (shownEnvs != lastShownEnvs)
+            {
+                lastShownEnvs = shownEnvs;
+                resized();
+                updateVisibility();
+            }
+        }
+
+        // An operator voice with both filters wide open has none.
+        {
+            auto off = false;
+            for (int osc = 0; osc < OscillatorIds::count && ! off; ++osc)
+                off = processorRef.isOscillatorShown (osc) && readInt (OscRole::prefix (osc) + "_mode") == 0 && OscRole::usesOperatorEg (processorRef, osc);
+            off = off && FilterDisplay::isPassThrough (processorRef, 0, true) && FilterDisplay::isPassThrough (processorRef, 1, true);
+            if (off != operatorFilterOff)
+            {
+                operatorFilterOff = off;
+                filterDisplay.setVisible (! off);
+                repaint (filterCard);
+            }
+        }
 
         effectRules.apply();
+
+        // The OP ENV card's bars follow the operators' OUTPUTs.
+        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
+        {
+            auto sum = 0.0f;
+            for (const auto osc : OperatorPool::operatorsOnEnv (processorRef))
+                if (const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out"))
+                    sum += parameter->getValue() * (float) (osc + 1);
+            if (sum != lastOperatorOutputs)
+            {
+                lastOperatorOutputs = sum;
+                repaint (envCard);
+            }
+        }
+
+        // The LFO card's caption and run switch follow its shape (I9-1 / I9-19).
+        {
+            const auto lfo = lfoTabs.getSelected();
+            const auto caption = LfoShapeMenu::runCaption (processorRef, lfo);
+            if (caption != shownLfoCaption)
+            {
+                shownLfoCaption = caption;
+                repaint (lfoCard);
+            }
+            if (juce::isPositiveAndBelow (lfo, (int) lfoSets.size()))
+                if (auto* retrig = dynamic_cast<ToggleControl*> (lfoSets[(size_t) lfo]->items[2].get()))
+                {
+                    const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
+                    LfoSection::labelRunSwitch (*retrig, shape != nullptr && LfoSimShapes::isSim (juce::roundToInt (shape->load())));
+                }
+        }
 
         // The sub's controls follow its switch; noise has its own level.
         {
@@ -829,22 +1184,87 @@ private:
                                    static_cast<juce::Component*> (subLevel.get()) })
                 if (control->getAlpha() != alpha)
                     control->setAlpha (alpha);
+            const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
+            const auto colourAlpha = noise != nullptr && noise->load() > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
+            if (noiseColour->getAlpha() != colourAlpha)
+                noiseColour->setAlpha (colourAlpha);
+        }
+
+        // AMP ENV says so when nothing plays it (UI review 6, V3, I6-2).
+        const auto note = ampEnvUnusedNote();
+
+        if (note != shownAmpNote)
+        {
+            // A voice whose oscillators all play OP ENV opens on its tab,
+            // not on the unused AMP ENV (UI review 8, I8-18).
+            if (note == EnvSection::ampUnusedText() && selectedEnv == 0)
+                selectedEnv = opEnvTab;
+            shownAmpNote = note;
+            resized();
+            updateVisibility();
+            repaint (envCard);
         }
     }
 
-    // The title line's centre: a folded card is just that line, centred;
-    // the switch and remove button share it.
-    static int titleCentreY (juce::Rectangle<int> card, bool folded = false)
+    // Why the amp envelope does nothing now, or empty while something plays
+    // it: an oscillator on ENVELOPE "Amp Env", the sub or the noise, or a
+    // matrix route from it.
+    juce::String ampEnvUnusedNote() const
     {
-        return folded ? card.getCentreY() : card.getY() + 14;
+        if (readInt ("subosc_on") > 0 || (processorRef.apvts.getRawParameterValue ("noise_level") != nullptr
+                                          && processorRef.apvts.getRawParameterValue ("noise_level")->load() > 0.0005f))
+            return {};
+
+        auto playing = 0, operatorEg = 0;
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            if (! processorRef.isOscillatorShown (osc) || readInt (OscRole::prefix (osc) + "_on") == 0)
+                continue;
+
+            if (readInt (OscRole::prefix (osc) + "_amp_env") == 0)
+                return {};
+
+            ++playing;
+            operatorEg += OscRole::usesOperatorEg (processorRef, osc) ? 1 : 0;
+        }
+
+        if (playing == 0)
+            return {};
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = processorRef.readModSlot (slot);
+
+            if (routing.destination != 0 && (routing.source == Mod::Source::AmpEnv || routing.aux == Mod::Source::AmpEnv))
+                return {};
+        }
+
+        // One wording with the MOD page (UI review 8, S8-17).
+        return operatorEg == playing ? juce::String (EnvSection::ampUnusedText())
+                                     : juce::String ("unused: the oscillators play other envelopes");
     }
 
-    static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool folded = false)
+    juce::String shownLfoCaption;
+
+    int firstOperatorEg() const
+    {
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (processorRef.isOscillatorShown (osc) && OscRole::usesOperatorEg (processorRef, osc))
+                return osc;
+
+        return -1;
+    }
+
+    // The title line's centre on the right column's cards.
+    static int titleCentreY (juce::Rectangle<int> card) { return card.getY() + 14; }
+
+    static void paintCard (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint)
     {
         if (card.isEmpty())
             return;
 
-        const auto centreY = titleCentreY (card, folded);
+        const auto centreY = titleCentreY (card);
         IlanaTheme::paintCard (g, card.toFloat(), 6.0f, tint);
         IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) centreY }, tint);
         g.setColour (IlanaTheme::Ui::text);
@@ -854,66 +1274,347 @@ private:
 
     WaveDisplay& wave (int index) { return *waves[(size_t) index]; }
 
+    // A strip's title column: the tag and name, then what it is.
+    // A strip with the height for it is laid out as a header line (title,
+    // role, switch) over a body: the picture takes the left, the menus sit
+    // in a row over the knobs. A low strip (six operators, a small window)
+    // keeps the title column and the stacked menus.
+    static bool roomy (juce::Rectangle<int> card) { return card.getHeight() >= roomyHeight; }
+    static int dialSize (juce::Rectangle<int> card)
+    {
+        return card.getHeight() >= tallHeight ? 64 : roomy (card) ? IlanaTheme::KnobSize::main : IlanaTheme::KnobSize::minimum;
+    }
+    static juce::Rectangle<int> titleArea (juce::Rectangle<int> card) { return card.withWidth (8 + titleWidth); }
+    // The strip's "EDIT ›": on a roomy strip in the header line, left of the
+    // switch and level with it; on a low one at the title row's right.
+    static juce::Rectangle<int> editLinkArea (juce::Rectangle<int> card)
+    {
+        return roomy (card) ? juce::Rectangle<int> (card.getRight() - switchWidth - 12 - editLinkWidth, card.getY() + headerHeight / 2 + 7 - 8, editLinkWidth, 16)
+                            : juce::Rectangle<int> (card.getRight() - 12 - 52, card.getY() + 6, 52, 16);
+    }
+
+    // A strip, left to right: title, picture, the two menus stacked, four
+    // knobs, the switch (centred on the strip, at the right like every card's).
+    struct StripColumns
+    {
+        juce::Rectangle<int> picture, menus, knobs;
+    };
+
+    // (A compact oscillator strip keeps its six controls, so its title, picture
+    // and menus are narrower; SUB + NOISE, with three knobs, gives the room to
+    // its pills instead, V13-4.)
+    static StripColumns stripColumns (juce::Rectangle<int> card, bool oscillator = true)
+    {
+        auto inner = card.reduced (8, 5);
+        StripColumns columns;
+
+        if (roomy (card))
+        {
+            inner.removeFromTop (headerHeight);
+            const auto picture = inner.removeFromLeft (juce::jmin ((int) ((float) inner.getHeight() * 1.7f), inner.getWidth() * 4 / 10));
+            columns.picture = picture;
+            inner.removeFromLeft (10);
+            columns.menus = inner.removeFromTop (24);
+            inner.removeFromTop (4);
+            columns.knobs = inner;
+            return columns;
+        }
+
+        const auto title = oscillator ? compactTitleWidth : titleWidth;
+        const auto picture = oscillator ? compactPictureWidth : pictureWidth;
+        const auto menuColumn = oscillator ? compactMenuWidth : subMenuWidth;
+        inner.removeFromLeft (title);
+        inner.removeFromRight (oscillator ? compactSwitchWidth : switchWidth);
+        // A scrolling column's bar comes out of the picture, not the knobs,
+        // so a value such as "-30.9 dB" still fits under its knob.
+        const auto knobsMinimum = oscillator ? minDenseKnobsWidth : minKnobsWidth;
+        const auto squeeze = juce::jmax (0, knobsMinimum - (inner.getWidth() - picture - 6 - menuColumn - 4));
+        // The picture is a square (a saw stretched into a portrait box reads as
+        // a tick, a string as a hairline: V10-2), centred in its column.
+        const auto column = inner.removeFromLeft (juce::jmax (picture - 24, picture - squeeze));
+        const auto side = juce::jmin (column.getWidth(), column.getHeight());
+        columns.picture = column.withSizeKeepingCentre (side, side);
+        inner.removeFromLeft (6);
+        columns.menus = inner.removeFromLeft (menuColumn).withSizeKeepingCentre (menuColumn, 24 + 4 + 24);
+        inner.removeFromLeft (4);
+        columns.knobs = inner;
+        return columns;
+    }
+
     void layoutStrip (int index, juce::Rectangle<int> card)
     {
         auto& strip = *strips[(size_t) index];
-        auto inner = card.reduced (10, 8);
-        const auto open = isOpen (index);
-        auto title = inner.removeFromTop (18).withY (titleCentreY (card, ! open) - 9);
-        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, title.getCentreY()));
-        inner.removeFromTop (2);
 
-        if (! open)
+        if (! shownStrips[(size_t) index])
             return;
 
-        wave (index).setBounds (inner.removeFromLeft (juce::jmin (170, inner.getWidth() / 3)));
-        inner.removeFromLeft (8);
+        strip.on->setBounds (IlanaTheme::cardSwitchBounds (card, roomy (card) && ! isFolded (index) ? card.getY() + headerHeight / 2 + 6 : card.getCentreY() - 1));
 
-        auto combos = inner.removeFromTop (40);
+        if (isFolded (index))
+            return;
+
+        const auto columns = stripColumns (card);
+        wave (index).setBounds (columns.picture);
+        auto menus = columns.menus;
         const auto mode = juce::jmax (0, strip.shownMode);
-        const auto third = combos.getWidth() / 3;
-        strip.mode->setBounds (combos.removeFromLeft (third).reduced (3, 0));
 
-        if (mode == 0)
+        // A compact strip has no warp menu (its WARP knob stays): the table
+        // menu's tooltip says what the warp is, so the choice is not gone (V12-14).
+        if (strip.tableTip.isEmpty())
+            strip.tableTip = strip.table->getTooltip();
         {
-            strip.table->setBounds (combos.removeFromLeft (third).reduced (3, 0));
-            strip.warp->setBounds (combos.reduced (3, 0));
-        }
-        else if (mode == 1)
-        {
-            strip.excite->setBounds (combos.removeFromLeft (third).reduced (3, 0));
+            const auto tip = strip.tableTip + (mode == 0 && ! roomy (card) && strip.warp->getComboBox().getSelectedItemIndex() > 0
+                                                   ? "\nWarp: " + strip.warp->getComboBox().getText() + " (set on OSC)." : juce::String());
+            strip.table->setTooltip (tip);
+            strip.table->getComboBox().setTooltip (tip);
         }
 
-        layoutRow (inner, strip.modeKnobs[(size_t) mode]);
+        if (roomy (card))
+        {
+            const auto count = mode == 0 && ! strip.opEg ? 3 : mode <= 1 ? 2 : 1;
+            const auto cell = (menus.getWidth() - 4 * (count - 1)) / count;
+            strip.mode->setBounds (menus.removeFromLeft (cell));
+            menus.removeFromLeft (4);
+
+            if (mode == 0)
+            {
+                strip.table->setBounds (menus.removeFromLeft (cell));
+                menus.removeFromLeft (4);
+                strip.warp->setBounds (menus);
+            }
+            else if (mode == 1)
+                strip.excite->setBounds (menus);
+        }
+        else
+        {
+            strip.mode->setBounds (menus.removeFromTop (24));
+            menus.removeFromTop (4);
+
+            if (mode == 0)
+            {
+                strip.table->setBounds (menus.removeFromTop (24));
+            }
+            else if (mode == 1)
+                strip.excite->setBounds (menus);
+        }
+
+        // A tall strip (one open oscillator) gets bigger dials rather than a
+        // gap above and below a row of small ones (V13-3).
+        const auto dial = dialSize (card);
+        for (auto& entry : strip.allKnobs)
+            if (entry.second->getMaxDial() != dial)
+                entry.second->setSizeRole (dial);
+
+        layoutRow (columns.knobs, strip.knobs (roomy (card)));
     }
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
-
-    // Sub off and noise at zero: nothing there to show.
-    bool subIsIdle() const
-    {
-        const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
-        const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
-        return subSwitch != nullptr && noise != nullptr && subSwitch->load() < 0.5f && noise->load() < 0.0005f;
-    }
+    // The noise knobs wear the SUB colour at half strength, so COLOUR does not read as disabled (V13-15).
+    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.2f); } // (mostly the sub's orange: COLOUR read disabled in grey, V14-14)
 
     void layoutSubCard()
     {
-        auto inner = subCard.reduced (10, 8);
-        inner.removeFromTop (18);
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, titleCentreY (subCard, subFolded)));
-        inner.removeFromTop (2);
-
-        for (auto* control : { static_cast<juce::Component*> (subShape.get()), static_cast<juce::Component*> (subOctave.get()),
-                               static_cast<juce::Component*> (subLevel.get()), static_cast<juce::Component*> (noiseLevel.get()) })
-            control->setVisible (! subFolded);
-
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, roomy (subCard) && ! subFolded ? subCard.getY() + headerHeight / 2 + 6 : subCard.getCentreY() - 1));
+        for (auto* item : { (juce::Component*) subShape.get(), (juce::Component*) subOctave.get(), (juce::Component*) subLevel.get(),
+                            (juce::Component*) noiseLevel.get(), (juce::Component*) noiseColour.get() })
+            item->setVisible (! subFolded);
         if (subFolded)
             return;
+        const auto columns = stripColumns (subCard, false);
+        auto menus = columns.menus;
 
-        // One row across the whole card: the sub's menus and level, and the
-        // noise.
-        layoutRow (inner, { subShape.get(), subOctave.get(), subLevel.get(), noiseLevel.get() });
+        if (roomy (subCard))
+        {
+            subShape->setBounds (menus.removeFromLeft (menus.getWidth() * 3 / 5));
+            menus.removeFromLeft (6);
+            subOctave->setBounds (menus);
+        }
+        else
+        {
+            subShape->setBounds (menus.removeFromTop (24));
+            menus.removeFromTop (4);
+            subOctave->setBounds (menus);
+        }
+
+        for (auto* knob : { subLevel.get(), noiseLevel.get(), noiseColour.get() })
+            if (knob != nullptr && knob->getMaxDial() != dialSize (subCard))
+                knob->setSizeRole (dialSize (subCard));
+
+        layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
+    }
+
+    // The strips' cards and titles (their controls draw themselves), and
+    // the dim empty slots.
+    void paintColumn (juce::Graphics& g)
+    {
+        const auto paintTitle = [this, &g] (juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit,
+                                            const juce::String& line2, const juce::String& line3, bool header = false)
+        {
+            if (header)
+            {
+                // One line across the card's top: tag, name, what it is.
+                const auto line = card.withHeight (headerHeight + 10).reduced (0, 5).withTrimmedRight (switchWidth + 20 + editLinkWidth + 8);
+                IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
+                g.setColour (lit ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+                const auto nameFont = IlanaTheme::font (IlanaTheme::TextSize::body, true);
+                g.setFont (nameFont);
+                g.drawText (title, line.withTrimmedLeft (24), juce::Justification::centredLeft);
+
+                if (line2.isNotEmpty())
+                {
+                    juce::GlyphArrangement glyphs;
+                    glyphs.addLineOfText (nameFont, title, 0.0f, 0.0f);
+                    g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+                    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                    g.drawText (line2, line.withTrimmedLeft (24 + (int) glyphs.getBoundingBox (0, -1, true).getWidth() + 12), juce::Justification::centredLeft, true);
+                }
+
+                return;
+            }
+
+            auto area = titleArea (card).reduced (0, 6);
+            const auto top = area.removeFromTop (16);
+            IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) top.getCentreY() }, lit ? tint : tint.withAlpha (0.4f));
+            g.setColour (lit ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            g.drawText (title, top.withTrimmedLeft (24), juce::Justification::centredLeft);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+
+            // A line stops at the picture beside it; one that does not fit in the
+            // strip's narrow column says the same shorter ("MODULATES 1" at 75 %
+            // lost its digit under the wave: V14-17).
+            const auto room = juce::jmax (20, stripColumns (card).picture.getX() - card.getX() - 9 - 6);
+            const auto lineFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+
+            for (auto line : { line2, line3 })
+                if (line.isNotEmpty())
+                {
+                    area.removeFromTop (2);
+                    if (juce::GlyphArrangement::getStringWidthInt (lineFont, line) > room)
+                        line = line.replace ("TO OUTPUT, MODULATES ", "OUT, " + juce::String::fromUTF8 ("\xe2\x86\x92 "))
+                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
+                    g.setColour (lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3); // (not the strip's one coloured text: V10-16)
+                    // (Never cut mid-digit: a role line too long for a narrow strip says "→ 1", V14-17.)
+                    // (To the picture's edge, the title column being narrower on a compact strip.)
+                    auto row = area.removeFromTop (12).withTrimmedLeft (9);
+                    row.setRight (juce::jmin (row.getRight(), stripColumns (card).picture.getX() - 4));
+                    auto text = line;
+                    if (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) > (float) row.getWidth())
+                        text = text.replace ("TO OUTPUT, MODULATES ", juce::String::fromUTF8 ("OUT, \xe2\x86\x92 "))
+                                   .replace ("MODULATES ", juce::String::fromUTF8 ("\xe2\x86\x92 "));
+                    IlanaTheme::drawFitted (g, text, row, juce::Justification::centredLeft);
+                }
+        };
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            const auto card = oscCards[(size_t) osc];
+            const auto tint = OscPage::oscColour (osc);
+            const auto name = "OSC " + juce::String (osc + 1);
+
+            if (! shownStrips[(size_t) osc])
+                continue;
+
+            const auto& strip = *strips[(size_t) osc];
+            IlanaTheme::paintCard (g, card.toFloat(), 6.0f, strip.shownOn ? tint : tint.withAlpha (0.3f));
+
+            if (isFolded (osc))
+            {
+                // One line: the dimmed title, what it plays, the switch.
+                const auto line = card.withSizeKeepingCentre (card.getWidth(), 16);
+                IlanaTheme::paintTag (g, { (float) card.getX() + 15.0f, (float) line.getCentreY() }, tint.withAlpha (0.4f));
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+                g.drawText (name, line.withX (card.getX() + 24).withWidth (titleWidth - 16), juce::Justification::centredLeft);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                const auto columns = stripColumns (card);
+                g.drawText (foldedSummary (osc), line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()),
+                            juce::Justification::centredLeft, true);
+                continue;
+            }
+
+            paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), {}, roomy (card)); // off: the dimming says it (S8-12)
+
+            // The title opens the oscillator's full page, and so does the
+            // link beside the switch, worded like every other jump.
+            g.setColour (hoverEditLink == osc ? IlanaTheme::accent().brighter (0.25f) : IlanaTheme::accent());
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), editLinkArea (card), juce::Justification::centredRight);
+
+            if (strip.opEg)
+            {
+                // The picture is the Operator Env, not the wave: say so in
+                // its corner (UI review 8, I8-37).
+                const auto picture = stripColumns (card).picture;
+                strip.thumb.paint (g, picture.toFloat(), tint, strip.shownOn);
+                // (Under the title, at the card's foot, clear of the curve.)
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (strip.shownOn ? 1.0f : 0.5f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("OP ENV", roomy (card) ? juce::Rectangle<int> (picture.getX() + 6, picture.getBottom() - 16, 60, 12)
+                                                   : juce::Rectangle<int> (card.getX() + 17, card.getBottom() - 21, titleWidth - 12, 12),
+                            juce::Justification::centredLeft);
+                // An operator has no MODE menu: its place labels the wave under it (S12-13).
+                g.setColour (strip.shownOn ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                IlanaTheme::drawFitted (g, "WAVE", stripColumns (card).menus.withHeight (24).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+            }
+        }
+
+        if (! patchCard.isEmpty())
+        {
+            IlanaTheme::paintCard (g, patchCard.toFloat(), 6.0f, IlanaTheme::accent());
+            paintTitle (patchCard, "PATCH", IlanaTheme::accent(), true, {}, {}, true);
+        }
+
+        if (! outputCard.isEmpty())
+        {
+            IlanaTheme::paintCard (g, outputCard.toFloat(), 6.0f, IlanaTheme::Ui::text2);
+            paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {}, {}, true);
+        }
+
+        if (! subCard.isEmpty() && subFolded)
+        {
+            // Folded like an off oscillator: the dimmed title, what it would play, the switch.
+            IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour().withAlpha (0.3f));
+            const auto line = subCard.withSizeKeepingCentre (subCard.getWidth(), 16);
+            IlanaTheme::paintTag (g, { (float) subCard.getX() + 15.0f, (float) line.getCentreY() }, subColour().withAlpha (0.4f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            g.drawText ("SUB + NOISE", line.withX (subCard.getX() + 24).withWidth (juce::jmax (titleWidth, 100)), juce::Justification::centredLeft);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            static const char* const shapes[] { "Sine", "Square", "Saw" };
+            const auto columns = stripColumns (subCard, false);
+            g.drawText (juce::String (shapes[juce::jlimit (0, 2, readInt ("sub_shape"))]) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 sub off, no noise")),
+                        line.withLeft (columns.picture.getX()).withRight (columns.knobs.getRight()), juce::Justification::centredLeft, true);
+        }
+        else if (! subCard.isEmpty())
+        {
+            IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
+            paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, {}, roomy (subCard));
+
+            // The sub's shape where the oscillators show their picture.
+            const auto picture = stripColumns (subCard, false).picture.toFloat();
+            IlanaTheme::paintWell (g, picture, 6.0f);
+            const auto shape = readInt ("sub_shape");
+            const auto plot = picture.reduced (10.0f, 9.0f);
+            juce::Path path;
+
+            for (int i = 0; i <= 64; ++i)
+            {
+                const auto t = (float) i / 64.0f;
+                const auto value = shape == 0 ? std::sin (t * juce::MathConstants<float>::twoPi)
+                                              : shape == 1 ? (t < 0.5f ? 1.0f : -1.0f) : 1.0f - 2.0f * t;
+                const juce::Point<float> point (plot.getX() + t * plot.getWidth(), plot.getCentreY() - value * plot.getHeight() * 0.45f);
+
+                if (i == 0)
+                    path.startNewSubPath (point);
+                else
+                    path.lineTo (point);
+            }
+
+            g.setColour (subColour().withAlpha (readInt ("subosc_on") > 0 ? 0.9f : 0.3f));
+            g.strokePath (path, juce::PathStrokeType (1.4f));
+        }
     }
 
     // The oscillator cards scroll inside this column.
@@ -921,6 +1622,9 @@ private:
     {
         std::function<void (juce::Graphics&)> onPaint;
         std::function<void (juce::Point<int>, bool)> onClick; // where, and whether it is a right-click
+        std::function<void (juce::Point<int>)> onHover;
+        void mouseMove (const juce::MouseEvent& event) override { if (onHover != nullptr) onHover (event.getPosition()); }
+        void mouseExit (const juce::MouseEvent&) override { if (onHover != nullptr) onHover ({ -1, -1 }); }
         void paint (juce::Graphics& g) override { if (onPaint != nullptr) onPaint (g); }
         void mouseUp (const juce::MouseEvent& event) override
         {
@@ -932,34 +1636,41 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::Viewport oscView;
     Column oscColumn;
-    juce::TextButton addOscButton;
-    SignalFlow patchFlow { processorRef };
-    juce::Rectangle<int> patchCard;
-    static constexpr int patchMinHeight = 90;
+    DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
     std::array<bool, OscillatorIds::count> shownStrips {};
-    int lastRevealVersion = -1;
-    static constexpr int foldedHeight = 36;
-    // An open oscillator card: title, menus and a row of main-size knobs.
-    static constexpr int openOscHeight = 8 + 18 + 2 + 40 + 13 + IlanaTheme::KnobSize::main + 16 + 10;
-    // Cards the column folded to fit, and the one opened by hand (an
-    // oscillator's index, or subCardId), which stays open.
-    std::array<bool, OscillatorIds::count> autoFolded {};
-    bool subAutoFolded = false;
-    static constexpr int subCardId = 100;
-    int pinnedCard = -1;
+    int lastRevealVersion = -1, hoverEditLink = -1;
+    // The column: the strips and SUB + NOISE, all one height, and the
+    // "+ ADD OSC" row.
+    static constexpr int slotGap = 6, addRowHeight = DashedAddButton::standardHeight;
+    static constexpr int minSlotHeight = 68, maxSlotHeight = 160, foldedHeight = 40, roomyHeight = 112, tallHeight = 170, headerHeight = 22, editLinkWidth = 56;
+    static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
+    static constexpr int compactTitleWidth = 64, compactPictureWidth = 66, compactMenuWidth = 88, compactSwitchWidth = 40, minDenseKnobsWidth = 280, subMenuWidth = 176;
+    juce::Rectangle<int> addRowArea;
+    static constexpr float offAlpha = 0.55f;
+    // PLAY's envelope: which one, the envelopes on its tabs, those behind
+    // "+N", and the pool last seen.
+    int selectedEnv = 0;
+    std::vector<int> envTabEnvs { 0 }, envHiddenEnvs;
+    unsigned int lastShownEnvs = 0;
     EffectRules effectRules { processorRef };
-    static constexpr int subCardHeight = 8 + 20 + 13 + 58 + 16 + 12;
-    juce::Rectangle<int> subCard, outputCard;
+    juce::Rectangle<int> subCard, patchCard, outputCard;
+    SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int outputMinHeight = 48;
-    static constexpr int patchWithOutputHeight = 114; // the signal flow needs this much to keep its rows apart
-    bool subFolded = false;   // SUB + NOISE shown as one line (both off)
-    bool subExpanded = false; // the user opened the folded card to reach the noise knob
+    static constexpr int patchMinHeight = 150, outputMinHeight = 100, maxPatchOnlyHeight = 170, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
+                                   maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
-    std::unique_ptr<ComboControl> subShape, subOctave;
-    std::unique_ptr<KnobControl> subLevel, noiseLevel;
+    bool subFolded = false;
+    float lastOperatorOutputs = 0.0f;
+    std::unique_ptr<ChoicePills> subShape, subOctave;
+    std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
+    juce::String shownAmpNote;
+    juce::Rectangle<int> ampNoteArea;
+    juce::TextButton opEgButton;
+    OperatorEnvOverview opEnvOverview { processorRef };
+    juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
+    bool operatorFilterOff = false;
     juce::Viewport lfoThumbView;
     LfoThumbBar lfoThumbs;
     CardTabs filterTabs, envTabs, lfoTabs;

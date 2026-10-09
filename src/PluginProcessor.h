@@ -929,7 +929,7 @@ private:
         std::array<ParamRef, LfoSimInfo::numParams> sim;
         ParamRef smooth, axis, trigger, loop, seed, stereo, fire;
     };
-    struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route; };
+    struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route, frameSpread, warpSpread, scale, scaleRoot; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     // M5/M6 operator and phase-distortion settings.
     struct OperatorIds

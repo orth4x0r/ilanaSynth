@@ -357,7 +357,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         || id == "stretch" || id.startsWith ("sb_") || id == "pedal_res" || id.startsWith ("mech_")
         || id == "sym_amount" || id == "sym_decay"
         || id.endsWith ("_warp_amt") || id.endsWith ("_spectral_amt") || id.endsWith ("_grain_density") || id.endsWith ("_grain_spray")
-        || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_phase") || id.endsWith ("_morph"))
+        || id.endsWith ("_grain_pitch") || id.endsWith ("_grain_spread") || id.endsWith ("_uni_blend") || id.endsWith ("_uni_frame") || id.endsWith ("_uni_warp") || id.endsWith ("_phase") || id.endsWith ("_morph"))
         return asPercent();
 
     // Whole numbers without decimals, judged after rounding to two places
@@ -857,7 +857,8 @@ inline juce::String describeParameter (const juce::String& id)
                "skews it, Quantize steps it, FM and Ring use another oscillator (OSC 2 for OSC 1, OSC 1 for the others; the FM page draws them as "
                "dashed WARP arrows beside its own routes). "
                "PD modes are Casio CZ phase distortion (try the Sine table): Saw, Square and Pulse bend a sine into "
-               "those shapes; Res I-III are the CZ's resonant waves, a sweepable formant.";
+               "those shapes; Res I-III are the CZ's resonant waves, a sweepable formant. "
+               "Formant replays the cycle faster under a window (a vowel-like peak that sweeps), Squeeze speeds up the middle of the cycle.";
 
     if (id.endsWith ("_warp_amt"))
         return "How hard the warp bends the wave. Modulate it for movement.";
@@ -889,9 +890,24 @@ inline juce::String describeParameter (const juce::String& id)
         return "How far the spectral warp goes. For Formant, the middle leaves the vowel where it was. "
                "Changes rebuild the table in the background (64 steps), so modulating it follows with a short lag.";
 
+    if ((id.startsWith ("osc") || id.startsWith ("sub")) && id.endsWith ("_scale"))
+        return "Snaps this oscillator to a scale: the played note plus SEMI moves to the nearest scale note, so a chord "
+               "or a held cluster always lands in key. Off leaves the pitch alone.";
+
+    if ((id.startsWith ("osc") || id.startsWith ("sub")) && id.endsWith ("_scale_root"))
+        return "The scale's root note (C to B) for this oscillator's scale snap.";
+
     if (id.endsWith ("_uni_mode"))
         return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "
                "Octaves, Fifths, Power, Major and Minor Chord, Harmonics and the rest also stack intervals for huge chords.";
+
+    if (id.endsWith ("_uni_frame"))
+        return "Spreads the unison voices across the wavetable: the outer voices read frames up to half the table apart "
+               "from the centre one, so the stack blends different timbres (Vital's frame spread).";
+
+    if (id.endsWith ("_uni_warp"))
+        return "Spreads the unison voices across the WARP amount: the outer voices get less and more of the warp than the "
+               "centre one, so the stack thickens as the shape changes (Vital's distortion spread).";
 
     if (id.endsWith ("_uni_blend"))
         return "Level of the detuned unison voices against the centre one. Lower keeps the pitch focused.";
@@ -1091,6 +1107,12 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id == "fx_fold")
         return "Wavefolder: folds peaks back for harsh, buzzy harmonics.";
+
+    if (id == "fx_drive_type")
+        return "Soft Clip rounds the peaks like a tube; Hard Clip flattens them at the ceiling for a harder, brighter edge.";
+
+    if (id == "fx_fold_type")
+        return "Linear folds the wave back in straight lines (bright, edgy); Sine folds it along a sine curve (smoother, more musical).";
 
     if (id == "fx_crush_on" || id == "fx_crush_bits" || id == "fx_crush_down" || id == "fx_crush_mix")
         return "Bit crusher: fewer bits and downsample for lo-fi digital filth.";

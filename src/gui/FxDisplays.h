@@ -173,9 +173,17 @@ private:
             {
                 auto y = x;
                 if (param ("fx_drive_on") > 0.5f)
-                    y = x + (std::tanh (x * juce::jlimit (1.0f, 20.0f, param ("fx_drive_amount"))) - x) * param ("fx_drive_mix");
+                {
+                    const auto pushed = x * juce::jlimit (1.0f, 20.0f, param ("fx_drive_amount"));
+                    const auto driven = param ("fx_drive_type") > 0.5f ? juce::jlimit (-1.0f, 1.0f, pushed) : std::tanh (pushed);
+                    y = x + (driven - x) * param ("fx_drive_mix");
+                }
                 const auto fold = param ("fx_fold");
-                if (fold > 0.001f)
+                if (fold > 0.001f && param ("fx_fold_type") > 0.5f)
+                {
+                    y = std::sin (y * (1.0f + fold * 5.0f) * juce::MathConstants<float>::halfPi) / (1.0f + fold * 1.5f);
+                }
+                else if (fold > 0.001f)
                 {
                     auto v = std::fmod (y * (1.0f + fold * 5.0f) + 1.0f, 4.0f);
                     if (v < 0.0f)
@@ -1197,7 +1205,7 @@ private:
         };
 
         static const char* const transferIds[] { "fx_amp_drive", "fx_amp_mode", "fx_amp_level", "fx_drive_on", "fx_drive_amount",
-                                                 "fx_drive_mix", "fx_fold", "fx_crush_bits", "fx_crush_mix", "fx_crush_down" };
+                                                 "fx_drive_mix", "fx_fold", "fx_drive_type", "fx_fold_type", "fx_crush_bits", "fx_crush_mix", "fx_crush_down" };
         static const char* const dynamicsIds[] { "fx_comp_threshold", "fx_comp_ratio", "fx_comp_makeup", "fx_comp_mix",
                                                  "fx_ott_amount", "fx_ott_mix", "fx_limit_ceiling" };
         static const char* const delayIds[] { "fx_delay_time", "fx_delay_time_r", "fx_delay_sync", "fx_delay_div", "fx_delay_feedback",

@@ -404,6 +404,7 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
     {
         const auto amount = juce::jlimit (1.0f, 20.0f, getParam ("fx_drive_amount") + getFxMod (Mod::Destination::FxDriveAmount, 19.0f));
         const auto mix = getParam ("fx_drive_mix");
+        const auto hardClip = getParam ("fx_drive_type") > 0.5f;
 
         for (int channel = 0; channel < numChannels; ++channel)
         {
@@ -411,7 +412,7 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
 
             for (int i = 0; i < numSamples; ++i)
             {
-                const auto driven = std::tanh (data[i] * amount);
+                const auto driven = hardClip ? juce::jlimit (-1.0f, 1.0f, data[i] * amount) : std::tanh (data[i] * amount);
                 data[i] = data[i] + (driven - data[i]) * mix;
             }
         }
@@ -422,13 +423,15 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
         const auto amount = getParam ("fx_fold");
         const auto gain = 1.0f + amount * 5.0f;
         const auto compensation = 1.0f / (1.0f + amount * 1.5f);
+        const auto sineFold = getParam ("fx_fold_type") > 0.5f;
 
         for (int channel = 0; channel < numChannels; ++channel)
         {
             auto* data = buffer.getWritePointer (channel);
 
             for (int i = 0; i < numSamples; ++i)
-                data[i] = foldTriangle (data[i] * gain) * compensation;
+                data[i] = (sineFold ? std::sin (data[i] * gain * juce::MathConstants<float>::halfPi)
+                                    : foldTriangle (data[i] * gain)) * compensation;
         }
     }
 }

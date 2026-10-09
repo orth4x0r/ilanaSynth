@@ -1,5 +1,6 @@
 #include "Voice.h"
 #include "FastMath.h"
+#include "Generative.h"
 
 #include <array>
 #include <cmath>
@@ -259,6 +260,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         baseFrequency *= std::exp2 (cents / 1200.0);
     }
 
+    pitchNote = midiNoteNumber;
     keyTrackValue = juce::jlimit (-1.0f, 1.0f, (float) (midiNoteNumber - 60) / 48.0f);
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
 
@@ -3207,7 +3209,16 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
 
         if (settings.tuneMode == OscTuning::Semitones)
         {
-            const auto pitch = std::exp2 ((settings.semitones + (osc == 2 ? (double) params.subOctaveOffset : 0.0)
+            // Scale quantise: the note plus SEMI snaps to the nearest scale note.
+            auto scaleShift = 0.0;
+            if (settings.scale > 0)
+            {
+                const auto target = pitchNote + (int) std::lround (settings.semitones
+                                                                 + (osc == 2 ? (double) params.subOctaveOffset : 0.0));
+                scaleShift = (double) (Scales::quantize (target, settings.scale, settings.scaleRoot) - target);
+            }
+
+            const auto pitch = std::exp2 ((settings.semitones + scaleShift + (osc == 2 ? (double) params.subOctaveOffset : 0.0)
                                            + settings.cents / 100.0 + bendSemitones
                                            + (double) mods[(int) pitchDestinations[osc]] * 48.0) / 12.0);
             baseFreq = driftedFrequency * pitch;
@@ -3230,6 +3241,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
 
         oscBank[osc].setWarp (settings.warpMode, warp);
         oscBank[osc].setWarp2 (settings.warpMode2, warp2);
+        oscBank[osc].setSpreads (settings.frameSpread, settings.warpSpread);
 
         oscBank[osc].setFrequencies (baseFreq, unisonRatio[osc], numOscUnison[osc]);
 

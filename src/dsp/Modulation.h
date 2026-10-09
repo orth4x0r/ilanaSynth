@@ -682,6 +682,8 @@ struct Slot
     Polarity polarity = Polarity::Natural;
     Source aux = Source::None;
     bool bypass = false;
+    // On a filter cutoff: the left channel moves by the amount and the right by minus it.
+    bool stereo = false;
     // The slot's drawn remap curve (Vital's per-route remap): remapSize + 1
     // values in -1..1 over the source's range, or nullptr for a straight line.
     const float* remap = nullptr;
@@ -717,6 +719,20 @@ inline int spectralOscFor (int destination)
 // M6b: 64 slots. Slots 1-32 keep their parameter IDs; 33-64 are appended.
 constexpr int maxSlots = 64;
 constexpr int remapSize = 256;
+
+// Stereo routes into a filter cutoff are summed per voice into two internal
+// destinations just past the explicit ones (never stored in a patch): the
+// left channel gets +sum, the right -sum. Returns the internal index
+// (Count or Count + 1) for a stereo slot on Filter 1 / 2 Cutoff, else -1.
+constexpr int numStereoDestinations = 2;
+inline int stereoTargetFor (const Slot& slot)
+{
+    if (! slot.stereo)
+        return -1;
+
+    return slot.destination == (int) Destination::Filter1Cutoff ? (int) Destination::Count
+         : slot.destination == (int) Destination::Filter2Cutoff ? (int) Destination::Count + 1 : -1;
+}
 
 // A route into a spectral amount that the voices evaluate themselves.
 inline bool isVoiceSpectralSlot (const Slot& slot)

@@ -210,13 +210,13 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     {
         const auto prefix = "mod" + juce::String (i + 1);
         modSlotIds[(size_t) i] = { prefix + "_src", prefix + "_dst", prefix + "_amt", prefix + "_curve",
-                                   prefix + "_pol", prefix + "_aux", prefix + "_byp" };
+                                   prefix + "_pol", prefix + "_aux", prefix + "_byp", prefix + "_stereo" };
 
         const auto& ids = modSlotIds[(size_t) i];
         modSlotRaw[(size_t) i] = { apvts.getRawParameterValue (ids.src), apvts.getRawParameterValue (ids.dst),
                                    apvts.getRawParameterValue (ids.amt), apvts.getRawParameterValue (ids.curve),
                                    apvts.getRawParameterValue (ids.polarity), apvts.getRawParameterValue (ids.aux),
-                                   apvts.getRawParameterValue (ids.bypass) };
+                                   apvts.getRawParameterValue (ids.bypass), apvts.getRawParameterValue (ids.stereo) };
     }
 
     for (const auto& destination : Mod::getParamDestinations())

@@ -352,6 +352,7 @@ Mod::Slot IlanaSynthAudioProcessor::readModSlot (int slotIndex) const
     slot.polarity = (Mod::Polarity) juce::jlimit (0, 2, (int) read (raw.polarity));
     slot.aux = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) read (raw.aux));
     slot.bypass = read (raw.bypass) > 0.5f;
+    slot.stereo = read (raw.stereo) > 0.5f;
     // The editor's copy; processBlock points the audio thread's own.
     slot.remap = modRemapOn[(size_t) slotIndex].load() ? modRemapTables[(size_t) slotIndex].data() : nullptr;
     return slot;
@@ -381,6 +382,7 @@ void IlanaSynthAudioProcessor::clearModSlot (int slotIndex)
     setModSlotValue (slotIndex, "pol", 0.0f);
     setModSlotValue (slotIndex, "aux", 0.0f);
     setModSlotValue (slotIndex, "byp", 0.0f);
+    setModSlotValue (slotIndex, "stereo", 0.0f);
     resetModRemap (slotIndex);
 }
 

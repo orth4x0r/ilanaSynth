@@ -756,6 +756,7 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
 {
     for (int d = 0; d < params.numActiveDestinations; ++d)
         mods[params.activeDestinations[d]] = 0.0f;
+    mods[(int) Mod::Destination::Count] = mods[(int) Mod::Destination::Count + 1] = 0.0f;
 
     if (params.anyExtendedFmMods)
         fmCellMods.fill (0.0f);
@@ -798,6 +799,9 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
         const auto& slot = params.modSlots[s];
         auto* target = Mod::isExplicitDestination (slot.destination) ? &mods[slot.destination] : nullptr;
 
+        if (const auto stereoTarget = Mod::stereoTargetFor (slot); stereoTarget >= 0)
+            target = &mods[stereoTarget];
+
         if (target == nullptr && params.anyExtendedFmMods)
             if (const auto cell = Mod::extendedFmCellFor (slot.destination); cell >= 0)
                 target = &fmCellMods[(size_t) cell];
@@ -825,6 +829,8 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
 bool Voice::isPerSampleDestination (int destination, bool filterFm)
 {
     using D = Mod::Destination;
+    if (destination >= (int) D::Count) // the stereo cutoffs follow the cutoffs
+        return filterFm;
     switch ((D) destination)
     {
         case D::Filter1Cutoff: case D::Filter1Env: case D::Filter1Reso: case D::Filter1Morph:
@@ -902,6 +908,8 @@ void Voice::evaluateModsRated (float* mods, int sampleIndex, float ampValue, flo
 
 void Voice::prepareModSlots()
 {
+    stereoRouted = {};
+
     // Set only from MIDI and the block's parameters, never inside a render.
     const auto held = [] (Mod::Source source)
     {
@@ -942,6 +950,13 @@ void Voice::prepareModSlots()
         if (targetIndex == -1 && params.anySpectralMods && Mod::isVoiceSpectralSlot (slot))
             targetIndex = -1000 - Mod::spectralOscFor (slot.destination);
 
+        // A stereo route into a filter cutoff: summed apart from the cutoff itself.
+        if (const auto stereoTarget = Mod::stereoTargetFor (slot); stereoTarget >= 0)
+        {
+            targetIndex = stereoTarget;
+            stereoRouted[(size_t) (stereoTarget - (int) Mod::Destination::Count)] = true;
+        }
+
         slotTargets[(size_t) s] = targetIndex;
         slotHeld[(size_t) s] = held (slot.source) && held (slot.aux);
 
@@ -959,7 +974,7 @@ void Voice::prepareModSlots()
     // Each routed destination's group (see evaluateModsRated): per sample
     // when it is read every sample and a moving source feeds it; the OSC 4-6
     // FM cells always.
-    std::array<bool, (size_t) Mod::Destination::Count> moving {};
+    std::array<bool, (size_t) Mod::Destination::Count + Mod::numStereoDestinations> moving {};
     auto filterFm = params.filter1Fm != 0.0f || params.filter2Fm != 0.0f;
     for (int s = 0; s < params.numModSlots; ++s)
     {
@@ -991,6 +1006,13 @@ void Voice::prepareModSlots()
         const auto group = (size_t) groupOf (destination);
         groupDestinations[group][(size_t) numGroupDestinations[group]++] = destination;
     }
+    for (int f = 0; f < Mod::numStereoDestinations; ++f)
+        if (stereoRouted[(size_t) f])
+        {
+            const auto destination = (int) Mod::Destination::Count + f;
+            const auto group = (size_t) groupOf (destination);
+            groupDestinations[group][(size_t) numGroupDestinations[group]++] = destination;
+        }
 
     modSlotsPrepared = true;
 }
@@ -3417,7 +3439,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     };
     const auto open1 = ! disableOpenFilterBypass && params.filter1.type == FilterType::LowPass
                        && ! params.filter1.slope24 && cutoff1 >= openFilterHz && reso1 <= 0.3f && fmOctaves1 == 0.0
-                       && filter1Static();
+                       && ! stereoRouted[0] && filter1Static();
 
     if (open1 != filter1Open)
     {
@@ -3455,10 +3477,34 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
         const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
         const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
-        filter1L.setCoefficients (coefficients1);
-        filter1R.setCoefficients (coefficients1);
-        bothFilter1L.setCoefficients (coefficients1);
-        bothFilter1R.setCoefficients (coefficients1);
+
+        if (stereoRouted[0])
+        {
+            // A stereo route: the left cutoff moves up as the right moves down.
+            const auto shift = (double) mods[(int) D::Count] * 6.0;
+            const auto left = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
+                                                            juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)), reso1, morph1);
+            const auto right = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
+                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (-shift)), reso1, morph1);
+
+            if (filter1Linked)
+            {
+                filter1R = filter1L;
+                filter1Linked = false;
+            }
+
+            filter1L.setCoefficients (left);
+            filter1R.setCoefficients (right);
+            bothFilter1L.setCoefficients (left);
+            bothFilter1R.setCoefficients (right);
+        }
+        else
+        {
+            filter1L.setCoefficients (coefficients1);
+            filter1R.setCoefficients (coefficients1);
+            bothFilter1L.setCoefficients (coefficients1);
+            bothFilter1R.setCoefficients (coefficients1);
+        }
     }
 
     const auto keyOctaves2 = (double) params.filter2.keyTrack * (double) keyTrackOctaves;
@@ -3477,7 +3523,8 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     // response, a third of the cost; Vital likewise skips work a stage can't
     // be heard doing). Moving between the two starts the new one from rest.
     const auto open2 = ! disableOpenFilterBypass && params.filter2.type == FilterType::LowPass
-                       && ! params.filter2.slope24 && cutoff2 >= openFilterHz && reso2 <= 0.3f && fmOctaves2 == 0.0;
+                       && ! params.filter2.slope24 && cutoff2 >= openFilterHz && reso2 <= 0.3f && fmOctaves2 == 0.0
+                       && ! stereoRouted[1];
 
     if (open2 != filter2Open)
     {
@@ -3509,6 +3556,28 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     const auto morph2 = juce::jlimit (0.0f, 1.0f, params.filter2.morph + mods[(int) D::Filter2Morph]);
     const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2, morph2);
+
+    if (stereoRouted[1])
+    {
+        const auto shift = (double) mods[(int) D::Count + 1] * 6.0;
+        const auto left = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
+                                                        juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)), reso2, morph2);
+        const auto right = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
+                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (-shift)), reso2, morph2);
+
+        if (filter2Linked)
+        {
+            filter2R = filter2L;
+            filter2Linked = false;
+        }
+
+        filter2L.setCoefficients (left);
+        filter2R.setCoefficients (right);
+        bothFilter2L.setCoefficients (left);
+        bothFilter2R.setCoefficients (right);
+        return;
+    }
+
     filter2L.setCoefficients (coefficients2);
     filter2R.setCoefficients (coefficients2);
     bothFilter2L.setCoefficients (coefficients2);

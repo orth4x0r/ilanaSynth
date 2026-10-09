@@ -3012,6 +3012,53 @@ void runPerVoiceSpectralTest()
                + " Hz, hard " + juce::String (hard, 0) + " Hz, unrouted " + juce::String (plain, 0) + " Hz)");
 }
 
+void runStereoModulationTest()
+{
+    // A stereo route on a filter cutoff opens one side and closes the other; the same route unflagged moves both alike.
+    const auto sideDifference = [] (bool stereo)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "f1_cutoff", 400.0f);
+        setParam (processor, "mod1_src", (float) Mod::Source::Velocity);
+        setParam (processor, "mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        setParam (processor, "mod1_amt", 1.0f);
+        setParam (processor, "mod1_stereo", stereo ? 1.0f : 0.0f);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto left = 0.0, right = 0.0;
+
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block > 10)
+                for (int i = 0; i < 512; ++i)
+                {
+                    left += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+                    right += (double) buffer.getSample (1, i) * buffer.getSample (1, i);
+                }
+        }
+
+        check (std::isfinite (left) && std::isfinite (right) && left + right > 0.0, "stereo-routed filter renders audio");
+        return std::abs (std::log ((left + 1.0e-9) / (right + 1.0e-9)));
+    };
+
+    const auto off = sideDifference (false);
+    const auto on = sideDifference (true);
+    check (on > off + 0.3,
+           "a stereo cutoff route makes the left and right levels differ (log ratio off " + juce::String (off, 2)
+               + ", on " + juce::String (on, 2) + ")");
+}
+
 void runUnisonTests()
 {
     // 16 voices render, and blend 0 leaves only the centre voice(s).
@@ -9729,6 +9776,7 @@ int main()
     timedRun ("runWarpTests", [] { runWarpTests(); });
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
+    timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
     timedRun ("runMatrixTests", [] { runMatrixTests(); });
     timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });

@@ -34,10 +34,22 @@ enum
     Hypersaw,
     Octaves,
     Fifths,
+    // Appended: chord stacks, spread detune as Classic.
+    CenterDrop,  // the middle voice an octave down
+    Octaves2,    // 0, +12, +24, -12, -24
+    PowerChord,  // root and fifth
+    MajorChord,
+    MinorChord,
+    Harmonics,   // the harmonic series: 0, 12, 19, 24, 28, 31 ...
+    OddHarmonics, // 0, 19, 28, 34 ...
     Count
 };
 
-inline juce::StringArray getNames() { return { "Classic", "Hypersaw", "Octaves", "Fifths" }; }
+inline juce::StringArray getNames()
+{
+    return { "Classic", "Hypersaw", "Octaves", "Fifths", "Center Drop", "2x Octaves", "Power Chord",
+             "Major Chord", "Minor Chord", "Harmonics", "Odd Harmonics" };
+}
 } // namespace UnisonMode
 
 // Where an oscillator enters the filter section. Default follows the

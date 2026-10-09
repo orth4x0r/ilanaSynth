@@ -881,15 +881,17 @@ inline juce::String describeParameter (const juce::String& id)
         return "Reshapes the wavetable's harmonics rather than its waveform: Stretch pulls them apart into bells and "
                "metal, Shift moves them all up for hollow ring-mod tones, Odd/Even keeps odd then even harmonics, "
                "Formant moves the vowel without changing pitch, Smear blurs them into a haze, Harmonic Cut keeps only "
-               "the lowest. Works on the factory tables.";
+               "the lowest. Low Pass and High Pass roll the harmonics off above or below a corner, Phase Disperse "
+               "rotates the higher ones for a chirp, Random Amps gives each its own fixed level, Skew bends the "
+               "cycle's timing. Works on the factory tables.";
 
     if (id.endsWith ("_spectral_amt"))
         return "How far the spectral warp goes. For Formant, the middle leaves the vowel where it was. "
-               "Changes rebuild the table in the background, so this isn't a modulation target.";
+               "Changes rebuild the table in the background (64 steps), so modulating it follows with a short lag.";
 
     if (id.endsWith ("_uni_mode"))
         return "How unison voices are spread: Classic evenly, Hypersaw bunched around the centre like a supersaw, "
-               "Octaves and Fifths also stack intervals for huge chords.";
+               "Octaves, Fifths, Power, Major and Minor Chord, Harmonics and the rest also stack intervals for huge chords.";
 
     if (id.endsWith ("_uni_blend"))
         return "Level of the detuned unison voices against the centre one. Lower keeps the pitch focused.";

@@ -8709,6 +8709,23 @@ int main (int argc, char** argv)
     // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
     filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
 
+    // ILANA_SNAPSHOT_POPOVER="LFO 1:FILTER": a dock chip's pop-out editor open over a page.
+    if (const auto popover = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_POPOVER", ""); popover.isNotEmpty())
+    {
+        std::vector<ModSourceChip*> found;
+        findAll<ModSourceChip> (*editor, found);
+        for (auto* chip : found)
+            if (chip->getSourceName() == popover.upToFirstOccurrenceOf (":", false, false) && chip->isVisible())
+            {
+                pages->showPage (popover.fromFirstOccurrenceOf (":", false, false));
+                settle (300);
+                pages->toggleSourcePopover (chip->getSourceIndex(), *chip);
+                settle (400);
+                save (*editor, outDir.getChildFile ("popover.png"));
+                break;
+            }
+    }
+
     for (int i = 0; i < pageIds.size(); ++i)
     {
         if (! onlyPages.isEmpty() && ! onlyPages.contains (pageIds[i]))

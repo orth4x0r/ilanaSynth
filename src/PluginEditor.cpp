@@ -51,6 +51,7 @@
 #include "gui/pages/OscPage.h"
 #include "gui/pages/FilterVectorPhysicalPages.h"
 #include "gui/pages/EnvLfoPages.h"
+#include "gui/pages/ModSourcePanel.h"
 #include "gui/pages/FmInputPages.h"
 #include "gui/pages/SeqPage.h"
 #include "gui/pages/MainPage.h"
@@ -321,6 +322,17 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         showPage ("ENV/LFO");
     };
 
+    // The pop-out source editor's OPEN IN MOD.
+    openSourceInMod = [this, envLfoPage] (int source)
+    {
+        if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) source); lfo >= 0)
+            envLfoPage->selectLfo (lfo);
+        else if (const auto env = SourceEditor::envelopeOf (source); env >= 0)
+            envLfoPage->selectEnvelope (env);
+        closeSourcePopover();
+        showPage ("ENV/LFO");
+    };
+
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
     // The header's VOICES: the OSC page's VOICE tab (one voice panel).
     showVoicePanel = [this, oscViewport]
@@ -395,6 +407,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.addAndMakeVisible (keysButton);
     content.addAndMakeVisible (helpButton);
     content.addChildComponent (*scopePanel);
+
+    // A source chip's click opens its editor over the page (the dock's
+    // pop-out, 2026-10-09).
+    {
+        auto popover = std::make_unique<SourcePopover> (p);
+        popover->onClose = [this] { closeSourcePopover(); };
+        popover->onOpenInMod = [this] (int source) { if (openSourceInMod != nullptr) openSourceInMod (source); };
+        content.addChildComponent (*popover);
+        sourcePopover = std::move (popover);
+    }
 
     // Bottom strip: macros, then performance controls, then master.
     for (int macro = 0; macro < Mod::numMacros; ++macro)
@@ -988,6 +1010,8 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
 
         return processorRef.getSourceDisplayValue ((int) source);
     };
+    chip->routeCount = [this, sourceIndex] { return modRouteCount (processorRef, sourceIndex); };
+    chip->onClick = [this] (ModSourceChip& clicked) { toggleSourcePopover (clicked.getSourceIndex(), clicked); };
     // A simulated LFO shape's second output gets a "B" on its chip.
     if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 0)
     {
@@ -1178,6 +1202,50 @@ void IlanaSynthAudioProcessorEditor::addPoolSource (int chipIndex)
         processorRef.setRevealed ((IlanaSynthAudioProcessor::Module) kind, index, true);
 
     updateChipVisibility();
+}
+
+// A chip's click: its source's editor over the page, above the dock; a
+// second click on the same chip closes it, another chip's switches it.
+void IlanaSynthAudioProcessorEditor::toggleSourcePopover (int source, juce::Component& chip)
+{
+    auto* popover = static_cast<SourcePopover*> (sourcePopover.get());
+    if (popover == nullptr)
+        return;
+
+    if (popover->isVisible() && popover->getSource() == source)
+    {
+        closeSourcePopover();
+        return;
+    }
+
+    sourcePopoverAnchor = content.getLocalArea (&chip, chip.getLocalBounds());
+    popover->setSource (source);
+    popover->setBounds (popover->placeIn (pageArea(), sourcePopoverAnchor));
+    pinnedModSource() = source;
+    if (! popover->isVisible())
+    {
+        popover->setAlpha (0.0f);
+        popover->setVisible (true);
+        juce::Desktop::getInstance().getAnimator().fadeIn (popover, 140);
+    }
+    popover->toFront (true);
+    content.repaint();
+}
+
+void IlanaSynthAudioProcessorEditor::closeSourcePopover()
+{
+    if (sourcePopover == nullptr || ! sourcePopover->isVisible())
+        return;
+
+    if (pinnedModSource() == static_cast<SourcePopover*> (sourcePopover.get())->getSource())
+        pinnedModSource() = 0;
+    sourcePopover->setVisible (false);
+    content.repaint();
+}
+
+int IlanaSynthAudioProcessorEditor::getSourcePopoverSource() const
+{
+    return sourcePopover != nullptr && sourcePopover->isVisible() ? static_cast<SourcePopover*> (sourcePopover.get())->getSource() : 0;
 }
 
 // The macros the strip shows: the first four, any named, moved or routed,
@@ -1517,6 +1585,9 @@ void IlanaSynthAudioProcessorEditor::resized()
         presetPanel->setBounds (pageArea().reduced (2, 0).withTrimmedBottom (2));
         presetPanel->toFront (false);
     }
+
+    if (sourcePopover != nullptr && sourcePopover->isVisible())
+        sourcePopover->setBounds (static_cast<SourcePopover*> (sourcePopover.get())->placeIn (pageArea(), sourcePopoverAnchor));
 
     for (auto* overlay : std::initializer_list<juce::Component*> { &tutorial, &confirmOverlay, &saveOverlay })
         if (overlay->isVisible())
@@ -2783,6 +2854,12 @@ bool IlanaSynthAudioProcessorEditor::closeTopPopup()
     if (presetPanel != nullptr && presetPanel->isOpen() && ! presetPanel->isDocked())
     {
         presetPanel->close();
+        return true;
+    }
+
+    if (getSourcePopoverSource() != 0)
+    {
+        closeSourcePopover();
         return true;
     }
 

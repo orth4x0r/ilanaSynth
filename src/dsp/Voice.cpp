@@ -1226,7 +1226,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             if (params.spectralCache != nullptr && spectralBlock[(size_t) osc] != 0.0f && settings.spectralMode > 0)
                 table = params.spectralCache->getForVoice (settings.spectralTable, settings.spectralMode,
                                                            juce::jlimit (0.0f, 1.0f, settings.spectralAmount + spectralBlock[(size_t) osc]),
-                                                           table);
+                                                           settings.baseTable, table);
 
             oscBank[osc].setWavetable (table);
         }

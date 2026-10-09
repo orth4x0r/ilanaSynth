@@ -423,7 +423,7 @@ Copy `build/ilanaSynth_artefacts/Release/VST3/ilanaSynth.vst3` to `~/.vst3/` and
 
 ### Good to know
 - The FX rack is empty on INIT: click any effect in the grouped list (Space, Drive, Motion, Rhythm, Tone & Level), or click any of the 10 rows.
-- Spectral warps work on the factory wavetables.
+- Spectral warps work on every wavetable, factory and your own patch tables.
   - Changing a warp's amount rebuilds the table in the background, so it isn't a modulation target.
   - To move the tone over time, modulate FRAME instead.
 - Note spray and scale-random arps are random by design, so each playthrough differs.

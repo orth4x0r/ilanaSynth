@@ -2958,6 +2958,29 @@ void runWarpTests()
 
 void runPerVoiceSpectralTest()
 {
+    // A patch (user) table takes spectral warps too, not only the factory tables.
+    {
+        const auto render = [] (bool warped)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.setNonRealtime (true);
+            processor.setUserTable (0, WavetableDoc::fromFactory (10));
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_table", (float) TableFactory::getNumFactoryTables());
+            setParam (processor, "osc1_spectral", warped ? (float) SpectralWarp::LowPass : 0.0f);
+            setParam (processor, "osc1_spectral_amt", 0.8f);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            renderPeakAndCentroid (processor, 45, 40, centroid);
+            return centroid;
+        };
+
+        const auto plain = render (false);
+        const auto warped = render (true);
+        check (warped < plain * 0.9,
+               "a spectral warp works on a patch table (centroid " + juce::String (plain, 0) + " -> " + juce::String (warped, 0) + " Hz)");
+    }
+
     // A velocity route into SPEC AMT is worked out per voice: a hard note and a soft note morph differently.
     const auto render = [] (int velocity, bool routed)
     {

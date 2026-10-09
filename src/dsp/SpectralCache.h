@@ -13,8 +13,8 @@
 #include "OscillatorIds.h"
 #include "Wavetable.h"
 
-// Builds spectrally warped copies of the factory wavetables on a worker
-// thread, one per oscillator. The audio thread asks for (table, mode,
+// Builds spectrally warped copies of the wavetables (factory and patch
+// tables) on a worker thread, one per oscillator. The audio thread asks for (table, mode,
 // amount) and gets the newest matching copy, or the closest one it has while
 // a rebuild is on its way. Retired copies are kept alive for a while so no
 // voice ever reads a freed table.
@@ -24,11 +24,14 @@ public:
     static constexpr int numOscillators = OscillatorIds::count;
     static constexpr int amountSteps = 64;
 
-    // factoryTable(i) must return a table that lives for the whole session.
-    SpectralCache (std::function<const Wavetable* (int)> factoryTableIn, int numFactoryTablesIn)
+    // sourceFor(choice) returns the table behind a table choice (a factory
+    // table, or a patch table that edits replace), kept alive by the pointer
+    // it returns; numChoicesIn is how many choices there are. It is called on
+    // the worker thread only.
+    SpectralCache (std::function<std::shared_ptr<const Wavetable> (int)> sourceForIn, int numChoicesIn)
         : juce::Thread ("ilanaSynth spectral warps"),
-          factoryTable (std::move (factoryTableIn)),
-          numFactoryTables (numFactoryTablesIn)
+          sourceFor (std::move (sourceForIn)),
+          numChoices (numChoicesIn)
     {
         startThread (juce::Thread::Priority::low);
     }
@@ -38,12 +41,16 @@ public:
     // Offline rendering builds warps in place so every render is exact.
     void setSynchronous (bool shouldBeSynchronous) { synchronous = shouldBeSynchronous; }
 
-    // Audio thread. Returns the table the oscillator should play.
+    // Audio thread. Returns the table the oscillator should play; base is the
+    // table behind the choice right now (a replaced patch table rebuilds).
     const Wavetable* get (int osc, int tableChoice, const Wavetable* base, int mode, float amount)
     {
         auto& slot = slots[(size_t) osc];
 
-        if (mode <= SpectralWarp::Off || mode >= SpectralWarp::Count || tableChoice < 0 || tableChoice >= numFactoryTables)
+        if (base == nullptr)
+            return base;
+
+        if (mode <= SpectralWarp::Off || mode >= SpectralWarp::Count || tableChoice < 0 || tableChoice >= numChoices)
         {
             slot.wantedMode = SpectralWarp::Off;
             return base;
@@ -53,6 +60,7 @@ public:
         slot.wantedTable = tableChoice;
         slot.wantedMode = mode;
         slot.wantedStep = step;
+        slot.wantedSource = base;
 
         if (synchronous)
         {
@@ -62,7 +70,8 @@ public:
 
         const juce::SpinLock::ScopedTryLockType lock (slot.lock);
 
-        if (lock.isLocked() && slot.built != nullptr && slot.builtTable == tableChoice && slot.builtMode == mode)
+        if (lock.isLocked() && slot.built != nullptr && slot.builtTable == tableChoice && slot.builtMode == mode
+            && slot.builtSource == base)
         {
             slot.lastServed = slot.built.get();
             slot.lastServedTable = tableChoice;
@@ -78,9 +87,9 @@ public:
     // a pooled copy built at the voice's step (32 steps), or the nearest
     // built step of the same table and mode while the worker builds it.
     // Returns fallback when nothing matching exists yet. Never blocks.
-    const Wavetable* getForVoice (int tableChoice, int mode, float amount, const Wavetable* fallback)
+    const Wavetable* getForVoice (int tableChoice, int mode, float amount, const Wavetable* base, const Wavetable* fallback)
     {
-        if (mode <= SpectralWarp::Off || mode >= SpectralWarp::Count || tableChoice < 0 || tableChoice >= numFactoryTables)
+        if (base == nullptr || mode <= SpectralWarp::Off || mode >= SpectralWarp::Count || tableChoice < 0 || tableChoice >= numChoices)
             return fallback;
 
         const auto step = juce::jlimit (0, voiceSteps, juce::roundToInt (amount * (float) voiceSteps));
@@ -92,10 +101,10 @@ public:
             const juce::ScopedLock buildLock (voiceBuildLock);
 
             for (auto& entry : voicePool)
-                if (entry.key.load() == key)
+                if (entry.key.load() == key && entry.source.load() == base)
                     return entry.table.load();
 
-            return buildVoiceTable (key, tableChoice, mode, step, now);
+            return buildVoiceTable (key, tableChoice, mode, step, now, sourceFor (tableChoice));
         }
 
         const Wavetable* nearest = fallback;
@@ -110,7 +119,7 @@ public:
 
             const auto* ptr = entry.table.load();
 
-            if (ptr == nullptr)
+            if (ptr == nullptr || entry.source.load() != base)
                 continue;
 
             if (entryKey == key)
@@ -177,7 +186,7 @@ public:
     {
         const auto& slot = slots[(size_t) osc];
         return slot.builtTable == slot.wantedTable.load() && slot.builtMode == slot.wantedMode.load()
-               && slot.builtStep == slot.wantedStep.load();
+               && slot.builtStep == slot.wantedStep.load() && slot.builtSource.load() == slot.wantedSource.load();
     }
 
 private:
@@ -194,15 +203,17 @@ private:
     {
         std::atomic<juce::uint32> key { 0 };
         std::atomic<const Wavetable*> table { nullptr };
+        std::atomic<const Wavetable*> source { nullptr }; // the table it was warped from
         std::atomic<juce::uint32> lastUsed { 0 };
         std::shared_ptr<Wavetable> owner; // worker (or the builder holding voiceBuildLock) only
     };
 
     // Builds one pooled voice table, evicting the least recently used entry.
     // Callers hold voiceBuildLock (the worker) or are the synchronous path.
-    const Wavetable* buildVoiceTable (juce::uint32 key, int table, int mode, int step, juce::uint32 now)
+    const Wavetable* buildVoiceTable (juce::uint32 key, int table, int mode, int step, juce::uint32 now,
+                                      const std::shared_ptr<const Wavetable>& source)
     {
-        const auto* source = factoryTable (table);
+        juce::ignoreUnused (table);
 
         if (source == nullptr)
             return nullptr;
@@ -236,6 +247,7 @@ private:
 
         victim->owner = warped;
         victim->lastUsed.store (now);
+        victim->source.store (source.get());
         victim->table.store (warped.get());
         victim->key.store (key);
         return warped.get();
@@ -253,15 +265,16 @@ private:
             if (key == 0)
                 continue;
 
+            const auto source = sourceFor (keyTable (key));
             auto built = false;
 
             for (const auto& entry : voicePool)
-                built = built || entry.key.load() == key;
+                built = built || (entry.key.load() == key && entry.source.load() == source.get());
 
             if (! built)
             {
                 const juce::ScopedLock buildLock (voiceBuildLock);
-                buildVoiceTable (key, keyTable (key), keyMode (key), keyStep (key), juce::Time::getMillisecondCounter());
+                buildVoiceTable (key, keyTable (key), keyMode (key), keyStep (key), juce::Time::getMillisecondCounter(), source);
                 request.store (0);
                 return; // one build a pass: the oscillators' own tables come first
             }
@@ -274,6 +287,7 @@ private:
     {
         std::atomic<int> wantedTable { -1 }, wantedMode { 0 }, wantedStep { 0 };
         std::atomic<int> builtTable { -1 }, builtMode { 0 }, builtStep { -1 };
+        std::atomic<const Wavetable*> wantedSource { nullptr }, builtSource { nullptr };
         mutable juce::SpinLock lock;  // guards built
         juce::CriticalSection buildLock; // one builder at a time
         std::shared_ptr<Wavetable> built;
@@ -283,12 +297,12 @@ private:
 
     void build (Slot& slot, int table, int mode, int step)
     {
-        if (table == slot.builtTable && mode == slot.builtMode && step == slot.builtStep)
-            return;
-
-        const auto* source = factoryTable (table);
+        const auto source = sourceFor (table);
 
         if (source == nullptr)
+            return;
+
+        if (table == slot.builtTable && mode == slot.builtMode && step == slot.builtStep && source.get() == slot.builtSource.load())
             return;
 
         std::shared_ptr<Wavetable> warped (SpectralWarp::warpTable (*source, mode, (float) step / (float) amountSteps));
@@ -305,6 +319,7 @@ private:
         slot.builtTable = table;
         slot.builtMode = mode;
         slot.builtStep = step;
+        slot.builtSource = source.get();
     }
 
     void run() override
@@ -318,7 +333,7 @@ private:
                 const auto mode = slot.wantedMode.load();
                 const auto step = slot.wantedStep.load();
 
-                if (mode <= SpectralWarp::Off || table < 0 || table >= numFactoryTables)
+                if (mode <= SpectralWarp::Off || table < 0 || table >= numChoices)
                     continue;
 
                 const juce::ScopedLock buildLock (slot.buildLock);
@@ -340,8 +355,8 @@ private:
         }
     }
 
-    std::function<const Wavetable* (int)> factoryTable;
-    int numFactoryTables = 0;
+    std::function<std::shared_ptr<const Wavetable> (int)> sourceFor;
+    int numChoices = 0;
     bool synchronous = false;
     std::array<Slot, numOscillators> slots;
     std::array<VoiceEntry, voicePoolSize> voicePool;

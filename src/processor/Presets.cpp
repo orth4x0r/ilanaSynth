@@ -460,7 +460,7 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
             const juce::File file (path);
 
             if (file.existsAsFile())
-                loadUserWavetable (i, file, (Wavetable::LoadMode) juce::jlimit (0, 2, mode));
+                loadUserWavetable (i, file, (Wavetable::LoadMode) juce::jlimit (0, 4, mode));
         }
     }
 }

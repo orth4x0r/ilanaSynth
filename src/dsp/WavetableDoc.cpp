@@ -511,7 +511,7 @@ bool WavetableDoc::fromValueTree (const juce::ValueTree& tree, WavetableDoc& doc
         std::vector<std::vector<float>> frames;
         const juce::File file (doc.sourcePath);
         if (file.existsAsFile()
-            && Wavetable::readFrames (file, (Wavetable::LoadMode) juce::jlimit (0, 2, doc.sourceMode), frames))
+            && Wavetable::readFrames (file, (Wavetable::LoadMode) juce::jlimit (0, 4, doc.sourceMode), frames))
         {
             doc.frames = std::move (frames);
             doc.recipes.assign (doc.frames.size(), {});

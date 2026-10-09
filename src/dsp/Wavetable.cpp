@@ -120,6 +120,18 @@ bool Wavetable::readFrames (const juce::File& file, LoadMode mode, std::vector<s
     for (auto& sample : mono)
         sample *= channelScale;
 
+    if (mode == LoadMode::Vocode || mode == LoadMode::TimeSlice)
+    {
+        frames.clear();
+
+        if (mode == LoadMode::Vocode)
+            vocode (mono, frames);
+        else
+            timeSlice (mono, frames);
+
+        return ! frames.empty();
+    }
+
     const auto sliceAsFrames = mode == LoadMode::Frames || (mode == LoadMode::Automatic && frameLength > 0);
 
     frames.clear();
@@ -289,6 +301,91 @@ bool Wavetable::resynthesize (const std::vector<float>& audio, double sampleRate
     }
 
     return pitched;
+}
+
+void Wavetable::vocode (const std::vector<float>& audio, std::vector<std::vector<float>>& frames, int numFrames)
+{
+    using Complex = std::complex<float>;
+    frames.clear();
+    const auto numSamples = (int) audio.size();
+
+    if (numSamples < 64)
+        return;
+
+    const TableFFT fft ((int) std::log2 ((double) frameSize));
+    std::vector<Complex> input ((size_t) frameSize), spectrum ((size_t) frameSize), output ((size_t) frameSize);
+    const auto span = juce::jmax (0, numSamples - frameSize);
+    const auto pi = juce::MathConstants<float>::pi;
+
+    for (int frame = 0; frame < numFrames; ++frame)
+    {
+        const auto start = numFrames > 1 ? (int) ((double) span * frame / (numFrames - 1)) : 0;
+
+        for (int i = 0; i < frameSize; ++i)
+        {
+            const auto window = 0.5f - 0.5f * std::cos (2.0f * pi * (float) i / (float) frameSize);
+            const auto index = start + i;
+            input[(size_t) i] = index < numSamples ? audio[(size_t) index] * window : 0.0f;
+        }
+
+        fft.perform (input.data(), spectrum.data(), false);
+
+        // Levels from the analysis, phases from a fixed chirp (no pulse-like peaks, the same on every frame).
+        std::fill (output.begin(), output.end(), Complex());
+
+        for (int k = 1; k < numHarmonics; ++k)
+        {
+            const auto phase = pi * (float) ((double) k * k / numHarmonics);
+            const auto value = std::polar (std::abs (spectrum[(size_t) k]), phase);
+            output[(size_t) k] = value;
+            output[(size_t) (frameSize - k)] = std::conj (value);
+        }
+
+        fft.perform (output.data(), input.data(), true);
+
+        std::vector<float> cycle ((size_t) frameSize);
+        auto peak = 0.0f;
+
+        for (int i = 0; i < frameSize; ++i)
+        {
+            cycle[(size_t) i] = input[(size_t) i].real();
+            peak = juce::jmax (peak, std::abs (cycle[(size_t) i]));
+        }
+
+        if (peak > 1.0e-9f)
+            for (auto& sample : cycle)
+                sample *= 0.9f / peak;
+
+        frames.push_back (std::move (cycle));
+    }
+}
+
+void Wavetable::timeSlice (const std::vector<float>& audio, std::vector<std::vector<float>>& frames, int numFrames)
+{
+    frames.clear();
+    const auto numSamples = (int) audio.size();
+    numFrames = juce::jlimit (1, numFrames, numSamples / 64);
+
+    if (numSamples < 64)
+        return;
+
+    const auto sliceLength = (double) numSamples / numFrames;
+
+    for (int frame = 0; frame < numFrames; ++frame)
+    {
+        std::vector<float> cycle ((size_t) frameSize);
+
+        for (int i = 0; i < frameSize; ++i)
+        {
+            const auto position = ((double) frame + (double) i / frameSize) * sliceLength;
+            const auto index = juce::jlimit (0, numSamples - 1, (int) position);
+            const auto next = juce::jmin (index + 1, numSamples - 1);
+            const auto frac = (float) (position - (double) index);
+            cycle[(size_t) i] = audio[(size_t) index] + frac * (audio[(size_t) next] - audio[(size_t) index]);
+        }
+
+        frames.push_back (std::move (cycle));
+    }
 }
 
 void Wavetable::buildFromFrames (const std::vector<std::vector<float>>& frames)

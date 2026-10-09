@@ -48,6 +48,19 @@ int unisonStackInterval (int mode, int voiceIndex, int numVoices)
         return table[voiceIndex % 3];
     }
 
+    switch (mode)
+    {
+        case UnisonMode::CenterDrop: return voiceIndex == numVoices / 2 ? -12 : 0;
+        case UnisonMode::Octaves2:   { static const int t[] { 0, 12, 24, -12, -24 }; return t[voiceIndex % 5]; }
+        case UnisonMode::PowerChord: { static const int t[] { 0, 7 }; return t[voiceIndex % 2]; }
+        case UnisonMode::MajorChord: { static const int t[] { 0, 4, 7 }; return t[voiceIndex % 3]; }
+        case UnisonMode::MinorChord: { static const int t[] { 0, 3, 7 }; return t[voiceIndex % 3]; }
+        // Harmonic n sits 12 log2 (n) semitones above the root.
+        case UnisonMode::Harmonics:     return (int) std::lround (12.0 * std::log2 ((double) (voiceIndex + 1)));
+        case UnisonMode::OddHarmonics:  return (int) std::lround (12.0 * std::log2 ((double) (2 * voiceIndex + 1)));
+        default: break;
+    }
+
     return 0;
 }
 

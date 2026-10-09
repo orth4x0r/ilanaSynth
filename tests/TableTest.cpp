@@ -2995,6 +2995,35 @@ void runUnisonTests()
         return std::sqrt (side / juce::jmax (1.0e-12, mid));
     };
 
+    // Every stack mode renders bounded audio; the interval stacks change the sound.
+    {
+        const auto render = [] (int mode)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_unison", 5.0f);
+            setParam (processor, "osc1_detune", 10.0f);
+            setParam (processor, "osc1_uni_mode", (float) mode);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+            return std::make_pair (peak, centroid);
+        };
+
+        const auto classic = render (UnisonMode::Classic);
+        auto all = true, different = true;
+
+        for (int mode = UnisonMode::CenterDrop; mode < UnisonMode::Count; ++mode)
+        {
+            const auto result = render (mode);
+            all = all && std::isfinite (result.first) && result.first > 0.02f && result.first < 4.0f;
+            different = different && std::abs (result.second - classic.second) > 1.0;
+        }
+
+        check (all, "every appended unison stack mode renders bounded audio");
+        check (different, "the appended unison stack modes change the sound against Classic");
+    }
+
     const auto full16 = widthOf (16, 1.0f, UnisonMode::Classic);
     const auto blend0 = widthOf (15, 0.0f, UnisonMode::Classic);
     const auto hyper = widthOf (16, 1.0f, UnisonMode::Hypersaw);

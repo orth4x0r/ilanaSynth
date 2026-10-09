@@ -358,6 +358,7 @@ public:
     {
         addAndMakeVisible (routes);
         routes.onRoutesChanged = [this] { resized(); };
+        routes.onCollapsedChange = [this] (bool) { resized(); };
         startTimerHz (20);
     }
 
@@ -452,7 +453,14 @@ public:
     }
 
     // Lay out with the DRIVES list folded to its header line (PLAY on a short card).
-    void setRoutesFolded (bool fold) { routes.setCollapsed (fold); resized(); }
+    void setRoutesFolded (bool fold)
+    {
+        if (fold != routes.isCollapsed())
+        {
+            routes.setCollapsed (fold);
+            resized();
+        }
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -800,5 +808,269 @@ private:
     int source = 0;
     int routes = 0;
     bool selected = false;
+};
+
+// PLAY's MODULATION card (option 1 of the 2026-10-09 plan, after Serum 2's
+// mod section): the ENVELOPE and LFO cards in one. A grid of source tabs
+// (the envelopes and LFOs in the patch, then "+"), all one width so the rows
+// line up with the card's edges; under them the selected source's editor
+// and its DRIVES list. The controls come first: on a short card the list
+// folds to its header line (ilana's rule for PLAY: settings before
+// assignments).
+class ModulationCard : public juce::Component,
+                       private juce::Timer
+{
+public:
+    explicit ModulationCard (IlanaSynthAudioProcessor& p) : processorRef (p), editor (p)
+    {
+        addAndMakeVisible (editor);
+        addTab.setButtonText ("+");
+        addTab.setTooltip ("Add an LFO or envelope to the patch");
+        addTab.onClick = [this] { showAddMenu(); };
+        addAndMakeVisible (addTab);
+        moreTab.setTooltip ("The sources that don't fit");
+        moreTab.onClick = [this] { showMoreMenu(); };
+        addChildComponent (moreTab);
+        refreshSources();
+        startTimerHz (6);
+    }
+
+    // EDIT ›: the selected source's full editor on MOD.
+    std::function<void (int source)> onOpenInMod;
+
+    int getSelectedSource() const { return selected; }
+    const std::vector<int>& getSources() const { return sources; }
+    SourceEditor& getEditor() { return editor; }
+    std::vector<SourceTab*> getTabs() const
+    {
+        std::vector<SourceTab*> shown;
+        for (auto& tab : tabs)
+            if (tab->isVisible())
+                shown.push_back (tab.get());
+        return shown;
+    }
+
+    void select (int source)
+    {
+        selected = source;
+        for (auto& tab : tabs)
+            tab->setSelected (tab->getSource() == selected);
+        editor.setSource (selected);
+        layoutEditor();
+        repaint();
+    }
+
+    static constexpr int headerHeight = 30, pad = 10, tabHeight = 28, tabGap = 6, minTabWidth = 104, maxRows = 2;
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto colour = modSourceColour (selected);
+        IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 6.0f, colour);
+        auto header = getLocalBounds().withHeight (headerHeight).withTrimmedLeft (12).withTrimmedRight (12);
+        IlanaTheme::paintCardHeader (g, header, "MODULATION", "drag a tab onto any knob", colour, editWidth + 8);
+
+        const auto link = editLinkArea();
+        g.setColour (hoverEdit ? colour.brighter (0.25f) : colour);
+        g.setFont (IlanaTheme::linkFont());
+        g.drawText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"), link, juce::Justification::centredRight);
+    }
+
+    void resized() override
+    {
+        // The tab grid: as many equal columns as fit (the "+" is a cell), on
+        // at most two rows; past that the last cell is "N MORE".
+        auto area = getLocalBounds().withTrimmedTop (headerHeight).reduced (pad, 0).withTrimmedBottom (pad);
+        const auto cells = (int) sources.size() + 1;
+        const auto columns = juce::jlimit (1, cells, (area.getWidth() + tabGap) / (minTabWidth + tabGap));
+        const auto rows = juce::jlimit (1, maxRows, (cells + columns - 1) / columns);
+        const auto capacity = columns * rows;
+        const auto overflow = cells > capacity;
+        const auto shownTabs = overflow ? capacity - 2 : (int) sources.size(); // (room for "N MORE" and "+")
+        const auto cellWidth = (float) (area.getWidth() - (columns - 1) * tabGap) / (float) columns;
+        const auto cell = [&] (int index)
+        {
+            const auto row = index / columns, column = index % columns;
+            return juce::Rectangle<float> ((float) area.getX() + (float) column * (cellWidth + (float) tabGap),
+                                           (float) (area.getY() + row * (tabHeight + tabGap)), cellWidth, (float) tabHeight).toNearestInt();
+        };
+
+        hiddenSources.clear();
+        for (size_t i = 0; i < tabs.size(); ++i)
+        {
+            const auto shown = (int) i < shownTabs;
+            tabs[i]->setVisible (shown);
+            if (shown)
+                tabs[i]->setBounds (cell ((int) i));
+            else
+                hiddenSources.push_back (tabs[i]->getSource());
+        }
+        auto next = shownTabs;
+        moreTab.setVisible (overflow);
+        if (overflow)
+        {
+            moreTab.setButtonText (juce::String ((int) hiddenSources.size()) + " MORE");
+            moreTab.setBounds (cell (next++));
+        }
+        addTab.setBounds (cell (next));
+        addTab.setVisible (anyToAdd());
+
+        area.removeFromTop (rows * tabHeight + (rows - 1) * tabGap + pad);
+        editorArea = area;
+        layoutEditor();
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto over = editLinkArea().contains (event.getPosition());
+        if (over != hoverEdit)
+        {
+            hoverEdit = over;
+            setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint (editLinkArea());
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent& event) override { mouseMove (event.withNewPosition (juce::Point<int> (-1, -1))); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (editLinkArea().contains (event.getPosition()) && onOpenInMod != nullptr)
+            onOpenInMod (selected);
+    }
+
+private:
+    static constexpr int editWidth = 60;
+    // The graph and controls keep at least this; the DRIVES list folds to
+    // its header line before they get less (controls first).
+    static constexpr int minControlsHeight = 150;
+
+    juce::Rectangle<int> editLinkArea() const { return { getWidth() - 12 - editWidth, headerHeight / 2 - 8, editWidth, 16 }; }
+
+    void layoutEditor()
+    {
+        editor.setRoutesFolded (editorArea.getHeight() - editor.getRouteList().getIdealHeight() - 10 < minControlsHeight);
+        editor.setBounds (editorArea);
+    }
+
+    // The sources the card lists: the envelopes and LFOs in their pools, the
+    // patch's MSEG and the Operator Env's while it uses them.
+    std::vector<int> wantedSources() const
+    {
+        std::vector<int> wanted;
+        if (operatorSourceShown (processorRef, Mod::Source::OpPitchEnv))
+            wanted.push_back ((int) Mod::Source::OpPitchEnv);
+        for (int env = 0; env < 16; ++env)
+            if (envelopeShown (processorRef, env))
+                wanted.push_back ((int) envelopeSource (env));
+        if (operatorSourceShown (processorRef, Mod::Source::OpLfo))
+            wanted.push_back ((int) Mod::Source::OpLfo);
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (processorRef.isLfoShown (lfo))
+                wanted.push_back ((int) Mod::lfoSourceFor (lfo));
+        if (msegModuleInUse (processorRef))
+            wanted.push_back ((int) Mod::Source::Mseg);
+        return wanted;
+    }
+
+    bool anyToAdd() const
+    {
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (! processorRef.isLfoShown (lfo))
+                return true;
+        for (int env = 0; env < 16; ++env)
+            if (! envelopeShown (processorRef, env))
+                return true;
+        return false;
+    }
+
+    void refreshSources()
+    {
+        auto wanted = wantedSources();
+        if (wanted != sources)
+        {
+            sources = std::move (wanted);
+            tabs.clear();
+            for (const auto source : sources)
+            {
+                auto tab = std::make_unique<SourceTab> (processorRef, source);
+                tab->onSelect = [this] (int picked) { select (picked); };
+                addAndMakeVisible (*tab);
+                tabs.push_back (std::move (tab));
+            }
+            // A selection that left the patch: its first LFO, else its first source.
+            if (std::find (sources.begin(), sources.end(), selected) == sources.end())
+            {
+                selected = sources.empty() ? (int) Mod::lfoSourceFor (0) : sources.front();
+                for (const auto source : sources)
+                    if (Mod::lfoIndexFor ((Mod::Source) source) >= 0)
+                    {
+                        selected = source;
+                        break;
+                    }
+            }
+            resized();
+            select (selected);
+        }
+
+        for (auto& tab : tabs)
+            tab->setRouteCount (modRouteCount (processorRef, tab->getSource()));
+    }
+
+    void showAddMenu()
+    {
+        juce::PopupMenu lfos, envelopes;
+        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+            if (! processorRef.isLfoShown (lfo))
+                lfos.addItem (1 + lfo, "LFO " + juce::String (lfo + 1));
+        for (int env = 0; env < 16; ++env)
+            if (! envelopeShown (processorRef, env))
+                envelopes.addItem (100 + env, ModNames::source ((int) envelopeSource (env)));
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Add a source");
+        if (lfos.getNumItems() > 0)
+            menu.addSubMenu ("LFOs", lfos);
+        if (envelopes.getNumItems() > 0)
+            menu.addSubMenu ("Envelopes", envelopes);
+        juce::Component::SafePointer<ModulationCard> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addTab), [safeThis] (int result)
+        {
+            if (safeThis == nullptr || result <= 0)
+                return;
+            auto& p = safeThis->processorRef;
+            const auto isLfo = result < 100;
+            const auto index = isLfo ? result - 1 : result - 100;
+            p.setRevealed (isLfo ? IlanaSynthAudioProcessor::Module::Lfo : IlanaSynthAudioProcessor::Module::Envelope, index, true);
+            safeThis->refreshSources();
+            safeThis->select (isLfo ? (int) Mod::lfoSourceFor (index) : (int) envelopeSource (index));
+        });
+    }
+
+    void showMoreMenu()
+    {
+        juce::PopupMenu menu;
+        for (const auto source : hiddenSources)
+            menu.addItem (source + 1, ModNames::source (source, &processorRef), true, source == selected);
+        juce::Component::SafePointer<ModulationCard> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreTab), [safeThis] (int result)
+        {
+            if (safeThis != nullptr && result > 0)
+                safeThis->select (result - 1);
+        });
+    }
+
+    void timerCallback() override
+    {
+        if (isShowing())
+            refreshSources();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    SourceEditor editor;
+    std::vector<int> sources, hiddenSources;
+    std::vector<std::unique_ptr<SourceTab>> tabs;
+    juce::TextButton addTab, moreTab;
+    juce::Rectangle<int> editorArea;
+    int selected = (int) Mod::lfoSourceFor (0);
+    bool hoverEdit = false;
 };
 } // namespace

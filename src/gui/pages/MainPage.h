@@ -16,10 +16,8 @@ public:
     explicit MainPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           filterDisplay (p),
-          lfoThumbs (p, [] (int index) { return lfoColour (index); }),
           filterTabs ({ "F1", "F2" }, { filterColour (0), filterColour (1) }, true),
-          envTabs ({ envelopeTitle (0) }, { envColour (0) }, true),
-          lfoTabs ({}, {}, true)
+          modCard (p)
     {
         const auto colours = [] (int osc) { return IlanaTheme::oscColour (osc); };
 
@@ -243,116 +241,39 @@ public:
             filterSets.push_back (std::move (set));
         }
 
-        // Envelopes: graph plus ADSR per envelope, swapped by the tabs (one
-        // per envelope the MOD page's pool shows: UI review 6, S6-34).
-        const char* const envPrefixes[] { "amp", "fe", "f2e", "me", "e4" };
-
-        for (int e = 0; e < 16; ++e)
+        // MODULATION: the ENVELOPE and LFO cards in one (2026-10-09, after
+        // Serum 2's mod section): every envelope and LFO as a tab to drag,
+        // the selected one's editor and what it drives. EDIT opens it on MOD.
+        modCard.onOpenInMod = [this] (int source)
         {
-            const juce::String prefix (e < 5 ? juce::String (envPrefixes[e]) : "env" + juce::String (e + 1));
-            auto set = std::make_unique<ControlSet>();
-            set->display = std::make_unique<EnvelopeDisplay> (p, prefix, envColour (e), e == 0);
-
-            for (const auto& spec : { std::pair<const char*, const char*> { "_attack", "ATTACK" }, { "_decay", "DECAY" },
-                                      { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" } })
-                set->items.push_back (std::make_unique<KnobControl> (p.apvts, prefix + spec.first, spec.second, envColour (e), e == 0));
-                static_cast<KnobControl&> (*set->items.back()).setSizeRole (envKnobDial);
-
-            set->display->setSlim (true);
-            addChildComponent (*set->display);
-
-            for (auto& item : set->items)
-                addChildComponent (*item);
-
-            envSets.push_back (std::move (set));
-        }
-
-        // AMP ENV dims, and says why, while nothing plays it (an operator
-        // patch on its Operator EG: UI review 6, V3, I6-2); EDIT OP ENV opens
-        // the operator's envelope on FM.
-        for (auto* control : { static_cast<juce::Component*> (envSets[0]->display.get()), envSets[0]->items[0].get(),
-                               envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
-            effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
-
-        // The other envelopes and the LFOs dim while nothing uses them: no
-        // route, oscillator or filter takes their output yet.
-        for (int env = 1; env < (int) envSets.size(); ++env)
-            for (auto* control : { static_cast<juce::Component*> (envSets[(size_t) env]->display.get()), envSets[(size_t) env]->items[0].get(),
-                                   envSets[(size_t) env]->items[1].get(), envSets[(size_t) env]->items[2].get(), envSets[(size_t) env]->items[3].get() })
-                effectRules.add (*control, [this, env] { return envelopeInUse (processorRef, env); },
-                                 "nothing uses this envelope yet: route it in the MATRIX or pick it as an oscillator's envelope");
-        for (int lfo = 0; lfo < (int) lfoSets.size(); ++lfo)
-            for (auto& item : lfoSets[(size_t) lfo]->items)
-                effectRules.add (*item, [this, lfo]
-                                 { return modSourceRouted (processorRef, Mod::lfoSourceFor (lfo)) || modSourceRouted (processorRef, Mod::lfoBSourceFor (lfo)); },
-                                 "nothing uses this LFO yet: drag it onto a knob or route it in the MATRIX");
-
-        styleJumpLink (opEgButton, "OP ENV");
-        opEgButton.setTooltip ("Open the Operator Env's editor. Each operator plays its own copy; it shapes their levels, and AMP ENV is unused.");
-        opEgButton.onClick = [this]
-        {
-            if (onEditOperator != nullptr)
-                onEditOperator (juce::jmax (0, firstOperatorEg()));
+            if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) source); lfo >= 0)
+            {
+                if (onEditLfo != nullptr)
+                    onEditLfo (lfo);
+            }
+            else if (const auto env = SourceEditor::envelopeOf (source); env >= 0)
+            {
+                if (onEditEnvelope != nullptr)
+                    onEditEnvelope (env);
+            }
+            else if (onOpenPage != nullptr)
+            {
+                onOpenPage ("ENV/LFO");
+            }
         };
-        addChildComponent (opEgButton);
-
-        // OP ENV, first among the envelope tabs on a patch that plays it
-        // (UI review 8, I8-18): its picture, and a link to its one editor.
-        opEnvOverview.onClick = [this] { opEgButton.triggerClick(); };
-        addChildComponent (opEnvOverview);
-
-        // LFOs: the cards plus the selected LFO's main controls.
-        for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
+        modCard.onEditOperatorEnv = [this]
         {
-            const auto prefix = "lfo" + juce::String (lfo + 1);
-            auto set = std::make_unique<ControlSet>();
-            set->items.push_back (std::make_unique<ComboControl> (p.apvts, prefix + "_shape", "SHAPE"));
-            LfoShapeMenu::apply (static_cast<ComboControl&> (*set->items.back()), p); // MOD's names and grouped list (I7-44)
-            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC"));
-            set->items.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + "_retrig", "RETRIG"));
-            for (int i = 1; i <= 2; ++i) // (the LFO's switches in its colour, as the sheet's)
-                static_cast<ToggleControl&> (*set->items[(size_t) i]).setSwitchColour (IlanaSynthAudioProcessor::lfoColour (lfo));
-
-            for (auto& item : set->items)
-                addChildComponent (*item);
-
-            lfoSets.push_back (std::move (set));
-
-            // RATE reads in Hz, or in note values while SYNC is on.
-            lfoRates.push_back (std::make_unique<LfoRateSlider> (p, lfo, lfoColour (lfo)));
-            lfoRates.back()->addTo (*this);
-        }
-
-        lfoThumbs.setFillWidth (true);
-        lfoThumbs.onSelect = [this] (int index) { lfoTabs.setSelected (index, true); };
-        lfoThumbView.setViewedComponent (&lfoThumbs, false);
-        lfoThumbView.setScrollBarsShown (false, true);
-        lfoThumbView.setScrollBarThickness (6);
-        addAndMakeVisible (lfoThumbView);
-        lfoThumbs.onLayoutChanged = [this] { resized(); };
+            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
+            if (onEditOperator != nullptr)
+                onEditOperator (operators.empty() ? 0 : operators.front());
+        };
+        addAndMakeVisible (modCard);
 
         filterTabs.onSelect = [this] (int) { updateVisibility(); };
-        envTabs.onSelect = [this] (int index) { envTabPicked (index); };
-        lfoTabs.onSelect = [this] (int index)
-        {
-            lfoThumbs.setSelected (index);
-            updateVisibility();
-        };
 
         filterTabs.onOpen = [this] { if (onOpenPage != nullptr) onOpenPage ("FILTER"); };
-        // On OP ENV the header's EDIT opens the operator's editor, so no second
-        // link sits under the paragraph (review 11, I11-14).
-        envTabs.onOpen = [this]
-        {
-            if (selectedEnv == opEnvTab && onEditOperator != nullptr)
-                onEditOperator (juce::jmax (0, firstOperatorEg()));
-            else if (onEditEnvelope != nullptr)
-                onEditEnvelope (selectedEnv);
-        };
-        lfoTabs.onOpen = [this] { if (onEditLfo != nullptr) onEditLfo (lfoTabs.getSelected()); };
 
-        addAll (*this, filterTabs, envTabs, lfoTabs);
-        refreshEnvTabs();
+        addAll (*this, filterTabs);
         updateVisibility();
         updateStrips();
 
@@ -386,110 +307,6 @@ public:
 
     static juce::Colour envColour (int index) { return EnvSection::colourOf (index); }
 
-    // The envelope PLAY shows (ENV 1-16, 0-based; opEnvTab for OP ENV).
-    int getSelectedEnvelope() const { return selectedEnv; }
-
-    // The OP ENV tab's id, after ENV 1-16 (as the MOD page numbers it).
-    static constexpr int opEnvTab = EnvSection::opEnvId;
-
-    static juce::String envTabTitle (int env) { return env == opEnvTab ? juce::String ("OP ENV") : envelopeTitle (env); }
-
-    juce::Colour envTabColour (int env) const
-    {
-        if (env == opEnvTab)
-            return OperatorPool::colour();
-        // AMP ENV dims on a voice whose oscillators all play OP ENV.
-        if (env == 0 && shownAmpNote.isNotEmpty())
-            return IlanaTheme::Ui::text3;
-        return envColour (env);
-    }
-
-    // PLAY's envelope tabs: the envelopes the MOD page's pool shows, as
-    // many as fit the card's header, the selected one always among them,
-    // and "+N" for the rest (a menu).
-    void refreshEnvTabs()
-    {
-        std::vector<int> shown;
-        if (operatorPoolShown (processorRef))
-            shown.push_back (opEnvTab);
-        for (int env = 0; env < (int) envSets.size(); ++env)
-            if (envelopeShown (processorRef, env))
-                shown.push_back (env);
-        if (shown.empty())
-            shown.push_back (0);
-        if (std::find (shown.begin(), shown.end(), selectedEnv) == shown.end())
-            selectedEnv = shown.front();
-
-        const auto room = envCard.isEmpty() ? 1000 : envCard.getWidth() - 16 - 110 /* the card's title */;
-        const auto namesFor = [] (const std::vector<int>& envs, int hidden)
-        {
-            juce::StringArray names;
-            for (const auto env : envs)
-                names.add (envTabTitle (env));
-            if (hidden > 0)
-                names.add (juce::String (hidden) + " MORE"); // (as the MOD pool says it: V13-16)
-            return names;
-        };
-
-        auto tabs = shown;
-        auto hidden = 0;
-        while (tabs.size() > 1)
-        {
-            CardTabs probe (namesFor (tabs, hidden), {}, true);
-            if (probe.getIdealWidth() <= room)
-                break;
-            // Drop the last one that isn't selected.
-            for (auto it = tabs.rbegin(); it != tabs.rend(); ++it)
-                if (*it != selectedEnv)
-                {
-                    tabs.erase (std::next (it).base());
-                    ++hidden;
-                    break;
-                }
-        }
-
-        std::vector<juce::Colour> colours;
-        for (const auto env : tabs)
-            colours.push_back (envTabColour (env));
-        if (hidden > 0)
-            colours.push_back (IlanaTheme::Ui::text3);
-
-        envTabEnvs = tabs;
-        envHiddenEnvs.clear();
-        for (const auto env : shown)
-            if (std::find (tabs.begin(), tabs.end(), env) == tabs.end())
-                envHiddenEnvs.push_back (env);
-
-        envTabs.setNames (namesFor (tabs, hidden), colours);
-        envTabs.setSelected ((int) (std::find (tabs.begin(), tabs.end(), selectedEnv) - tabs.begin()), false);
-    }
-
-    void envTabPicked (int index)
-    {
-        if (index < (int) envTabEnvs.size())
-        {
-            selectedEnv = envTabEnvs[(size_t) index];
-            updateVisibility();
-            return;
-        }
-
-        // "+N": the envelopes that didn't fit.
-        envTabs.setSelected ((int) (std::find (envTabEnvs.begin(), envTabEnvs.end(), selectedEnv) - envTabEnvs.begin()), false);
-        juce::PopupMenu menu;
-        for (const auto env : envHiddenEnvs)
-            menu.addItem (env + 1, envTabTitle (env));
-        juce::Component::SafePointer<MainPage> safeThis (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&envTabs), [safeThis] (int id)
-        {
-            if (safeThis == nullptr || id <= 0)
-                return;
-            safeThis->selectedEnv = id - 1;
-            safeThis->refreshEnvTabs();
-            safeThis->resized();
-            safeThis->updateVisibility();
-        });
-    }
-
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
@@ -502,78 +319,6 @@ public:
         {
             const auto well = filterDisplay.getBounds().toFloat();
             IlanaTheme::paintWell (g, well, 6.0f);
-        }
-        paintCard (g, envCard, "ENVELOPE", envTabColour (selectedEnv));
-
-        // OP ENV: what plays it, beside its picture: each operator's OUTPUT as
-        // a bar (V12-13; the sentence on what the Operator Env does is in
-        // the tooltip of EDIT OP ENV).
-        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
-        {
-            const auto operators = OperatorPool::operatorsOnEnv (processorRef);
-            const auto count = (int) operators.size();
-            auto area = opEnvNoteArea;
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            // (Said shorter when the card is narrow: no cut word, V14-17.)
-            const auto heading = area.removeFromTop (14);
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            auto sentence = juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV");
-            for (const auto& shorter : { juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
-                                         juce::String (count) + (count == 1 ? " PLAYS THE OP ENV" : " PLAY THE OP ENV") })
-                if (juce::GlyphArrangement::getStringWidthInt (font, sentence) > heading.getWidth())
-                    sentence = shorter;
-            IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
-            area.removeFromTop (4);
-            const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
-            for (int i = 0; i < count && rowHeight >= 8; ++i)
-            {
-                const auto osc = operators[(size_t) i];
-                const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out");
-                if (parameter == nullptr)
-                    continue;
-                auto row = area.removeFromTop (rowHeight);
-                g.setColour (OscPage::oscColour (osc));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                g.drawText ("OSC " + juce::String (osc + 1), row.removeFromLeft (46), juce::Justification::centredLeft);
-                const auto value = row.removeFromRight (62);
-                g.setColour (IlanaTheme::Ui::text2);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawText (parameter->getCurrentValueAsText(), value, juce::Justification::centredRight);
-                const auto bar = row.withSizeKeepingCentre (row.getWidth() - 6, 6).toFloat();
-                g.setColour (juce::Colours::white.withAlpha (0.07f));
-                g.fillRoundedRectangle (bar, 3.0f);
-                g.setColour (OscPage::oscColour (osc).withAlpha (0.85f));
-                g.fillRoundedRectangle (bar.withWidth (juce::jmax (3.0f, bar.getWidth() * parameter->getValue())), 3.0f);
-            }
-        }
-
-        paintCard (g, lfoCard, "LFO", lfoColour (lfoTabs.getSelected()));
-
-        // How the selected LFO runs, in MOD's words (UI review 9, I9-19).
-        if (! lfoCard.isEmpty() && shownLfoCaption.isNotEmpty())
-        {
-            const auto centreY = titleCentreY (lfoCard);
-            const auto titleRight = lfoCard.getX() + 24
-                                    + juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), "LFO") + 10;
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, shownLfoCaption, juce::Rectangle<int> (titleRight, centreY - 8, lfoCard.getRight() - 12 - titleRight, 16),
-                                    juce::Justification::centredLeft, 1);
-        }
-    }
-
-    // AMP ENV's note while nothing plays it, over the (dimmed) graph.
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        if (selectedEnv == 0 && ! ampNoteArea.isEmpty())
-        {
-            const auto room = ampNoteArea.withTrimmedRight (opEgButton.isVisible() ? 104 : 0);
-            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.8f));
-            g.fillRoundedRectangle (ampNoteArea.toFloat(), 4.0f);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            IlanaTheme::drawFitted (g, shownAmpNote, room.withTrimmedLeft (4), juce::Justification::centredLeft, 1);
         }
     }
 
@@ -717,14 +462,12 @@ public:
         outputView.setVisible (showOutput);
         oscColumn.repaint();
 
-        // FILTER, ENVELOPE and LFO: three equal cards, a 10 px gap (172 px
-        // each at the design's size).
+        // FILTER keeps the top third (172 px at the design's size), as
+        // before; MODULATION takes the two thirds the ENVELOPE and LFO cards had.
         const auto rightCard = (right.getHeight() - 2 * cardGap) / 3;
         filterCard = right.removeFromTop (rightCard);
         right.removeFromTop (cardGap);
-        envCard = right.removeFromTop (rightCard);
-        right.removeFromTop (cardGap);
-        lfoCard = right;
+        modCard.setBounds (right);
 
         // The tabs sit in the 30 px header, 22 px pills level with its title.
         const auto placeTabs = [] (CardTabs& tabs, juce::Rectangle<int> card)
@@ -734,9 +477,6 @@ public:
         };
 
         placeTabs (filterTabs, filterCard);
-        refreshEnvTabs();
-        placeTabs (envTabs, envCard);
-        placeTabs (lfoTabs, lfoCard);
 
         // FILTER: the response on the left at the card's full height, the
         // controls in a 3 x 2 grid on the right: CUTOFF, RESO, DRIVE, ENV AMT,
@@ -760,68 +500,6 @@ public:
                 const auto stack = slot.withSizeKeepingCentre (width, 24 + 6 + 22);
                 set->items[0]->setBounds (stack.withHeight (24));
                 set->items[1]->setBounds (stack.withTrimmedTop (30));
-            }
-        }
-
-        // ENVELOPE: the graph across the card's full width, the four knobs in
-        // one evenly spaced row under it.
-        {
-            auto inner = envCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
-            // OP ENV: the picture takes the height its operators' bars leave.
-            auto graphHeight = envGraphHeight;
-            if (selectedEnv == opEnvTab)
-            {
-                const auto operators = (int) OperatorPool::operatorsOnEnv (processorRef).size();
-                graphHeight = juce::jlimit (36, 100, inner.getHeight() - 8 - (18 + 12 * juce::jmax (1, operators)));
-            }
-            const auto displayArea = inner.removeFromTop (graphHeight);
-            inner.removeFromTop (8);
-            ampNoteArea = shownAmpNote.isNotEmpty() ? displayArea.withTrimmedTop (displayArea.getHeight() - 22).reduced (6, 2) : juce::Rectangle<int>();
-            opEgButton.setBounds (ampNoteArea.removeFromRight (100).withSizeKeepingCentre (96, 20));
-
-            for (auto& set : envSets)
-            {
-                set->display->setBounds (displayArea);
-                layoutRow (inner, { set->items[0].get(), set->items[1].get(), set->items[2].get(), set->items[3].get() });
-            }
-
-            // OP ENV: its picture where the graph is, a line on what plays
-            // it under it, and EDIT OP ENV in the header.
-            opEnvOverview.setBounds (displayArea);
-            opEnvNoteArea = {};
-            if (selectedEnv == opEnvTab)
-                opEnvNoteArea = inner.reduced (4, 0);
-
-            updateVisibility();
-        }
-
-        // LFO: three thumbnails (filled waves, live phase dot, route chip, the
-        // selected one lit) over ONE row on a single baseline: SHAPE, RATE,
-        // SYNC and RETRIG, each named above its control.
-        {
-            auto inner = lfoCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
-            const auto cards = inner.removeFromTop (lfoThumbHeight);
-            lfoThumbs.setViewWidth (cards.getWidth());
-            const auto thumbWidth = lfoThumbs.getPreferredWidth();
-            lfoThumbView.setBounds (cards);
-            lfoThumbs.setSize (thumbWidth, cards.getHeight() - (thumbWidth > cards.getWidth() ? lfoThumbView.getScrollBarThickness() + 1 : 0));
-            inner.removeFromTop (8);
-
-            auto row = inner.removeFromBottom (13 + 24);
-            for (size_t lfo = 0; lfo < lfoSets.size(); ++lfo)
-            {
-                auto& set = lfoSets[lfo];
-                auto cells = row;
-                const auto shape = cells.removeFromLeft (juce::jmin (132, cells.getWidth() / 3));
-                cells.removeFromLeft (16);
-                const auto retrig = cells.removeFromRight (64);
-                cells.removeFromRight (16);
-                const auto sync = cells.removeFromRight (56);
-                cells.removeFromRight (16);
-                set->items[0]->setBounds (shape);
-                lfoRates[lfo]->setBounds (cells);
-                set->items[1]->setBounds (sync);
-                set->items[2]->setBounds (retrig);
             }
         }
     }
@@ -1204,12 +882,6 @@ private:
         };
 
         showSets (filterSets, filterTabs.getSelected());
-        showSets (envSets, selectedEnv);
-        showSets (lfoSets, lfoTabs.getSelected());
-        for (int lfo = 0; lfo < (int) lfoRates.size(); ++lfo)
-            lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
-        opEgButton.setVisible (selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0);
-        opEnvOverview.setVisible (selectedEnv == opEnvTab);
         repaint();
     }
 
@@ -1218,20 +890,6 @@ private:
         // (Polled, not only on the reveal version: FM routes have no
         // listener here.)
         updateStrips();
-
-        // The envelope tabs follow the pool (an envelope added, removed, or
-        // put to use by a route or an oscillator).
-        {
-            auto shownEnvs = operatorPoolShown (processorRef) ? (1u << opEnvTab) : 0u;
-            for (int env = 0; env < (int) envSets.size(); ++env)
-                shownEnvs |= envelopeShown (processorRef, env) ? (1u << env) : 0u;
-            if (shownEnvs != lastShownEnvs)
-            {
-                lastShownEnvs = shownEnvs;
-                resized();
-                updateVisibility();
-            }
-        }
 
         // An operator voice with both filters wide open has none.
         {
@@ -1250,37 +908,6 @@ private:
 
         effectRules.apply();
 
-        // The OP ENV card's bars follow the operators' OUTPUTs.
-        if (selectedEnv == opEnvTab && ! opEnvNoteArea.isEmpty())
-        {
-            auto sum = 0.0f;
-            for (const auto osc : OperatorPool::operatorsOnEnv (processorRef))
-                if (const auto* parameter = processorRef.apvts.getParameter (OscRole::prefix (osc) + "_eg_out"))
-                    sum += parameter->getValue() * (float) (osc + 1);
-            if (sum != lastOperatorOutputs)
-            {
-                lastOperatorOutputs = sum;
-                repaint (envCard);
-            }
-        }
-
-        // The LFO card's caption and run switch follow its shape (I9-1 / I9-19).
-        {
-            const auto lfo = lfoTabs.getSelected();
-            const auto caption = LfoShapeMenu::runCaption (processorRef, lfo);
-            if (caption != shownLfoCaption)
-            {
-                shownLfoCaption = caption;
-                repaint (lfoCard);
-            }
-            if (juce::isPositiveAndBelow (lfo, (int) lfoSets.size()))
-                if (auto* retrig = dynamic_cast<ToggleControl*> (lfoSets[(size_t) lfo]->items[2].get()))
-                {
-                    const auto* shape = processorRef.apvts.getRawParameterValue ("lfo" + juce::String (lfo + 1) + "_shape");
-                    LfoSection::labelRunSwitch (*retrig, shape != nullptr && LfoSimShapes::isSim (juce::roundToInt (shape->load())));
-                }
-        }
-
         // The sub's controls follow its switch; noise has its own level.
         {
             const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
@@ -1294,71 +921,6 @@ private:
             if (noiseColour->getAlpha() != colourAlpha)
                 noiseColour->setAlpha (colourAlpha);
         }
-
-        // AMP ENV says so when nothing plays it (UI review 6, V3, I6-2).
-        const auto note = ampEnvUnusedNote();
-
-        if (note != shownAmpNote)
-        {
-            // A voice whose oscillators all play OP ENV opens on its tab,
-            // not on the unused AMP ENV (UI review 8, I8-18).
-            if (note == EnvSection::ampUnusedText() && selectedEnv == 0)
-                selectedEnv = opEnvTab;
-            shownAmpNote = note;
-            resized();
-            updateVisibility();
-            repaint (envCard);
-        }
-    }
-
-    // Why the amp envelope does nothing now, or empty while something plays
-    // it: an oscillator on ENVELOPE "Amp Env", the sub or the noise, or a
-    // matrix route from it.
-    juce::String ampEnvUnusedNote() const
-    {
-        if (readInt ("subosc_on") > 0 || (processorRef.apvts.getRawParameterValue ("noise_level") != nullptr
-                                          && processorRef.apvts.getRawParameterValue ("noise_level")->load() > 0.0005f))
-            return {};
-
-        auto playing = 0, operatorEg = 0;
-
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
-        {
-            if (! processorRef.isOscillatorShown (osc) || readInt (OscRole::prefix (osc) + "_on") == 0)
-                continue;
-
-            if (readInt (OscRole::prefix (osc) + "_amp_env") == 0)
-                return {};
-
-            ++playing;
-            operatorEg += OscRole::usesOperatorEg (processorRef, osc) ? 1 : 0;
-        }
-
-        if (playing == 0)
-            return {};
-
-        for (int slot = 0; slot < Mod::maxSlots; ++slot)
-        {
-            const auto routing = processorRef.readModSlot (slot);
-
-            if (routing.destination != 0 && (routing.source == Mod::Source::AmpEnv || routing.aux == Mod::Source::AmpEnv))
-                return {};
-        }
-
-        // One wording with the MOD page (UI review 8, S8-17).
-        return operatorEg == playing ? juce::String (EnvSection::ampUnusedText())
-                                     : juce::String ("unused: the oscillators play other envelopes");
-    }
-
-    juce::String shownLfoCaption;
-
-    int firstOperatorEg() const
-    {
-        for (int osc = 0; osc < OscillatorIds::count; ++osc)
-            if (processorRef.isOscillatorShown (osc) && OscRole::usesOperatorEg (processorRef, osc))
-                return osc;
-
-        return -1;
     }
 
     // The title line's centre on the right column's cards.
@@ -1781,17 +1343,12 @@ private:
     // The design's one spacing grid and fixed heights (mockup panelsA.js, play).
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
-    static constexpr int filterDisplayWidth = 170, envGraphHeight = 56, lfoThumbHeight = 74, envKnobDial = 34, stripPictureWidth = 190, stripMenuHeight = 26;
+    static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
     static constexpr int compactTitleWidth = 64, lowPictureWidth = 100;
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
-    // PLAY's envelope: which one, the envelopes on its tabs, those behind
-    // "+N", and the pool last seen.
-    int selectedEnv = 0;
-    std::vector<int> envTabEnvs { 0 }, envHiddenEnvs;
-    unsigned int lastShownEnvs = 0;
     EffectRules effectRules { processorRef };
     juce::Rectangle<int> subCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
@@ -1800,25 +1357,17 @@ private:
                                    maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn;
     bool subFolded = false;
-    float lastOperatorOutputs = 0.0f;
     std::unique_ptr<ChoicePills> subShape, subOctave;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
-    juce::String shownAmpNote;
-    juce::Rectangle<int> ampNoteArea;
-    juce::TextButton opEgButton;
-    OperatorEnvOverview opEnvOverview { processorRef };
-    juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;
     juce::Label filterOffNote;
     bool operatorFilterOff = false;
-    juce::Viewport lfoThumbView;
-    LfoThumbBar lfoThumbs;
-    CardTabs filterTabs, envTabs, lfoTabs;
+    CardTabs filterTabs;
+    ModulationCard modCard;
     std::vector<std::unique_ptr<OscStrip>> strips;
-    std::vector<std::unique_ptr<ControlSet>> filterSets, envSets, lfoSets;
-    std::vector<std::unique_ptr<LfoRateSlider>> lfoRates;
+    std::vector<std::unique_ptr<ControlSet>> filterSets;
     std::array<juce::Rectangle<int>, OscillatorIds::count> oscCards;
-    juce::Rectangle<int> filterCard, envCard, lfoCard;
+    juce::Rectangle<int> filterCard;
 };
 } // namespace

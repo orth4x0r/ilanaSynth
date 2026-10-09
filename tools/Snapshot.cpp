@@ -31,6 +31,7 @@
 #include "gui/OperatorEnvDisplay.h"
 #include "gui/OperatorPoolCards.h"
 #include "gui/LfoThumbs.h"
+#include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/FilterDisplay.h"
 #include "gui/OutputView.h"
@@ -1328,75 +1329,72 @@ int runUiTests()
 
     if (auto* page = pages->getCurrentPage())
     {
-        if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+        if (auto* card = findChild<ModulationCardView> (*page); card != nullptr && ! card->getSourceTabs().empty())
         {
             // A press that moves away (a drag to a knob) must not switch pages.
+            auto* firstTab = card->getSourceTabs().front();
             auto source = juce::Desktop::getInstance().getMainMouseSource();
             const auto now = juce::Time::getCurrentTime();
-            const juce::Point<float> from (20.0f, (float) thumbs->getHeight() * 0.5f);
+            const juce::Point<float> from (20.0f, (float) firstTab->getHeight() * 0.5f);
             const juce::Point<float> to (from.x + 60.0f, from.y + 40.0f);
             const auto make = [&] (juce::Point<float> at, bool dragged)
             {
                 return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                         thumbs, thumbs, now, from, now, 1, dragged);
+                                         firstTab, firstTab, now, from, now, 1, dragged);
             };
 
-            auto& component = static_cast<juce::Component&> (*thumbs);
+            auto& component = static_cast<juce::Component&> (*firstTab);
             component.mouseDown (make (from, false));
             component.mouseUp (make (to, true));
             settle (50);
-            expect (pages->getCurrentPageId() == "MAIN", "dragging an LFO card on MAIN stays on MAIN");
+            expect (pages->getCurrentPageId() == "MAIN", "dragging a MODULATION tab on MAIN stays on MAIN");
 
-            // A click selects the LFO right on MAIN; the card's open button
-            // jumps to the full page with that LFO.
-            thumbs->onSelect (2);
-            settle (100);
-
-            std::vector<CardTabs*> cardTabs;
-            findAll<CardTabs> (*page, cardTabs);
-            CardTabs* lfoTabs = nullptr;
-
-            for (auto* candidate : cardTabs)
-                if (candidate->getSelected() == 2)
-                    lfoTabs = candidate;
-
-            expect (pages->getCurrentPageId() == "MAIN" && lfoTabs != nullptr,
-                    "clicking an LFO card selects it on MAIN");
-
-            if (lfoTabs != nullptr && lfoTabs->onOpen != nullptr)
+            // A click selects the source right on MAIN; EDIT jumps to the
+            // full page with that source.
+            using M = IlanaSynthAudioProcessor::Module;
+            const auto lfo3Before = processor.isRevealed (M::Lfo, 2), env4Before = processor.isRevealed (M::Envelope, 3);
+            const auto lfo3 = (int) Mod::lfoSourceFor (2);
+            processor.setRevealed (M::Lfo, 2, true);
+            settle (300);
+            for (auto* tab : card->getSourceTabs())
             {
-                lfoTabs->onOpen();
-                settle (100);
-                expect (pages->getCurrentPageId() == "ENV/LFO", "the LFO card's open button goes to ENV/LFO");
+                if (card->sourceOfTab (*tab) != lfo3)
+                    continue;
+                // A plain click on its tab.
+                const juce::Point<float> centre (tab->getWidth() * 0.5f, tab->getHeight() * 0.5f);
+                const juce::MouseEvent click (source, centre, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                              tab, tab, now, centre, now, 1, false);
+                tab->mouseDown (click);
+                tab->mouseUp (click);
             }
+            settle (100);
+            expect (pages->getCurrentPageId() == "MAIN" && card->getSelectedSource() == lfo3,
+                    "clicking an LFO tab selects it on MAIN");
 
-            // The envelope tabs swap MAIN's envelope controls (AMP -> MOD).
+            card->openSelectedInMod();
+            settle (100);
+            expect (pages->getCurrentPageId() == "ENV/LFO", "the MODULATION card's EDIT goes to ENV/LFO");
+
+            // An envelope tab swaps the card's controls (-> ENV 4's knobs).
             pages->showPage ("MAIN");
             settle (100);
-
-            for (auto* candidate : cardTabs)
-            {
-                std::vector<KnobControl*> before;
-                candidate->setSelected (3, true);
-                settle (50);
-                findAll<KnobControl> (*page, before);
-                auto modVisible = false;
-
-                for (auto* knob : before)
-                    modVisible = modVisible || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
-
-                if (modVisible)
-                {
-                    expect (true, "MAIN's envelope tabs show the MOD envelope");
-                    break;
-                }
-
-                candidate->setSelected (0, true);
-            }
+            processor.setRevealed (M::Envelope, 3, true);
+            settle (300);
+            card->selectSource ((int) envelopeSource (3));
+            settle (100);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*page, knobs);
+            auto modVisible = false;
+            for (auto* knob : knobs)
+                modVisible = modVisible || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
+            expect (modVisible, "MAIN's MODULATION card shows the selected envelope's knobs");
+            processor.setRevealed (M::Lfo, 2, lfo3Before);
+            processor.setRevealed (M::Envelope, 3, env4Before);
+            settle (100);
         }
         else
         {
-            expect (false, "MAIN page has LFO cards");
+            expect (false, "MAIN page has a MODULATION card");
         }
     }
 
@@ -2753,14 +2751,12 @@ int runUiTests()
                 pages->showPage ("MAIN");
                 settle (400);
                 {
-                    std::vector<CardTabs*> tabs;
+                    ModulationCardView* card = nullptr;
                     if (auto* page = pages->getCurrentPage())
-                        findAll<CardTabs> (*page, tabs);
-                    auto opEnvTab = false;
-                    for (auto* candidate : tabs)
-                        if (visibleInTree (candidate) && candidate->getNames().contains ("AMP ENV"))
-                            opEnvTab = candidate->getNames()[0] == "OP ENV" && candidate->getSelected() == 0;
-                    expect (opEnvTab, "a DX7 voice's PLAY ENVELOPE card opens on OP ENV, its first tab");
+                        card = findChild<ModulationCardView> (*page);
+                    const auto opEnvTab = card != nullptr && ! card->getSourceList().empty()
+                                          && card->getSourceList().front() == opEnvSourceId && card->getSelectedSource() == opEnvSourceId;
+                    expect (opEnvTab, "a DX7 voice's PLAY MODULATION card opens on OP ENV, its first tab");
                 }
                 pages->showPage ("ENV/LFO");
                 settle (200);
@@ -5976,19 +5972,14 @@ int runUiTests()
                 return nullptr;
             };
 
-            // PLAY's RATE is the design's slider (SYNC swaps it for the division in place).
+            // PLAY's MODULATION card: SYNC swaps RATE for the division in place.
             {
                 pages->showPage ("MAIN");
                 settle (300);
-                const auto findSlider = [&editor] (const juce::String& id) -> ValueSliderControl*
-                {
-                    std::vector<ValueSliderControl*> sliders;
-                    findAll<ValueSliderControl> (*editor, sliders);
-                    for (auto* slider : sliders)
-                        if (slider->getParameterId() == id && visibleInTree (slider) && slider->getWidth() > 0)
-                            return slider;
-                    return nullptr;
-                };
+                if (auto* page = pages->getCurrentPage())
+                    if (auto* card = findChild<ModulationCardView> (*page))
+                        card->selectSource ((int) Mod::lfoSourceFor (0));
+                settle (100);
                 auto* sync = processor.apvts.getParameter ("lfo1_sync");
                 auto* divParam = processor.apvts.getParameter ("lfo1_div");
                 if (sync != nullptr && divParam != nullptr)
@@ -5996,19 +5987,19 @@ int runUiTests()
                     const auto syncBefore = sync->getValue();
                     sync->setValueNotifyingHost (1.0f);
                     settle (300);
-                    auto* division = findSlider ("lfo1_div");
+                    auto* division = findKnob ("lfo1_div");
                     const auto divText = divParam->getText (divParam->getValue(), 0);
                     const auto shownText = division != nullptr ? division->getSlider().getTextFromValue (division->getSlider().getValue()) : juce::String();
-                    expect (division != nullptr && shownText == divText && findSlider ("lfo1_rate") == nullptr,
-                            "MAIN: a synced LFO's RATE slider shows the division ('" + shownText + "', want '" + divText + "')");
+                    expect (division != nullptr && shownText == divText && findKnob ("lfo1_rate") == nullptr,
+                            "MAIN: a synced LFO's RATE knob shows the division ('" + shownText + "', want '" + divText + "')");
                     sync->setValueNotifyingHost (0.0f);
                     settle (300);
-                    expect (findSlider ("lfo1_rate") != nullptr && findSlider ("lfo1_div") == nullptr, "MAIN: free-running, RATE is the Hz slider again");
+                    expect (findKnob ("lfo1_rate") != nullptr && findKnob ("lfo1_div") == nullptr, "MAIN: free-running, RATE is the Hz knob again");
                     sync->setValueNotifyingHost (syncBefore);
                     settle (100);
                 }
                 else
-                    expect (false, "MAIN: an LFO RATE slider is on the page");
+                    expect (false, "MAIN: an LFO RATE knob is on the page");
             }
 
             for (const auto* page : { "ENV/LFO" })
@@ -6444,25 +6435,18 @@ int runUiTests()
                     processor.setRevealed (M::Envelope, 6, true);
                     pages->showPage ("MAIN");
                     settle (400);
-                    juce::StringArray names;
+                    juce::StringArray names, want;
                     if (auto* page = pages->getCurrentPage())
-                    {
-                        std::vector<CardTabs*> cardTabs;
-                        findAll<CardTabs> (*page, cardTabs);
-                        for (auto* tabs : cardTabs)
-                            if (tabs->getNames().contains ("AMP ENV"))
-                                names = tabs->getNames();
-                    }
-                    juce::StringArray want;
+                        if (auto* card = findChild<ModulationCardView> (*page))
+                            for (const auto source : card->getSourceList())
+                                for (int env = 0; env < 16; ++env)
+                                    if (source == (int) envelopeSource (env))
+                                        names.add (ModNames::sourceUpper (source, &processor));
                     for (int env = 0; env < 16; ++env)
                         if (envelopeShown (processor, env))
-                            want.add (env < 4 ? juce::StringArray { "AMP ENV", "FILT ENV", "FILT 2 ENV", "ENV 4" }[env] : "ENV " + juce::String (env + 1));
-                    const auto overflow = names.size() > 0 && names[names.size() - 1].endsWith (" MORE") || names[names.size() - 1].startsWith ("+");
-                    auto matches = names.size() > 0;
-                    for (int tab = 0; tab < names.size() - (overflow ? 1 : 0); ++tab)
-                        matches = matches && want.contains (names[tab]);
-                    matches = matches && (overflow || names == want) && (names.contains ("ENV 7") || overflow);
-                    expect (matches, "PLAY's envelope tabs follow the pool (" + names.joinIntoString (", ") + "; pool: " + want.joinIntoString (", ") + ")");
+                            want.add (ModNames::sourceUpper ((int) envelopeSource (env), &processor));
+                    expect (names.size() > 0 && names == want && want.size() >= 2,
+                            "PLAY's MODULATION tabs follow the envelope pool (" + names.joinIntoString (", ") + "; pool: " + want.joinIntoString (", ") + ")");
                     processor.setRevealed (M::Envelope, 6, false);
                     pages->showPage ("ENV/LFO");
                     settle (200);
@@ -6717,14 +6701,10 @@ int runUiTests()
 
             // AMP ENV plays nothing here: greyed, with the reason and a way
             // to the Operator EG (V42, S3).
-            {
-                std::vector<CardTabs*> bars;
-                findAll<CardTabs> (*editor, bars);
-                for (auto* bar : bars)
-                    if (visibleInTree (bar) && bar->getNames().contains ("AMP ENV"))
-                        bar->setSelected (bar->getNames().indexOf ("AMP ENV"), true); // (OP ENV comes first: I8-18)
-                settle (300);
-            }
+            if (auto* page = pages->getCurrentPage())
+                if (auto* card = findChild<ModulationCardView> (*page))
+                    card->selectSource ((int) envelopeSource (0)); // (OP ENV comes first: I8-18)
+            settle (300);
             std::vector<juce::Button*> buttons;
             findAll<juce::Button> (*editor, buttons);
             auto opEnv = false;
@@ -7023,6 +7003,33 @@ int runUiTests()
         juce::Slider probe;
         expect (dynamic_cast<IlanaLookAndFeel*> (&probe.getLookAndFeel()) != nullptr,
                 "sweep: a component outside the editor (a dialog's, a file browser's) draws in the design's look");
+    }
+
+    // A dock chip's click opens its source's editor over the page (pinned,
+    // the knobs it drives lit); a second click closes it.
+    {
+        pages->showPage ("FILTER");
+        settle (200);
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (*editor, chips);
+        ModSourceChip* chip = nullptr;
+        for (auto* candidate : chips)
+            if (candidate->isVisible() && candidate->onClick != nullptr && chip == nullptr)
+                chip = candidate;
+        if (chip != nullptr)
+        {
+            chip->onClick (*chip);
+            settle (200);
+            auto* popover = pages->getSourcePopover();
+            const auto opened = popover != nullptr && popover->isVisible() && pages->getSourcePopoverSource() == chip->getSourceIndex()
+                                && pinnedModSource() == chip->getSourceIndex();
+            chip->onClick (*chip);
+            settle (200);
+            expect (opened && ! popover->isVisible() && pinnedModSource() != chip->getSourceIndex(),
+                    "a dock chip's click opens its editor over the page, pinned; a second click closes it");
+        }
+        else
+            expect (false, "the dock's chips open their source's editor");
     }
 
     pages->setAsksBeforeReplacingEdits (askedBefore);
@@ -8763,6 +8770,24 @@ int main (int argc, char** argv)
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
     // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
     filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
+
+    // ILANA_SNAPSHOT_POPOVER="LFO 1:FILTER": a dock chip's pop-out editor open over a page.
+    if (const auto popover = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_POPOVER", ""); popover.isNotEmpty())
+    {
+        std::vector<ModSourceChip*> found;
+        findAll<ModSourceChip> (*editor, found);
+        for (auto* chip : found)
+            if (chip->getSourceName() == popover.upToFirstOccurrenceOf (":", false, false) && chip->isVisible())
+            {
+                pages->showPage (popover.fromFirstOccurrenceOf (":", false, false));
+                settle (300);
+                pages->toggleSourcePopover (chip->getSourceIndex(), *chip);
+                settle (400);
+                save (*editor, outDir.getChildFile ("popover.png"));
+                pages->toggleSourcePopover (chip->getSourceIndex(), *chip);
+                break;
+            }
+    }
 
     for (int i = 0; i < pageIds.size(); ++i)
     {

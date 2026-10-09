@@ -36,8 +36,8 @@ public:
         const auto own = sourceName == "OP PITCH" ? juce::String ("\nThe DX7 pitch envelope: the operator voice's own, shared by its six operators.")
                          : sourceName == "OP LFO" ? juce::String ("\nThe DX7 LFO: the operator voice's own, with pitch and amp depth.")
                                                   : juce::String();
-        setTooltip (ModNames::source (sourceIndex) + own + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up "
-                                                     "while you hover; click to keep them lit, click again to clear.");
+        setTooltip (ModNames::source (sourceIndex) + own + "\nDrag onto any knob to modulate it.  Click to edit it here, over any page "
+                                                     "(the knobs it drives stay lit while it is open).  The number is how many knobs it moves.");
         startTimerHz (30);
     }
 
@@ -78,6 +78,13 @@ public:
     // chip glows with it. Optional.
     std::function<float()> valueProvider;
 
+    // A click opens the source's pop-out editor (the dock, 2026-10-09);
+    // without it a click pins the source, as before.
+    std::function<void (ModSourceChip&)> onClick;
+
+    // How many knobs the source moves now: drawn in its dot. Optional.
+    std::function<int()> routeCount;
+
     // An LFO whose shape has a second output: a small "OUT 2" at the chip's
     // right end drags that output instead (spelt out, not a bare "B" that
     // read as an A/B state: UI review 9, V9-20). Optional.
@@ -111,8 +118,32 @@ public:
         g.setColour (pinned ? colour.withAlpha (0.7f) : IlanaTheme::Ui::line.interpolatedWith (colour, 0.6f * juce::jmax (hover, glow)));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 
-        const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 10.0f, bounds.getCentreY() });
-        // (A plain dot at rest, as the design draws it; a halo while it moves something.)
+        // The live value as a faint trace across the chip (its last second
+        // or so), so a moving source reads as moving before it is hovered.
+        if (traceFilled > 1 && *std::max_element (trace_.begin(), trace_.end()) > 0.01f)
+        {
+            const auto plot = bounds.reduced (radius * 0.6f, 4.0f).withTrimmedLeft (12.0f);
+            juce::Path trace;
+            for (int i = 0; i < traceFilled; ++i)
+            {
+                const auto value = trace_[(size_t) ((tracePos - traceFilled + i + (int) trace_.size()) % (int) trace_.size())];
+                const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (trace_.size() - 1);
+                const auto y = plot.getBottom() - plot.getHeight() * juce::jlimit (0.0f, 1.0f, value);
+                if (i == 0)
+                    trace.startNewSubPath (x, y);
+                else
+                    trace.lineTo (x, y);
+            }
+            g.setColour (colour.withAlpha (0.28f));
+            g.strokePath (trace, juce::PathStrokeType (1.4f));
+        }
+
+        // The dot: a plain one at rest, as the design draws it; with the
+        // number of knobs it moves in it once it drives any; a halo while it
+        // moves something.
+        const auto routes = routeCount != nullptr ? routeCount() : 0;
+        const auto dotSize = routes > 0 ? 15.0f : 7.0f;
+        const auto dot = juce::Rectangle<float> (dotSize, dotSize).withCentre ({ bounds.getX() + 10.0f + (routes > 0 ? 1.5f : 0.0f), bounds.getCentreY() });
         if (glow > 0.02f)
         {
             g.setColour (colour.withAlpha (0.35f * glow));
@@ -120,11 +151,17 @@ public:
         }
         g.setColour (colour);
         g.fillEllipse (dot);
+        if (routes > 0)
+        {
+            g.setColour (IlanaTheme::Ui::header);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::String (routes), dot, juce::Justification::centred);
+        }
 
         const auto second = getSecondOutputBounds();
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 18.5f))
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + (routes > 0 ? 21.5f : 18.5f)))
                                     .withTrimmedRight (second.isEmpty() ? 5 : (int) secondOutputRoom + 4),
                           juce::Justification::centred, 1);
 
@@ -187,7 +224,12 @@ public:
     void mouseUp (const juce::MouseEvent& event) override
     {
         if (! event.mouseWasDraggedSinceMouseDown() && ! event.mods.isPopupMenu() && getLocalBounds().contains (event.getPosition()))
-            togglePinned();
+        {
+            if (onClick != nullptr)
+                onClick (*this);
+            else
+                togglePinned();
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
@@ -244,6 +286,23 @@ private:
         if (valueProvider != nullptr)
         {
             const auto value = std::abs (valueProvider());
+
+            // The trace: one point every other frame (about 1.3 s across).
+            if ((traceTick = (traceTick + 1) % 2) == 0)
+            {
+                const auto last = trace_[(size_t) ((tracePos + (int) trace_.size() - 1) % (int) trace_.size())];
+                trace_[(size_t) tracePos] = juce::jlimit (0.0f, 1.0f, value);
+                tracePos = (tracePos + 1) % (int) trace_.size();
+                traceFilled = juce::jmin ((int) trace_.size(), traceFilled + 1);
+                changed = changed || std::abs (last - value) > 0.002f || value > 0.002f;
+            }
+
+            if (routeCount != nullptr)
+                if (const auto routes = routeCount(); routes != shownRoutes)
+                {
+                    shownRoutes = routes;
+                    changed = true;
+                }
             const auto next = IlanaAnim::approach (activity, juce::jlimit (0.0f, 1.0f, value), 0.35f, frameTicks());
 
             if (std::abs (next - activity) > 0.01f)
@@ -264,6 +323,8 @@ private:
     float hover = 0.0f;
     float activity = 0.0f;
     float hoverRest = 0.0f;
+    std::array<float, 40> trace_ {};
+    int tracePos = 0, traceFilled = 0, traceTick = 0, shownRoutes = -1;
 };
 
 // When a region of the bar can't fit every chip (the LFOs, the envelopes,

@@ -531,6 +531,8 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     liveRetrigger = true;
     patchCut = true;
     auto state = stateIn.createCopy();
+    if (state.hasProperty ("presetName")) // a factory preset renamed since the session was saved
+        state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
     tuningState.loadFrom (state); // no Tuning child: 12-TET
     clipState.loadFrom (state);   // no Clips child: no clips
     {

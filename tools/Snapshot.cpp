@@ -2169,6 +2169,34 @@ int runUiTests()
             processor.processBlock (audio, off);
         }
 
+        // The drive's transfer curve shows the live input as a dot (step 14);
+        // a curve whose effect isn't in the rack shows none.
+        {
+            loadFx ({ 2 });
+            FxDisplay display (processor), absent (processor);
+            display.setSize (200, 80);
+            absent.setSize (200, 80);
+            display.setType (2, IlanaTheme::accent());
+            absent.setType (3, IlanaTheme::accent());
+            juce::AudioBuffer<float> audio (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 48, 1.0f), 0);
+            for (int block = 0; block < 20; ++block)
+            {
+                audio.clear();
+                processor.processBlock (audio, midi);
+                midi.clear();
+            }
+            display.refreshNow();
+            absent.refreshNow();
+            expect (absent.getInputDotLevel() == 0.0f && display.getInputDotLevel() > 0.004f,
+                    "the drive's transfer curve marks the live input level (" + juce::String (display.getInputDotLevel())
+                        + "), an effect not in the rack none (" + juce::String (absent.getInputDotLevel()) + ")");
+            juce::MidiBuffer off;
+            off.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+            processor.processBlock (audio, off);
+        }
+
         processor.loadFactoryPreset (neuroWobble);
         settle (300);
     }

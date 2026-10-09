@@ -17,7 +17,7 @@ import sys
 
 # Presets driven by random sources (S&H, chaotic feedback) vary run to run by
 # more than the default tolerance; compare them loosely.
-NOISY = {"Clock Weirdo", "S&H Techno", "Self Osc Drone", "Chord Pad", "Wide Chord Pad", "Minor Chord Stab",
+NOISY = {"Clock Weirdo", "S&H Techno", "Self-Osc Drone", "Chord Pad", "Wide Chord Pad", "Minor Chord Stab",
          # v1.0 library presets built on random phases, S&H, drift or random arps
          "Ladder Sub", "MS-20 Growl", "Octave Hyper Bass", "Dark Matter", "Per-Voice Drift Pad",
          "Random Glass Arp", "Diode Rumble", "Deep Space Drone", "Radio Tuning", "Granular Cloud", "Pluck Sub Bass",

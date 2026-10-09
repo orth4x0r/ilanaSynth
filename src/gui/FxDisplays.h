@@ -227,6 +227,7 @@ private:
 
         g.setColour (colour);
         g.strokePath (curve, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        paintInputDot (g, plot, transferAt (inputLevel));
 
         juce::String right;
         if (type == 3)
@@ -339,11 +340,67 @@ private:
             }
             g.setColour (colour);
             g.strokePath (curve, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            paintInputDot (g, plot, measuredAt (inputLevel));
         }
 
         paintCaption (g, "TRANSFER");
     }
 
+    // ---- The live input on a transfer curve (step 14) ----
+    // The slot's input level (smoothed RMS, as a sine's peak) drawn as a dot
+    // on the curve: where the signal sits on the shaper right now. Nothing
+    // while the slot is silent.
+    float inputLevel = 0.0f;
+
+    int slotIndexOfType() const
+    {
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            if ((int) param ("fx_slot" + juce::String (slot)) == type)
+                return slot - 1;
+        return -1;
+    }
+
+    // The measured Airwindows curve's output at x, interpolated (0 when empty).
+    float measuredAt (float x) const
+    {
+        for (size_t i = 1; i < measured.size(); ++i)
+        {
+            const auto a = measured[i - 1], b = measured[i];
+            if ((x >= a.x && x <= b.x) || (x <= a.x && x >= b.x))
+                return std::abs (b.x - a.x) < 1.0e-6f ? a.y : a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+        }
+        return x;
+    }
+
+    void paintInputDot (juce::Graphics& g, juce::Rectangle<float> plot, float y) const
+    {
+        if (inputLevel < 0.004f)
+            return;
+
+        const juce::Point<float> centre (plot.getX() + (inputLevel + 1.0f) * 0.5f * plot.getWidth(),
+                                         plot.getCentreY() - juce::jlimit (-1.1f, 1.1f, y) * 0.5f * plot.getHeight());
+        g.setColour (colour.withAlpha (0.25f));
+        g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (centre));
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (juce::Rectangle<float> (4.5f, 4.5f).withCentre (centre));
+    }
+
+    bool updateInputLevel (bool smooth)
+    {
+        const auto slot = slotIndexOfType();
+        const auto target = slot >= 0 ? juce::jlimit (0.0f, 1.0f, processorRef.getFxSlotInLevel (slot) * juce::MathConstants<float>::sqrt2) : 0.0f;
+        const auto next = smooth ? inputLevel + (target - inputLevel) * 0.4f : target;
+        const auto moved = std::abs (next - inputLevel) > 0.002f;
+        inputLevel = next < 0.002f && target < 0.002f ? 0.0f : next;
+        return moved;
+    }
+
+public:
+    // For the UI test: the dot's level (0 = no dot).
+    float getInputDotLevel() const { return inputLevel; }
+    void refreshNow() { refresh (false); }
+
+private:
     // ---- Dynamics: static in/out curve (dB), live gain reduction ----
     static constexpr float floorDb = -60.0f, topDb = 6.0f;
 
@@ -1237,6 +1294,9 @@ private:
             }
             dirty = dirty || moving;
         }
+
+        if (kind == Kind::transfer || (kind == Kind::airwindowsTransfer && ! measured.empty()))
+            dirty = updateInputLevel (smooth) || dirty;
 
         if (kind == Kind::dynamics)
         {

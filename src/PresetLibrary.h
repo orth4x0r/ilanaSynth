@@ -1218,7 +1218,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "SPACE", { { D::FxDelayMix, 0.25f }, { D::FxReverbMix, 0.2f } })
              .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.35f, 0.15f, true).reverb (Room, 0.4f, 0.15f));
 
-    add (B ("Hypersaw Pluck", "Pluck")
+    add (B ("Supersaw Pluck", "Pluck")
              .osc1 (Basic, 0.0f, 0.7f).unison (1, 7, 20.0f, 0.8f, Hypersaw, 0.7f)
              .filter1 (LP, 800.0f, 0.2f, 3.2f, 1.2f, 0.4f, true)
              .fenv (0.001f, 0.25f, 0.0f, 0.25f).amp (0.001f, 0.45f, 0.0f, 0.35f)
@@ -1387,7 +1387,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxChorus, FxReverb }).chorus (0.3f, 0.3f, 0.3f).reverb (Hall, 0.8f, 0.3f));
 
-    add (B ("Hypersaw Pad", "Pad")
+    add (B ("Supersaw Pad", "Pad")
              .osc1 (Basic, 0.0f, 0.6f).unison (1, 9, 20.0f, 0.9f, Hypersaw, 0.8f)
              .filter1 (LP, 3000.0f, 0.1f, 0.5f, 1.0f, 0.3f)
              .fenv (0.6f, 1.2f, 0.7f, 1.5f).amp (0.5f, 1.0f, 0.9f, 2.0f)
@@ -1670,7 +1670,7 @@ inline std::vector<FactoryPreset> build()
              .macro (4, "SPACE", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxDelay, FxReverb }).delay (D1_8D, 0.55f, 0.35f, true, 0.5f).reverb (Spring, 0.5f, 0.2f));
 
-    add (B ("Hypersaw Stab", "Chords")
+    add (B ("Supersaw Stab", "Chords")
              .osc1 (Basic, 0.0f, 0.55f).chord (1, 4).unison (1, 5, 18.0f, 0.8f, Hypersaw, 0.7f)
              .filter1 (LP, 2000.0f, 0.2f, 2.5f, 1.2f, 0.3f)
              .fenv (0.001f, 0.25f, 0.1f, 0.2f).amp (0.001f, 0.35f, 0.1f, 0.25f)

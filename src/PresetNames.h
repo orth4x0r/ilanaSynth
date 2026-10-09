@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <juce_data_structures/juce_data_structures.h>
 
 // How preset names are shown (UI review 6). Saved names never change (the
 // browser, favourites and host sessions find presets by them); only the
@@ -109,5 +110,52 @@ inline juce::String dx7DisplayName (const juce::String& name)
     }
 
     return out;
+}
+// Factory presets renamed after the detail review (step 13.3: near-duplicate
+// names). Saved sessions, favourites and the recent list still carry the old
+// names; they are read through this, so they find the preset under its new
+// name. Sound and parameters are unchanged.
+inline juce::String currentPresetName (const juce::String& name)
+{
+    static const std::pair<const char*, const char*> renamed[] {
+        { "Vocal Chops", "Vocal Stutter" }, { "Self Osc Drone", "Self-Osc Drone" },
+        { "Formant Scream II", "Formant Scream" }, { "Glass Keys", "Crystal Keys" },
+        { "Hypersaw Pad", "Supersaw Pad" }, { "Hypersaw Pluck", "Supersaw Pluck" },
+        { "Hypersaw Stab", "Supersaw Stab" }
+    };
+
+    for (const auto& [before, after] : renamed)
+        if (name == before)
+            return after;
+
+    return name;
+}
+
+// The settings keys that name presets (favourites "fav_<name>" and the
+// recent list), moved once from the old names to the new.
+inline void migrateRenamedPresetSettings (juce::PropertiesFile* settings)
+{
+    if (settings == nullptr || settings->getBoolValue ("presetRenames13", false))
+        return;
+
+    for (const auto* before : { "Vocal Chops", "Self Osc Drone", "Formant Scream II", "Glass Keys",
+                                "Hypersaw Pad", "Hypersaw Pluck", "Hypersaw Stab" })
+    {
+        const auto key = "fav_" + juce::String (before);
+        if (settings->containsKey (key))
+        {
+            settings->setValue ("fav_" + currentPresetName (before), settings->getValue (key));
+            settings->removeValue (key);
+        }
+    }
+
+    auto recent = juce::StringArray::fromLines (settings->getValue ("presetRecent"));
+    for (auto& name : recent)
+        name = currentPresetName (name);
+    recent.removeDuplicates (false);
+    recent.removeEmptyStrings();
+    settings->setValue ("presetRecent", recent.joinIntoString ("\n"));
+    settings->setValue ("presetRenames13", true);
+    settings->saveIfNeeded();
 }
 } // namespace Presets

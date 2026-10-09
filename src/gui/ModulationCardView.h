@@ -22,6 +22,7 @@ public:
     virtual void selectSource (int source) = 0;
     // The tabs shown, in order (each a click selects, a drag assigns).
     virtual std::vector<juce::Component*> getSourceTabs() const = 0;
+    virtual int sourceOfTab (const juce::Component& tab) const = 0;
     // EDIT ›: the selected source's full editor.
     virtual void openSelectedInMod() = 0;
 };

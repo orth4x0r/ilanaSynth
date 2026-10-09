@@ -1356,13 +1356,11 @@ int runUiTests()
             const auto lfo3 = (int) Mod::lfoSourceFor (2);
             processor.setRevealed (M::Lfo, 2, true);
             settle (300);
-            const auto tabs = card->getSourceTabs();
-            const auto list = card->getSourceList();
-            const auto at = std::find (list.begin(), list.end(), lfo3) - list.begin();
-            if (at < (long) tabs.size())
+            for (auto* tab : card->getSourceTabs())
             {
+                if (card->sourceOfTab (*tab) != lfo3)
+                    continue;
                 // A plain click on its tab.
-                auto* tab = tabs[(size_t) at];
                 const juce::Point<float> centre (tab->getWidth() * 0.5f, tab->getHeight() * 0.5f);
                 const juce::MouseEvent click (source, centre, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
                                               tab, tab, now, centre, now, 1, false);
@@ -6977,6 +6975,33 @@ int runUiTests()
         juce::Slider probe;
         expect (dynamic_cast<IlanaLookAndFeel*> (&probe.getLookAndFeel()) != nullptr,
                 "sweep: a component outside the editor (a dialog's, a file browser's) draws in the design's look");
+    }
+
+    // A dock chip's click opens its source's editor over the page (pinned,
+    // the knobs it drives lit); a second click closes it.
+    {
+        pages->showPage ("FILTER");
+        settle (200);
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (*editor, chips);
+        ModSourceChip* chip = nullptr;
+        for (auto* candidate : chips)
+            if (candidate->isVisible() && candidate->onClick != nullptr && chip == nullptr)
+                chip = candidate;
+        if (chip != nullptr)
+        {
+            chip->onClick (*chip);
+            settle (200);
+            auto* popover = pages->getSourcePopover();
+            const auto opened = popover != nullptr && popover->isVisible() && pages->getSourcePopoverSource() == chip->getSourceIndex()
+                                && pinnedModSource() == chip->getSourceIndex();
+            chip->onClick (*chip);
+            settle (200);
+            expect (opened && ! popover->isVisible() && pinnedModSource() != chip->getSourceIndex(),
+                    "a dock chip's click opens its editor over the page, pinned; a second click closes it");
+        }
+        else
+            expect (false, "the dock's chips open their source's editor");
     }
 
     pages->setAsksBeforeReplacingEdits (askedBefore);

@@ -723,7 +723,6 @@ private:
         if (opEnvLink.isVisible())
             pill.setRight (opEnvLink.getX() - 6);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
-        pill.setWidth (juce::jmin (pill.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, unusedNote) + 16));
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
         g.setColour (IlanaTheme::Ui::text2);
@@ -791,6 +790,8 @@ class SourcePopover : public juce::Component
 public:
     explicit SourcePopover (IlanaSynthAudioProcessor& p) : processorRef (p), editor (p)
     {
+        // The assignment bars wait behind DRIVES, as on PLAY.
+        editor.setRoutesFolded (true);
         addAndMakeVisible (editor);
         closeButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")));
         closeButton.setTooltip ("Close (Escape, or click the source's chip again)");
@@ -1059,6 +1060,11 @@ public:
     const std::vector<int>& getSources() const { return sources; }
     std::vector<int> getSourceList() const override { return sources; }
     void selectSource (int source) override { select (source); }
+    int sourceOfTab (const juce::Component& tab) const override
+    {
+        const auto* sourceTab = dynamic_cast<const SourceTab*> (&tab);
+        return sourceTab != nullptr ? sourceTab->getSource() : 0;
+    }
     std::vector<juce::Component*> getSourceTabs() const override
     {
         std::vector<juce::Component*> shown;
@@ -1073,6 +1079,8 @@ public:
         for (auto& tab : tabs)
             if (tab->isVisible())
                 shown.push_back (tab.get());
+        std::sort (shown.begin(), shown.end(), [] (const SourceTab* a, const SourceTab* b)
+                   { return a->getY() != b->getY() ? a->getY() < b->getY() : a->getX() < b->getX(); });
         return shown;
     }
 
@@ -1082,7 +1090,7 @@ public:
         for (auto& tab : tabs)
             tab->setSelected (tab->getSource() == selected);
         editor.setSource (selected);
-        layoutEditor();
+        resized(); // (the selected tab comes into view)
         repaint();
     }
 
@@ -1120,15 +1128,25 @@ public:
                                            (float) (area.getY() + row * (tabHeight + tabGap)), cellWidth, (float) tabHeight).toNearestInt();
         };
 
+        // The selected source always has its tab in view: picked from
+        // "N MORE", it takes the last shown cell.
+        std::vector<SourceTab*> order;
+        for (auto& tab : tabs)
+            order.push_back (tab.get());
+        if (shownTabs > 0)
+            for (size_t i = (size_t) shownTabs; i < order.size(); ++i)
+                if (order[i]->getSource() == selected)
+                    std::swap (order[i], order[(size_t) shownTabs - 1]);
+
         hiddenSources.clear();
-        for (size_t i = 0; i < tabs.size(); ++i)
+        for (size_t i = 0; i < order.size(); ++i)
         {
             const auto shown = (int) i < shownTabs;
-            tabs[i]->setVisible (shown);
+            order[i]->setVisible (shown);
             if (shown)
-                tabs[i]->setBounds (cell ((int) i));
+                order[i]->setBounds (cell ((int) i));
             else
-                hiddenSources.push_back (tabs[i]->getSource());
+                hiddenSources.push_back (order[i]->getSource());
         }
         auto next = shownTabs;
         moreTab.setVisible (overflow);
@@ -1238,8 +1256,11 @@ private:
                 addAndMakeVisible (*tab);
                 tabs.push_back (std::move (tab));
             }
-            // A selection that left the patch: its first LFO, else its first source.
-            if (std::find (sources.begin(), sources.end(), selected) == sources.end())
+            // A selection that left the patch, or a patch that just became an
+            // operator voice: its first LFO, else its first source.
+            const auto opEnvArrived = ! hadOpEnv && ! sources.empty() && sources.front() == opEnvSourceId;
+            hadOpEnv = ! sources.empty() && sources.front() == opEnvSourceId;
+            if (opEnvArrived || std::find (sources.begin(), sources.end(), selected) == sources.end())
             {
                 // (A DX7 voice opens on OP ENV, as its envelope card did: I8-18.)
                 selected = sources.empty() ? (int) Mod::lfoSourceFor (0) : sources.front();
@@ -1303,8 +1324,11 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
-            refreshSources();
+        // (Visible up the tree: an offscreen editor, as in the UI tests, follows the pool too.)
+        for (auto* c = static_cast<juce::Component*> (this); c != nullptr; c = c->getParentComponent())
+            if (! c->isVisible())
+                return;
+        refreshSources();
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -1314,6 +1338,7 @@ private:
     juce::TextButton addTab, moreTab;
     juce::Rectangle<int> editorArea;
     int selected = (int) Mod::lfoSourceFor (0);
+    bool hadOpEnv = false;
     bool hoverEdit = false;
     // The DRIVES list is closed until opened (ilana, 2026-10-09: what a
     // source drives is a drop-down, the controls come first); opened, it

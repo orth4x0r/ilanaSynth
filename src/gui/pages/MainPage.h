@@ -52,9 +52,14 @@ public:
                 TableBrowser::show (processorRef, id, colour, table->getComboBox());
             });
             strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "");
-            const auto knob = [&] (const juce::String& suffix, const juce::String& label)
+            // An operator's envelope menu, in the warp menu's place (the OSC
+            // tab's ENVELOPE).
+            strip->ampEnv = std::make_unique<ComboControl> (p.apvts, prefix + "_amp_env", "");
+            strip->ampEnv->setTooltip ("ENVELOPE\nWhich envelope plays this operator: the Operator EG or one of the voice's envelopes.");
+            strip->ampEnv->getComboBox().setTooltip (strip->ampEnv->getTooltip());
+            const auto knob = [&] (const juce::String& suffix, const juce::String& label, const juce::String& fullId = {})
             {
-                const auto id = prefix + suffix;
+                const auto id = fullId.isNotEmpty() ? fullId : prefix + suffix;
 
                 for (auto& existing : strip->allKnobs)
                     if (existing.first == id + label)
@@ -84,6 +89,11 @@ public:
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
             // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
             strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
+            // An operator's other OSC-tab knobs, so PLAY holds them all (ilana,
+            // 2026-10-08: no trip to OSC): SEMI beside its RATIO, and its own
+            // FEEDBACK.
+            strip->operatorSemiKnob = strip->pitchKnobs[0];
+            strip->operatorFeedbackKnob = knob ("", "FEEDBACK", FmDiagram::routeId (osc, osc));
 
             // The slots by role, the same on every strip (review 12, I12-10).
             for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains, the live input or an FM / DX7 operator." },
@@ -95,7 +105,7 @@ public:
                 combo->getComboBox().setTooltip (tip);
             }
 
-            addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp);
+            addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp, *strip->ampEnv);
             oscColumn.addChildComponent (*strip->excite);
 
             strips.push_back (std::move (strip));
@@ -263,6 +273,19 @@ public:
         for (auto* control : { static_cast<juce::Component*> (envSets[0]->display.get()), envSets[0]->items[0].get(),
                                envSets[0]->items[1].get(), envSets[0]->items[2].get(), envSets[0]->items[3].get() })
             effectRules.add (*control, [this] { return shownAmpNote.isEmpty(); }, "nothing plays the amp envelope now");
+
+        // The other envelopes and the LFOs dim while nothing uses them: no
+        // route, oscillator or filter takes their output yet.
+        for (int env = 1; env < (int) envSets.size(); ++env)
+            for (auto* control : { static_cast<juce::Component*> (envSets[(size_t) env]->display.get()), envSets[(size_t) env]->items[0].get(),
+                                   envSets[(size_t) env]->items[1].get(), envSets[(size_t) env]->items[2].get(), envSets[(size_t) env]->items[3].get() })
+                effectRules.add (*control, [this, env] { return envelopeInUse (processorRef, env); },
+                                 "nothing uses this envelope yet: route it in the MATRIX or pick it as an oscillator's envelope");
+        for (int lfo = 0; lfo < (int) lfoSets.size(); ++lfo)
+            for (auto& item : lfoSets[(size_t) lfo]->items)
+                effectRules.add (*item, [this, lfo]
+                                 { return modSourceRouted (processorRef, Mod::lfoSourceFor (lfo)) || modSourceRouted (processorRef, Mod::lfoBSourceFor (lfo)); },
+                                 "nothing uses this LFO yet: drag it onto a knob or route it in the MATRIX");
 
         styleJumpLink (opEgButton, "OP ENV");
         opEgButton.setTooltip ("Open the Operator Env's editor. Each operator plays its own copy; it shapes their levels, and AMP ENV is unused.");
@@ -569,7 +592,7 @@ public:
         // row between them while a slot is free (UI review 5-9). Open strips
         // are 146 px, SUB + NOISE 140, a switched-off one folds to 36, the
         // add row is 28 (the design's fixed heights); a column that is too
-        // short (five or six operators) shares its height, and one with room
+        // short (five or six operators) scrolls, keeping every card whole, and one with room
         // to spare grows its strips a little rather than end in a bare band,
         // the rest going to a live PATCH tile and OUTPUT view.
         oscView.setBounds (left);
@@ -590,7 +613,9 @@ public:
         auto oscHeight = oscHeightDesign, subHeight = subHeightDesign;
         if (flexible > 0 && wanted > free)
         {
-            oscHeight = subHeight = juce::jmax (minSlotHeight, free / flexible);
+            // Too many open strips for the column: they keep their design height
+            // and the column scrolls (ilana, 2026-10-08: every oscillator's full
+            // controls in PLAY, even at six, rather than shrunken rows).
         }
         else if (flexible > 0)
         {
@@ -604,15 +629,13 @@ public:
             oscHeight += extra;
             subHeight += extra;
         }
-        auto columnHeight = 0, lastWholeBottom = 0;
+        auto columnHeight = 0;
         std::vector<int> cardTops;
         const auto addCard = [&] (int height)
         {
             columnHeight += columnHeight > 0 ? slotGap : 0;
             cardTops.push_back (columnHeight);
             columnHeight += height;
-            if (columnHeight <= left.getHeight())
-                lastWholeBottom = columnHeight;
         };
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
@@ -621,10 +644,6 @@ public:
             addCard (addRowHeight);
         addCard (subFolded ? foldedHeight : subHeight);
         const auto scrolls = columnHeight > left.getHeight();
-        // A scrolling column ends its view at a strip's foot, so no strip
-        // shows cut in half (V13, S8).
-        if (scrolls && lastWholeBottom > left.getHeight() / 2)
-            oscView.setBounds (left.withHeight (lastWholeBottom));
         oscView.setSingleStepSizes (16, oscHeight + slotGap);
         // The column's foot is padded so that scrolled to its end the view
         // also starts at a strip's top, and the view snaps to a strip's top.
@@ -811,7 +830,7 @@ private:
     struct OscStrip
     {
         std::unique_ptr<ToggleControl> on;
-        std::unique_ptr<ComboControl> mode, excite, table, warp;
+        std::unique_ptr<ComboControl> mode, excite, table, warp, ampEnv;
         juce::Component *warpKnob = nullptr, *detuneKnob = nullptr, *unisonKnob = nullptr, *panKnob = nullptr;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
         // The first column by TUNING (semitones, ratio, fixed Hz); the other
@@ -819,6 +838,7 @@ private:
         std::array<juce::Component*, 3> pitchKnobs {};
         std::array<std::vector<juce::Component*>, 5> modeKnobs;
         std::vector<juce::Component*> operatorEnvKnobs;
+        juce::Component *operatorSemiKnob = nullptr, *operatorFeedbackKnob = nullptr;
         int shownMode = -1;
         int shownTuning = 0; // a wavetable's TUNING (the pitch knob)
         bool shownOn = true;
@@ -841,11 +861,13 @@ private:
             const auto mode = juce::jmax (0, shownMode);
             auto* pitch = pitchKnobs[(size_t) (mode == 0 ? shownTuning : 0)];
 
-            if (opEg)
-                return { pitch, operatorEnvKnobs[0], operatorEnvKnobs[1], panKnob, nullptr, nullptr };
-            // FM / DX7 on another envelope: the same order, its LEVEL for OUTPUT.
+            // The operator's six: RATIO, FINE, OUTPUT, PAN, SEMI, FEEDBACK (SEMI
+            // is the first column when the tuning is semitones, so it is not
+            // shown twice).
             if (fm)
-                return { pitch, operatorEnvKnobs[0], modeKnobs[0][0], panKnob, nullptr, nullptr };
+                return { pitch, operatorEnvKnobs[0], opEg ? operatorEnvKnobs[1] : modeKnobs[0][0], panKnob,
+                         pitch == operatorSemiKnob ? operatorFeedbackKnob : operatorSemiKnob,
+                         pitch == operatorSemiKnob ? nullptr : operatorFeedbackKnob };
             if (mode == 4)
                 return { nullptr, modeKnobs[4][0], modeKnobs[4][1], nullptr, nullptr, nullptr };
 
@@ -1032,7 +1054,7 @@ private:
         if (isFolded (index))
         {
             for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
-                                   (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) &wave (index) })
+                                   (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) strip.ampEnv.get(), (juce::Component*) &wave (index) })
                 control->setVisible (false);
             strip.on->setVisible (true);
             return;
@@ -1054,6 +1076,7 @@ private:
         // (WARP is a Wavetable's: an FM / DX7 strip keeps to the operator's controls.)
         strip.warp->setVisible (shown && mode == 0 && ! strip.fm && roomy (oscCards[(size_t) index]));
         strip.excite->setVisible (shown && mode == 1);
+        strip.ampEnv->setVisible (shown && strip.fm && roomy (oscCards[(size_t) index]));
         // An operator names itself where the MODE menu goes (its mode is
         // on OSC): no "Wavetable" on a DX7 voice (UI review 8, S8-9, V8-16).
         strip.mode->setVisible (shown && ! strip.opEg);
@@ -1452,7 +1475,7 @@ private:
             columns.knobs.setLeft (columns.picture.getX());
             columns.picture = {};
         }
-        else if (strip.opEg)
+        else if (strip.fm)
             while (! row.empty() && row.back() == nullptr)
                 row.pop_back();
         wave (index).setBounds (columns.picture);
@@ -1484,6 +1507,7 @@ private:
             {
                 strip.table->setBounds (source);
                 strip.warp->setBounds (menus);
+                strip.ampEnv->setBounds (menus);
             }
             else if (mode == 1)
                 strip.excite->setBounds (source);
@@ -1758,7 +1782,7 @@ private:
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, envGraphHeight = 56, lfoThumbHeight = 74, envKnobDial = 34, stripPictureWidth = 190, stripMenuHeight = 26;
-    static constexpr int minSlotHeight = 68, roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
+    static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
     static constexpr int compactTitleWidth = 64, lowPictureWidth = 100;
     juce::Rectangle<int> addRowArea;

@@ -17,6 +17,7 @@
 #include "OscillatorIds.h"
 #include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
+#include "SpectralCache.h"
 #include "SamplePlayer.h"
 #include "Tuning.h"
 #include "Svf.h"
@@ -178,6 +179,11 @@ struct VoiceParams
         // Per unison voice: the frame and warp amount drift across the stack (0 = every voice alike).
         float frameSpread = 0.0f;
         float warpSpread = 0.0f;
+        // Spectral warp: what each voice needs to pick its own amount (see SpectralCache::getForVoice).
+        int spectralMode = 0;
+        int spectralTable = -1;
+        float spectralAmount = 0.0f;
+        const Wavetable* baseTable = nullptr;
         // Quantise this oscillator's note (plus SEMI) to a scale (Scales::getNames, 0 = off) and root (0-11).
         int scale = 0;
         int scaleRoot = 0;
@@ -397,6 +403,8 @@ struct VoiceParams
     int activeDestinations[Mod::maxSlots] {};
     int numActiveDestinations = 0;
     bool anyExtendedFmMods = false;   // a slot targets an FM cell to or from OSC 4-6
+    bool anySpectralMods = false;     // a per-note source feeds a spectral amount: each voice picks its own table
+    SpectralCache* spectralCache = nullptr;
 
     // Appends a routing (for code that drives a voice directly, e.g. tests).
     void addModSlot (Mod::Source source, Mod::Destination destination, float depth)
@@ -740,6 +748,9 @@ private:
     // doesn't need to move within a block (envelope times, pans, detune...).
     std::array<float, (size_t) Mod::Destination::Count> blockMods {};
     mutable std::array<float, 36> fmCellMods {};   // per-voice mods of the OSC 4-6 FM cells
+    // Per-voice spectral amount mods: slot targets -1000 - osc; worked out once a block.
+    mutable std::array<float, 6> spectralMods {};
+    std::array<float, 6> spectralBlock {};
 
     // Per render (prepareModSlots): each slot's target (a mods index, or
     // -2 - cell for an OSC 4-6 FM cell, or -1 for none) and, for sources that

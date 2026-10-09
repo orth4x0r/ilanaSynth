@@ -759,6 +759,8 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
 
     if (params.anyExtendedFmMods)
         fmCellMods.fill (0.0f);
+    if (params.anySpectralMods)
+        spectralMods.fill (0.0f);
 
     if (modSlotsPrepared)
     {
@@ -767,7 +769,9 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
             const auto targetIndex = slotTargets[(size_t) s];
             if (targetIndex == -1)
                 continue;
-            auto* target = targetIndex >= 0 ? &mods[targetIndex] : &fmCellMods[(size_t) (-2 - targetIndex)];
+            auto* target = targetIndex >= 0 ? &mods[targetIndex]
+                           : targetIndex <= -1000 ? &spectralMods[(size_t) (-1000 - targetIndex)]
+                                                  : &fmCellMods[(size_t) (-2 - targetIndex)];
 
             if (slotHeld[(size_t) s])
             {
@@ -797,6 +801,9 @@ void Voice::evaluateMods (float* mods, int sampleIndex, float ampValue, float fi
         if (target == nullptr && params.anyExtendedFmMods)
             if (const auto cell = Mod::extendedFmCellFor (slot.destination); cell >= 0)
                 target = &fmCellMods[(size_t) cell];
+
+        if (target == nullptr && params.anySpectralMods && Mod::isVoiceSpectralSlot (slot))
+            target = &spectralMods[(size_t) Mod::spectralOscFor (slot.destination)];
 
         if (target == nullptr)
             continue;
@@ -932,6 +939,9 @@ void Voice::prepareModSlots()
             if (const auto cell = Mod::extendedFmCellFor (slot.destination); cell >= 0)
                 targetIndex = -2 - cell;
 
+        if (targetIndex == -1 && params.anySpectralMods && Mod::isVoiceSpectralSlot (slot))
+            targetIndex = -1000 - Mod::spectralOscFor (slot.destination);
+
         slotTargets[(size_t) s] = targetIndex;
         slotHeld[(size_t) s] = held (slot.source) && held (slot.aux);
 
@@ -962,14 +972,14 @@ void Voice::prepareModSlots()
     modFilterFm = filterFm;
     const auto groupOf = [&] (int targetIndex)
     {
-        return targetIndex < -1 || (moving[(size_t) targetIndex] && isPerSampleDestination (targetIndex, filterFm)) ? 1 : 0;
+        return (targetIndex < -1 && targetIndex > -1000) || (moving[(size_t) targetIndex] && isPerSampleDestination (targetIndex, filterFm)) ? 1 : 0;
     };
 
     numGroupSlots = {};
     for (int s = 0; s < params.numModSlots; ++s)
     {
         const auto targetIndex = slotTargets[(size_t) s];
-        if (targetIndex == -1)
+        if (targetIndex == -1 || targetIndex <= -1000) // (spectral routes: read once a block, not in a group)
             continue;
         const auto group = (size_t) groupOf (targetIndex);
         groupSlots[group][(size_t) numGroupSlots[group]++] = s;
@@ -1070,6 +1080,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         evaluateMods (blockMods.data(), 0, lastAmpValue, lastFilterValue, lastFilter2Value, lastModValue, lastEnv4Value);
     }
+
+    // Per-note routes into the spectral amounts: each voice's own value for the block.
+    spectralBlock = params.anySpectralMods && params.numModSlots > 0 ? spectralMods : std::array<float, 6> {};
 
     const auto scaleTime = [] (float seconds, float mod)
     {
@@ -1205,7 +1218,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (params.oscillatorEnabled[osc] || oscEnableSmooth[osc].getCurrentValue() > 0.0005f)
-            oscBank[osc].setWavetable (params.oscillators[osc].table);
+        {
+            const auto& settings = params.oscillators[osc];
+            const auto* table = settings.table;
+
+            // A per-note route into SPEC AMT: this voice's own amount picks the table.
+            if (params.spectralCache != nullptr && spectralBlock[(size_t) osc] != 0.0f && settings.spectralMode > 0)
+                table = params.spectralCache->getForVoice (settings.spectralTable, settings.spectralMode,
+                                                           juce::jlimit (0.0f, 1.0f, settings.spectralAmount + spectralBlock[(size_t) osc]),
+                                                           table);
+
+            oscBank[osc].setWavetable (table);
+        }
 
     const auto configureStrings = [this] (int osc)
     {

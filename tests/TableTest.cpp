@@ -2867,7 +2867,7 @@ void runVoiceModeTests()
 
 // Phase 2: warps, unison, per-voice LFOs, the extended matrix.
 float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int blocks, double& centroid,
-                             std::vector<float>* capture = nullptr)
+                             std::vector<float>* capture = nullptr, int velocity = 100)
 {
     juce::AudioBuffer<float> buffer (2, 512);
     std::vector<float> samples;
@@ -2879,7 +2879,7 @@ float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int 
         juce::MidiBuffer midi;
 
         if (block == 0)
-            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
 
         processor.processBlock (buffer, midi);
         peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
@@ -2954,6 +2954,39 @@ void runWarpTests()
                "warp " + names[mode] + " adds harmonics to a sine (centroid " + juce::String (plainCentroid, 0)
                    + " -> " + juce::String (centroid, 0) + " Hz, peak " + juce::String (peak, 2) + ")");
     }
+}
+
+void runPerVoiceSpectralTest()
+{
+    // A velocity route into SPEC AMT is worked out per voice: a hard note and a soft note morph differently.
+    const auto render = [] (int velocity, bool routed)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 10.0f);
+        setParam (processor, "osc1_spectral", (float) SpectralWarp::LowPass);
+        setParam (processor, "osc1_spectral_amt", 0.0f);
+
+        if (routed)
+        {
+            setParam (processor, "mod1_src", (float) Mod::Source::Velocity);
+            setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_spectral_amt"));
+            setParam (processor, "mod1_amt", 0.8f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        renderPeakAndCentroid (processor, 45, 40, centroid, nullptr, velocity);
+        return centroid;
+    };
+
+    const auto soft = render (20, true);
+    const auto hard = render (127, true);
+    const auto plain = render (127, false);
+    check (hard < soft * 0.9 && hard < plain * 0.9,
+           "a velocity route into SPEC AMT morphs each note by its own amount (centroid soft " + juce::String (soft, 0)
+               + " Hz, hard " + juce::String (hard, 0) + " Hz, unrouted " + juce::String (plain, 0) + " Hz)");
 }
 
 void runUnisonTests()
@@ -9672,6 +9705,7 @@ int main()
     timedRun ("runVoiceModeTests", [] { runVoiceModeTests(); });
     timedRun ("runWarpTests", [] { runWarpTests(); });
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
+    timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
     timedRun ("runMatrixTests", [] { runMatrixTests(); });
     timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });

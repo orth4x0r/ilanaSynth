@@ -2190,7 +2190,7 @@ int runUiTests()
                 midi.clear();
             }
             display.refreshNow();
-            expect (silent == 0.0f && display.getInputDotLevel() > 0.004f, "the drive's transfer curve marks the live input level");
+            expect (silent == 0.0f && display.getInputDotLevel() > 0.004f, "the drive's transfer curve marks the live input level (silent " + juce::String (silent) + ", playing " + juce::String (display.getInputDotLevel()) + ")");
             juce::MidiBuffer off;
             off.addEvent (juce::MidiMessage::allNotesOff (1), 0);
             processor.processBlock (audio, off);

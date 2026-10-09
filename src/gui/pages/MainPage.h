@@ -282,6 +282,16 @@ public:
                 onEditOperator (juce::jmax (0, firstOperatorEg()));
         };
         addChildComponent (opEgButton);
+        opEnvAssignButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
+        opEnvAssignButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
+        opEnvAssignButton.setTooltip ("What plays the Operator Env: each oscillator's OUTPUT, as a bar. Click to open or close the list.");
+        opEnvAssignButton.onClick = [this]
+        {
+            opEnvAssignOpen = ! opEnvAssignOpen;
+            resized();
+            repaint();
+        };
+        addChildComponent (opEnvAssignButton);
 
         // OP ENV, first among the envelope tabs on a patch that plays it
         // (UI review 8, I8-18): its picture, and a link to its one editor.
@@ -500,17 +510,6 @@ public:
             const auto operators = OperatorPool::operatorsOnEnv (processorRef);
             const auto count = (int) operators.size();
             auto area = opEnvNoteArea;
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            // (Said shorter when the card is narrow: no cut word, V14-17.)
-            const auto heading = area.removeFromTop (14);
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            auto sentence = juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OPERATOR ENV" : " OSCILLATORS PLAY THE OPERATOR ENV");
-            for (const auto& shorter : { juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS THE OP ENV" : " OSCILLATORS PLAY THE OP ENV"),
-                                         juce::String (count) + (count == 1 ? " PLAYS THE OP ENV" : " PLAY THE OP ENV") })
-                if (juce::GlyphArrangement::getStringWidthInt (font, sentence) > heading.getWidth())
-                    sentence = shorter;
-            IlanaTheme::drawFitted (g, sentence, heading, juce::Justification::centredLeft);
             area.removeFromTop (4);
             const auto rowHeight = juce::jmin (18, area.getHeight() / juce::jmax (1, count));
             for (int i = 0; i < count && rowHeight >= 8; ++i)
@@ -756,10 +755,14 @@ public:
             auto inner = envCard.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
             // OP ENV: the picture takes the height its operators' bars leave.
             auto graphHeight = envGraphHeight;
+            auto assignHeader = juce::Rectangle<int>();
             if (selectedEnv == opEnvTab)
             {
+                // The drop-down's header under the picture; its list (when open)
+                // takes the height the picture leaves, else the picture keeps it.
                 const auto operators = (int) OperatorPool::operatorsOnEnv (processorRef).size();
-                graphHeight = juce::jlimit (36, 100, inner.getHeight() - 8 - (18 + 12 * juce::jmax (1, operators)));
+                const auto listHeight = opEnvAssignOpen ? 4 + 12 * juce::jmax (1, operators) : 0;
+                graphHeight = juce::jlimit (36, 160, inner.getHeight() - 8 - 22 - listHeight);
             }
             const auto displayArea = inner.removeFromTop (graphHeight);
             inner.removeFromTop (8);
@@ -776,8 +779,17 @@ public:
             // it under it, and EDIT OP ENV in the header.
             opEnvOverview.setBounds (displayArea);
             opEnvNoteArea = {};
+            opEnvAssignButton.setVisible (selectedEnv == opEnvTab);
             if (selectedEnv == opEnvTab)
-                opEnvNoteArea = inner.reduced (4, 0);
+            {
+                assignHeader = inner.removeFromTop (22);
+                const auto count = (int) OperatorPool::operatorsOnEnv (processorRef).size();
+                opEnvAssignButton.setButtonText (juce::String (count) + (count == 1 ? " OSCILLATOR PLAYS IT  " : " OSCILLATORS PLAY IT  ")
+                                                 + juce::String::fromUTF8 (opEnvAssignOpen ? "\xe2\x96\xb4" : "\xe2\x96\xbe"));
+                opEnvAssignButton.setBounds (assignHeader.removeFromLeft (juce::jmin (assignHeader.getWidth(), 220)));
+                if (opEnvAssignOpen)
+                    opEnvNoteArea = inner.reduced (4, 0);
+            }
 
             updateVisibility();
         }
@@ -1197,6 +1209,7 @@ private:
             lfoRates[(size_t) lfo]->setShown (lfo == lfoTabs.getSelected());
         opEgButton.setVisible (selectedEnv == 0 && ! ampNoteArea.isEmpty() && firstOperatorEg() >= 0);
         opEnvOverview.setVisible (selectedEnv == opEnvTab);
+        opEnvAssignButton.setVisible (selectedEnv == opEnvTab && ! opEnvAssignButton.getBounds().isEmpty());
         repaint();
     }
 
@@ -1794,6 +1807,10 @@ private:
     juce::String shownAmpNote;
     juce::Rectangle<int> ampNoteArea;
     juce::TextButton opEgButton;
+    // OP ENV's list of what plays it: a drop-down, closed unless opened (ilana,
+    // 2026-10-09: the picture and controls come first, as the filter's routing).
+    juce::TextButton opEnvAssignButton;
+    bool opEnvAssignOpen = false;
     OperatorEnvOverview opEnvOverview { processorRef };
     juce::Rectangle<int> opEnvNoteArea;
     FilterDisplay filterDisplay;

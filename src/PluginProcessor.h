@@ -55,6 +55,10 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
+    // Tests: keep the effects running through silence (no rack sleep).
+    inline static bool disableFxSleep = false;
+    // Tests: -1 follows MULTI-CORE, 0 one core, 1 several.
+    inline static int forceVoiceThreads = -1;
     static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
 
     EqSettings getEqSettings() const;
@@ -559,6 +563,7 @@ public:
     bool loadUserSample (int oscIndex, const juce::File& file);
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
     void processEffects (juce::AudioBuffer<float>& buffer);
+    void processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer);
     void processEffectsParallel (juce::AudioBuffer<float>& buffer);
     void runFxSlot (int slot, juce::AudioBuffer<float>& buffer);
     bool isFxSlotActive (int index);
@@ -826,6 +831,8 @@ private:
     ParamRef tuningOnRef { "tuning_on" };
     ParamRef masterRef { "master" }, outputTrimRef { "output_trim" };
     ParamRef fxRoutingRef { "fx_routing" };
+    ParamRef multiCoreRef { "multi_core" };
+    ParamRef sustainVoicesRef { "sustain_voices" };
     // The Airwindows module (FX type 30): only the chosen algorithm runs.
     airwindows::Module airwindowsModule;
     ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
@@ -890,6 +897,8 @@ public:
 
 private:
     float lastOutput[2] {}, declick[2] {};
+    bool fxAsleep = false;
+    int fxSilentSamples = 0;
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };

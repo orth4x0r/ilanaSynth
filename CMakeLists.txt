@@ -249,6 +249,37 @@ target_link_libraries(ilanaSnapshot
 
 add_test(NAME ui_tests COMMAND ilanaSnapshot --uitest)
 
+# Link-time optimisation for the plugins (and the snapshot tool, which
+# measures their CPU). Off: with gcc it measured 3-5% slower (2026-10-08),
+# and the link takes much more memory. ILANA_LTO=ON to try it elsewhere.
+option(ILANA_LTO "Link-time optimisation for the plugins" OFF)
+if (ILANA_LTO)
+    foreach(target ilanaSynth ilanaSynthFX ilanaSnapshot)
+        target_link_libraries(${target} PRIVATE juce::juce_recommended_lto_flags)
+    endforeach()
+endif()
+
+# Profile-guided build of the VST3 with MSVC (tools/pgo-windows.ps1 runs the
+# three steps): GEN builds a counting plugin, a training run (ilanaRefHost
+# --train) writes .pgc files next to the profile, USE rebuilds optimised from
+# them. The profile belongs to the exact sources and compiler it was made
+# with, so it lives in the build folder and is never committed.
+set(ILANA_PGO "" CACHE STRING "MSVC profile-guided VST3: GEN, USE or empty")
+if (MSVC AND ILANA_PGO)
+    set(ILANA_PGD "${CMAKE_BINARY_DIR}/pgo/ilanaSynth.pgd")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/pgo")
+    target_compile_options(ilanaSynth PRIVATE /GL)
+    target_compile_options(ilanaSynth_VST3 PRIVATE /GL)
+    set_property(TARGET ilanaSynth APPEND PROPERTY STATIC_LIBRARY_OPTIONS /LTCG)
+    if (ILANA_PGO STREQUAL "GEN")
+        target_link_options(ilanaSynth_VST3 PRIVATE /LTCG /GENPROFILE:PGD=${ILANA_PGD})
+    elseif (ILANA_PGO STREQUAL "USE")
+        target_link_options(ilanaSynth_VST3 PRIVATE /LTCG /USEPROFILE:PGD=${ILANA_PGD})
+    else()
+        message(FATAL_ERROR "ILANA_PGO is GEN, USE or empty, not ${ILANA_PGO}")
+    endif()
+endif()
+
 # GPU UI on macOS and Linux: the editor paints through an OpenGL context
 # (Windows already draws with Direct2D). The snapshot tool links it too, so
 # its --fps and --idlecpu probes measure the GPU path.
@@ -284,6 +315,43 @@ target_compile_definitions(ilanaFingerprint PRIVATE
 )
 
 target_link_libraries(ilanaFingerprint
+    PRIVATE
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)
+
+# Dev tool: the stress phrase (pedal, retrigger, stealing, preset change,
+# random block lengths, sample-rate change) through every preset, multi-core
+# on vs off (tools/StressTest.cpp; not shipped).
+juce_add_console_app(ilanaStress PRODUCT_NAME "ilanaStress")
+
+target_sources(ilanaStress PRIVATE
+    tools/StressTest.cpp
+    src/PluginProcessor.cpp
+    ${ILANA_PROCESSOR_SOURCES}
+    src/MtsEsp.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/WavetableDoc.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
+)
+
+target_include_directories(ilanaStress PRIVATE src)
+
+target_compile_definitions(ilanaStress PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_TEST_BUILD=1
+    ILANA_FINGERPRINT_BUILD=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaStress
     PRIVATE
         juce::juce_dsp
         juce::juce_audio_formats
@@ -395,6 +463,6 @@ endif()
 
 add_test(NAME fx_tests COMMAND ilanaFxTest)
 
-foreach (tool ilanaSnapshot ilanaFingerprint ilanaPresetRender ilanaFxTest)
+foreach (tool ilanaSnapshot ilanaFingerprint ilanaStress ilanaPresetRender ilanaFxTest)
     ilana_big_stack (${tool})
 endforeach()

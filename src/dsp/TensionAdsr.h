@@ -57,6 +57,7 @@ public:
         stage = Stage::Idle;
         position = 0.0;
         currentValue = 0.0f;
+        stale = false;
     }
 
     // Starts in the delay stage, which hands over to the attack on the first
@@ -68,12 +69,14 @@ public:
         position = 0.0;
         currentValue = 0.0f;
         attackStart = 0.0f;
+        stale = false;
     }
 
     // Mono retrigger: restart the attack from wherever the envelope is now,
     // so a new note doesn't click by snapping to zero first.
     void retrigger()
     {
+        catchUp();
         attackStart = stage == Stage::Idle ? 0.0f : currentValue;
         stage = Stage::Attack;
         position = 0.0;
@@ -84,6 +87,7 @@ public:
         if (stage == Stage::Idle)
             return;
 
+        catchUp();
         stage = Stage::Release;
         position = 0.0;
         releaseStart = currentValue;
@@ -115,8 +119,79 @@ public:
     }
     float getCurrentValue() const { return currentValue; }
 
+    // One sample on, like getNextSample, without working out the curve: for
+    // an envelope only read every few samples (the voice's control rate).
+    // The next getNextSample computes the value where the envelope is then;
+    // a note off or retrigger in between first catches the value up.
+    void skip()
+    {
+        switch (stage)
+        {
+            case Stage::Idle:
+            case Stage::Sustain:
+                return;
+
+            case Stage::Delay:
+                if (position < (double) params.delay * sampleRate)
+                {
+                    position += 1.0;
+                    return;
+                }
+                stage = Stage::Attack;
+                position = 0.0;
+                [[fallthrough]];
+
+            case Stage::Attack:
+                position += 1.0;
+                if (position >= juce::jmax (1.0, (double) params.attack * sampleRate))
+                {
+                    currentValue = 1.0f;
+                    stage = params.hold > 0.0f ? Stage::Hold : Stage::Decay;
+                    position = 0.0;
+                    stale = false;
+                    return;
+                }
+                break;
+
+            case Stage::Hold:
+                position += 1.0;
+                currentValue = 1.0f;
+                stale = false;
+                if (position >= (double) params.hold * sampleRate)
+                {
+                    stage = Stage::Decay;
+                    position = 0.0;
+                }
+                return;
+
+            case Stage::Decay:
+                position += 1.0;
+                if (position >= juce::jmax (1.0, (double) params.decay * sampleRate))
+                {
+                    currentValue = params.sustain;
+                    stage = Stage::Sustain;
+                    stale = false;
+                    return;
+                }
+                break;
+
+            case Stage::Release:
+                position += 1.0;
+                if (position >= juce::jmax (1.0, (double) params.release * sampleRate))
+                {
+                    currentValue = 0.0f;
+                    stage = Stage::Idle;
+                    stale = false;
+                    return;
+                }
+                break;
+        }
+        stale = true;
+    }
+
     float getNextSample()
     {
+        stale = false;
         // Held notes spend most of their life here.
         if (stage == Stage::Sustain)
             return currentValue = params.sustain;
@@ -227,6 +302,32 @@ public:
     }
 
 private:
+    // The value at the current position after skips (Attack, Decay or
+    // Release: the stages skip leaves stale).
+    void catchUp()
+    {
+        if (! stale)
+            return;
+        stale = false;
+        if (stage == Stage::Attack)
+        {
+            const auto length = juce::jmax (1.0, (double) params.attack * sampleRate);
+            currentValue = attackStart + (1.0f - attackStart) * (float) shaped (position / length, length, 1.0, attackExponent);
+        }
+        else if (stage == Stage::Decay)
+        {
+            const auto length = juce::jmax (1.0, (double) params.decay * sampleRate);
+            currentValue = params.sustain + (1.0f - params.sustain) * (float) shaped (1.0 - position / length, length, -1.0, decayExponent);
+        }
+        else if (stage == Stage::Release)
+        {
+            const auto length = juce::jmax (1.0, (double) params.release * sampleRate);
+            currentValue = releaseStart * (float) shaped (1.0 - position / length, length, -1.0, releaseExponent);
+        }
+    }
+
+    bool stale = false;
+
     // progress^exponent. pow() is exact for an exponent of 1, so zero tension
     // skips the call. Otherwise the curve is computed every spanSteps
     // samples (1 / length of progress each, with the stage's direction)

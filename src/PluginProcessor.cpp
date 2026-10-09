@@ -536,6 +536,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     const auto voiceRate = baseSampleRate * (double) oversamplingFactor.load();
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
+    // MULTI-CORE: up to three more threads (the host runs its own too), with
+    // buffers for a chunk at the highest oversampling.
+    synth.prepareVoiceThreads (juce::jlimit (0, 3, juce::SystemStats::getNumCpus() - 1), expectedBlockSize * 4);
 
     scaledMidiBuffer.ensureSize (1024);
 
@@ -567,6 +570,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     for (auto& stage : dcBlock)
         for (auto& channel : stage)
             channel = { 0.0f, 0.0f };
+    fxAsleep = false;
+    fxSilentSamples = 0;
 
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
 
@@ -709,6 +714,8 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     for (auto& stage : dcBlock)
         for (auto& channel : stage)
             channel = { 0.0f, 0.0f };
+    fxAsleep = false;
+    fxSilentSamples = 0;
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -1621,6 +1628,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         p.tuning = &mtsTuning;
     }
     synth.setTuning (p.tuning);
+    synth.setVoiceThreadsEnabled (forceVoiceThreads >= 0 ? forceVoiceThreads > 0 : getParam (multiCoreRef) > 0.5f);
+    {
+        constexpr int caps[] { 0, 4, 6, 8, 12, 16 };
+        synth.setSustainVoiceCap (caps[juce::jlimit (0, 5, (int) getParam (sustainVoicesRef))]);
+    }
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
@@ -1784,7 +1796,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     };
 
     blockDc (0);
-    processEffects (buffer);
+    processEffectsUnlessAsleep (buffer);
     blockDc (1);
 
     // MASTER plus the preset's own level (output_trim, 0 unless a factory

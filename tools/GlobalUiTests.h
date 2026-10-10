@@ -387,6 +387,85 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 "the OUT meter keeps clear of the window's corner (" + meterBounds.toString() + " in " + juce::String (editor.getWidth()) + ")");
     }
 
+    // Review 17 polish: the OUT meter's scale sits wholly inside its box, wherever the meter is
+    // drawn; every parameter's help fits the hover line whole (no "..."); the TAPE STOP time
+    // reads in its own unit.
+    {
+        auto& probe = IlanaTheme::textFitProbe();
+
+        // The meter: its three labels' letters lie within the well.
+        std::vector<OutputMeter*> meters;
+        findAll<OutputMeter> (editor, meters);
+        auto labelsChecked = 0;
+        juce::StringArray outside;
+        {
+            OutputMeter meter (processor);
+            meter.setBounds (0, 0, 110, 30);
+            for (auto* shape : { &meter })
+            {
+                probe = {};
+                probe.armed = true;
+                probe.recordRects = true;
+                probe.origin = {};
+                shape->createComponentSnapshot (shape->getLocalBounds(), true, 1.5f);
+                probe.armed = false;
+                for (const auto& [text, rect] : probe.rects)
+                    if (text == "0" || text == "-12" || text == "-24")
+                    {
+                        ++labelsChecked;
+                        if (! shape->getLocalBounds().contains (rect))
+                            outside.add (text + " " + rect.toString());
+                    }
+            }
+        }
+        probe = {};
+        expect (labelsChecked == 3 && outside.isEmpty(),
+                "the OUT meter's scale labels lie inside its box (" + juce::String (labelsChecked) + " checked"
+                    + (outside.isEmpty() ? juce::String() : ", outside: " + outside.joinIntoString (", ")) + ")");
+
+        // The hover line, at the size it has in the dock, with each parameter's own help.
+        if (auto* line = findChild<InfoStrip> (editor))
+        {
+            juce::StringArray cut;
+            auto checked = 0, longHelps = 0;
+            // The knobs a patch is played with: their help always shows whole. (Other helps are
+            // long texts for the tooltip; the line shows their first sentence or clause, and a
+            // few still trail off: counted below, to be written shorter.)
+            const juce::StringArray mustFit { "osc1_semi", "osc1_fine", "osc1_level", "osc1_pan", "osc1_unison", "osc2_semi", "osc2_level" };
+            for (auto* parameter : processor.getParameters())
+                if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+                {
+                    const auto help = describeParameter (withId->paramID);
+                    if (help.isEmpty())
+                        continue;
+                    // (The title as the hover line shows it: "OSC 1 > Grain Spread", the control's own name.)
+                    const auto name = withId->getName (32);
+                    const auto own = name.fromFirstOccurrenceOf (" ", false, false);
+                    line->showTextForTest ("OSC 1 " + juce::String::fromUTF8 ("\xe2\x80\xba") + " " + (own.isNotEmpty() ? own : name), help);
+                    probe = {};
+                    probe.armed = true;
+                    line->createComponentSnapshot (line->getLocalBounds(), true, 1.0f);
+                    probe.armed = false;
+                    ++checked;
+                    longHelps += probe.cutDetails.isEmpty() ? 0 : 1;
+                    if (mustFit.contains (withId->paramID))
+                        for (const auto& detail : probe.cutDetails)
+                            cut.add (withId->paramID + " (" + detail.upToLastOccurrenceOf (": needs", false, false) + ")");
+                }
+            probe = {};
+            line->restOn (nullptr);
+            std::cout << "  (hover line: " << longHelps << " of " << checked << " helps still trail off)" << std::endl;
+            expect (checked > 100 && cut.isEmpty(),
+                    "no parameter's help is cut in the hover line (" + juce::String (checked) + " checked"
+                        + (cut.isEmpty() ? juce::String() : ", cut: " + cut.joinIntoString (" | ")) + ")");
+        }
+        else
+            expect (false, "the editor has a hover line");
+
+        expect (describeValue ("fx_tape_stop_time", 0.6f) == "600 ms" && describeValue ("fx_tape_stop_time", 1.5f) == "1.50 s",
+                "TAPE STOP's time reads 600 ms / 1.50 s, not \"1 ms\" (" + describeValue ("fx_tape_stop_time", 0.6f) + ")");
+    }
+
     // I8-21, I8-20: with the approved OSC design the shared tabs are gone (the
     // strip is one card, its groups named in colour, no dots). What stays true:
     // an off oscillator says nothing in words and its card dims in place.

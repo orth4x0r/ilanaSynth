@@ -307,7 +307,7 @@ inline juce::String describeValue (const juce::String& id, float value)
         return asHertz();
 
     if (id == "fx_delay_time" || id == "fx_delay_time_r" || id == "fx_feedback_delay"
-        || id == "fx_smear_size" || id == "fx_tape_stop_time" || id == "fx_haas_delay"
+        || id == "fx_smear_size" || id == "fx_haas_delay"
         || id == "fx_comp_attack" || id == "fx_comp_release" || id == "fx_limit_release")
         return asMilliseconds();
 
@@ -317,7 +317,8 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id == "poly_voices")
         return juce::String (juce::roundToInt (value));
 
-    if (id.endsWith ("_attack") || id == "glide"
+    // (Tape stop's time is in seconds: 0.60 s is "600 ms", not "1 ms".)
+    if (id.endsWith ("_attack") || id == "glide" || id == "fx_tape_stop_time"
         || ((id.endsWith ("_decay") || id.endsWith ("_release"))
             && ! id.endsWith ("_string_decay") && id != "res_decay"))
         return asSeconds();
@@ -631,7 +632,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Stereo position of the oscillator.";
 
     if (isOscParameter (id, "_semi", false))
-        return "Pitch offset in semitones. With Hard Sync this sets the sync ratio.";
+        return "Pitch offset in semitones. Hard Sync: sync ratio.";
 
     if (isOscParameter (id, "_fine", false))
         return "Fine pitch offset in cents.";

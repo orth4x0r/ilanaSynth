@@ -334,7 +334,10 @@ private:
             case Pendulum:
             {
                 const auto pivot = juce::Point<float> (box.getCentreX(), box.getY() + 12.0f);
-                const auto length = box.getHeight() - 30.0f;
+                // (Short enough that a full sideways swing stays inside the box.)
+                const auto length = juce::jmax (20.0f, juce::jmin (box.getHeight() - 30.0f, box.getWidth() * 0.5f - 12.0f));
+                juce::Graphics::ScopedSaveState keepInside (g);
+                g.reduceClipRegion (box.getSmallestIntegerContainer());
                 const auto angle = (float) st[0];
                 const auto bob = pivot + juce::Point<float> (std::sin (angle), std::cos (angle)) * length;
                 g.setColour (juce::Colours::white.withAlpha (0.2f));

@@ -40,8 +40,8 @@ public:
         const auto bounds = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, bounds, 8.0f);
         const auto inner = bounds.reduced (6.0f, 0.0f).withTrimmedRight (clipped ? 10.0f : 0.0f);
-        const auto barHeight = 6.0f;
-        const auto barsTop = bounds.getY() + 6.0f;
+        const auto barHeight = 5.0f;
+        const auto barsTop = bounds.getY() + 4.0f;
 
         if (clipped)
         {
@@ -54,7 +54,7 @@ public:
 
         for (int channel = 0; channel < 2; ++channel)
         {
-            const auto bar = juce::Rectangle<float> (inner.getX(), barsTop + (float) channel * (barHeight + 4.0f),
+            const auto bar = juce::Rectangle<float> (inner.getX(), barsTop + (float) channel * (barHeight + 3.0f),
                                                      inner.getWidth(), barHeight);
             // The empty track, so the scale reads at rest (A16-7).
             g.setColour (juce::Colours::white.withAlpha (0.06f));
@@ -84,10 +84,12 @@ public:
         {
             const auto x = inner.getX() + inner.getWidth() * proportion (juce::Decibels::decibelsToGain (db));
             g.setColour (juce::Colours::white.withAlpha (0.28f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, barsTop, 1.0f, barHeight * 2.0f + 3.0f));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, barsTop, 1.0f, barHeight * 2.0f + 5.0f));
             const auto name = db == 0.0f ? juce::String ("0") : juce::String ((int) db);
             g.setColour (IlanaTheme::Ui::text3);
-            IlanaTheme::drawFitted (g, name, juce::Rectangle<float> (28.0f, 11.0f).withCentre ({ x, barsTop + barHeight * 2.0f + 3.0f + 7.0f }).getSmallestIntegerContainer(),
+            // (The labels sit wholly inside the well, under the bars.)
+            const auto labelTop = juce::jmin (barsTop + barHeight * 2.0f + 5.0f, bounds.getBottom() - 11.0f);
+            IlanaTheme::drawFitted (g, name, juce::Rectangle<float> (28.0f, 10.0f).withCentre ({ x, labelTop + 5.0f }).getSmallestIntegerContainer(),
                                     juce::Justification::centred, 1);
         }
     }

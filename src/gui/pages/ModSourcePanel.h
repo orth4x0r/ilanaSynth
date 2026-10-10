@@ -729,11 +729,18 @@ private:
         if (kind == Kind::lfo)
             pill = pill.withY (graphArea.getCentreY() - 10);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
-        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        // A solid plate hugging the sentence (A17: the old translucent strip let the curve run through
+        // the words); it is never wider than its strip, and the text shrinks before it is cut.
+        const auto wanted = (int) std::ceil (juce::GlyphArrangement::getStringWidth (font, unusedNote)) + 20;
+        if (kind == Kind::lfo && wanted < pill.getWidth())
+            pill = pill.withSizeKeepingCentre (wanted, pill.getHeight());
+        g.setColour (IlanaTheme::Ui::well.withAlpha (0.97f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
+        g.setColour (IlanaTheme::Ui::line2);
+        g.drawRoundedRectangle (pill.toFloat().reduced (0.5f), 4.0f, 1.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (font);
-        IlanaTheme::drawFitted (g, unusedNote, pill.reduced (8, 0), juce::Justification::centredLeft, 1);
+        IlanaTheme::drawFitted (g, unusedNote, pill.reduced (8, 0), juce::Justification::centred, 1);
     }
 
     void refreshUnused()

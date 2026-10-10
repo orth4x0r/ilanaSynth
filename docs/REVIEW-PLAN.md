@@ -266,3 +266,12 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    **Rules when it starts:** a patch that uses none of it renders as it does now (its default routing is today's chain),
    so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to ilana for
    a look (a UI review after it) before the build is merged.
+17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided, not started; do not build yet). Her
+   words: patch FX from one output to the next, so complex parallel or feedback routes can be built, and allow more than
+   one instance of the same effect. This pairs with step 16's cable routing: the same cables could carry FX-to-FX links.
+   Today the rack is a fixed list of slots, each slot one effect, with a series or parallel switch (`fx_routing`).
+   Open questions for when work starts: how a feedback loop is kept stable (delay per loop, a limit on its gain), and
+   whether an instance is a new slot or a copy of a slot's settings.
+   **Rules when it starts:** a patch that uses none of it renders as it does now (today's series or parallel chain is the
+   default), so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to
+   ilana for a look (a UI review after it) before the build is merged.

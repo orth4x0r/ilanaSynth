@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/img/social-preview.png" alt="ilanaSynth: a physical-hybrid synthesizer" width="720"></p>
+
 # ilanaSynth
 
 **para un sonido más bruto** (for a more brutal sound)
@@ -17,7 +19,7 @@ A complete sound design machine, and the same engine as an effect plugin.
 - **Oscillators:** six full oscillators, each in wavetable, FM / DX7, physical-model, sample, granular or live-input mode, plus a dedicated sub and noise layer. OSC 4–6 start off. Sample mode also plays SoundFont (SF2) and SFZ multisamples.
 - **Wavetables:** 120 factory tables, a built-in wavetable editor (draw, harmonics, formulas, morphs, Serum / Vital-compatible import and export) and 16 patch tables saved inside the patch. Eleven spectral warps, classic warp modes (Sync, Bend, PWM, Mirror, Asym, Quantize, FM, Ring) and the Casio CZ's phase distortion.
 - **Unison:** up to 16 voices per oscillator with eleven stack modes (Classic, Hypersaw, Octaves, Fifths, Center Drop, 2x Octaves, Power Chord, Major, Minor, Harmonics, Odd Harmonics).
-- **Physical models:** plucked, bowed and hammered strings, a felt-hammer piano exciter on a dense soundboard, Rhodes- and Wurlitzer-style electric pianos (Tine, Reed), a feedback-guitar exciter, material bodies (bar, plate, bell, shell), sympathetic strings, a west-coast wavefolder with a vactrol low-pass gate, and a PHYSICAL page that draws the string, exciter and body.
+- **Physical models:** plucked, bowed and hammered strings, a felt-hammer piano exciter on a dense soundboard, Rhodes- and Wurlitzer-style electric pianos (Tine, Reed), a feedback-guitar exciter, material bodies (bar, plate, bell, shell), sympathetic strings, a west-coast wavefolder with a vactrol low-pass gate, and a physical oscillator card that holds the whole string (decay, damping, stiffness, register, coupling, buzz, rattle) and its exciter, with a live picture of the string, hammer or bow.
 - **FM and DX7:** a 6×6 operator matrix with 16 one-click algorithms and all 32 DX7 algorithms, three FM styles, the DX7's own Operator Envelope, key scaling, a pitch EG and LFO, a noise operator, 288 DX7 ROM and Dexed voices built in and `.syx` import for the rest.
 - **Filters:** two routable filters (serial or parallel) with 39 models: zero-delay ladders, diode, OTA, SEM, MS-20, Steiner-Parker, 303 Acid, combs, vowel filters, Airwindows' Y filters and nine Airwindows character filters, and a tuneable Disperser.
 - **Modulation:** 16 LFOs (including chaos and physics shapes), 16 tension envelopes, a step sequencer, an MSEG, 8 macros and a 64-slot matrix with per-route response curves. Drag any source onto any knob; the PLAY page's MODULATION card and the dock chips edit any source from any page.
@@ -33,8 +35,8 @@ A complete sound design machine, and the same engine as an effect plugin.
 
 | | |
 |---|---|
-| ![OSC](docs/img/osc.png) | ![PHYSICAL](docs/img/physical.png) |
-| **OSC**: one compact card per oscillator; voice, stereo, sub, strings and soundboard in a single strip. | **PHYSICAL**: the string, exciter and body drawn live, with their controls. |
+| ![OSC](docs/img/osc.png) | ![VECTOR](docs/img/vector.png) |
+| **OSC**: one card per oscillator. A physical oscillator carries its string and exciter rows and a live string picture (Felt Hammer Board shown). | **VECTOR**: an XY pad that mixes four oscillators, moved by hand, a path, drift or modulation. |
 | ![FILTER](docs/img/filter.png) | ![FM](docs/img/fm.png) |
 | **FILTER**: a full-width response display, 39 models and a signal-flow strip. | **FM**: the operator matrix, DX7 algorithms and the Operator Envelope. |
 | ![MOD](docs/img/mod.png) | ![FX](docs/img/fx.png) |
@@ -49,7 +51,7 @@ Everything below is on `main` and goes beyond the v1.3.0 release notes further d
 **Interface**
 - **PLAY redesign:** a 52 px header, a tab bar carrying the BPM, voice and CPU readouts, and a dock of pill chips with a six-octave keyboard. PLAY is one 10 px grid of full-size oscillator strips (a big wave, menus and six knobs each, FM / DX7 operators with their own knobs and an envelope menu) that scroll past three.
 - **MODULATION card:** one card with a tab per source (LFOs, envelopes, macros, performance sources), the selected source's graph and controls, and a DRIVES list of every route with a depth bar you can drag. **Dock chips** show their route count and a live trace, and a click opens that source's editor as a floating pop-out on any page.
-- **Design pass on every page:** OSC, FILTER, PHYSICAL, ENV / LFO, FM and FX follow one set of mockups; text is about 10% larger; pages fold unused cards instead of leaving empty space (benchmarked against Vital and Serum 2).
+- **Design pass on every page:** OSC, FILTER, ENV / LFO, FM and FX follow one set of mockups; text is about 10% larger; pages fold unused cards instead of leaving empty space (benchmarked against Vital and Serum 2).
 - **Fifteen UI reviews** against Vital and Serum 2: undo for every gesture, MIDI learn on every control, a confirm before replacing an edited patch, draggable depth rings on every knob, a one-name-per-source colour scheme, a numbered and sortable matrix, SAVE in place and a themed SAVE AS, a dockable preset browser, wavetable browser with audition, clip editor selection and velocity lane.
 - **Named macros:** every factory preset's macros are named for what they audibly do.
 
@@ -59,6 +61,11 @@ Everything below is on `main` and goes beyond the v1.3.0 release notes further d
 - **Spectral warps, unison and drive (Vital parity):** Low Pass, High Pass, Phase Disperse, Random Amps and Skew spectral warps; Formant and Squeeze warp modes; seven new unison stack modes; **FRM SPR** and **WRP SPR** spread each unison voice's wavetable frame and warp amount; **Hard Clip** (and Soft Clip) drive modes and a **Sine Fold**; and a per-oscillator **scale quantize** (scale and root, semitone tuning).
 - **Vocoder, splitters and more:** a channel vocoder (audio input or a built-in Talk modulator), FX band splitters (low / mid / high, mid / side), parallel FX routing, SF2 / SFZ multisamples, Scala microtuning and MTS-ESP.
 - **Modulation curves:** any matrix route can carry a drawn response curve; LFO shapes are drawable; MIDI CCs drive all 8 macros.
+- **Spectral morph, per voice:** a route from a per-note source (an envelope, velocity, key track, random, or a retriggered LFO) into SPEC AMT now gives every voice its own morph position, so held chords can sweep through the table voice by voice. Spectral warps also work on your own patch tables.
+- **Stereo modulation amounts:** each matrix row has an **ST** toggle; on a filter cutoff it opens one filter side and closes the other, for wide, moving filters.
+- **Audio import:** two more ways to turn a recording into a wavetable, **Vocode** (harmonic levels from the audio's spectrum) and **Time Slice** (the audio cut into cycles), in the wavetable editor's IMPORT menu.
+- **Physical oscillator card:** the PHYSICAL tab is gone. Its string and exciter controls moved into the oscillator's own card on the OSC page; **EDIT BODY** opens the FILTER page, where the body lives.
+- **Smoother and steadier:** master gain, effect mixes and amounts are smoothed (no zipper noise), effect state clears on patch change, A/B switching eases, and a stolen voice fades out instead of cutting.
 - **Presets:** a diversity pass using the new filters and effects, more distinct archetypes per category, and ilana's own presets in `content/user-presets`.
 
 **Performance and platforms**
@@ -92,7 +99,7 @@ Everything below is on `main` and goes beyond the v1.3.0 release notes further d
 - **Feedback** exciter (M8.5): an amp and speaker in the string's loop, so a held note blooms into a harmonic; AMP GAIN and DISTANCE pick how and which.
 - **VECTOR** page (M8.5): an XY pad mixing any four oscillators, moved by hand, by a drawn path, by drift or by modulation (Vector X / Y are mod sources), and **EVOLVE**: each macro drifts within a range, with FREEZE.
 - **BOUNCE** (M8.6) on every oscillator card: renders the patch (one note, with or without its effects) in the background and puts it on that oscillator as a tuned sample or cut into a wavetable. The bounce is saved inside the patch; from there granulate it, warp it, or drive a string with it (Osc In).
-- **PHYSICAL** page (M8.7): an animated view of a Physical oscillator's string, its hammer, pick, bow or amp, and the body, with that string's controls and the body and soundboard switches.
+- **PHYSICAL** page (M8.7; since folded into the oscillator card): an animated view of a Physical oscillator's string, its hammer, pick, bow or amp, and the body, with that string's controls and the body and soundboard switches.
 - **Preset pack** (M10): 114 new presets across all of the above (strings, six-oscillator layers, chaos and physics modulation, acoustic and electric keys, deep FM, phase distortion, generative, bodies, west coast and the new filters, feedback guitar, vector and Evolve, resampled sources, and ten for ilanaSynth FX), and **80 new wavetables** (120 in all, with new Keys and Bass categories).
 - **Formats and platforms** (M9): **CLAP** versions of both plugins, **AU** on macOS, Linux VST3/CLAP/standalone builds, and CI that builds and tests every change on Windows, macOS and Linux (including the pluginval and CLAP validators).
 - Old patches and sessions load and sound as before.
@@ -175,7 +182,7 @@ Everything below is on `main` and goes beyond the v1.3.0 release notes further d
 
 Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at full size. **+ ADD OSCILLATOR** (OSC and MAIN pages) adds the next one, switched on, and **×** removes one (switches it off and hides it). More than three cards scroll. OSC 4–6 are off and hidden in old patches and new Init patches; an oscillator that is on is always shown. The FM page's diagram and matrix show only the added oscillators.
 - Six modes per oscillator (Wavetable, Physical, Sample, Granular, Live and FM / DX7, the operator type):
-  - **Wavetable**: 40 factory tables in eight categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos), plus 16 patch tables (User 1–16) saved inside the patch.
+  - **Wavetable**: 120 factory tables in categories (Basic, Analog, Digital, Vocal, Spectral, Harsh, Organic, Chaos and more), plus 16 patch tables (User 1–16) saved inside the patch.
     - Click the TABLE box for the visual browser.
     - Load your own `.wav` with LOAD (as frames, or resynthesised from any recording), or drag a `.wav` onto the waveform display. Tables from Serum, Vital and other tools load with their frame size.
     - **EDIT** opens the wavetable editor (see *What's new since 1.2*). Editing a factory table copies it into a free patch table first; factory tables never change.
@@ -332,7 +339,7 @@ Oscillators work like Phase Plant modules. OSC 1–3 are shown by default at ful
 
 ### Interface
 - **Design**: calm flat graphite with one accent colour (4 themes), Manrope type with fixed-width digits, and glowing, animated controls: knob arcs flare as they move, switches slide, lit buttons breathe. Resize it from the corner (75–200%) or from the settings menu.
-- **Tabs**: PLAY (overview with the MODULATION card, vector pad), OSC (oscillators, physical view), FILTER, MOD (envelopes and LFOs, step LFOs and MSEG, matrix), FM, SEQ and FX; tabs with several pages switch them at the right of the tab row. Number keys 1–7 switch tabs. Switched-off oscillators fold to one line, and the FX rack lists only the slots in use plus one to add to.
+- **Tabs**: PLAY (overview with the MODULATION card, vector pad), OSC (oscillators; a physical oscillator's string and exciter live on its card), FILTER, MOD (envelopes and LFOs, step LFOs and MSEG, matrix), FM, SEQ and FX; tabs with several pages switch them at the right of the tab row. Number keys 1–7 switch tabs. Switched-off oscillators fold to one line, and the FX rack lists only the slots in use plus one to add to.
 - **Header**:
   - preset name with category and an EDITED marker
   - previous / next and favourite

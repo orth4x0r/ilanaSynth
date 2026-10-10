@@ -13,6 +13,7 @@
 #include "IlanaLookAndFeel.h"
 #include "ParamInfo.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 #include "FmOperatorInfo.h"
 
 class EnvelopeDisplay : public juce::Component,
@@ -99,8 +100,7 @@ public:
         g.setColour (curveColour.withAlpha (0.12f));
         g.fillPath (filled);
 
-        g.setColour (curveColour);
-        g.strokePath (path, juce::PathStrokeType (1.8f));
+        IlanaTrace::paintTrace (g, path, curveColour);
 
         // Stage handles.
         const auto handles = stageHandles (geo);
@@ -340,7 +340,9 @@ public:
 private:
     std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
     {
-        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f);
+        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()),
+                                                    { readSeconds ("delay"), readSeconds ("attack"), readSeconds ("hold"),
+                                                      readSeconds ("decay"), readSeconds ("release") });
 
         // Idle, or an envelope that isn't running (it waits at the start).
         if (position <= 0.0f)
@@ -518,12 +520,13 @@ private:
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         if (IlanaAnim::showing (*this) && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
-                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), false, 0.3f), 31))))
+                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), { readSeconds ("delay"), readSeconds ("attack"), readSeconds ("hold"), readSeconds ("decay"), readSeconds ("release") }), 31))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
-    IlanaAnim::BlockSmoother positionSmoother, levelSmoother; // monitors glided between audio blocks
+    IlanaAnim::EnvTracker positionSmoother;
+    IlanaAnim::BlockSmoother levelSmoother; // monitors glided between audio blocks
 
     float readSeconds (const char* suffix) const
     {

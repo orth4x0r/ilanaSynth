@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -185,6 +186,147 @@ public:
 private:
     mutable float target = -1.0e9f, from = 0.0f, span = 0.0f, shown = 0.0f;
     mutable double changeMs = 0.0, interval = 12.0, lastCallMs = 0.0;
+};
+
+
+// A looping phase (0..1) published once per audio block, shown smoothly.
+// BlockSmoother glides from the last value to the new one over the last
+// block's length, so the dot always trailed by a block and moved in
+// uneven steps when blocks were large or late (ilana, 2026-10-10). This
+// one dead-reckons instead: from each published phase it runs on at the
+// LFO's own rate, and eases onto the next published value, so the dot
+// moves at the real speed at the display's frame rate whatever the
+// buffer size.
+class PhaseTracker
+{
+public:
+    float get (float published, double hz) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+            shown = published;
+        }
+        else if (published != lastPublished)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+        }
+
+        const auto frame = (float) juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0);
+        lastCallMs = now;
+
+        const auto ahead = juce::jlimit (0.0, 0.12, (now - publishedAtMs) / 1000.0);
+        const auto predicted = (float) std::fmod (lastPublished + juce::jlimit (0.0, 200.0, hz) * ahead, 1.0);
+        auto delta = predicted - shown;
+
+        if (delta < -0.5f) delta += 1.0f;
+        else if (delta > 0.5f) delta -= 1.0f;
+
+        // Close to the prediction: ease onto it (30 ms); far (a retrigger,
+        // a rate jump): go there.
+        shown += std::abs (delta) > 0.3f ? delta : delta * (1.0f - std::exp (-frame / 0.03f));
+        shown -= std::floor (shown);
+        return shown;
+    }
+
+private:
+    mutable float lastPublished = 0.0f, shown = 0.0f;
+    mutable double publishedAtMs = 0.0, lastCallMs = 0.0;
+};
+
+// An envelope's playhead published once per block as stage + fraction of
+// the stage (0 delay, 1 attack, 2 hold, 3 decay, 4 sustain, 5 release; -1
+// idle). Shown by running on in time through the stages' real lengths, so a
+// 2 ms attack crosses the screen in 2 ms and a 3 s decay in 3 s (the
+// BlockSmoother moved between two published positions at an even pace,
+// whatever the stages' lengths). `seconds` holds the four stage lengths
+// then the release, and the dot rests at the sustain until the next
+// published position says the key is up.
+class EnvTracker
+{
+public:
+    float get (float published, const std::array<float, 5>& seconds) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (published < 0.0f)
+        {
+            lastCallMs = now;
+            lastPublished = -1.0f;
+            shown = -1.0f;
+            return -1.0f;
+        }
+
+        const auto frame = (float) juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0);
+
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0 || shown < 0.0f)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+            shown = published;
+        }
+        else if (published != lastPublished)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+        }
+
+        lastCallMs = now;
+        const auto predicted = advance (lastPublished, (float) juce::jlimit (0.0, 0.12, (now - publishedAtMs) / 1000.0), seconds);
+
+        // In the same stage: ease onto the prediction (30 ms); in another
+        // (the prediction ran on, or a new note): go there.
+        if ((int) predicted == (int) shown)
+            shown += (predicted - shown) * (1.0f - std::exp (-frame / 0.03f));
+        else
+            shown = predicted;
+
+        return shown;
+    }
+
+private:
+    static float advance (float position, float dt, const std::array<float, 5>& seconds)
+    {
+        auto stage = (int) position;
+        auto fraction = position - (float) stage;
+
+        if (stage >= 4 && stage != 5)
+            return position;
+
+        while (dt > 0.0f)
+        {
+            if (stage == 4)
+                return 4.0f;
+
+            const auto length = stage == 5 ? seconds[4] : seconds[(size_t) stage];
+            const auto left = juce::jmax (0.0f, 1.0f - fraction) * length;
+
+            if (length <= 1.0e-5f || dt >= left)
+            {
+                dt -= left;
+                fraction = 0.0f;
+
+                if (stage == 5)
+                    return 5.999f;
+
+                ++stage;
+            }
+            else
+            {
+                fraction += dt / length;
+                dt = 0.0f;
+            }
+        }
+
+        return (float) stage + juce::jmin (fraction, 0.999f);
+    }
+
+    mutable float lastPublished = -1.0f, shown = -1.0f;
+    mutable double publishedAtMs = 0.0, lastCallMs = 0.0;
 };
 
 

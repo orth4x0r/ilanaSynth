@@ -226,7 +226,8 @@ inline juce::String describe (const IlanaSynthAudioProcessor& p, int osc)
 }
 
 // A modulator: it feeds other oscillators and is not itself heard. Its
-// OUTPUT is a modulation depth, so the knob says DEPTH (review 12, I12-3).
+// A modulator's level is still its OUTPUT: a DX7 operator shows one level, named
+// OUTPUT everywhere (UI-CONVENTIONS, review 15 I15-1).
 inline bool isModulator (const IlanaSynthAudioProcessor& p, int osc)
 {
     return read (p, prefix (osc) + "_out") <= 0.5f && ! targets (p, osc).empty();
@@ -234,7 +235,8 @@ inline bool isModulator (const IlanaSynthAudioProcessor& p, int osc)
 
 inline const char* outputKnobName (const IlanaSynthAudioProcessor& p, int osc)
 {
-    return isModulator (p, osc) ? "DEPTH" : "OUTPUT";
+    juce::ignoreUnused (p, osc);
+    return "OUTPUT";
 }
 
 // PLAY's strip role line: what the oscillator does with its OUTPUT. A carrier
@@ -2147,7 +2149,7 @@ private:
     }
 
     // The list the tests pick an oscillator from (not drawn), each entry's role
-    // in its tooltip; also the OUTPUT / DEPTH name of an operator's level.
+    // in its tooltip; also the OUTPUT name of an operator's level.
     void updateTabItems()
     {
 

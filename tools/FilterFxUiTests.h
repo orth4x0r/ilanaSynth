@@ -211,7 +211,17 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             const auto markers = display->getMarkerCentres();
             expect (markers[0].getDistanceFrom (markers[1]) >= 18.0f,
                     "Init: the two filter markers stand clearly apart (" + juce::String (markers[0].getDistanceFrom (markers[1])) + " px)");
+            expect (! display->isVoiceOff(), "Init: the FILTER response is not marked off");
         }
+
+        // A DX7 voice has no filter: the response says so (N16-2 / I15-2), as PLAY's note does.
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        editor.showPage ("FILTER");
+        settle (500);
+        if (auto* display = findChild<FilterDisplay> (editor); display != nullptr)
+            expect (display->isVoiceOff(), "a DX7 voice: the FILTER response says FILTER OFF");
+        loadNamed ("Init");
+        settle (200);
     }
 
     // The FX page.

@@ -41,20 +41,31 @@ public:
         outline.addRoundedRectangle (area, 5.0f);
         const float dashes[] { 3.0f, 3.0f };
         juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line);
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line.withMultipliedAlpha (quiet ? 0.45f : 1.0f));
         g.fillPath (dashed);
         if (highlighted || down)
         {
             g.setColour (juce::Colours::white.withAlpha (down ? 0.08f : 0.04f));
             g.fillRoundedRectangle (area, 5.0f);
         }
-        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.withMultipliedAlpha (quiet ? 0.55f : 1.0f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.drawText (highlighted || down ? hoverText : text, getLocalBounds(), juce::Justification::centred, false);
     }
 
+    // A tile nobody has used: its rim and "+" step back until the pointer is on it.
+    void setQuiet (bool shouldBeQuiet)
+    {
+        if (quiet != shouldBeQuiet)
+        {
+            quiet = shouldBeQuiet;
+            repaint();
+        }
+    }
+
 private:
     juce::String text, hoverText;
+    bool quiet = false;
 };
 
 namespace MatrixMenus
@@ -617,6 +628,7 @@ public:
         via.setTooltip ("Via (aux)\nA second source that scales this routing: e.g. the mod wheel fading an LFO in.  "
                         "None leaves the amount as set.");
 
+        viaButton.setQuiet (true); // (no row uses VIA until one says so: setViaExpanded)
         // Until a via source is set, VIA is an empty dashed "+" (the
         // destination's "+" style) and opens the same list.
         viaButton.setTooltip ("Via (aux)\nScale this routing by a second source (the mod wheel fading an LFO in, say).");
@@ -705,6 +717,7 @@ public:
         if (viaExpanded != shouldExpand)
         {
             viaExpanded = shouldExpand;
+            viaButton.setQuiet (! viaExpanded);
             resized();
         }
     }
@@ -836,7 +849,7 @@ public:
     // until some row uses it.
     struct Columns
     {
-        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 40, viaPill = 40,
+        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 32, viaPill = 32,
                              amountBase = 190, curve = 50, polarity = 76, stereo = 28, destination = 216, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
         // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
@@ -925,7 +938,7 @@ private:
     int slotIndex;
     juce::TextButton bypass, remove, stereo { "ST" };
     std::unique_ptr<juce::ButtonParameterAttachment> stereoAttachment;
-    DashedAddButton viaButton { "+", "+ VIA" };
+    DashedAddButton viaButton { "+", "VIA" };
     juce::ComboBox source, via, destination;
     juce::Slider amount;
     CurveControl curve;

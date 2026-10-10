@@ -940,6 +940,13 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText ("ON THE OPERATORS", operatorHeading, juce::Justification::centredLeft);
         }
+        if (! hintArea.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            IlanaTheme::drawFitted (g, "Pitch moves only while PITCH DEPTH and PITCH SENS are both above 0. AMP DEPTH moves the operators whose AMP MOD is above 0.",
+                                    hintArea, juce::Justification::topLeft, 2);
+        }
     }
 
     void resized() override
@@ -956,10 +963,15 @@ public:
         auto options = inner.removeFromTop (13 + 24 + 14);
         shape.setBounds (options.removeFromLeft (options.getWidth() / 2).reduced (3, 1));
         retrig.setBounds (options.removeFromLeft (options.getWidth() / 3).reduced (3, 1));
-        inner.removeFromTop (4);
+        inner.removeFromTop (6);
+        // The heading sits on its knob row and the row right under the options, a
+        // line of what the knobs do under it, so no blank band is left between
+        // them (N16-11).
         operatorHeading = inner.withLeft (inner.getX() + inner.getWidth() * 2 / 5 + 3).withHeight (12);
-        inner.removeFromTop (12);
-        layoutRow (inner, { &rate, &delay, &pitchDepth, &pitchSens, &ampDepth });
+        inner.removeFromTop (14);
+        const auto knobHeight = juce::jmin (inner.getHeight() - 30, 96);
+        layoutRow (inner.removeFromTop (juce::jmax (60, knobHeight)), { &rate, &delay, &pitchDepth, &pitchSens, &ampDepth });
+        hintArea = inner.getHeight() >= 24 ? inner.withTrimmedTop (4) : juce::Rectangle<int>();
     }
 
 private:
@@ -979,5 +991,5 @@ private:
     KnobControl rate, delay, pitchDepth, pitchSens, ampDepth;
     EffectRules effectRules;
     IlanaAnim::ChangeGate changeGate;
-    juce::Rectangle<int> panel, operatorHeading;
+    juce::Rectangle<int> panel, operatorHeading, hintArea;
 };

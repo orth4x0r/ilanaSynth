@@ -278,7 +278,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("MAIN");
     settle (400);
     {
-        auto* level = knobFor ("osc2_eg_out", "DEPTH"); // (a modulator's OUTPUT reads DEPTH, I12-3)
+        auto* level = knobFor ("osc2_eg_out", "OUTPUT"); // (a modulator too: never DEPTH, I15-1)
         auto* trim = knobFor ("osc2_level"); // (none on PLAY: one level, OUTPUT, I10-1)
         const auto levelText = level != nullptr ? level->getSlider().getTextFromValue (level->getSlider().getValue()) : juce::String();
         std::vector<WaveDisplay*> waves;
@@ -3938,8 +3938,8 @@ int runUiTests()
                         && onNote.contains ("OUT 2") && onNote.length() < 48,
                     "an LFO's caption says where it runs and when it restarts, the same words for plain and simulated shapes ('"
                         + plainCaption + "' / '" + onNote + "' / '" + free + "')");
-            expect (plainSwitch == "RETRIG" && simSwitch == "PER VOICE",
-                    "the run switch reads RETRIG on a plain shape and PER VOICE on a simulated one, beside its TRIGGER ('" + plainSwitch
+            expect (plainSwitch == "RETRIG" && simSwitch == "VOICE",
+                    "the run switch reads RETRIG on a plain shape and VOICE on a simulated one, beside its TRIGGER ('" + plainSwitch
                         + "' / '" + simSwitch + "')");
             settle (200);
         }
@@ -8650,6 +8650,63 @@ int main (int argc, char** argv)
             settle (200);
             save (browser, outDir.getChildFile ("extra-table-search.png"));
         }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_R16P4: review 16's FILTER / MOD / MATRIX states, then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_R16P4", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        pages->showPage ("FILTER");
+        settle (500);
+        save (*editor, outDir.getChildFile ("r-filter.png"));
+        pages->showPage ("ENV/LFO");
+        settle (400);
+        if (auto* page = pages->getCurrentPage())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+            {
+                thumbs->onSelect (0);
+                settle (300);
+                save (*editor, outDir.getChildFile ("r-lfo1.png"));
+                setParam ("lfo1_shape", (float) LfoShapes::Pendulum);
+                settle (400);
+                save (*editor, outDir.getChildFile ("r-lfo-physics.png"));
+                for (const auto& [shape, name] : std::initializer_list<std::pair<int, const char*>> {
+                         { LfoSimShapes::Lorenz, "lorenz" }, { LfoSimShapes::Pendulum, "pendulum" }, { LfoSimShapes::Spring, "spring" },
+                         { LfoSimShapes::Henon, "henon" } })
+                {
+                    setParam ("lfo1_shape", (float) shape);
+                    const auto& info = LfoSimInfo::get (shape);
+                    for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                        if (auto* parameter = processor.apvts.getParameter ("lfo1_p" + juce::String (param + 1)))
+                            parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+                    setParam ("lfo1_rate", 1.0f);
+                    settle (1500);
+                    save (*editor, outDir.getChildFile ("r-lfo-" + juce::String (name) + ".png"));
+                }
+                setParam ("lfo1_shape", 0.0f);
+                thumbs->onSelect (IlanaSynthAudioProcessor::numLfos + 2);
+                settle (400);
+                save (*editor, outDir.getChildFile ("r-oplfo.png"));
+            }
+        pages->showPage ("MATRIX");
+        settle (500);
+        save (*editor, outDir.getChildFile ("r-matrix.png"));
+        std::vector<CurveControl*> curves;
+        findAll<CurveControl> (*editor, curves);
+        for (auto* curve : curves)
+            if (visibleInTree (curve))
+            {
+                curve->openRemapEditor();
+                settle (500);
+                save (*editor, outDir.getChildFile ("r-matrix-remap.png"));
+                curve->openRemapEditor();
+                break;
+            }
         return 0;
     }
 

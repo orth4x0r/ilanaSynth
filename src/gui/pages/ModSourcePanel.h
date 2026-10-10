@@ -120,10 +120,12 @@ public:
 private:
     void timerCallback() override
     {
-        if (open && isShowing())
+        // (The bars follow the OUTPUT knobs: redraw when a parameter moved.)
+        if (open && IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()))
             repaint();
     }
 
+    IlanaAnim::ChangeGate changeGate;
     IlanaSynthAudioProcessor& processorRef;
     bool open = true; // (open, as PLAY's OP ENV card listed them: ilana, 2026-10-09)
 };
@@ -430,7 +432,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && dragRow < 0)
+        if (IlanaAnim::showing (*this) && dragRow < 0)
             refresh (false);
     }
 
@@ -765,9 +767,9 @@ private:
 
     void timerCallback() override
     {
-        if ((kind == Kind::envelope || kind == Kind::lfo) && isShowing())
+        if ((kind == Kind::envelope || kind == Kind::lfo) && IlanaAnim::showing (*this))
             refreshUnused();
-        if (kind != Kind::other || ! isShowing())
+        if (kind != Kind::other || ! IlanaAnim::showing (*this))
             return;
         history[historyPos] = std::abs (processorRef.getSourceDisplayValue (source));
         historyPos = (historyPos + 1) % history.size();

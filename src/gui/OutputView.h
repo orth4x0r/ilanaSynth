@@ -246,7 +246,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         auto level = 0.0f;

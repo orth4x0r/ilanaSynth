@@ -1105,7 +1105,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
         {
             emptyShownSeconds = 0.0f;
             return;

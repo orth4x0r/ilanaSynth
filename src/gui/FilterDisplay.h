@@ -372,7 +372,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
-        if (isShowing() && (appear < 1.0f || falling || pulsing || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || pulsing || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

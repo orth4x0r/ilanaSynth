@@ -251,7 +251,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         auto changed = false;
@@ -440,7 +440,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         const auto target = isMouseOver() ? 1.0f : 0.0f;

@@ -339,6 +339,9 @@ private:
 
     void tickAnimation()
     {
+        if (! isVisible()) // (a page that is not the open one: nothing to ease)
+            return;
+
         // Open while pinned by a click or the pointer is on the strip or the
         // card (or a menu from it is up); leaving lets it shrink back.
         const auto over = strip.isMouseOver (true) || (overlay.isVisible() && overlay.isMouseOver (true))
@@ -372,7 +375,9 @@ private:
             applyOpenAmount();
             overlay.repaint();
         }
-        strip.repaint();
+        // (The strip draws parameters: it redraws when one moved, not at 8 Hz.)
+        if (stripGate.check (processorRef.getUiEpoch()))
+            strip.repaint();
         filterDisplay.setVoiceOff (operatorVoiceFilterOff (processorRef));
 
         // (A rule dims it first, while it is still enabled.)
@@ -424,6 +429,7 @@ private:
     WestPanel westPanel;
     SignalFlow flow;
     FlowStrip strip;
+    IlanaAnim::ChangeGate stripGate;
     KnobControl balance, stripBalance;
     FlowOverlay overlay;
     Animator animator;
@@ -665,7 +671,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing() && gate.check (processorRef.getUiEpoch()))
+        if (IlanaAnim::showing (*this) && gate.check (processorRef.getUiEpoch()))
             repaint();
     }
 
@@ -1013,7 +1019,7 @@ private:
 
         ampRules.apply();
 
-        if (isShowing() && selectionGone())
+        if (IlanaAnim::showing (*this) && selectionGone())
             updateVisibility();
     }
 
@@ -1165,7 +1171,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         history[(size_t) head] = processorRef.getSourceDisplayValue ((int) Mod::Source::ClockSh);

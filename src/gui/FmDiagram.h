@@ -1123,7 +1123,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0)
             liveSeconds += (double) frameSeconds();
 
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 

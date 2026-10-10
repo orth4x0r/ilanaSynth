@@ -678,7 +678,7 @@ private:
 
     // Visible up to the window (a page switch hides the knob's page; the
     // window itself is not asked). Not
-    // isShowing(), which is false for an editor rendered off screen.
+    // IlanaAnim::showing (*this), which is false for an editor rendered off screen.
     static bool shownInTree (const juce::Component& component)
     {
         for (auto* c = &component; c != nullptr && c->getParentComponent() != nullptr; c = c->getParentComponent())

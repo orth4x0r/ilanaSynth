@@ -289,7 +289,7 @@ public:
             resized();
             repaint();
         }
-        else if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        else if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
         {
             repaint (matrixCard);
             repaint (operatorCard.withHeight (26));

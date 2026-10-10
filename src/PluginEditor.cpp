@@ -1415,9 +1415,20 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
-        bpmArea.repaint();
-        cpuArea.repaint();
-        voicesArea.repaint();
+
+        // The three readouts redraw when what they say changes (they
+        // repainted four times a second regardless).
+        const auto* voiceMode = processorRef.apvts.getRawParameterValue ("voice_mode");
+        const auto signature = juce::String (processorRef.getCurrentBpm(), 1) + "|" + juce::String (juce::roundToInt (processorRef.getCpuUsage() * 100.0f))
+                               + "|" + getVoicesText() + "|" + juce::String (voiceMode != nullptr ? juce::roundToInt (voiceMode->load()) : 0);
+
+        if (signature != readoutSignature)
+        {
+            readoutSignature = signature;
+            bpmArea.repaint();
+            cpuArea.repaint();
+            voicesArea.repaint();
+        }
     }
 }
 

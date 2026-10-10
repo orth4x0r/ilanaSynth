@@ -109,7 +109,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         auto changed = false;
@@ -138,12 +138,19 @@ private:
                 hold = IlanaAnim::decay (hold, 0.8f, frameTicks());
             }
 
-            clipped = clipped || peak > 1.0f;
+            if (peak > 1.0f && ! clipped)
+            {
+                clipped = true;
+                changed = true;
+            }
+
             loudest = juce::jmax (loudest, peak);
             changed = changed || std::abs (level - before) > 1.0e-4f || hold > 0.0005f;
         }
 
-        if (changed || clipped)
+        // (A latched clip light needs no repaint of its own: it was drawn
+        // when it lit, and repainted every frame it idled at 60 fps.)
+        if (changed)
             repaint();
     }
 

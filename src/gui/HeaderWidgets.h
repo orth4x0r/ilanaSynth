@@ -154,21 +154,23 @@ public:
 
         // A disabled key fades as a whole, as the sheet's redo (.ib at 45 %).
         const auto fade = enabled ? 1.0f : 0.45f;
+        // Lit and hovered fade in and out (the shared animator), the icon's
+        // colour and the solid and flat keys' hover with them.
+        const auto lit = IlanaTheme::fade (*this, 0, on ? 1.0f : 0.0f);
+        const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, FadeRate::hover);
+        const auto hovered = IlanaTheme::fade (*this, 5, isHighlighted && ! isDown ? 1.0f : 0.0f, FadeRate::hover);
 
         if (emphasis && enabled)
         {
             // SAVE, the header's one main action (.btn.pri): the accent solid
             // with dark text, 8 px corners.
-            g.setColour (accent().brighter (isHighlighted && ! isDown ? 0.12f : 0.0f).withMultipliedBrightness (isDown ? 0.9f : 1.0f));
+            g.setColour (accent().brighter (0.12f * hovered).withMultipliedBrightness (isDown ? 0.9f : 1.0f));
             g.fillRoundedRectangle (bounds, 8.0f);
         }
         else if (! flat)
         {
             // The sheet's header key (.ib): 30 px, ink 2, a hairline, 8 px
             // corners; lit (.ib.on) the accent at 15 % with a half-accent rim.
-            // (Lit and hovered fade in and out: the shared animator.)
-            const auto lit = IlanaTheme::fade (*this, 0, on ? 1.0f : 0.0f);
-            const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, FadeRate::hover);
             auto fill = Ui::panel.interpolatedWith (accent(), 0.15f * lit);
             fill = fill.interpolatedWith (Ui::hover, over);
             g.setColour (fill.withMultipliedAlpha (fade));
@@ -176,18 +178,18 @@ public:
             g.setColour (Ui::line.interpolatedWith (Ui::text3, 0.8f * over).interpolatedWith (accent().withAlpha (0.5f), lit).withMultipliedAlpha (fade));
             g.drawRoundedRectangle (bounds.reduced (0.5f), 7.5f, 1.0f);
         }
-        else if (isHighlighted)
+        else if (over > 0.01f)
         {
-            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
+            g.setColour (juce::Colours::white.withAlpha (0.1f * over));
             g.fillRect (getLocalBounds());
         }
 
-        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : on ? IlanaTheme::accentText() : Ui::text2);
+        auto colour = iconColour.value_or (emphasis ? juce::Colour (0xff1a0b06) : Ui::text2.interpolatedWith (IlanaTheme::accentText(), lit));
 
         if (! enabled)
             colour = colour.withMultipliedAlpha (fade);
-        else if (isHighlighted && ! emphasis)
-            colour = colour.interpolatedWith (Ui::text, 0.7f);
+        else if (! emphasis)
+            colour = colour.interpolatedWith (Ui::text, 0.7f * hovered);
 
         g.setColour (colour);
 
@@ -229,20 +231,20 @@ public:
     void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        const auto on = getToggleState();
+        // Lit and hovered fade in and out (the shared animator), as the header keys' do.
+        const auto lit = IlanaTheme::fade (*this, 0, getToggleState() ? 1.0f : 0.0f);
+        const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, IlanaTheme::FadeRate::hover);
 
-        if (on)
+        g.setColour (IlanaTheme::accent().withAlpha (0.16f * lit));
+        g.fillRoundedRectangle (bounds, 6.0f);
+
+        if (over > 0.01f)
         {
-            g.setColour (IlanaTheme::accent().withAlpha (0.16f));
+            g.setColour (juce::Colours::white.withAlpha (0.1f * over * (1.0f - lit)));
             g.fillRoundedRectangle (bounds, 6.0f);
         }
-        else if (isHighlighted || isDown)
-        {
-            g.setColour (juce::Colours::white.withAlpha (isDown ? 0.1f : 0.05f));
-            g.fillRoundedRectangle (bounds, 6.0f);
-        }
 
-        g.setColour (on ? IlanaTheme::accent().withAlpha (0.8f) : IlanaTheme::Ui::line.brighter (isHighlighted ? 0.3f : 0.0f));
+        g.setColour (IlanaTheme::Ui::line.brighter (0.6f * over).interpolatedWith (IlanaTheme::accent().withAlpha (0.8f), lit));
         g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.04f));
@@ -403,6 +405,10 @@ public:
         const auto onB = getButtonText() == "B";
         auto left = bounds;
         const auto right = left.removeFromRight (bounds.getWidth() * 0.5f);
+        // The lit side slides across (the segmented switches' tile does the
+        // same) and the letters' colours follow it; the hover fades.
+        const auto side = IlanaTheme::fade (*this, 0, onB ? 1.0f : 0.0f);
+        const auto over = IlanaTheme::fade (*this, 1, isDown ? 0.8f : isHighlighted ? 0.5f : 0.0f, IlanaTheme::FadeRate::hover);
 
         {
             juce::Graphics::ScopedSaveState state (g);
@@ -410,14 +416,14 @@ public:
             clip.addRoundedRectangle (bounds, radius);
             g.reduceClipRegion (clip);
 
-            if (isHighlighted || isDown)
+            if (over > 0.01f)
             {
-                g.setColour (juce::Colours::white.withAlpha (isDown ? 0.08f : 0.04f));
+                g.setColour (juce::Colours::white.withAlpha (0.08f * over));
                 g.fillRect (onB ? left : right);
             }
 
             g.setColour (IlanaTheme::accent());
-            g.fillRect (onB ? right : left);
+            g.fillRect (left.withX (left.getX() + side * left.getWidth()));
         }
 
         g.setColour (IlanaTheme::Ui::line);
@@ -425,9 +431,10 @@ public:
 
         g.setFont (IlanaTheme::font (15.0f, true));
         const auto dark = juce::Colour (0xff1a0b06);
-        g.setColour (onB ? IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, isHighlighted ? 0.5f : 0.0f) : dark);
+        const auto idle = IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, over);
+        g.setColour (idle.interpolatedWith (dark, 1.0f - side));
         g.drawText ("A", left.toNearestInt(), juce::Justification::centred);
-        g.setColour (onB ? dark : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, isHighlighted ? 0.5f : 0.0f));
+        g.setColour (idle.interpolatedWith (dark, side));
         g.drawText ("B", right.toNearestInt(), juce::Justification::centred);
     }
 };

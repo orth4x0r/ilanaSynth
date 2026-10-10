@@ -334,11 +334,18 @@ private:
         const auto b = 1.0e-4 * std::pow (10.0, 2.5 * stiffness);
         const auto decay = (double) read ("_string_decay");
         const auto damp = (double) read ("_string_damp");
+        // The last ten pixels or so of a long ring-out are barely visible but keep
+        // the page repainting for tens of seconds, so they fade a little
+        // faster (no step: the extra damping is constant below 12 px).
+        auto shownTotal = 0.0;
+        for (const auto level : modeLevel)
+            shownTotal += std::abs (level);
+        const auto tailRate = shownTotal * (double) getHeight() * 0.3 < 12.0 ? 0.8 : 0.0;
         for (int n = 1; n <= numModes; ++n)
         {
             modePhase[(size_t) n - 1] += juce::MathConstants<double>::twoPi * 0.9 * n * std::sqrt (1.0 + b * n * n) * dt;
             const auto seconds = (0.4 + 6.0 * decay) / (1.0 + damp * 0.4 * (n - 1));
-            modeLevel[(size_t) n - 1] *= std::exp (-dt / seconds);
+            modeLevel[(size_t) n - 1] *= std::exp (-dt * (1.0 / seconds + tailRate));
         }
         // A held note that keeps sounding (bow, feedback, SUSTAIN) keeps the
         // string moving with the output.
@@ -351,22 +358,37 @@ private:
 
         // Another mode's preview plucks itself now and then (while shown),
         // so the page shows what the switch would give.
-        if (juce::roundToInt (read ("_mode")) != 1 && isShowing() && sinceNote > 3.0)
-            restart();
+        // It does so once after the page opens or a setting changes, then
+        // rests (a preview that never stopped kept the page repainting).
+        const auto shown = IlanaAnim::showing (*this);
+        const auto epoch = processorRef.getUiEpoch();
+        if (! shown || epoch != lastEpoch)
+        {
+            lastEpoch = epoch;
+            autoPlucks = 0;
+        }
 
-        // The string rests once its motion is under a tenth of a pixel.
+        if (shown && autoPlucks < 1 && juce::roundToInt (read ("_mode")) != 1 && sinceNote > 3.0)
+        {
+            ++autoPlucks;
+            restart();
+        }
+
+        // The string rests once its motion is under a third of a pixel.
         auto total = 0.0;
         for (const auto level : modeLevel)
             total += std::abs (level);
-        const auto moving = bodyGlow > 0.005f || total * (double) getHeight() * 0.3 > 0.1;
+        const auto moving = bodyGlow > 0.005f || total * (double) getHeight() * 0.3 > 0.3;
         if (! moving && total > 0.0)
             modeLevel.fill (0.0);
 
-        if (isShowing() && (moving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (moving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
+    juce::uint64 lastEpoch = 0;
+    int autoPlucks = 0;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix;

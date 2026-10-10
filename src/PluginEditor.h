@@ -259,6 +259,7 @@ private:
         }
     };
     ClickArea voicesArea;
+    juce::String readoutSignature; // (what the BPM / CPU / VOICES readouts last said)
     // TUNING in the status line while a Scala scale or MTS-ESP plays (a
     // click opens the tuning menu).
     ClickArea tuningArea;

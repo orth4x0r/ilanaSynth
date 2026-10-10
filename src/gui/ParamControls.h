@@ -1259,7 +1259,8 @@ public:
 
         const auto centre = dialCentre();
         const auto knobColour = slider.findColour (juce::Slider::rotarySliderFillColourId);
-        const auto baseNorm = (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()));
+        // (Where the knob's hand is: it glides to a value that changed by itself.)
+        const auto baseNorm = IlanaTheme::fadePeek (&slider, 90, (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue())));
         const auto angleOf = [] (float norm) { return ringStart + juce::jlimit (0.0f, 1.0f, norm) * (ringEnd - ringStart); };
 
         // The outer rings pass behind the knob's name, not over it.
@@ -1274,10 +1275,15 @@ public:
         {
             const auto& dot = routings[(size_t) i];
             const auto radius = ringRadius (i);
-            const auto hot = i == hoveredRing || i == draggedRing;
+            const auto hotNow = i == hoveredRing || i == draggedRing;
+            const auto quietNow = dot.bypass || (highlighted != 0 && highlighted != dot.source);
+            // (The grab and the quieting ease in and out: the shared animator.)
+            const auto hotAmount = IlanaTheme::fade (*this, 300 + i, hotNow ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+            const auto quietAmount = IlanaTheme::fade (*this, 320 + i, quietNow ? 1.0f : 0.0f);
+            const auto hot = hotNow;
+            const auto quiet = quietNow;
             const auto tight = count > 1 && ringRadius (1) - ringRadius (0) < 3.0f;
-            const auto width = (tight ? 1.6f : 2.0f) + (hot ? 1.0f : 0.0f);
-            const auto quiet = dot.bypass || (highlighted != 0 && highlighted != dot.source);
+            const auto width = (tight ? 1.6f : 2.0f) + hotAmount;
             const auto colour = modArcColour (modSourceColour (dot.source), knobColour);
             const auto depth = dot.depth * ringConfig.scale;
             const auto low = dot.bipolar ? baseNorm - std::abs (depth) : juce::jmin (baseNorm, baseNorm + depth);
@@ -1297,7 +1303,7 @@ public:
             // source's colour, solid; what it adds right now a brighter
             // stretch; the depth handle shows while the ring is grabbed.
             const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-            g.setColour (colour.withAlpha (quiet ? 0.3f : (hot ? 1.0f : 0.95f)));
+            g.setColour (colour.withAlpha (((0.95f + 0.05f * hotAmount) * (1.0f - quietAmount) + 0.3f * quietAmount) * ringIn));
             g.strokePath (range, rounded);
 
             if (dot.bypass)
@@ -1313,7 +1319,7 @@ public:
                 juce::Path now;
                 now.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (baseAngle, liveAngle),
                                    juce::jmax (baseAngle, liveAngle), true);
-                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f));
+                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f).withMultipliedAlpha (ringIn));
                 g.strokePath (now, rounded);
             }
 
@@ -1884,6 +1890,10 @@ private:
         if (! changed || draggedRing >= 0)
             return;
 
+        // A ring added to a knob on screen fades in.
+        if (found.size() > routings.size() && IlanaAnim::showing (*this))
+            ringIn = 0.0f;
+
         routings = std::move (found);
         layoutDots(); // (and the badges' list)
         repaint();
@@ -2075,7 +2085,7 @@ private:
     void timerCallback() override
     {
         // Knobs on hidden pages skip the frame (hundreds of them).
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         if (const auto dragged = modSourceBeingDragged (*this); dragged != dragSource)
@@ -2113,6 +2123,12 @@ private:
         {
             routingCheck = 0.0f;
             refreshRoutings();
+        }
+
+        if (ringIn < 1.0f)
+        {
+            ringIn = ringIn > 0.97f ? 1.0f : IlanaAnim::approach (ringIn, 1.0f, 0.16f, frameTicks());
+            repaint();
         }
 
         // Resting on a modulated knob (not turning it) opens its source card.
@@ -2176,6 +2192,7 @@ private:
     ModDotStrip dotStrip;
     RingOverlay ringOverlay { *this };
     std::vector<float> liveValues;
+    float ringIn = 1.0f; // (a ring just added fades in)
     int hoveredRing = -1, draggedRing = -1;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 
@@ -2366,7 +2383,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         const auto target = isMouseOver() ? 1.0f : 0.0f;
@@ -2622,7 +2639,7 @@ private:
     {
         // Hidden: no animation, but a switch keeps its position, so it isn't
         // shown in a stale state (or slides) when its page opens.
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
         {
             if (isSwitch())
             {

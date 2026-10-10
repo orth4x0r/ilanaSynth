@@ -187,6 +187,40 @@ private:
     mutable double changeMs = 0.0, interval = 12.0, lastCallMs = 0.0;
 };
 
+
+// juce::Component::isShowing() asks the window system whether the window is
+// hidden or minimised, a round trip to the X server on Linux and a system
+// call elsewhere, and hundreds of knobs and switches ask it on every frame.
+// This walks the cheap visibility flags itself and asks the window at most
+// every 40 ms.
+inline bool showing (const juce::Component& component)
+{
+    for (const auto* c = &component; c != nullptr; c = c->getParentComponent())
+    {
+        if (! c->isVisible())
+            return false;
+
+        if (c->isOnDesktop())
+        {
+            static const juce::Component* cachedTop = nullptr;
+            static double cachedAt = -1.0e9;
+            static bool cachedShown = false;
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+
+            if (cachedTop != c || now - cachedAt > 40.0)
+            {
+                cachedTop = c;
+                cachedAt = now;
+                cachedShown = c->isShowing();
+            }
+
+            return cachedShown;
+        }
+    }
+
+    return false;
+}
+
 class FrameTimer;
 
 // Every animation runs off one clock ticked by the display's refresh

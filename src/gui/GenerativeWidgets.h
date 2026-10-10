@@ -346,7 +346,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -594,7 +594,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -1073,7 +1073,7 @@ private:
         const auto signature = processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
                              ^ ((juce::uint64) (processorRef.getEngineDisplayStep() + 1) << 44);
 
-        if (isShowing() && changeGate.check (signature))
+        if (IlanaAnim::showing (*this) && changeGate.check (signature))
             repaint();
     }
 
@@ -1295,7 +1295,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing() && changeGate.check (processorRef.getUiEpoch()))
+        if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()))
             repaint();
     }
 

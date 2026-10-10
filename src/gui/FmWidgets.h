@@ -369,7 +369,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (IlanaAnim::showing (*this))
             refreshMatch();
     }
 

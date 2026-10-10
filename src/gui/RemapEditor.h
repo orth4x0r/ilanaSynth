@@ -358,7 +358,7 @@ private:
             curve = processorRef.getModRemap (slotIndex);
 
         // The live marker moves with the frames; nothing to draw while hidden.
-        if (isShowing())
+        if (IlanaAnim::showing (*this))
             repaint();
     }
 

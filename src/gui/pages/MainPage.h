@@ -135,21 +135,30 @@ public:
         oscColumn.addChildComponent (patchFlow);
         oscColumn.addChildComponent (outputView);
 
-        // Sub and noise in the last slot: the sub's shape and octave stacked
-        // as the oscillators' menus are, its level and the noise.
-        // The switch is the sub's alone, and says so; the noise has its
-        // own level and colour (V8-14, V8-15).
+        // The compact SUB and NOISE cards, side by side in the last slot,
+        // each with its own switch and its own volume. SUB: a picture of its
+        // wave, the wave menu and octave pills, VOLUME and COLOUR. NOISE: the
+        // six colours as a 3 x 2 grid of pills, a thin trace of the chosen
+        // one, VOLUME. No ENV / LFO badges: a knob wears a ring only while a
+        // route is assigned (the knobs' usual modulation marks).
         subOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "ON");
-        subShape = std::make_unique<ChoicePills> (p.apvts, "sub_shape", juce::StringArray { "Sine", "Square", "Saw" }, subColour(),
-                                                   juce::StringArray { "Sin", "Sqr", "Saw" });
-        subOctave = std::make_unique<ChoicePills> (p.apvts, "sub_octave", juce::StringArray { "-1 Oct", "-2 Oct" }, subColour());
-        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "SUB", subColour(), true);
-        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "NOISE", noiseTint(), false);
-        subLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
-        noiseColour = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", noiseTint(), false);
-        noiseLevel->setSizeRole (IlanaTheme::KnobSize::minimum);
-        noiseColour->setSizeRole (IlanaTheme::KnobSize::minimum);
-        addAll (oscColumn, *subOn, *subShape, *subOctave, *subLevel, *noiseLevel, *noiseColour);
+        noiseOn = std::make_unique<ToggleControl> (p.apvts, "noise_on", "ON");
+        subShape = std::make_unique<ComboControl> (p.apvts, "sub_shape", "");
+        subShape->setTooltip ("SUB WAVE\nSine for clean weight, Square or Saw for grit.");
+        subShape->getComboBox().setTooltip (subShape->getTooltip());
+        subOctave = std::make_unique<ChoicePills> (p.apvts, "sub_octave", juce::StringArray { "-1 Oct", "-2 Oct" }, subColour(),
+                                                    juce::StringArray { "-1", "-2" });
+        subLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "VOLUME", subColour(), true);
+        subColourKnob = std::make_unique<KnobControl> (p.apvts, "sub_colour", "COLOUR", subColour(), true);
+        noiseType = std::make_unique<ChoicePills> (p.apvts, "noise_type",
+                                                    juce::StringArray { "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, subColour(),
+                                                    juce::StringArray {}, 3);
+        noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "VOLUME", subColour(), true);
+        for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
+            knob->setSizeRole (40);
+        subPreview.onPaint = [this] (juce::Graphics& g, juce::Rectangle<float> well) { paintSubPreview (g, well); };
+        noisePreview.onPaint = [this] (juce::Graphics& g, juce::Rectangle<float> well) { paintNoisePreview (g, well); };
+        addAll (oscColumn, *subOn, *noiseOn, *subShape, *subOctave, *subLevel, *subColourKnob, *noiseType, *noiseLevel, subPreview, noisePreview);
 
         // Right-click an oscillator's title for its menu (switch, remove).
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
@@ -281,7 +290,7 @@ public:
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.addParameterListener (juce::String (prefix) + suffix, this);
-        for (const auto* id : { "subosc_on", "noise_level" })
+        for (const auto* id : { "subosc_on", "noise_level", "noise_on", "noise_type", "sub_shape", "sub_colour" })
             processorRef.apvts.addParameterListener (id, this);
 
         startTimerHz (8);
@@ -292,7 +301,7 @@ public:
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : { "_mode", "_on", "_tune", "_amp_env" })
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
-        for (const auto* id : { "subosc_on", "noise_level" })
+        for (const auto* id : { "subosc_on", "noise_level", "noise_on", "noise_type", "sub_shape", "sub_colour" })
             processorRef.apvts.removeParameterListener (id, this);
     }
 
@@ -352,11 +361,10 @@ public:
             }
         const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
         const auto openOscillators = shown - folded;
-        folded += subFolded ? 1 : 0;
-        const auto flexible = openOscillators + (subFolded ? 0 : 1); // the open strips and SUB + NOISE
+        const auto flexible = openOscillators; // the open strips (the SUB and NOISE cards keep their compact height)
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
-        const auto wanted = openOscillators * oscHeightDesign + (subFolded ? 0 : subHeightDesign);
-        auto oscHeight = oscHeightDesign, subHeight = subHeightDesign;
+        const auto wanted = openOscillators * oscHeightDesign + subHeightDesign;
+        auto oscHeight = oscHeightDesign;
         if (flexible > 0 && wanted > free)
         {
             // Too many open strips for the column: they keep their design height
@@ -373,7 +381,6 @@ public:
                 extra = (spare - maxPatchOnlyHeight) / flexible;
             extra = juce::jlimit (0, maxGrowth, extra);
             oscHeight += extra;
-            subHeight += extra;
         }
         auto columnHeight = 0;
         std::vector<int> cardTops;
@@ -388,7 +395,7 @@ public:
                 addCard (isFolded (osc) ? foldedHeight : oscHeight);
         if (addRow > 0)
             addCard (addRowHeight);
-        addCard (subFolded ? foldedHeight : subHeight);
+        addCard (subHeightDesign);
         const auto scrolls = columnHeight > left.getHeight();
         oscView.setSingleStepSizes (16, oscHeight + slotGap);
         // The column's foot is padded so that scrolled to its end the view
@@ -439,14 +446,18 @@ public:
             addFmButton.setVisible (true);
         }
 
-        subCard = column.removeFromTop (subFolded ? foldedHeight : subHeight);
-        layoutSubCard();
+        // SUB and NOISE sit at the column's foot, above the footer, whatever
+        // the room (the approved mockup keeps its open space above them);
+        // a scrolling column has them after the last strip.
+        auto subRow = scrolls ? column.removeFromTop (subHeightDesign) : column.removeFromBottom (subHeightDesign);
+        layoutSubNoise (subRow);
 
         // Height the strips don't take goes to a live PATCH tile (the signal
-        // flow, as on FILTER) and, with room to spare, a live output view, so
-        // the left column never ends in dead space.
+        // flow, as on FILTER) and, with room to spare, a live output view,
+        // above the two cards.
         patchCard = outputCard = {};
-        column.removeFromTop (slotGap);
+        if (! scrolls)
+            column.removeFromBottom (slotGap);
         const auto spare = scrolls ? 0 : column.getHeight();
         const auto showPatch = spare >= patchMinHeight;
         const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
@@ -562,8 +573,9 @@ private:
     {
     public:
         ChoicePills (juce::AudioProcessorValueTreeState& state, const juce::String& id, juce::StringArray labelsIn, juce::Colour colourIn,
-                     juce::StringArray shortLabelsIn = {})
-            : ParamBoundComponent (state, id), labels (std::move (labelsIn)), shortLabels (std::move (shortLabelsIn)), colour (colourIn)
+                     juce::StringArray shortLabelsIn = {}, int columnsIn = 0)
+            : ParamBoundComponent (state, id), labels (std::move (labelsIn)), shortLabels (std::move (shortLabelsIn)), colour (colourIn),
+              columns (columnsIn > 0 ? columnsIn : labels.size())
         {
             setTooltip (state.getParameter (id)->getName (40));
             setRepaintsOnMouseActivity (true);
@@ -575,7 +587,9 @@ private:
         void paint (juce::Graphics& g) override
         {
             const auto bounds = getLocalBounds().toFloat();
-            const auto width = bounds.getWidth() / (float) labels.size();
+            const auto rows = (labels.size() + columns - 1) / columns;
+            const auto width = bounds.getWidth() / (float) columns;
+            const auto height = bounds.getHeight() / (float) rows;
             const auto mouse = getMouseXYRelative().toFloat();
 
             // A narrow pill (a low card) says it shorter rather than cut.
@@ -587,7 +601,8 @@ private:
             // The choice and the hover fade (the shared animator).
             for (int option = 0; option < labels.size(); ++option)
             {
-                const auto cell = bounds.withWidth (width).withX (bounds.getX() + width * (float) option);
+                const auto cell = juce::Rectangle<float> (bounds.getX() + width * (float) (option % columns),
+                                                          bounds.getY() + height * (float) (option / columns), width, height);
                 const auto hovered = isMouseOver() && cell.contains (mouse);
                 IlanaTheme::paintPill (g, cell.reduced (2.0f, 1.0f), shown[option], colour,
                                        IlanaTheme::fade (*this, option, option == current ? 1.0f : 0.0f),
@@ -597,12 +612,16 @@ private:
 
         void mouseDown (const juce::MouseEvent& event) override
         {
-            setValue (juce::jlimit (0, labels.size() - 1, (int) (event.position.x / (float) getWidth() * (float) labels.size())));
+            const auto rows = (labels.size() + columns - 1) / columns;
+            const auto column = juce::jlimit (0, columns - 1, (int) (event.position.x / (float) getWidth() * (float) columns));
+            const auto row = juce::jlimit (0, rows - 1, (int) (event.position.y / (float) getHeight() * (float) rows));
+            setValue (juce::jlimit (0, labels.size() - 1, row * columns + column));
         }
 
     private:
         juce::StringArray labels, shortLabels;
         juce::Colour colour;
+        int columns = 1;
     };
 
     // SLOPE as on the FILTER page: its 12 dB / 24 dB pills, under a label
@@ -678,15 +697,9 @@ private:
             }
         }
 
-        // SUB + NOISE folds like a switched-off oscillator while the sub is off
-        // and there is no noise (as on OSC; V12-7).
-        const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
-        const auto subFold = readInt ("subosc_on") == 0 && (noise == nullptr || noise->load() < 0.0005f);
-        if (subFold != subFolded)
-        {
-            subFolded = subFold;
-            changed = true;
-        }
+        // (SUB and NOISE never fold: two compact cards, dimmed while off.)
+        subPreview.repaint();
+        noisePreview.repaint();
 
         if (changed)
             resized();
@@ -906,17 +919,18 @@ private:
 
         effectRules.apply();
 
-        // The sub's controls follow its switch; noise has its own level.
+        // Each card's controls follow its own switch.
         {
-            const auto* subSwitch = processorRef.apvts.getRawParameterValue ("subosc_on");
-            const auto alpha = subSwitch != nullptr && subSwitch->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
-            for (auto* control : { static_cast<juce::Component*> (subShape.get()), static_cast<juce::Component*> (subOctave.get()),
-                                   static_cast<juce::Component*> (subLevel.get()) })
-                if (control->getAlpha() != alpha)
-                    control->setAlpha (alpha);
-            // COLOUR stays a live knob at any noise level (V15-14: a dimmed ring at 100 % read as disabled).
-            if (noiseColour->getAlpha() != 1.0f)
-                noiseColour->setAlpha (1.0f);
+            const auto dim = [this] (const char* id, std::initializer_list<juce::Component*> controls)
+            {
+                const auto* value = processorRef.apvts.getRawParameterValue (id);
+                const auto alpha = value != nullptr && value->load() > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha;
+                for (auto* control : controls)
+                    if (control->getAlpha() != alpha)
+                        control->setAlpha (alpha);
+            };
+            dim ("subosc_on", { subShape.get(), subOctave.get(), subLevel.get(), subColourKnob.get(), &subPreview });
+            dim ("noise_on", { noiseType.get(), noiseLevel.get(), &noisePreview });
         }
     }
 
@@ -1124,50 +1138,161 @@ private:
     }
 
     static juce::Colour subColour() { return IlanaTheme::accent(); }
-    // The noise knobs wear the SUB colour at half strength, so COLOUR does not read as disabled (V13-15).
-    static juce::Colour noiseTint() { return subColour().interpolatedWith (IlanaTheme::Ui::text2, 0.2f); } // (mostly the sub's orange: COLOUR read disabled in grey, V14-14)
 
-    void layoutSubCard()
+    // The two compact cards: the row split in halves, one grid inside each.
+    void layoutSubNoise (juce::Rectangle<int> row)
     {
-        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, ! subFolded ? subCard.getY() + cardHeaderHeight / 2 : subCard.getCentreY() - 1));
-        for (auto* item : { (juce::Component*) subShape.get(), (juce::Component*) subOctave.get(), (juce::Component*) subLevel.get(),
-                            (juce::Component*) noiseLevel.get(), (juce::Component*) noiseColour.get() })
-            item->setVisible (! subFolded);
-        if (subFolded)
-            return;
-        const auto columns = stripColumns (subCard, false);
-        auto menus = columns.menus;
+        // (SUB takes a little more: its picture, menus and two knobs; NOISE's
+        // grid and one knob need less.)
+        const auto subWidth = juce::roundToInt ((float) (row.getWidth() - slotGap) * 0.54f);
+        subCard = row.withWidth (subWidth);
+        noiseCard = row.withTrimmedLeft (subWidth + slotGap);
+        subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
+        noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
 
-        if (roomy (subCard))
+        // One grid for both cards: the body starts where an oscillator card's
+        // picture does (header + padding) and ends one padding above the card's
+        // foot; its left, right and gaps are the page's 10 px. Everything in
+        // a card shares that top and bottom edge: the picture and knobs fill
+        // the height, a menu hangs from the top and a row of pills stands on
+        // the bottom.
+        const auto bodyOf = [] (juce::Rectangle<int> card)
         {
-            subShape->setBounds (menus.removeFromLeft (menus.getWidth() * 3 / 5));
-            menus.removeFromLeft (6);
-            subOctave->setBounds (menus);
+            return card.withTrimmedTop (cardHeaderHeight + cardPadY).reduced (cardPadX, 0).withTrimmedBottom (cardPadY);
+        };
+        constexpr int gap = cardGap, rowHeight = 28;
+
+        // SUB: the wave's picture, the menu over the octave pills, the two knobs.
+        {
+            auto body = bodyOf (subCard);
+            const auto knobWidth = juce::jlimit (60, 66, (body.getWidth() - 3 * gap - 40) / 4);
+            subColourKnob->setBounds (body.removeFromRight (knobWidth));
+            body.removeFromRight (4);
+            subLevel->setBounds (body.removeFromRight (knobWidth));
+            body.removeFromRight (gap);
+            subPreview.setBounds (body.removeFromLeft (juce::jlimit (46, 62, body.getWidth() / 4)));
+            body.removeFromLeft (gap);
+            subShape->setBounds (body.removeFromTop (rowHeight));
+            subOctave->setBounds (body.removeFromBottom (rowHeight));
+        }
+
+        // NOISE: the 3 x 2 grid and a thin trace under it, the knob at the right.
+        {
+            auto body = bodyOf (noiseCard);
+            noiseLevel->setBounds (body.removeFromRight (juce::jlimit (60, 66, body.getWidth() / 4)));
+            body.removeFromRight (gap);
+            noiseType->setBounds (body.removeFromTop (rowHeight * 2 - 8));
+            noisePreview.setBounds (body.removeFromBottom (14));
+        }
+
+        for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
+            if (knob->getMaxDial() != 40)
+                knob->setSizeRole (40);
+    }
+
+    // A small recessed well with a drawn picture (SUB's wave, NOISE's trace).
+    struct PreviewWell : public juce::Component
+    {
+        PreviewWell() { setInterceptsMouseClicks (false, false); }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto well = getLocalBounds().toFloat();
+            IlanaTheme::paintWell (g, well, 6.0f);
+            if (onPaint != nullptr)
+                onPaint (g, well);
+        }
+
+        std::function<void (juce::Graphics&, juce::Rectangle<float>)> onPaint;
+    };
+
+    // The sub's wave as the oscillator plays it (the Sine, PWM or Analog
+    // table at frame 0): a smooth sine, a square with upright edges, a saw
+    // falling over its cycle and snapping back.
+    void paintSubPreview (juce::Graphics& g, juce::Rectangle<float> well)
+    {
+        const auto shape = readInt ("sub_shape");
+        const auto plot = well.reduced (8.0f, 9.0f);
+        juce::Path path;
+
+        if (shape == 1)
+        {
+            const auto top = plot.getY() + plot.getHeight() * 0.1f, bottom = plot.getBottom() - plot.getHeight() * 0.1f;
+            path.startNewSubPath (plot.getX(), top);
+            path.lineTo (plot.getCentreX(), top);
+            path.lineTo (plot.getCentreX(), bottom);
+            path.lineTo (plot.getRight(), bottom);
+        }
+        else if (shape == 2)
+        {
+            const auto top = plot.getY() + plot.getHeight() * 0.1f, bottom = plot.getBottom() - plot.getHeight() * 0.1f;
+            path.startNewSubPath (plot.getX(), top);
+            path.lineTo (plot.getCentreX(), bottom);
+            path.lineTo (plot.getCentreX(), top);
+            path.lineTo (plot.getRight(), bottom);
         }
         else
         {
-            // In the header line, as the oscillators' menus.
-            subShape->setBounds (menus.removeFromLeft (156));
-            menus.removeFromLeft (6);
-            subOctave->setBounds (menus);
+            const auto points = juce::jmax (24, (int) plot.getWidth() * 2);
+            for (int i = 0; i <= points; ++i)
+            {
+                const auto t = (float) i / (float) points;
+                const juce::Point<float> point (plot.getX() + t * plot.getWidth(),
+                                                plot.getCentreY() - std::sin (t * juce::MathConstants<float>::twoPi) * plot.getHeight() * 0.4f);
+                if (i == 0)
+                    path.startNewSubPath (point);
+                else
+                    path.lineTo (point);
+            }
         }
 
-        const auto inlineRow = inlineKnobs (subCard);
-        for (auto* knob : { subLevel.get(), noiseLevel.get(), noiseColour.get() })
+        g.setColour (subColour().withAlpha (0.9f));
+        g.strokePath (path, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // A short stretch of the chosen noise, made with the voice's own
+    // generators from a fixed seed (so it holds still), drawn to its own
+    // peak: white is dense, brown wanders, blue and violet bristle.
+    void paintNoisePreview (juce::Graphics& g, juce::Rectangle<float> well)
+    {
+        const auto type = juce::jlimit (0, NoiseColours::count - 1, readInt ("noise_type"));
+        const auto plot = well.reduced (6.0f, 3.0f);
+        const auto points = juce::jmax (16, (int) plot.getWidth());
+
+        if (noiseTraceType != type || (int) noiseTrace.size() != points)
         {
-            knob->setInlineKnob (inlineRow);
-            knob->setInlineDial (inlineDial);
-            if (knob->getMaxDial() != (roomy (subCard) ? 34 : dialSize (subCard)))
-                knob->setSizeRole (roomy (subCard) ? 34 : dialSize (subCard));
+            noiseTraceType = type;
+            noiseTrace.assign ((size_t) points, 0.0f);
+            NoiseColours::Generator generator;
+            generator.prepare (44100.0);
+            juce::Random random (4242);
+            for (int i = 0; i < 4000; ++i)
+                generator.process (type, random.nextFloat() * 2.0f - 1.0f);
+            auto peak = 1.0e-6f;
+            for (auto& value : noiseTrace)
+            {
+                // (Two samples to a pixel, the second dropped: a longer stretch of the wander.)
+                generator.process (type, random.nextFloat() * 2.0f - 1.0f);
+                value = generator.process (type, random.nextFloat() * 2.0f - 1.0f);
+                peak = juce::jmax (peak, std::abs (value));
+            }
+            for (auto& value : noiseTrace)
+                value /= peak;
         }
 
-        if (! inlineRow)
+        juce::Path path;
+        for (int i = 0; i < points; ++i)
         {
-            layoutRow (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() }); // three columns: COLOUR needs the width
-            return;
+            const juce::Point<float> point (plot.getX() + (float) i / (float) (points - 1) * plot.getWidth(),
+                                            plot.getCentreY() - noiseTrace[(size_t) i] * plot.getHeight() * 0.5f);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
         }
 
-        placeInline (columns.knobs, { subLevel.get(), noiseLevel.get(), noiseColour.get() });
+        g.setColour (subColour().withAlpha (0.85f));
+        g.strokePath (path, juce::PathStrokeType (1.0f));
     }
 
     // The strips' cards and titles (their controls draw themselves), and
@@ -1279,47 +1404,15 @@ private:
             paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {});
         }
 
-        if (! subCard.isEmpty() && subFolded)
+        for (const auto& [card, title, id] : { std::tuple<juce::Rectangle<int>, const char*, const char*> { subCard, "SUB", "subosc_on" },
+                                              std::tuple<juce::Rectangle<int>, const char*, const char*> { noiseCard, "NOISE", "noise_on" } })
         {
-            // Folded like an off oscillator: the dimmed title, what it would play, the switch.
-            IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour().withAlpha (0.3f));
-            const auto line = subCard.withSizeKeepingCentre (subCard.getWidth(), 16);
-            IlanaTheme::paintTag (g, { (float) subCard.getX() + 15.0f, (float) line.getCentreY() }, subColour().withAlpha (0.4f));
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            g.drawText ("SUB + NOISE", line.withX (subCard.getX() + 24).withWidth (juce::jmax (titleWidth, 100)), juce::Justification::centredLeft);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            static const char* const shapes[] { "Sine", "Square", "Saw" };
-            g.drawText (juce::String (shapes[juce::jlimit (0, 2, readInt ("sub_shape"))]) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 sub off, no noise")),
-                        line.withLeft (subCard.getX() + 8 + titleWidth).withRight (subCard.getRight() - switchWidth - 12), juce::Justification::centredLeft, true);
-        }
-        else if (! subCard.isEmpty())
-        {
-            IlanaTheme::paintCard (g, subCard.toFloat(), 6.0f, subColour());
-            paintTitle (subCard, "SUB + NOISE", subColour(), true, {}, roomy (subCard) ? 0 : subHeaderMenus + 8 - editLinkWidth - 8);
+            if (card.isEmpty())
+                continue;
 
-            // The sub's shape where the oscillators show their picture.
-            const auto picture = stripColumns (subCard, false).picture.toFloat();
-            IlanaTheme::paintWell (g, picture, 6.0f);
-            const auto shape = readInt ("sub_shape");
-            const auto plot = picture.reduced (10.0f, 9.0f);
-            juce::Path path;
-
-            for (int i = 0; i <= 64; ++i)
-            {
-                const auto t = (float) i / 64.0f;
-                const auto value = shape == 0 ? std::sin (t * juce::MathConstants<float>::twoPi)
-                                              : shape == 1 ? (t < 0.5f ? 1.0f : -1.0f) : 1.0f - 2.0f * t;
-                const juce::Point<float> point (plot.getX() + t * plot.getWidth(), plot.getCentreY() - value * plot.getHeight() * 0.45f);
-
-                if (i == 0)
-                    path.startNewSubPath (point);
-                else
-                    path.lineTo (point);
-            }
-
-            g.setColour (subColour().withAlpha (readInt ("subosc_on") > 0 ? 0.9f : 0.3f));
-            g.strokePath (path, juce::PathStrokeType (1.4f));
+            const auto lit = readInt (id) > 0;
+            IlanaTheme::paintCard (g, card.toFloat(), 6.0f, lit ? subColour() : subColour().withAlpha (0.6f));
+            paintTitle (card, title, subColour(), lit, {}, -editLinkWidth - 8);
         }
     }
 
@@ -1350,7 +1443,7 @@ private:
     // "+ ADD OSC" row.
     // The design's one spacing grid and fixed heights (mockup panelsA.js, play).
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 140, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 114, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
@@ -1358,15 +1451,18 @@ private:
     juce::Rectangle<int> addRowArea;
     static constexpr float offAlpha = 0.55f;
     EffectRules effectRules { processorRef };
-    juce::Rectangle<int> subCard, patchCard, outputCard;
+    juce::Rectangle<int> subCard, noiseCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
     static constexpr int patchMinHeight = 150, outputMinHeight = 100, maxPatchOnlyHeight = 170, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
                                    maxGrownSlotHeight = 200;
-    std::unique_ptr<ToggleControl> subOn;
-    bool subFolded = false;
-    std::unique_ptr<ChoicePills> subShape, subOctave;
-    std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
+    std::unique_ptr<ToggleControl> subOn, noiseOn;
+    std::unique_ptr<ComboControl> subShape;
+    std::unique_ptr<ChoicePills> subOctave, noiseType;
+    std::unique_ptr<KnobControl> subLevel, subColourKnob, noiseLevel;
+    PreviewWell subPreview, noisePreview;
+    std::vector<float> noiseTrace;
+    int noiseTraceType = -1;
     std::array<std::unique_ptr<WaveDisplay>, OscillatorIds::count> waves;
     FilterDisplay filterDisplay;
     juce::Label filterOffNote;

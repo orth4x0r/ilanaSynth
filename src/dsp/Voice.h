@@ -12,6 +12,7 @@
 #include "LfoShape.h"
 #include "WestCoast.h"
 #include "MaterialBody.h"
+#include "NoiseColours.h"
 #include "Modulation.h"
 #include "Mseg.h"
 #include "OscillatorIds.h"
@@ -323,6 +324,9 @@ struct VoiceParams
     const Wavetable* subOscTable = nullptr;
     float noiseLevel = 0.0f;
     float noiseColour = 1.0f;     // review 8 (V8-15): the heard noise's colour, 0 dark .. 1 white (as before)
+    bool noiseEnabled = true;     // the NOISE card's own switch (on, as before: the level alone decided)
+    int noiseType = 0;            // NoiseColours::Type; White is the old noise
+    float subOscColour = 0.0f;    // the SUB card's COLOUR: 0 the plain wave (as before), 1 driven into harmonics
 
     FilterParams filter1;
     FilterParams filter2;
@@ -742,6 +746,8 @@ private:
     juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> noiseSmooth;
     float noiseLow = 0.0f; // the heard noise's low-pass, while NOISE COLOUR is under white
+    juce::SmoothedValue<float> noiseEnableSmooth, subOscColourSmooth;
+    NoiseColours::Generator noiseGenerator;
     juce::SmoothedValue<float> oscEnableSmooth[VoiceParams::numOscillators];
     WavetableOscillator subOsc;
     juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;

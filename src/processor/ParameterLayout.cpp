@@ -1156,5 +1156,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     for (int slot = 1; slot <= Mod::maxSlots; ++slot)
         addBool ("mod" + juce::String (slot) + "_stereo", "Mod" + juce::String (slot) + " Stereo", false);
 
+    // The compact SUB and NOISE cards on PLAY: NOISE has its own switch (on,
+    // as before: its level alone decided) and six colours (White is the old
+    // noise), and SUB has its own COLOUR (0, the plain wave, as before; the
+    // old noise_color stays as the noise's tone control, now off the card).
+    addBool ("noise_on", "Noise On", true);
+    addChoice ("noise_type", "Noise Type", { "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
+    addFloat ("sub_colour", "Sub Colour", 0.0f, 1.0f, 0.0f);
+
     return layout;
 }

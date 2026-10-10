@@ -7,6 +7,17 @@
 
 namespace
 {
+// The SUB card's COLOUR: 0 passes the wave as it is (every older patch); up
+// to 1 drives it into a tanh, which adds harmonics to a sine and rounds the
+// edges of a square or saw, scaled so the peak stays at the wave's own.
+inline float colourSub (float wave, float colour)
+{
+    if (colour <= 0.0005f)
+        return wave;
+    const auto drive = 1.0f + 6.0f * colour;
+    return std::tanh (wave * drive) / std::tanh (drive);
+}
+
 int chordInterval (int mode, int voiceIndex)
 {
     switch (mode)
@@ -124,6 +135,9 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
         oscEnableSmooth[osc].reset (newRate, 0.02);
     }
     noiseSmooth.reset (newRate, 0.02);
+    noiseEnableSmooth.reset (newRate, 0.02);
+    subOscColourSmooth.reset (newRate, 0.02);
+    noiseGenerator.prepare (newRate);
     subOscLevelSmooth.reset (newRate, 0.02);
     subOscEnableSmooth.reset (newRate, 0.02);
     subOsc.setSampleRate (newRate);
@@ -426,6 +440,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         oscEnableSmooth[osc].setCurrentAndTargetValue (params.oscillatorEnabled[osc] ? 1.0f : 0.0f);
     }
     noiseSmooth.setCurrentAndTargetValue (params.noiseLevel);
+    noiseEnableSmooth.setCurrentAndTargetValue (params.noiseEnabled ? 1.0f : 0.0f);
+    subOscColourSmooth.setCurrentAndTargetValue (params.subOscColour);
+    noiseGenerator.reset();
     noiseLow = 0.0f;
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
@@ -1321,6 +1338,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     }
 
     noiseSmooth.setTargetValue (params.noiseLevel);
+    noiseEnableSmooth.setTargetValue (params.noiseEnabled ? 1.0f : 0.0f);
+    subOscColourSmooth.setTargetValue (params.subOscColour);
     subOscLevelSmooth.setTargetValue (params.subOscLevel);
     subOscEnableSmooth.setTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
     subOsc.setWavetable (params.subOscTable);
@@ -2024,17 +2043,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             if (subOn[slot])
             {
                 subOsc.setFramePosition (0.0f);
-                const auto raw = subOsc.getNextSample (0.0, subOscFrames);
+                const auto raw = colourSub (subOsc.getNextSample (0.0, subOscFrames), subOscColourSmooth.getNextValue());
                 const auto gain = subOscLevel * enableSubOsc;
                 subL[slot] = raw * gain * panGainSubOscL * (alternateAmpRouting ? ampValue : 1.0f);
                 subR[slot] = raw * gain * panGainSubOscR * (alternateAmpRouting ? ampValue : 1.0f);
             }
 
-            const auto noiseLevel = juce::jlimit (0.0f, 1.0f, noiseSmooth.getNextValue() + mods[(int) D::NoiseLevel]);
+            const auto noiseLevel = juce::jlimit (0.0f, 1.0f, noiseSmooth.getNextValue() + mods[(int) D::NoiseLevel])
+                                    * noiseEnableSmooth.getNextValue();
             noiseOn[slot] = noiseLevel > 0.0f;
             if (noiseOn[slot])
             {
-                auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
+                auto value = noiseGenerator.process (params.noiseType, random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
                              * (alternateAmpRouting ? ampValue : 1.0f);
                 if (heardNoiseCoeff < 1.0f)
                 {
@@ -2968,17 +2988,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         if (subOscLevel > 0.0f && params.subOscTable != nullptr && (subOscActive || enableSubOsc > 0.0005f))
         {
             subOsc.setFramePosition (0.0f);
-            const auto raw = subOsc.getNextSample (0.0, subOscFrames);
+            const auto raw = colourSub (subOsc.getNextSample (0.0, subOscFrames), subOscColourSmooth.getNextValue());
             const auto gain = subOscLevel * enableSubOsc;
             busL[routeSubOsc] += raw * gain * panGainSubOscL * (alternateAmpRouting ? ampValue : 1.0f);
             busR[routeSubOsc] += raw * gain * panGainSubOscR * (alternateAmpRouting ? ampValue : 1.0f);
         }
 
-        const auto noiseLevel = juce::jlimit (0.0f, 1.0f, noiseSmooth.getNextValue() + mods[(int) D::NoiseLevel]);
+        const auto noiseLevel = juce::jlimit (0.0f, 1.0f, noiseSmooth.getNextValue() + mods[(int) D::NoiseLevel])
+                                * noiseEnableSmooth.getNextValue();
 
         if (noiseLevel > 0.0f)
         {
-            auto value = (random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
+            auto value = noiseGenerator.process (params.noiseType, random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
                          * (alternateAmpRouting ? ampValue : 1.0f);
             // NOISE COLOUR under white: a one-pole low-pass, part of the
             // lost level made up (white skips it, so older patches are
@@ -3206,7 +3227,7 @@ bool Voice::envelopesActive() const
         if (active)
             return true;
     }
-    return (params.subOscEnabled || params.noiseLevel > 0.0f || ! anyOscillator) && ampEnv.isActive();
+    return (params.subOscEnabled || (params.noiseEnabled && params.noiseLevel > 0.0f) || ! anyOscillator) && ampEnv.isActive();
 }
 
 // A ratio or fixed-pitch operator's frequency before pitch modulation. Semi

@@ -233,21 +233,54 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                     && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
                     && centreX (knobFor ("osc1_frame")) == centreX (knobFor ("osc2_frame")),
                 "PLAY: SEMI, LEVEL, FRAME in the same columns on every wavetable strip");
-        // SUB + NOISE: the switch names the sub, which is all it switches,
-        // and the noise has its COLOUR beside its level (V8-14, V8-15).
+        // SUB and NOISE: two cards, each with its own ON switch, VOLUME knob
+        // and controls (SUB: wave menu, octave, COLOUR; NOISE: six types).
         {
             std::vector<ToggleControl*> toggles;
             findAll<ToggleControl> (editor, toggles);
-            auto subSwitch = false;
+            auto subSwitch = false, noiseSwitch = false;
             for (auto* toggle : toggles)
-                subSwitch = subSwitch || (visibleInTree (toggle) && toggle->getButton().getButtonText() == "ON" && toggle->getTooltip().startsWith (processor.apvts.getParameter ("subosc_on")->getName (64)));
+                if (visibleInTree (toggle) && toggle->getButton().getButtonText() == "ON")
+                {
+                    subSwitch = subSwitch || toggle->getTooltip().startsWith (processor.apvts.getParameter ("subosc_on")->getName (64));
+                    noiseSwitch = noiseSwitch || toggle->getTooltip().startsWith (processor.apvts.getParameter ("noise_on")->getName (64));
+                }
+            auto* subVolume = knobFor ("subosc_level");
+            auto* subColour = knobFor ("sub_colour", "COLOUR");
             auto* noise = knobFor ("noise_level");
-            auto* colour = knobFor ("noise_color", "COLOUR");
-            expect (subSwitch && noise != nullptr && colour != nullptr && centreX (colour) > centreX (noise)
-                        && std::abs (editor.getLocalArea (colour, colour->getLocalBounds()).getCentreY()
-                                     - editor.getLocalArea (noise, noise->getLocalBounds()).getCentreY()) < 2,
-                    "PLAY: SUB + NOISE's switch reads ON (V9-17), and COLOUR sits beside NOISE");
+            expect (subSwitch && noiseSwitch && subVolume != nullptr && subColour != nullptr && noise != nullptr && centreX (subColour) > centreX (subVolume)
+                        && centreX (noise) > centreX (subColour)
+                        && std::abs (editor.getLocalArea (subColour, subColour->getLocalBounds()).getCentreY()
+                                     - editor.getLocalArea (subVolume, subVolume->getLocalBounds()).getCentreY()) < 2,
+                    "PLAY: SUB and NOISE each have an ON switch and a VOLUME knob, SUB's COLOUR beside its VOLUME");
         }
+
+        // The same controls at three window sizes: no two overlap, none is cut off.
+        for (const auto width : { 795, 1060, 1400 })
+        {
+            editor.setSize (width, width * 720 / 1060);
+            settle (300);
+            std::vector<juce::Rectangle<int>> areas;
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && (knob->getParameterId() == "subosc_level" || knob->getParameterId() == "sub_colour" || knob->getParameterId() == "noise_level"))
+                    areas.push_back (editor.getLocalArea (knob, knob->getLocalBounds()));
+            std::vector<ToggleControl*> toggles;
+            findAll<ToggleControl> (editor, toggles);
+            for (auto* toggle : toggles)
+                if (visibleInTree (toggle) && (toggle->getTooltip().startsWith (processor.apvts.getParameter ("subosc_on")->getName (64))
+                                               || toggle->getTooltip().startsWith (processor.apvts.getParameter ("noise_on")->getName (64))))
+                    areas.push_back (editor.getLocalArea (toggle, toggle->getLocalBounds()));
+            auto overlap = false;
+            for (size_t i = 0; i < areas.size(); ++i)
+                for (size_t j = i + 1; j < areas.size(); ++j)
+                    overlap = overlap || areas[i].reduced (2).intersects (areas[j].reduced (2));
+            expect (areas.size() == 5 && ! overlap, "PLAY at " + juce::String (width) + " px: SUB and NOISE's switches and knobs are all there and none overlaps ("
+                                                       + juce::String ((int) areas.size()) + " found)");
+        }
+        editor.setSize (1060, 720);
+        settle (300);
 
         // A wavetable in an FM route reads its part in the FM diagram's
         // words, operator or not (I8-19).
@@ -4994,8 +5027,8 @@ int runUiTests()
             set ("noise_level", 0.0f);
             settle (600);
             auto* subLevel = shown ("subosc_level");
-            expect (shown ("noise_level") == nullptr && subLevel == nullptr,
-                    "SUB + NOISE folds to one line while both are off, like an off oscillator (V12-7)");
+            expect (shown ("noise_level") != nullptr && subLevel != nullptr && subLevel->getAlpha() < 0.99f,
+                    "SUB and NOISE cards stay in place while both are off, the sub's controls dimmed");
             set ("subosc_on", 1.0f);
             settle (600);
             subLevel = shown ("subosc_level");

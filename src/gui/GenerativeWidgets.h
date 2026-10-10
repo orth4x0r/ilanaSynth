@@ -159,6 +159,21 @@ public:
         const auto radius = ringArea.getHeight() * 0.5f - 7.0f;
         const auto dot = juce::jlimit (3.0f, 7.0f, radius * 6.0f / (float) steps);
 
+        // A plate under the ring (the corners of its square are not left
+        // bare, N16-8 leftover): a soft radial wash, and a short
+        // tick inside every step.
+        {
+            const auto plate = ringArea.reduced (0.0f, 0.0f);
+            g.setGradientFill (juce::ColourGradient (colour.withAlpha (on ? 0.10f : 0.04f), centre,
+                                                     juce::Colours::white.withAlpha (0.02f), centre.translated (plate.getWidth() * 0.72f, 0.0f), true));
+            g.fillRoundedRectangle (plate, 8.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.drawRoundedRectangle (plate.reduced (0.5f), 8.0f, 1.0f);
+
+            for (int step = 0; step < steps; ++step)
+                g.drawLine (juce::Line<float> (pointOnRing (centre, radius * 0.8f, step, steps), pointOnRing (centre, radius, step, steps)), 0.8f);
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.0f);
 

@@ -2172,8 +2172,11 @@ private:
         for (int i = 0; i < numRings(); ++i)
         {
             const auto slot = processorRef->readModSlot (routings[(size_t) i].slot);
-            liveValues[(size_t) i] = slot.bypass ? 0.0f
-                                                 : Mod::shape (slot, processorRef->getSourceDisplayValue ((int) slot.source)) * slot.depth;
+            // (Eased a little, so a source swinging both ways at audio rate
+            // reads as a stretch, not a flicker: N16 leftover.)
+            const auto target = slot.bypass ? 0.0f
+                                            : Mod::shape (slot, processorRef->getSourceDisplayValue ((int) slot.source)) * slot.depth;
+            liveValues[(size_t) i] = IlanaAnim::approach (liveValues[(size_t) i], target, 0.5f, frameTicks());
             modValue += 3.0f * liveValues[(size_t) i] * (float) (i + 2);
         }
 
@@ -2573,7 +2576,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.07f));
-            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineSwitchWidth + 5),
+            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineDialColumn() + 3),
                                     juce::Justification::centredLeft, 1);
             return;
         }
@@ -2610,7 +2613,8 @@ public:
 
         if (inlineLabel)
         {
-            button.setBounds (area.removeFromLeft (inlineSwitchWidth).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
+            // (The switch centres on the dial column of the knobs beside it, its name on their names' line.)
+            button.setBounds (area.removeFromLeft (inlineDialColumn()).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
             return;
         }
 
@@ -2636,6 +2640,7 @@ private:
     juce::Colour groupColour;
     juce::String groupText;
     static constexpr int inlineSwitchWidth = 34;
+    int inlineDialColumn() const { return juce::jmax (inlineSwitchWidth, juce::jmin (getHeight(), 40)); }
 
     void timerCallback() override
     {

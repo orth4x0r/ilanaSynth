@@ -282,7 +282,7 @@ Steps 16 to 26 run in the execution order below, not in ID order. ilana's 2026-1
    Restyle it to match the rest of the interface.
    **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.
    Size: 8 of 11, small-medium. Touches `src/gui/FilterDisplay.h` (776 lines, paint code only). The values and the parameter layout don't change.
-   Order 3. Why here: the filter graph's paint code sets the look that the new graph views (the cable view and the FX patcher) should copy, so restyle it first.
+   Order 3. Why here: the filter graph's paint code sets the look that the new graph views (the cable view and the FX patcher) should copy, so restyle it first. Dependency (ilana, 2026-10-10: "harmonize all displays"): apply the shared display drawing helper that the "Modulation UI fixes" thread is building (it unifies the envelope and LFO displays with the oscillator visualizers) to the filter display too.
 
 23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
    lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the

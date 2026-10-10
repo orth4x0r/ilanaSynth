@@ -126,7 +126,9 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     + juce::String (neuroHeight) + " px, dial " + juce::String (trim != nullptr ? trim->getDialSize() : 0) + ")");
         // The scroll bar comes out of the picture: the knobs keep their
         // width, so "-30.9 dB" fits under LEVEL.
-        expect (trim != nullptr && trim->getWidth() >= neuroWidth - 1,
+        // (Neuro's three strips now fit without a scroll bar, with the compact
+        // SUB and NOISE row, so it is a few px wider than the scrolled column.)
+        expect (trim != nullptr && trim->getWidth() >= neuroWidth - 4,
                 "PLAY: a scrolling column keeps the knobs' width (" + juce::String (trim != nullptr ? trim->getWidth() : 0) + " / "
                     + juce::String (neuroWidth) + " px)");
     }

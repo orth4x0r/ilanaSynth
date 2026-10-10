@@ -269,6 +269,30 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.9f));
         g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
 
+        // The value scale and the live reading (N16-4: one line in a big well):
+        // +1 / 0 / -1 against the centre line, and where the dot is now.
+        if (plot.getHeight() > 120.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (const auto [level, name] : { std::pair<float, const char*> { 1.0f, "+1" }, { 0.0f, "0" }, { -1.0f, "-1" } })
+            {
+                const auto y = centreY - level * halfHeight;
+                if (level != 0.0f)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.05f));
+                    g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre ({ plot.getCentreX(), y }));
+                }
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+                g.drawText (name, juce::Rectangle<float> (plot.getX() - 8.0f, y - 12.0f, 24.0f, 11.0f), juce::Justification::centredLeft);
+            }
+            const auto readout = juce::String ("PHASE ") + juce::String (phase - std::floor (phase), 2) + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  VALUE "))
+                                 + (value >= 0.0f ? "+" : "") + juce::String (value, 2);
+            g.setColour (traceColour.interpolatedWith (juce::Colours::white, 0.35f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, readout, juce::Rectangle<float> (wellArea().getX() + 12.0f, wellArea().getY() + 4.0f, 190.0f, 12.0f).toNearestInt(),
+                                    juce::Justification::centredLeft, 1);
+        }
+
         if (shape == IlanaSynthAudioProcessor::curveShape)
         {
             paintCurveHandles (g, plot, centreY, halfHeight);

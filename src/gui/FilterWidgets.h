@@ -49,6 +49,9 @@ inline juce::Colour body() { return IlanaTheme::accent(); }
 // (UI review 7, V7-34, S7-23). Lighter than IlanaTheme::dimmedAlpha, which
 // marks one control with no effect in a module that is on.
 inline constexpr float offAlpha = 0.55f;
+// WEST and BODY keep their full-height cards while off: their controls dim less than the
+// default (they stay readable) and the header says what the switch does (N16-8).
+inline constexpr float cardOffAlpha = 0.72f;
 }
 
 // The filter models by what they are (UI review 6, V5-17, S5-12, S6-20):

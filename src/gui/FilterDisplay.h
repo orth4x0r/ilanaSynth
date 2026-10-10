@@ -44,6 +44,18 @@ public:
 
     void replayAppear() override { appear = 0.0f; }
 
+    // A DX7 voice has no filter: the response says so (N16-2 / I15-2), as
+    // PLAY's FILTER OFF note does. The curves step back.
+    void setVoiceOff (bool off)
+    {
+        if (voiceOff != off)
+        {
+            voiceOff = off;
+            repaint();
+        }
+    }
+    bool isVoiceOff() const { return voiceOff; }
+
     void paint (juce::Graphics& g) override
     {
         IlanaAnim::countPaint ("filter");
@@ -64,6 +76,18 @@ public:
 
         const auto plot = bounds.reduced (10.0f, 12.0f);
 
+        // A graph this size carries a full grid: every 1-2-5 step of the
+        // frequency axis named, the dB steps labelled (N16-4); the small
+        // ones (PLAY's) keep the three decades.
+        const auto big = bounds.getHeight() >= 150.0f && bounds.getWidth() >= 400.0f;
+
+        if (big)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.035f));
+            for (const auto frequency : { 50.0, 200.0, 500.0, 2000.0, 5000.0 })
+                g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (plot.getX() + (float) frequencyToX (frequency) * plot.getWidth()).withY (plot.getY()));
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         for (const auto frequency : { 100.0, 1000.0, 10000.0 })
@@ -75,11 +99,17 @@ public:
         // The frequency axis, named as on the scope.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (const auto& [frequency, name] : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+        const std::vector<std::pair<double, const char*>> frequencyNames = big
+            ? std::vector<std::pair<double, const char*>> { { 50.0, "50" }, { 100.0, "100" }, { 200.0, "200" }, { 500.0, "500" }, { 1000.0, "1k" },
+                                                            { 2000.0, "2k" }, { 5000.0, "5k" }, { 10000.0, "10k" } }
+            : std::vector<std::pair<double, const char*>> { { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } };
+        for (const auto& [frequency, name] : frequencyNames)
         {
             const auto x = plot.getX() + (float) frequencyToX (frequency) * plot.getWidth();
             g.drawText (name, juce::Rectangle<float> (x + 3.0f, bounds.getBottom() - 13.0f, 30.0f, 11.0f), juce::Justification::centredLeft);
         }
+        if (big)
+            g.drawText ("Hz", juce::Rectangle<float> (plot.getRight() - 26.0f, bounds.getBottom() - 13.0f, 26.0f, 11.0f), juce::Justification::centredRight);
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         g.setColour (juce::Colours::white.withAlpha (0.05f));
@@ -87,7 +117,15 @@ public:
         for (const auto db : { -36.0, -24.0, -12.0, 0.0, 12.0 })
         {
             const auto y = plot.getY() + (float) dbToY (db) * plot.getHeight();
+            g.setColour (juce::Colours::white.withAlpha (db == 0.0 && big ? 0.1f : 0.05f));
             g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withY (y));
+            if (big)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                g.drawText ((db > 0.0 ? "+" : "") + juce::String ((int) db) + (db == 0.0 ? " dB" : ""),
+                            juce::Rectangle<float> (plot.getX() + 3.0f, y - 12.0f, 40.0f, 11.0f), juce::Justification::centredLeft);
+            }
         }
 
         drawSpectrum (g, plot);
@@ -119,6 +157,14 @@ public:
         if (! filter2Replaced())
             drawMarker (g, plot, markers[1], 1, filterColour (1));
         drawMarker (g, plot, markers[0], 0, filterColour (0));
+
+        if (big)
+            for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
+                if (! (filterIndex == 1 && filter2Replaced()))
+                    drawReadout (g, plot, markers[(size_t) filterIndex], filterIndex);
+
+        if (voiceOff)
+            drawVoiceOff (g, bounds);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
@@ -455,7 +501,7 @@ private:
         }
 
         // A filter that passes everything draws quietly (V8-39).
-        const auto open = isPassThrough (processorRef, filterIndex) ? 0.45f : 1.0f;
+        const auto open = (isPassThrough (processorRef, filterIndex) ? 0.45f : 1.0f) * (voiceOff ? 0.5f : 1.0f);
         g.setColour (colour.withAlpha (open * ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse)))));
         g.strokePath (path, juce::PathStrokeType (parallel ? 4.0f : 5.0f));
 
@@ -528,6 +574,48 @@ private:
 
         g.setColour (juce::Colours::white.withAlpha (0.07f));
         g.fillPath (path);
+    }
+
+    // "F1  3.2 kHz  ·  RESO 35%" beside a marker: its cutoff and resonance in
+    // numbers, on the side with room.
+    void drawReadout (juce::Graphics& g, juce::Rectangle<float> plot, juce::Point<float> centre, int filterIndex) const
+    {
+        const auto cutoff = readParam (filterIndex == 0 ? "f1_cutoff" : "f2_cutoff");
+        const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
+        const auto hz = cutoff >= 1000.0f ? juce::String (cutoff / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (cutoff)) + " Hz";
+        const auto text = "F" + juce::String (filterIndex + 1) + "  " + hz + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  RESO ")) + juce::String (juce::roundToInt (reso * 100.0f)) + "%";
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+        const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 12.0f;
+        const auto onLeft = centre.x + markerSize + 6.0f + width > plot.getRight();
+        auto box = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y });
+        box = box.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, box.getY()));
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.72f));
+        g.fillRoundedRectangle (box, 7.0f);
+        g.setColour (filterColour (filterIndex).withAlpha (0.5f));
+        g.drawRoundedRectangle (box.reduced (0.5f), 7.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (font);
+        IlanaTheme::drawFitted (g, text, box.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
+    }
+
+    // "FILTER OFF · a DX7 voice has no filter": a plate over the dimmed curves.
+    void drawVoiceOff (juce::Graphics& g, juce::Rectangle<float> bounds) const
+    {
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.5f));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        const auto plate = juce::Rectangle<float> (juce::jmin (bounds.getWidth() - 40.0f, 520.0f), juce::jmin (bounds.getHeight() - 8.0f, 58.0f)).withCentre (bounds.getCentre());
+        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.94f));
+        g.fillRoundedRectangle (plate, 8.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (plate.reduced (0.5f), 8.0f, 1.0f);
+        auto inner = plate.reduced (12.0f, 6.0f).toNearestInt();
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        IlanaTheme::drawFitted (g, juce::String ("FILTER OFF") + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + "a DX7 voice has no filter",
+                                inner.removeFromTop (inner.getHeight() / 2 + 2), juce::Justification::centred, 1);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        IlanaTheme::drawFitted (g, "Turn a CUTOFF down to bring one in.", inner, juce::Justification::centred, 1);
     }
 
     // The set value: a solid, numbered marker (the one you drag; its height
@@ -668,6 +756,7 @@ private:
     }
     IlanaAnim::ChangeGate changeGate;
     float appear = 1.0f;
+    bool voiceOff = false;
 
     static constexpr int fftSize = 2048;
     juce::dsp::FFT fft { 11 };

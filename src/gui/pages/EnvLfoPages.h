@@ -234,8 +234,9 @@ public:
         // The subtitle follows the title; the switch has the right of the header.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("oscillator mix excites the body", resonatorCard.reduced (12, 0).removeFromTop (30).withTrimmedLeft (78),
-                    juce::Justification::centredLeft);
+        g.drawText (readValue ("res_on") > 0.5f ? juce::String ("oscillator mix excites the body")
+                                                 : juce::String (juce::CharPointer_UTF8 ("off \xc2\xb7 switch on to let the mix excite a body")),
+                    resonatorCard.reduced (12, 0).removeFromTop (30).withTrimmedLeft (78), juce::Justification::centredLeft);
     }
 
     void paintOverChildren (juce::Graphics& g) override
@@ -372,6 +373,7 @@ private:
             overlay.repaint();
         }
         strip.repaint();
+        filterDisplay.setVoiceOff (operatorVoiceFilterOff (processorRef));
 
         // (A rule dims it first, while it is still enabled.)
         effectRules.apply();
@@ -394,7 +396,7 @@ private:
                                                                            &bodyMaterial, &bodySize, &bodyCouplingMode, &bodyCoupling })
             {
                 const auto live = strings && (control == &bodyCouplingMode || control == &bodyCoupling);
-                const auto alpha = live ? 1.0f : FilterColours::offAlpha;
+                const auto alpha = live ? 1.0f : FilterColours::cardOffAlpha;
                 if (control->getAlpha() != alpha)
                     control->setAlpha (alpha);
                 if (auto* knob = dynamic_cast<KnobControl*> (control))
@@ -1522,10 +1524,11 @@ public:
     }
 
     // (PLAY's LFO card labels its switch the same way.) RETRIG on a plain shape (one LFO per voice, restarted by its note);
-    // PER VOICE on a simulated one, whose TRIGGER says when it restarts.
+    // VOICE on a simulated one (each voice runs its own simulation; PER VOICE did not fit
+    // its slot, N16-6), whose TRIGGER says when it restarts.
     static void labelRunSwitch (ToggleControl& toggle, bool simulated)
     {
-        const juce::String text (simulated ? "PER VOICE" : "RETRIG");
+        const juce::String text (simulated ? "VOICE" : "RETRIG");
         if (toggle.getButton().getButtonText() == text)
             return;
         toggle.getButton().setButtonText (text);
@@ -1728,7 +1731,7 @@ private:
         }
 
         // The LFO's switches in fixed places of unequal width: RETRIG's slot is
-        // wide enough for "PER VOICE" on a simulated shape (V10-6 / I10-6), the
+        // wide enough for "VOICE" on a simulated shape (V10-6 / I10-6), the
         // others for their names.
         juce::Rectangle<int> lfoSwitchSlot (int index) const
         {
@@ -1772,6 +1775,15 @@ private:
         {
             const auto top = (thirdRowUsed ? left[2] : left[1]).getBottom() + 4;
             const auto bottom = right.getBottom();
+            // Two rows of knobs and a short band: the band runs the full width
+            // under both columns and lists its routes in columns (N16-7: the
+            // left column's box held a line and a "+3 more").
+            if (secondKnobRowUsed && twoRows)
+            {
+                const auto fullTop = juce::jmax (top, right.getY() + 2 * oneRowHeight + rowGap + 2);
+                if (bottom - fullTop >= 30)
+                    return { left[0].getX(), fullTop, right.getRight() - left[0].getX(), bottom - fullTop };
+            }
             if (bottom - top < 24)
                 return {};
             if (secondKnobRowUsed || ! twoRows)
@@ -1851,34 +1863,57 @@ private:
         g.setColour (IlanaTheme::Ui::line);
         g.drawRoundedRectangle (infoArea.toFloat().reduced (0.5f), 8.0f, 1.0f);
 
+        // A short, wide band (under two rows of knobs): the title at the left,
+        // the routes in columns beside it. Otherwise the title on top and the
+        // routes one to a line.
+        const auto compact = infoArea.getHeight() < 60 && infoArea.getWidth() >= 300;
         auto area = infoArea.reduced (10, 4);
-        auto title = area.removeFromTop (16);
+        const auto countText = juce::String (routes.size()) + (routes.size() == 1 ? " ROUTE" : " ROUTES");
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
-        g.setColour (colour);
-        g.drawText ("DRIVES", title, juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText (juce::String (routes.size()) + (routes.size() == 1 ? " ROUTE" : " ROUTES"), title, juce::Justification::centredRight);
-        area.removeFromTop (2);
+        if (compact)
+        {
+            auto titleCell = area.removeFromLeft (70);
+            area.removeFromLeft (6);
+            const auto half = titleCell.getHeight() / 2;
+            g.setColour (colour);
+            g.drawText ("DRIVES", titleCell.removeFromTop (half), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (countText, titleCell, juce::Justification::centredLeft);
+        }
+        else
+        {
+            auto title = area.removeFromTop (16);
+            g.setColour (colour);
+            g.drawText ("DRIVES", title, juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (countText, title, juce::Justification::centredRight);
+            area.removeFromTop (2);
+        }
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         if (routes.isEmpty())
         {
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             IlanaTheme::drawFitted (g, "Nothing yet. Drag this card onto any knob to make it move that knob; every route it drives is listed here, with its depth.",
-                                    area.withTrimmedRight (area.getWidth() / 3), juce::Justification::topLeft, 3);
+                                    compact ? area : area.withTrimmedRight (area.getWidth() / 3), juce::Justification::topLeft, compact ? 2 : 3);
             return;
         }
 
-        // One route to a line: its target, a bar of its depth (the width is the
-        // room the panel leaves, so a short list is not a corner of text), and
-        // the number at the right (V12-3).
-        constexpr int lineHeight = 16;
-        const auto capacity = juce::jmax (1, area.getHeight() / lineHeight);
+        // One route to a cell: its target, a bar of its depth (the width is the
+        // room the cell leaves, so a short list is not a corner of text), and
+        // the number at the right (V12-3). The name keeps all it needs; the bar
+        // takes what is left (N16-6: "FM > OSC 2 > OS..." was cut by the bar).
+        const auto lineHeight = compact ? 14 : 16;
+        const auto columns = compact ? juce::jmax (1, area.getWidth() / 170) : 1;
+        const auto rowsFit = juce::jmax (1, area.getHeight() / lineHeight);
+        const auto capacity = columns * rowsFit;
+        const auto cellWidth = area.getWidth() / columns;
         for (int i = 0; i < routes.size() && i < capacity; ++i)
         {
             const auto more = i == capacity - 1 && routes.size() > capacity;
             auto text = routes[i];
-            const auto cell = juce::Rectangle<int> (area.getX(), area.getY() + i * lineHeight, area.getWidth() - 8, lineHeight);
+            const auto cell = juce::Rectangle<int> (area.getX() + (i % columns) * cellWidth, area.getY() + (i / columns) * lineHeight,
+                                                    cellWidth - 8, lineHeight);
             routeHits.push_back ({ cell, more ? -1 : routeSlots[(size_t) i] });
             const auto hovered = (int) routeHits.size() - 1 == hoverRoute;
             g.setColour (colour.withAlpha (hovered ? 1.0f : 0.85f));
@@ -1889,19 +1924,19 @@ private:
                 break;
             }
 
-            // "FILTER 1 › Cutoff  +70%": the name, then the depth as a bar.
+            // "FILTER 1 > Cutoff  +70%": the name, then the depth as a bar.
             const auto depthText = text.fromLastOccurrenceOf ("  ", false, false);
             const auto nameText = text.upToLastOccurrenceOf ("  ", false, false);
             auto row = cell;
-            const auto valueArea = row.removeFromRight (44);
-            const auto nameWidth = juce::jmin (row.getWidth() * 55 / 100,
+            const auto valueArea = row.removeFromRight (compact ? 38 : 44);
+            const auto nameWidth = juce::jmin (row.getWidth() - 16,
                                                juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), nameText) + 10);
             g.drawText (nameText, row.removeFromLeft (nameWidth), juce::Justification::centredLeft, true);
             g.setColour (IlanaTheme::Ui::text);
             g.drawText (depthText, valueArea, juce::Justification::centredRight, true);
             g.setColour (colour.withAlpha (hovered ? 1.0f : 0.85f));
             const auto depth = juce::jlimit (0.0f, 1.0f, std::abs (depthText.retainCharacters ("0123456789").getFloatValue()) / 100.0f);
-            const auto bar = row.withTrimmedLeft (6).withTrimmedRight (6).withSizeKeepingCentre (row.getWidth() - 12, 5).toFloat();
+            const auto bar = row.withTrimmedLeft (4).withTrimmedRight (4).withSizeKeepingCentre (row.getWidth() - 8, 5).toFloat();
             if (bar.getWidth() > 10.0f)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.06f));

@@ -129,7 +129,7 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
     {
         editor.showPage ("MAIN");
         settle (400);
-        const auto playOutput = textOf (knobFor ("osc2_eg_out", "DEPTH")); // (a modulator's OUTPUT is a DEPTH, I12-3)
+        const auto playOutput = textOf (knobFor ("osc2_eg_out", "OUTPUT")); // (a modulator's level is an OUTPUT too, I15-1)
         const auto playLevel = knobFor ("osc2_level") != nullptr;
         editor.showPage ("FM");
         settle (400);
@@ -146,7 +146,7 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
     }
 
     // I12-6: the OSC drawer on an operator voice has no STRINGS or SOUNDBOARD
-    // tab; I12-3: a modulator says what it modulates and its OUTPUT is a DEPTH.
+    // tab; I12-3: a modulator says what it modulates and its level is still OUTPUT (I15-1).
     {
         editor.showPage ("OSC");
         settle (400);
@@ -166,8 +166,8 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                 "OSC: the strip has no tabs, and STRINGS and SOUNDBOARD sit dimmed on an operator voice (I12-6)");
         editor.showPage ("MAIN");
         settle (300);
-        expect (knobFor ("osc2_eg_out", "DEPTH") != nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
-                "PLAY: a modulator's level knob reads DEPTH, a carrier's OUTPUT (I12-3)");
+        expect (knobFor ("osc2_eg_out", "OUTPUT") != nullptr && knobFor ("osc2_eg_out", "DEPTH") == nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
+                "PLAY: a modulator's level knob reads OUTPUT, never DEPTH (I15-1)");
     }
 
     // I8-2, I9-7: the oscillator's LEVEL is "Level" in the matrix whether

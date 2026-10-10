@@ -893,10 +893,7 @@ private:
 
         // An operator voice with both filters wide open has none.
         {
-            auto off = false;
-            for (int osc = 0; osc < OscillatorIds::count && ! off; ++osc)
-                off = processorRef.isOscillatorShown (osc) && OscRole::isOperator (processorRef, osc) && OscRole::usesOperatorEg (processorRef, osc);
-            off = off && FilterDisplay::isPassThrough (processorRef, 0, true) && FilterDisplay::isPassThrough (processorRef, 1, true);
+            const auto off = operatorVoiceFilterOff (processorRef);
             if (off != operatorFilterOff)
             {
                 operatorFilterOff = off;

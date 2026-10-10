@@ -70,6 +70,10 @@ public:
     // The live input's position along the curve (0..1), or -1 with no source.
     float getLiveInput() const { return liveInput; }
 
+    // What the curve sends at the live input right now (0 with no source), for the
+    // matrix dock's readout.
+    float getLiveOutput() const { return liveInput >= 0.0f ? (float) curve.valueAt ((double) liveInput) : 0.0f; }
+
     void resized() override
     {
         auto top = getLocalBounds().removeFromTop (22).reduced (4, 2);

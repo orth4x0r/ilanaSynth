@@ -4,6 +4,16 @@
 
 namespace
 {
+// An operator (DX7) voice with both filters wide open has none: PLAY's FILTER OFF
+// note and the FILTER page's state say so (a macro sitting at 0 pulls nothing).
+inline bool operatorVoiceFilterOff (const IlanaSynthAudioProcessor& p)
+{
+    auto operatorVoice = false;
+    for (int osc = 0; osc < OscillatorIds::count && ! operatorVoice; ++osc)
+        operatorVoice = p.isOscillatorShown (osc) && OscRole::isOperator (p, osc) && OscRole::usesOperatorEg (p, osc);
+    return operatorVoice && FilterDisplay::isPassThrough (p, 0, true) && FilterDisplay::isPassThrough (p, 1, true);
+}
+
 // One filter: its type picker and slope in the header, then only the knobs
 // its model uses (UI review 6: the type is a compact menu with arrows, not a
 // 12-button grid, so the card is one row of knobs).
@@ -144,13 +154,18 @@ private:
         // A filter that passes everything (open at 20 kHz) dims, as an off
         // module would, all but its type and CUTOFF, which bring it in (UI
         // review 8, V8-39).
-        const auto openNow = FilterDisplay::isPassThrough (processorRef, prefix == "f1" ? 0 : 1);
-        if (replacedNow != replaced || openNow != passThrough)
+        const auto voiceNow = operatorVoiceFilterOff (processorRef);
+        const auto openNow = FilterDisplay::isPassThrough (processorRef, prefix == "f1" ? 0 : 1, voiceNow);
+        if (replacedNow != replaced || openNow != passThrough || voiceNow != voiceOff)
         {
             replaced = replacedNow;
             passThrough = openNow;
+            voiceOff = voiceNow;
+            // (A DX7 voice has no filter: the whole card steps back, CUTOFF and
+            // the type menu a little less, since they bring one in. N16-2.)
             for (auto* child : getChildren())
                 child->setAlpha (replaced ? IlanaTheme::dimmedAlpha * 0.6f
+                                          : voiceOff ? (child == &cutoff || child == &picker || child == &f2Switch ? 0.8f : IlanaTheme::dimmedAlpha * 0.6f)
                                           : passThrough && child != &cutoff && child != &picker && child != &f2Switch ? openAlpha : 1.0f);
             setTooltip (passThrough && ! replaced ? title.substring (0, 1) + title.substring (1).toLowerCase()
                                                         + " is open: it passes everything. Turn CUTOFF down (or pick another type) to use it."
@@ -206,7 +221,7 @@ private:
     juce::TextButton f2Switch;
     float rememberedCutoff = 8000.0f;
     int type = -1;
-    bool replaced = false, passThrough = false;
+    bool replaced = false, passThrough = false, voiceOff = false;
 };
 
 // M8.3: the WEST card: a wavefolder into a low-pass gate, after the filters
@@ -252,8 +267,10 @@ public:
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (30);
-        IlanaTheme::paintCardHeader (g, header, "WEST", juce::roundToInt (read ("west_pos")) == 1 ? "wavefolder and low-pass gate, in Filter 2's place"
-                                                                                                    : "wavefolder and low-pass gate, after the filters",
+        const auto westOn = read ("west_on") > 0.5f;
+        IlanaTheme::paintCardHeader (g, header, "WEST", ! westOn ? juce::String (juce::CharPointer_UTF8 ("off \xc2\xb7 switch on to fold and gate"))
+                                                       : juce::roundToInt (read ("west_pos")) == 1 ? juce::String ("wavefolder and low-pass gate, in Filter 2's place")
+                                                                                                    : juce::String ("wavefolder and low-pass gate, after the filters"),
                                      colour(), 60);
 
         if (folded())
@@ -262,7 +279,7 @@ public:
         // The fold's transfer curve and the gate's vactrol, lit by its level
         // (at the off alpha, as the controls, while WEST is off).
         const auto plot = picture.toFloat();
-        g.beginTransparencyLayer (read ("west_on") > 0.5f ? 1.0f : FilterColours::offAlpha);
+        g.beginTransparencyLayer (read ("west_on") > 0.5f ? 1.0f : FilterColours::cardOffAlpha);
         IlanaTheme::paintWell (g, plot, 5.0f);
         const auto curveArea = plot.withWidth (plot.getWidth() * 0.62f).reduced (8.0f, 6.0f);
         juce::Path curve;
@@ -353,7 +370,7 @@ private:
                                      (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
                                      (juce::Component*) &position })
         {
-            const auto alpha = active ? 1.0f : FilterColours::offAlpha;
+            const auto alpha = active ? 1.0f : FilterColours::cardOffAlpha;
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }

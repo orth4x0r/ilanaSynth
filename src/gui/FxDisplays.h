@@ -102,6 +102,7 @@ public:
             case Kind::picture:            paintPicture (g); break;
             case Kind::none:               break;
         }
+        flushTicks (g);
     }
 
 private:
@@ -442,13 +443,38 @@ private:
         }
     }
 
-    // A tiny axis label: grey, tiny type, never louder than the grid it names.
-    void paintTick (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, juce::Justification justification, float alpha = 0.55f) const
+    // A tiny axis label: grey, tiny type, never louder than the grid it names. It is queued and
+    // drawn after the picture (flushTicks) on a small plate in the well's colour, so a trace,
+    // fill or bar never runs through it.
+    void paintTick (juce::Graphics&, const juce::String& text, juce::Rectangle<float> box, juce::Justification justification, float alpha = 0.55f) const
     {
-        g.setColour (IlanaTheme::Ui::text3.withAlpha (alpha));
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, text, box.toNearestInt(), justification, 1);
+        pendingTicks.push_back ({ text, box, justification, alpha });
     }
+
+    void flushTicks (juce::Graphics& g) const
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        for (const auto& tick : pendingTicks)
+        {
+            const auto room = tick.box.toNearestInt();
+            const auto width = juce::jmin ((float) room.getWidth(), juce::GlyphArrangement::getStringWidth (font, tick.text) + 1.0f);
+            auto plate = juce::Rectangle<float> (width, juce::jmin (tick.box.getHeight(), font.getHeight() + 1.0f));
+            plate.setCentre (tick.box.getCentre());
+            if (tick.justification.testFlags (juce::Justification::left))
+                plate.setX (tick.box.getX());
+            else if (tick.justification.testFlags (juce::Justification::right))
+                plate.setRight (tick.box.getRight());
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+            g.fillRoundedRectangle (plate.expanded (2.0f, 0.0f), 2.0f);
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (tick.alpha));
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, tick.text, room, tick.justification, 1);
+        }
+        pendingTicks.clear();
+    }
+
+    struct PendingTick { juce::String text; juce::Rectangle<float> box; juce::Justification justification; float alpha; };
+    mutable std::vector<PendingTick> pendingTicks;
 
     static juce::String dbText (float db, bool signedValue = false)
     {

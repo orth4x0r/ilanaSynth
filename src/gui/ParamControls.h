@@ -382,13 +382,15 @@ public:
         {
             const auto area = dotBounds (numShown());
             const auto active = IlanaTheme::fade (*this, 1000, hoverIndex == overflowIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
+            // A pill, a little wider than a badge, so "+N" has air inside its outline.
+            const auto pill = area.expanded (2.0f, 0.0f);
             g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.15f * active));
-            g.fillEllipse (area);
+            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
             g.setColour (IlanaTheme::Ui::text2);
-            g.drawEllipse (area.reduced (0.5f), 1.0f);
+            g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            IlanaTheme::drawFitted (g, "+" + juce::String ((int) dots.size() - numShown()), area.expanded (1.0f, 0.0f).translated (0.0f, 0.5f).toNearestInt(),
+            IlanaTheme::drawFitted (g, "+" + juce::String ((int) dots.size() - numShown()), pill.reduced (2.0f, 0.0f).translated (0.0f, 0.5f).toNearestInt(),
                               juce::Justification::centred, 1);
         }
     }
@@ -1799,7 +1801,7 @@ private:
             const auto value = slider.getTextFromValue (slider.getValue());
             const auto textWidth = juce::jmax (juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText()),
                                                juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)), value));
-            x = juce::jmax (x, label.getX() + textWidth + 4);
+            x = juce::jmax (x, label.getX() + textWidth + 8);
         }
 
         // Beside the rings, a column of badges as tall as the dial, while

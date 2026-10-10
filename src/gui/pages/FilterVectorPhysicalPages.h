@@ -77,7 +77,7 @@ public:
             return;
 
         const auto note = getLocalBounds().withTrimmedTop (headerHeight).reduced (24, 0).withSizeKeepingCentre (getWidth() - 48, 40);
-        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.92f));
+        g.setColour (IlanaTheme::Ui::panel); // opaque: the dimmed labels under it must not show through
         g.fillRoundedRectangle (note.toFloat(), 6.0f);
         g.setColour (FilterColours::west().withAlpha (0.6f));
         g.drawRoundedRectangle (note.toFloat().reduced (0.5f), 6.0f, 1.0f);

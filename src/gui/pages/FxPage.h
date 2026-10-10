@@ -726,8 +726,8 @@ public:
                         for (auto& suggest : suggestTiles)
                             if (suggest->getType() == offered[(size_t) i])
                             {
-                                const auto inRow = juce::jmin (perRow, count - (i / perRow) * perRow);
-                                const auto each = (width - gap * (inRow - 1)) / inRow;
+                                // (One column grid for every row: a short last row keeps the tiles' width.)
+                                const auto each = (width - gap * (perRow - 1)) / perRow;
                                 suggest->setBounds (left + (i % perRow) * (each + gap), top + (i / perRow) * (tileHeight + gap), each, tileHeight);
                                 suggest->setVisible (true);
                             }

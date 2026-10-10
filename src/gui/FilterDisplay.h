@@ -119,13 +119,6 @@ public:
             const auto y = plot.getY() + (float) dbToY (db) * plot.getHeight();
             g.setColour (juce::Colours::white.withAlpha (db == 0.0 && big ? 0.1f : 0.05f));
             g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withY (y));
-            if (big)
-            {
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-                g.drawText ((db > 0.0 ? "+" : "") + juce::String ((int) db) + (db == 0.0 ? " dB" : ""),
-                            juce::Rectangle<float> (plot.getX() + 3.0f, y - 12.0f, 40.0f, 11.0f), juce::Justification::centredLeft);
-            }
         }
 
         drawSpectrum (g, plot);
@@ -162,6 +155,23 @@ public:
             for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
                 if (! (filterIndex == 1 && filter2Replaced()))
                     drawReadout (g, plot, markers[(size_t) filterIndex], filterIndex);
+
+        // The dB scale, on small plates over the curves so a curve never runs through a number.
+        if (big)
+        {
+            const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+            g.setFont (tiny);
+            for (const auto db : { -36.0, -24.0, -12.0, 0.0, 12.0 })
+            {
+                const auto y = plot.getY() + (float) dbToY (db) * plot.getHeight();
+                const auto text = (db > 0.0 ? "+" : "") + juce::String ((int) db) + (db == 0.0 ? " dB" : "");
+                const auto width = juce::GlyphArrangement::getStringWidth (tiny, text) + 1.0f;
+                g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+                g.fillRoundedRectangle (juce::Rectangle<float> (plot.getX() + 1.0f, y - 12.0f, width + 4.0f, 11.0f), 2.0f);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (text, juce::Rectangle<float> (plot.getX() + 3.0f, y - 12.0f, 40.0f, 11.0f), juce::Justification::centredLeft);
+            }
+        }
 
         if (voiceOff)
             drawVoiceOff (g, bounds);

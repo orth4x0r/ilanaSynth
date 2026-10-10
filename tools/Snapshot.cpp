@@ -9463,8 +9463,16 @@ int main (int argc, char** argv)
         pages->showPage ("OSC");
         settle (400);
         save (*editor, outDir.getChildFile ("osc-sample-empty.png"));
-        processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
-        settle (500);
+        // (The factory preset's queued sample clear runs on the message thread; on a busy box it can
+        // land after the load and wipe it, which made this shot look like the empty one. Load again
+        // until the sample is still there after the settle.)
+        for (int attempt = 0; attempt < 4; ++attempt)
+        {
+            processor.loadUserSample (0, folder.getChildFile ("test.sfz"));
+            settle (500);
+            if (processor.getSampleForOsc (0) != nullptr)
+                break;
+        }
         save (*editor, outDir.getChildFile ("osc-sample-sfz.png"));
         folder.deleteRecursively();
         processor.loadFactoryPreset (0);

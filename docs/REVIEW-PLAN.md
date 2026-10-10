@@ -298,3 +298,22 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    way, the toggle is disabled or removed rather than changing the overall layout.
    **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and
    the positions of the existing panels with the keyboard on and off.
+22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided, not started). A double-click places a
+   note, and a double-click then drag lengthens it. The current behaviour stays as a pencil mode for placing many notes
+   quickly, switched on and off from the editor.
+   **Rules when it starts:** the clip file format and playback do not change; the UI test covers both modes.
+23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
+   lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the
+   pages and the clip editor.
+   **Rules when it starts:** UI only; no sound or preset change.
+24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided, not started). The spray tool in
+   the clip editor does not place notes correctly. Find what it does wrong, fix it, and add a test that sprays notes
+   and checks where they land.
+   **Rules when it starts:** no sound or preset change.
+25. **Better trance gate presets** (ilana, 2026-10-10: decided, not started). The current trance gate presets are not
+   good enough. Make new ones, judged by how they sound (ilana listens to them herself).
+   **Rules when it starts:** new presets are appended, so no existing preset changes sound.
+26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
+   response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).
+   Restyle it to match the rest of the interface.
+   **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.

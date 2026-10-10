@@ -518,7 +518,7 @@ private:
 
         const auto dot = dots[(size_t) index];
         juce::PopupMenu menu;
-        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
         menu.addItem (1, "Bypass", true, dot.bypass);
         menu.addItem (2, "Remove");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
@@ -571,8 +571,8 @@ private:
         }
 
         const auto& dot = dots[(size_t) index];
-        setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (dot.depth * 100.0f))
-                    + "%" + (dot.bipolar ? "  (swings both ways)" : "") + (dot.bypass ? "  (bypassed)" : "")
+        setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (dot.depth, dot.bipolar))
+                    + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "") + (dot.bypass ? "  (bypassed)" : "")
                     + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
     }
 
@@ -804,7 +804,7 @@ public:
         dotStrip.onDepthChange = [this] (int slot, float depth)
         {
             if (processorRef != nullptr)
-                processorRef->setModSlotValue (slot, "amt", depth);
+                processorRef->setModSlotValue (slot, "amt", Mod::storedDepth (processorRef->readModSlot (slot), depth));
         };
         dotStrip.onZero = [this] (int slot)
         {
@@ -1749,7 +1749,7 @@ private:
 
             const auto& dot = owner.routings[(size_t) ring];
             setTooltip (ModNames::source (dot.source, owner.processorRef) + "  " + (dot.depth >= 0.0f ? "+" : "")
-                        + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%" + (dot.bipolar ? "  (swings both ways)" : "")
+                        + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "")
                         + (dot.bypass ? "  (bypassed)" : "")
                         + "\nDrag the ring up or right to deepen it (Shift for fine), double-click to zero it, "
                           "right-click to bypass or remove it.");
@@ -1760,9 +1760,20 @@ private:
             const auto dot = owner.routings[(size_t) ring];
             juce::PopupMenu menu;
             menu.addSectionHeader (ModNames::source (dot.source, owner.processorRef) + "  ("
-                                   + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+                                   + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
             menu.addItem (1, "Bypass", true, dot.bypass);
             menu.addItem (2, "Remove");
+            menu.addSeparator();
+
+            if (owner.processorRef != nullptr)
+            {
+                const auto polarity = (int) owner.processorRef->readModSlot (dot.slot).polarity;
+                menu.addItem (10, "Type an amount...");
+                menu.addItem (11, "Polarity: positive (up)", true, polarity == 1);
+                menu.addItem (12, "Polarity: negative (down)", true, polarity == 3);
+                menu.addItem (13, "Polarity: bipolar (both sides)", true, polarity == 2);
+                menu.addItem (14, "Polarity: auto (the source's range)", true, polarity == 0);
+            }
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                                 [safeOwner = juce::Component::SafePointer<KnobControl> (&owner), dot] (int result)
                                 {
@@ -1773,6 +1784,10 @@ private:
                                         safeOwner->dotStrip.onBypass (dot.slot, ! dot.bypass);
                                     else if (result == 2 && safeOwner->dotStrip.onRemove != nullptr)
                                         safeOwner->dotStrip.onRemove (dot.slot);
+                                    else if (result == 10)
+                                        safeOwner->beginAmountEntry (dot.slot);
+                                    else if (result >= 11 && result <= 14)
+                                        safeOwner->setRoutePolarity (dot.slot, result == 11 ? 1 : result == 12 ? 3 : result == 13 ? 2 : 0);
                                 });
         }
 
@@ -1883,6 +1898,65 @@ private:
 
     // Re-reads which mod slots route into this knob. Cheap (raw parameter
     // reads), so it runs on the timer.
+    // Sets a route's polarity (one undo step), keeping what the ring shows.
+    void setRoutePolarity (int slot, int choice)
+    {
+        if (processorRef == nullptr)
+            return;
+
+        processorRef->performEdit ("Modulation polarity", [this, slot, choice] { processorRef->setModSlotValue (slot, "pol", (float) choice); });
+        refreshRoutings();
+    }
+
+    // Types an exact amount for a route: a small box over the knob; the
+    // number is the share of the knob's range the route covers (bipolar:
+    // 100 % is the whole range, either side of the value).
+    void beginAmountEntry (int slot)
+    {
+        if (processorRef == nullptr)
+            return;
+
+        const auto data = processorRef->readModSlot (slot);
+        const auto bipolar = Mod::isBipolarRoute (data);
+        amountEditor = std::make_unique<juce::TextEditor>();
+        auto& editor = *amountEditor;
+        editor.setMultiLine (false);
+        editor.setJustification (juce::Justification::centred);
+        editor.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        editor.setInputRestrictions (6, "-+0123456789.%");
+        editor.setText (juce::String (Mod::shownPercent (Mod::visualDepth (data), bipolar)) + "%", false);
+        editor.setBounds (juce::Rectangle<int> (64, 20).withCentre ({ getWidth() / 2, juce::jmin (getHeight() - 12, knobBounds.getBottom() - 8) }));
+        addAndMakeVisible (editor);
+        editor.selectAll();
+        editor.grabKeyboardFocus();
+        editor.onReturnKey = [this, slot, bipolar]
+        {
+            if (amountEditor != nullptr && processorRef != nullptr)
+            {
+                const auto typed = amountEditor->getText().retainCharacters ("-+0123456789.").getFloatValue();
+                const auto depth = juce::jlimit (-1.0f, 1.0f, Mod::depthFromShownPercent (typed, bipolar));
+                processorRef->performEdit ("Modulation amount", [this, slot, depth]
+                                           { processorRef->setModSlotValue (slot, "amt", Mod::storedDepth (processorRef->readModSlot (slot), depth)); });
+            }
+
+            closeAmountEntry();
+        };
+        editor.onEscapeKey = [this] { closeAmountEntry(); };
+        editor.onFocusLost = [this] { closeAmountEntry(); };
+    }
+
+    void closeAmountEntry()
+    {
+        if (amountEditor == nullptr)
+            return;
+
+        // (Removed after this call returns: it may be running inside the editor.)
+        std::shared_ptr<juce::TextEditor> doomed (std::move (amountEditor));
+        removeChildComponent (doomed.get());
+        refreshRoutings();
+        juce::MessageManager::callAsync ([doomed] {});
+    }
+
     void refreshRoutings()
     {
         if (processorRef == nullptr || ringConfig.destination == 0)
@@ -1899,9 +1973,8 @@ private:
             if (slot.destination != ringConfig.destination || slot.source == Mod::Source::None)
                 continue;
 
-            const auto bipolar = slot.polarity == Mod::Polarity::Bipolar
-                                 || (slot.polarity == Mod::Polarity::Natural && Mod::isBipolarSource (slot.source));
-            found.push_back ({ i, (int) slot.source, slot.depth, slot.bypass, bipolar });
+            const auto bipolar = Mod::isBipolarRoute (slot);
+            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -1995,7 +2068,7 @@ public:
 
                 for (const auto& dot : routings)
                     removeMenu.addItem (5000 + dot.slot, ModNames::source (dot.source, processorRef) + "  ("
-                                                             + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+                                                             + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
 
                 menu.addSubMenu ("Remove modulation", removeMenu);
                 menu.addItem (1000, "Clear all modulation to this knob");
@@ -2316,6 +2389,7 @@ private:
     bool dragHover = false;
     int dragSource = 0; // the source being dragged anywhere (V8-10)
     float pulse = 0.0f; // the right-click / assign ring, 1 to 0
+    std::unique_ptr<juce::TextEditor> amountEditor;
     juce::Colour pulseColour;
     bool hover = false;
     bool compact = false, inlineText = false;

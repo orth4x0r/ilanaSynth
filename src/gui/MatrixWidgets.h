@@ -456,16 +456,19 @@ private:
     juce::ParameterAttachment attachment;
 };
 
-// Polarity as two segments, UNI and BI (Serum 2's toggle). The parameter's
-// Auto (choice 0) follows the source's own range: the segment it gives is
+// Polarity as three segments: + (pushes the knob up), - (pushes it down) and
+// +/- (swings both sides), as Vital and Serum 2 offer. The parameter's Auto
+// (choice 0) follows the source's own range: the segment it gives is
 // outlined rather than filled. Click a segment to fix the polarity; click
 // the fixed one again, or double-click, to go back to Auto.
+// Segments 0, 1, 2 are the parameter's choices Unipolar (1), Negative (3)
+// and Bipolar (2).
 class PolarityToggle : public juce::Component,
                        public juce::SettableTooltipClient
 {
 public:
     explicit PolarityToggle (juce::RangedAudioParameter& parameterIn)
-        : attachment (parameterIn, [this] (float value) { choice = juce::roundToInt (value); updateTooltip(); repaint(); }, nullptr)
+        : attachment (parameterIn, [this] (float value) { choice = juce::roundToInt (value); updateTooltip(); repaint(); if (onChange != nullptr) onChange(); }, nullptr)
     {
         attachment.sendInitialUpdate();
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -479,6 +482,9 @@ public:
             autoBipolar = bipolar;
             updateTooltip();
             repaint();
+
+            if (onChange != nullptr)
+                onChange();
         }
     }
 
@@ -488,13 +494,17 @@ public:
         repaint();
     }
 
+    // Called when the polarity changes (the amount's text follows it).
+    std::function<void()> onChange;
+
     int getChoice() const { return choice; }
     bool isEffectivelyBipolar() const { return choice == 2 || (choice == 0 && autoBipolar); }
+    bool isNegative() const { return choice == 3; }
 
-    // Clicking a segment (0 UNI, 1 BI); public for the tests.
+    // Clicking a segment (0 +, 1 -, 2 +/-); public for the tests.
     void clickSegment (int segment)
     {
-        const auto wanted = segment == 0 ? 1 : 2;
+        const auto wanted = segment == 0 ? 1 : segment == 1 ? 3 : 2;
         attachment.setValueAsCompleteGesture ((float) (choice == wanted ? 0 : wanted));
     }
 
@@ -502,30 +512,26 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f, 2.5f);
         IlanaTheme::paintWell (g, bounds, 5.0f);
-        const auto lit = isEffectivelyBipolar() ? 1 : 0;
+        const auto lit = choice == 3 ? 1 : isEffectivelyBipolar() ? 2 : 0;
+        static const char* const names[] { "+", juce::CharPointer_UTF8 ("\xe2\x88\x92"), juce::CharPointer_UTF8 ("\xc2\xb1") };
 
-        for (int segment = 0; segment < 2; ++segment)
+        for (int segment = 0; segment < 3; ++segment)
         {
             const auto area = segmentBounds (segment);
 
             if (segment == lit)
             {
+                g.setColour (colour.withAlpha (0.85f));
+
                 if (choice == 0)
-                {
-                    // Auto: outlined in the source's colour.
-                    g.setColour (colour.withAlpha (0.85f));
-                    g.drawRoundedRectangle (area.reduced (1.0f), 4.0f, 1.2f);
-                }
+                    g.drawRoundedRectangle (area.reduced (1.0f), 4.0f, 1.2f); // Auto: outlined in the source's colour.
                 else
-                {
-                    g.setColour (colour.withAlpha (0.85f));
                     g.fillRoundedRectangle (area.reduced (1.0f), 4.0f);
-                }
             }
 
             g.setColour (segment == lit ? (choice == 0 ? IlanaTheme::Ui::text : IlanaTheme::Ui::bg) : IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (segment == 0 ? "UNI" : "BI", area, juce::Justification::centred);
+            g.drawText (names[segment], area, juce::Justification::centred);
         }
     }
 
@@ -534,7 +540,7 @@ public:
         if (event.mods.isPopupMenu() || event.mouseWasDraggedSinceMouseDown() || event.getNumberOfClicks() > 1)
             return;
 
-        clickSegment (event.position.x < (float) getWidth() * 0.5f ? 0 : 1);
+        clickSegment (juce::jlimit (0, 2, (int) (event.position.x / (float) juce::jmax (1, getWidth()) * 3.0f)));
     }
 
     void mouseDoubleClick (const juce::MouseEvent&) override { attachment.setValueAsCompleteGesture (0.0f); }
@@ -543,15 +549,17 @@ private:
     juce::Rectangle<float> segmentBounds (int segment) const
     {
         auto area = getLocalBounds().toFloat().reduced (2.0f, 4.0f);
-        return segment == 0 ? area.removeFromLeft (area.getWidth() * 0.5f) : area.withTrimmedLeft (area.getWidth() * 0.5f);
+        const auto width = area.getWidth() / 3.0f;
+        return area.withX (area.getX() + width * (float) segment).withWidth (width);
     }
 
     void updateTooltip()
     {
-        const auto range = isEffectivelyBipolar() ? juce::String ("Bipolar: swings either side of the knob's value")
-                                                  : juce::String ("Unipolar: only pushes the knob one way");
+        const auto range = choice == 3 ? juce::String ("Negative: only pushes the knob down")
+                                       : isEffectivelyBipolar() ? juce::String ("Bipolar: swings either side of the knob's value")
+                                                                : juce::String ("Positive: only pushes the knob up");
         setTooltip ("Polarity\n" + range + (choice == 0 ? juce::String ("  (auto: the source's own range).") : juce::String (".")) +
-                    "\nClick UNI or BI to fix it; click the fixed one again, or double-click, for auto.");
+                    "\nClick + (up), - (down) or +/- (both sides) to fix it; click the fixed one again, or double-click, for auto.");
     }
 
     juce::ParameterAttachment attachment;
@@ -670,6 +678,21 @@ public:
         viaAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("aux")), via);
         destinationAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("dst")), destination);
         amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, id ("amt"), amount);
+        // The amount reads as the share of the knob's range the route
+        // covers: a bipolar route's 100 % is the whole range (Mod::shownPercent).
+        // Typed numbers mean the same.
+        amount.textFromValueFunction = [this] (double value)
+        {
+            const auto percent = Mod::shownPercent ((float) value, polarity.isEffectivelyBipolar());
+            return (percent > 0 ? "+" : "") + juce::String (percent) + "%";
+        };
+        amount.valueFromTextFunction = [this] (const juce::String& text)
+        {
+            return (double) juce::jlimit (-1.0f, 1.0f, Mod::depthFromShownPercent (text.retainCharacters ("-+0123456789.").getFloatValue(),
+                                                                                    polarity.isEffectivelyBipolar()));
+        };
+        polarity.onChange = [this] { amount.updateText(); };
+        amount.updateText();
         stereoAttachment = std::make_unique<juce::ButtonParameterAttachment> (*state.getParameter (id ("stereo")), stereo);
         bypassAttachment = std::make_unique<ReverseButtonAttachment> (*state.getParameter (id ("byp")), bypass);
     }

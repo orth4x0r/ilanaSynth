@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "AnimationUtils.h"
 #include <BinaryData.h>
 
 #include <cmath>
@@ -306,7 +307,21 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
 
 inline bool fitsIn (const juce::Font& font, const juce::String& line, float room)
 {
-    return juce::GlyphArrangement::getStringWidth (font, line) <= room + 0.01f;
+    if (juce::GlyphArrangement::getStringWidth (font, line) > room + 0.01f)
+        return false;
+
+    // The width fits, but drawText curtails by its own glyph positions (the
+    // letters' advances, snapped): a line within a pixel or two of the edge
+    // can lose its last letter ("PRESSUR", A16-2). Ask it the same way.
+    if (juce::GlyphArrangement::getStringWidth (font, line) > room - 2.0f)
+    {
+        juce::GlyphArrangement whole, curtailed;
+        whole.addLineOfText (font, line, 0.0f, 0.0f);
+        curtailed.addCurtailedLineOfText (font, line, 0.0f, 0.0f, room, false);
+        return curtailed.getNumGlyphs() >= whole.getNumGlyphs();
+    }
+
+    return true;
 }
 
 inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
@@ -678,10 +693,30 @@ namespace FadeRate
 
 // The core, keyed by any address and a channel: the look-and-feel's own
 // hovers (animatedHover) run on it too. `fresh` false starts it at the target.
+struct FadeState { float value = 0.0f; double time = 0.0; };
+inline std::map<std::pair<const void*, int>, FadeState>& fadeStates()
+{
+    static std::map<std::pair<const void*, int>, FadeState> states;
+    return states;
+}
+
+// Where a fade is right now, without advancing it (`fallback` when it has
+// not run lately): for a second painter that has to agree with the first.
+inline float fadePeek (const void* key, int channel, float fallback)
+{
+    const auto& states = fadeStates();
+    const auto found = states.find ({ key, channel });
+
+    if (found == states.end() || found->second.time <= 0.0 || juce::Time::getMillisecondCounterHiRes() - found->second.time > 200.0)
+        return fallback;
+
+    return found->second.value;
+}
+
 inline float fadeValue (const void* key, int channel, float target, float rate, bool fresh, bool& moving)
 {
-    struct State { float value = 0.0f; double time = 0.0; };
-    static std::map<std::pair<const void*, int>, State> states;
+    using State = FadeState;
+    auto& states = fadeStates();
     static double lastSweep = 0.0;
     const auto now = juce::Time::getMillisecondCounterHiRes();
     moving = false;
@@ -716,7 +751,7 @@ inline float fadeValue (const void* key, int channel, float target, float rate, 
 inline float fade (juce::Component& owner, int channel, float target, float rate = FadeRate::slide)
 {
     auto moving = false;
-    const auto value = fadeValue (&owner, channel, target, rate, owner.isShowing(), moving);
+    const auto value = fadeValue (&owner, channel, target, rate, IlanaAnim::showing (owner), moving);
 
     if (moving)
         owner.repaint();
@@ -1079,13 +1114,24 @@ public:
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
-                           float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
+                           float targetPos, float rotaryStartAngle, float rotaryEndAngle,
                            juce::Slider& slider) override
     {
         using namespace IlanaTheme;
 
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
         const auto hover = animatedHover (&slider, slider.isMouseOver() || slider.isMouseButtonDown(), 12.0f);
+
+        // The hand follows the value under the pointer exactly; a value that
+        // changes by itself (a preset, undo, a reset, automation) glides to
+        // its place in a few frames instead of jumping. Offscreen (snapshots,
+        // tests) it is always exact.
+        auto gliding = false;
+        const auto sliderPos = fadeValue (&slider, 90, targetPos, 20.0f, ! slider.isMouseButtonDown() && IlanaAnim::showing (slider), gliding);
+
+        if (gliding)
+            slider.repaint();
+
         // (An inline knob with rings caps its dial so a ring fits its cell: "dialRadiusCap".)
         const auto radius = juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
                                         juce::jlimit (14.0f, 30.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f));
@@ -1100,7 +1146,7 @@ public:
         const auto enabled = slider.isEnabled();
 
         // Recent movement makes the arc flare, then settle.
-        const auto flare = valueFlare (&slider, sliderPos, slider.isMouseOverOrDragging());
+        const auto flare = valueFlare (&slider, targetPos, slider.isMouseOverOrDragging());
 
         juce::Path backgroundArc;
         backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
@@ -1260,9 +1306,15 @@ public:
         juce::ignoreUnused (highlighted, down);
         g.setFont (getTextButtonFont (button, button.getHeight()));
 
+        // The lit fill fades (drawButtonBackground); the text's colour follows
+        // it instead of snapping (the same fade: asking again in the same
+        // frame returns the value it just reached).
+        const auto lit = IlanaTheme::fade (button, 2, button.getToggleState() ? 1.0f : 0.0f);
+        const auto offText = button.findColour (juce::TextButton::textColourOffId);
+
         if (button.getToggleState() && button.isEnabled())
         {
-            g.setColour (IlanaTheme::Ui::text);
+            g.setColour (offText.interpolatedWith (IlanaTheme::Ui::text, lit));
             IlanaTheme::drawFitted (g, button.getButtonText(), button.getLocalBounds().reduced (4, 2),
                                     juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
             return;
@@ -1275,7 +1327,9 @@ public:
         const auto fontHeight = juce::roundToInt (getTextButtonFont (button, button.getHeight()).getHeight() * 0.6f);
         const auto leftIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnLeft() ? 4 : 2));
         const auto rightIndent = juce::jmin (fontHeight, 2 + cornerSize / (button.isConnectedOnRight() ? 4 : 2));
-        g.setColour (button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId)
+        g.setColour ((button.getToggleState() ? button.findColour (juce::TextButton::textColourOnId)
+                                              : lit > 0.01f && button.isEnabled() ? offText.interpolatedWith (IlanaTheme::Ui::text, lit) // (fading out)
+                                                                                  : offText)
                          .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
         IlanaTheme::drawFitted (g, button.getButtonText(),
                                 juce::Rectangle<int> (leftIndent, yIndent, button.getWidth() - leftIndent - rightIndent, button.getHeight() - yIndent * 2),

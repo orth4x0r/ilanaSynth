@@ -191,15 +191,39 @@ public:
 
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ("ROW " + juce::String (rows[(size_t) remapEditor->getSlotIndex()]->getDisplayNumber()), info.removeFromTop (16),
-                    juce::Justification::centredLeft);
+        g.drawText ("ROW " + juce::String (rows[(size_t) remapEditor->getSlotIndex()]->getDisplayNumber()) + juce::String::fromUTF8 (" \xc2\xb7 LIVE"),
+                    info.removeFromTop (16), juce::Justification::centredLeft);
 
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
-        g.setColour (colour);
-        IlanaTheme::drawFitted (g, ModNames::source ((int) slot.source, &processorRef), info.removeFromTop (24), juce::Justification::centredLeft, 1);
-        g.setColour (IlanaTheme::Ui::text);
-        IlanaTheme::drawFitted (g, juce::String::fromUTF8 ("\xe2\x86\x92 ") + ModNames::destination (slot.destination, processorRef), info.removeFromTop (24),
-                          juce::Justification::centredLeft, 1);
+        // The title strip over the curve names the route; here the numbers that
+        // curve is sending right now (V15-13): the input along it, what it
+        // answers, and that times the row's amount.
+        {
+            readoutArea = info.removeFromTop (46);
+            const auto liveIn = remapEditor->getLiveInput();
+            const auto out = remapEditor->getLiveOutput();
+            const auto signedText = [] (float value, int places) { return (value >= 0.0f ? "+" : "") + juce::String (value, places); };
+            const juce::String captions[] { "IN", "OUT", "SENDS" };
+            const juce::String values[] { liveIn >= 0.0f ? juce::String (liveIn, 2) : juce::String ("--"),
+                                          liveIn >= 0.0f ? signedText (out, 2) : juce::String ("--"),
+                                          liveIn >= 0.0f ? signedText (out * slot.depth * 100.0f, 0) + "%" : juce::String ("--") };
+            const auto cellWidth = juce::jmin (130, readoutArea.getWidth() / 3);
+            auto cells = readoutArea;
+            for (int i = 0; i < 3; ++i)
+            {
+                auto cell = cells.removeFromLeft (cellWidth);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText (captions[i], cell.removeFromTop (14), juce::Justification::centredLeft);
+                g.setColour (i == 0 ? IlanaTheme::Ui::text : colour);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::large, true));
+                IlanaTheme::drawFitted (g, values[i], cell.reduced (0, 0).withTrimmedRight (8), juce::Justification::centredLeft, 1);
+                if (i < 2)
+                {
+                    g.setColour (IlanaTheme::Ui::line);
+                    g.fillRect (cell.getRight() - 4, readoutArea.getY() + 4, 1, readoutArea.getHeight() - 8);
+                }
+            }
+        }
 
         info.removeFromTop (8);
         // QUICK SHAPES over the tiles at the dock's bottom.
@@ -455,6 +479,60 @@ public:
                             });
     }
 
+    // The rows an empty matrix will have, dimmed, behind the card (N16-5): the
+    // column headings and a ghost of each control, fading down the page, so the
+    // page reads as the matrix it becomes. Same columns as MatrixRow.
+    void paintGhostRows (juce::Graphics& g) const
+    {
+        const auto heads = headings();
+        if (heads.size() < 9)
+            return;
+
+        const auto bottom = viewport.getBottom();
+        const auto stride = MatrixRow::rowHeight + 7;
+        const auto ink = IlanaTheme::Ui::text3;
+        const auto rim = IlanaTheme::Ui::line;
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.setColour (ink.withAlpha (0.5f));
+        for (const auto& heading : heads)
+            g.drawText (heading.text, heading.area, juce::Justification::centredLeft);
+
+        auto y = headerArea.getBottom() + 3;
+        for (int row = 0; y + stride - 4 <= bottom - 4; ++row, y += stride)
+        {
+            // (Behind the starters they step back further, so those read clearly.)
+            const auto behindStarters = y + stride > starterArea().getY() - 26 && y < starterArea().getBottom();
+            const auto fade = juce::jmax (0.14f, 0.7f - 0.05f * (float) row) * (behindStarters ? 0.45f : 1.0f);
+            const auto box = [&] (int column, int inset = 0) { return heads[(size_t) column].area.withY (y).withHeight (MatrixRow::rowHeight).reduced (0, inset).toFloat(); };
+            g.setColour (IlanaTheme::Ui::raised.withAlpha (0.35f * fade));
+            g.fillRoundedRectangle (juce::Rectangle<float> ((float) headerArea.getX(), (float) y - 3.0f, (float) (heads.back().area.getRight() + 30 - headerArea.getX()),
+                                                            (float) MatrixRow::rowHeight + 6.0f), 6.0f);
+            g.setColour (ink.withAlpha (fade));
+            g.drawText (juce::String (row + 1), box (0).toNearestInt(), juce::Justification::centredLeft);
+            // ON switch, SOURCE and DESTINATION boxes, VIA tile.
+            g.setColour (rim.withAlpha (fade * 1.6f));
+            g.drawRoundedRectangle (box (1, 5).withSizeKeepingCentre (30.0f, 16.0f).reduced (0.5f), 8.0f, 1.0f);
+            g.drawRoundedRectangle (box (2, 2).reduced (0.5f), 5.0f, 1.0f);
+            g.drawRoundedRectangle (box (8, 2).reduced (0.5f), 5.0f, 1.0f);
+            g.drawRoundedRectangle (box (3, 4).reduced (0.5f), 5.0f, 1.0f);
+            g.drawRoundedRectangle (box (7, 4).withSizeKeepingCentre (26.0f, box (7, 4).getHeight()).reduced (0.5f), 5.0f, 1.0f);
+            g.drawRoundedRectangle (box (6, 3).reduced (0.5f), 5.0f, 1.0f);
+            g.drawRoundedRectangle (box (5, 2).reduced (0.5f), 5.0f, 1.0f);
+            // The AMOUNT slider: a track with its thumb at the middle; the CURVE's line.
+            const auto amount = box (4);
+            g.setColour (rim.withAlpha (fade * 2.0f));
+            g.fillRect (juce::Rectangle<float> (amount.getWidth() - 56.0f, 2.0f).withCentre ({ amount.getX() + (amount.getWidth() - 56.0f) * 0.5f, amount.getCentreY() }));
+            g.setColour (ink.withAlpha (fade * 1.4f));
+            g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ amount.getX() + (amount.getWidth() - 56.0f) * 0.5f, amount.getCentreY() }));
+            g.drawText ("0%", amount.toNearestInt().withTrimmedLeft (amount.getWidth() - 44), juce::Justification::centredRight);
+            const auto curveBox = box (5, 6);
+            g.setColour (ink.withAlpha (fade * 1.2f));
+            g.drawLine (curveBox.getX() + 6.0f, curveBox.getBottom() - 2.0f, curveBox.getRight() - 6.0f, curveBox.getY() + 2.0f, 1.0f);
+            g.drawText ("UNI", box (6).toNearestInt().withTrimmedRight (box (6).getWidth() * 0.5f), juce::Justification::centred);
+        }
+    }
+
     juce::Rectangle<float> emptyStateCard() const
     {
         const auto area = viewport.getBounds().withTrimmedTop (56);
@@ -468,6 +546,7 @@ public:
         const auto now = emptyClock;
         const auto area = viewport.getBounds().withTrimmedTop (56);
         const auto card = emptyStateCard();
+        paintGhostRows (g);
         IlanaTheme::paintCard (g, card, 10.0f, IlanaTheme::accent().withAlpha (0.3f));
 
         // Source dot -> animated cable -> knob.
@@ -1026,7 +1105,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
         {
             emptyShownSeconds = 0.0f;
             return;
@@ -1034,6 +1113,20 @@ private:
 
         if (changeGate.check (processorRef.getUiEpoch()))
             updateRows();
+
+        // The dock's live readout follows the input.
+        if (remapEditor != nullptr && ! readoutArea.isEmpty() && dockArea.isEmpty() == false)
+        {
+            const auto liveIn = remapEditor->getLiveInput();
+            const auto out = remapEditor->getLiveOutput();
+            const auto signature = (liveIn >= 0.0f ? juce::String (liveIn, 2) : juce::String ("--")) + juce::String (out, 2)
+                                   + juce::String (processorRef.readModSlot (remapEditor->getSlotIndex()).depth, 2);
+            if (signature != readoutSignature)
+            {
+                readoutSignature = signature;
+                repaint (readoutArea);
+            }
+        }
 
         // The empty state's cable plays for a few seconds after the page
         // opens, and while the mouse is over it, then rests.
@@ -1046,6 +1139,8 @@ private:
     }
 
     float emptyShownSeconds = 0.0f, emptyClock = 0.0f;
+    juce::Rectangle<int> readoutArea;
+    juce::String readoutSignature;
     IlanaAnim::ChangeGate changeGate;
 
     // Shows the patch's macro names in the source lists.

@@ -147,6 +147,9 @@ inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope,
         return;
 
     const auto id = OperatorEg::envelopeChoice + 1;
+    // (An oscillator that is not an operator but still holds OP ENV keeps the item, so the menu
+    // shows its setting rather than a blank: N16-3.)
+    envelopeChoice = envelopeChoice || current == OperatorEg::envelopeChoice;
     const auto has = envelope->indexOfItemId (id) >= 0;
     if (has == envelopeChoice)
     {
@@ -226,7 +229,8 @@ inline juce::String describe (const IlanaSynthAudioProcessor& p, int osc)
 }
 
 // A modulator: it feeds other oscillators and is not itself heard. Its
-// OUTPUT is a modulation depth, so the knob says DEPTH (review 12, I12-3).
+// A modulator's level is still its OUTPUT: a DX7 operator shows one level, named
+// OUTPUT everywhere (UI-CONVENTIONS, review 15 I15-1).
 inline bool isModulator (const IlanaSynthAudioProcessor& p, int osc)
 {
     return read (p, prefix (osc) + "_out") <= 0.5f && ! targets (p, osc).empty();
@@ -234,12 +238,14 @@ inline bool isModulator (const IlanaSynthAudioProcessor& p, int osc)
 
 inline const char* outputKnobName (const IlanaSynthAudioProcessor& p, int osc)
 {
-    return isModulator (p, osc) ? "DEPTH" : "OUTPUT";
+    juce::ignoreUnused (p, osc);
+    return "OUTPUT";
 }
 
 // PLAY's strip role line: what the oscillator does with its OUTPUT. A carrier
 // goes "TO OUTPUT", a modulator "MODULATES 1, 3" (I12-3); the tabs keep the
 // short form of describe().
+inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc);
 inline juce::String roleLine (const IlanaSynthAudioProcessor& p, int osc)
 {
     if (describe (p, osc).isEmpty())
@@ -247,6 +253,12 @@ inline juce::String roleLine (const IlanaSynthAudioProcessor& p, int osc)
 
     const auto out = read (p, prefix (osc) + "_out") > 0.5f;
     const auto modulated = targets (p, osc);
+
+    // A wavetable oscillator in an FM route says it in the OSC card's words
+    // and with its amounts: "TO OUTPUT, FM INTO OSC 1 30 %" (I15-12).
+    if (! isOperator (p, osc))
+        return (out ? juce::String ("TO OUTPUT") : juce::String ("SILENT")) + (describeLong (p, osc).isNotEmpty() ? ", " + describeLong (p, osc) : juce::String());
+
     if (modulated.empty())
         return out ? "TO OUTPUT" : "SILENT";
 
@@ -433,9 +445,6 @@ inline void groupExciteMenu (ComboControl& control)
     });
 }
 
-// Opens the PHYSICAL page on an oscillator's string (defined after
-// PhysicalPage, in FilterVectorPhysicalPages.h).
-void showPhysicalString (juce::Component& from, int osc);
 
 
 // The unison block's little picture (the OSC cards' UNISON row): one bar per
@@ -511,11 +520,9 @@ private:
     bool isActive = false;
 };
 
-// A Physical oscillator's STRING row, right of its knobs: the string's
-// partials as bars (their levels from the strike point, DAMP and STIFF, as
-// the PHYSICAL page's PARTIALS read-out), so the row reads as the wavetable
-// card's, full to its end, without a second copy of the string's controls
-// (those stay on PHYSICAL: UI review 9, I9-3). A picture only.
+// A Physical oscillator's card, right of its string and exciter: the
+// string's partials as bars (their levels from the strike point, DAMP and
+// STIFF). A picture only.
 class StringPartialsView : public juce::Component,
                            public juce::SettableTooltipClient
 {
@@ -523,21 +530,13 @@ public:
     StringPartialsView (IlanaSynthAudioProcessor& p, int index)
         : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
     {
-        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is. OSC > PHYSICAL edits the string.");
+        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is.");
     }
 
     void setColour (juce::Colour newColour)
     {
         colour = newColour;
         repaint();
-    }
-
-    std::function<void()> onClick;
-
-    void mouseUp (const juce::MouseEvent& event) override
-    {
-        if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
-            onClick();
     }
 
     // Re-reads the settings; repaints when they changed.
@@ -556,9 +555,12 @@ public:
         auto area = getLocalBounds().toFloat();
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto title = area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
-        g.drawText ("PARTIALS", title.toNearestInt(), juce::Justification::centredLeft, false);
-        area.removeFromLeft (8.0f);
+        // A tall view (two rows) names itself above the bars, a one-row view beside them.
+        const auto tall = area.getHeight() >= 44.0f;
+        const auto titleArea = tall ? area.removeFromTop (14.0f) : area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
+        IlanaTheme::drawFitted (g, "PARTIALS", titleArea, juce::Justification::centredLeft, 1);
+        if (! tall)
+            area.removeFromLeft (8.0f);
         const auto plot = area.reduced (0.0f, 2.0f);
 
         const auto damp = shown[0], stiff = shown[1];
@@ -570,7 +572,7 @@ public:
             const auto comb = 0.3f + 0.7f * std::abs (std::sin (juce::MathConstants<float>::pi * (float) n * pos));
             // (Drawn on a square-root scale, so the upper partials still show in a 28 px row.)
             const auto level = std::sqrt (juce::jlimit (0.02f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3))));
-            const auto bar = juce::Rectangle<float> (juce::jmin (4.0f, slot * 0.6f), plot.getHeight() * level)
+            const auto bar = juce::Rectangle<float> (juce::jmin (tall ? 7.0f : 4.0f, slot * 0.6f), plot.getHeight() * level)
                                  .withCentre ({ plot.getX() + slot * ((float) n - 0.5f), plot.getBottom() - plot.getHeight() * level * 0.5f });
             g.setColour (colour.withAlpha (0.45f + 0.5f * level));
             g.fillRoundedRectangle (bar, 2.0f);
@@ -775,7 +777,7 @@ class OscPage : public juce::Component,
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
               feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
 
-        // Every knob in the oscillator's own colour, as on PLAY and PHYSICAL.
+        // Every knob in the oscillator's own colour, as on PLAY.
         void setColour (juce::Colour colour)
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
@@ -858,6 +860,19 @@ public:
                                 physicalControls.damper, physicalControls.registerMap,
                                 physicalControls.epDistance, physicalControls.epPosition,
                                 physicalControls.fbGain, physicalControls.fbDistance);
+            // The card's one inline style, as the string's DECAY and DAMP.
+            for (auto* knob : { &physicalControls.stiffness, &physicalControls.pickup, &physicalControls.excitePos, &physicalControls.hardness,
+                                &physicalControls.pickPos, &physicalControls.bowPressure, &physicalControls.bowSpeed, &physicalControls.bridgeBuzz,
+                                &physicalControls.fretRattle, &physicalControls.hammer, &physicalControls.couple, &physicalControls.damper,
+                                &physicalControls.registerMap, &physicalControls.epDistance, &physicalControls.epPosition, &physicalControls.fbGain,
+                                &physicalControls.fbDistance })
+                knob->setInlineKnob (true);
+            physicalControls.slap.setInlineLabel (true);
+            // (The short names the grid has room for, as the list names them.)
+            physicalControls.bridgeBuzz.setLabelText ("BUZZ");
+            physicalControls.fretRattle.setLabelText ("RATTLE");
+            physicalControls.excitePos.setLabelText ("POSITION");
+            physicalControls.couple.setLabelText ("COUPLE");
 
             // The card's controls for each entry of the shared physical list.
             auto& osc = *controls[(size_t) i];
@@ -954,7 +969,6 @@ public:
             };
             card.spreadView.setColour (oscColour (i));
             card.partials.setColour (oscColour (i));
-            card.partials.onClick = [this, i] { showPhysicalString (*this, i); };
             addChildComponent (card.partials);
             card.status.setColour (oscColour (i));
             card.status.onClick = [i]
@@ -1000,12 +1014,17 @@ public:
             };
             addChildComponent (card.opEnvButton);
 
-            // A Physical oscillator's string has one editor, the PHYSICAL page;
-            // here its picture, its main knobs and a link there (UI review 9,
-            // I9-3).
-            styleJumpLink (card.stringButton, "STRING");
-            card.stringButton.setTooltip ("Every control of this oscillator's string, exciter and body is on the PHYSICAL page");
-            card.stringButton.onClick = [this, i] { showPhysicalString (*this, i); };
+            // A Physical oscillator's card holds its whole string and exciter
+            // (the PHYSICAL tab folded in, 2026-10-10); the body it shares
+            // with the other voices is on FILTER, the soundboard in the strip
+            // below.
+            styleJumpLink (card.stringButton, "BODY");
+            card.stringButton.setTooltip ("The resonant body is on the FILTER page; the soundboard is in the strip below the oscillators");
+            card.stringButton.onClick = [this]
+            {
+                if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                    editor->showPage ("FILTER");
+            };
             addChildComponent (card.stringButton);
 
             card.sampleLoadButton.setButtonText ("LOAD...");
@@ -1438,18 +1457,42 @@ private:
                 break;
             }
             case Kind::physical:
-                // The string is edited on PHYSICAL only (UI review 9, I9-3): the
-                // card keeps its exciter, DECAY and DAMP (PLAY's two).
-                add (osc.excite, 0, 0, 2);
-                add (osc.stringDecay, 0, 2);
-                add (osc.stringDamp, 0, 3);
-                add (osc.level, 1, 0);
-                add (osc.pan, 1, 1);
-                add (osc.semi, 1, 3);
-                add (osc.fine, 1, 4);
-                add (osc.ampEnv, 1, 5);
-                unisonRow (2, true);
+            {
+                // The whole string on the card (the PHYSICAL tab folded in,
+                // 2026-10-10): STRING, then EXCITER (its menu two cells wide),
+                // on the same nine columns; a tine or reed has so few that
+                // both share the first row. PITCH and UNISON as on every card.
+                const auto rows = physicalControlRows (juce::roundToInt (readFloat (prefix + "_excite")));
+                const auto& lookup = physicalLookup[(size_t) index];
+                const auto merged = physicalRowsMerged (index);
+                int row = 0, col = 0;
+                for (size_t line = 0; line < rows.size(); ++line)
+                {
+                    if (line > 0 && ! merged)
+                    {
+                        ++row;
+                        col = 0;
+                    }
+                    for (const auto& spec : rows[line].second)
+                    {
+                        const juce::String suffix (spec.suffix);
+                        const auto found = lookup.find (suffix);
+                        if (found == lookup.end() || processorRef.apvts.getParameter (prefix + suffix) == nullptr)
+                            continue;
+                        const auto span = suffix == "_excite" ? 2 : 1;
+                        add (*found->second, row, col, span);
+                        col += span;
+                    }
+                }
+                const auto pitch = row + 1;
+                add (osc.level, pitch, 0);
+                add (osc.pan, pitch, 1);
+                add (osc.semi, pitch, 3);
+                add (osc.fine, pitch, 4);
+                add (osc.ampEnv, pitch, 5);
+                unisonRow (pitch + 1, true);
                 break;
+            }
             case Kind::grain:
             {
                 int col = 0;
@@ -1513,6 +1556,54 @@ private:
         return slots;
     }
 
+    // A tine's or reed's string and exciter fit one row (eight cells).
+    bool physicalRowsMerged (int osc) const
+    {
+        return isElectric (osc);
+    }
+
+    // The rows a card shows: a Physical card adds its EXCITER row.
+    int rowsOf (int osc) const
+    {
+        const auto kind = kindOf (osc);
+        if (kind == Kind::physical)
+            return physicalRowsMerged (osc) ? 3 : 4;
+        return numRows (kind, kind != Kind::sample || unisonShown (osc));
+    }
+
+    // A card's row names: a Physical card's from its exciter.
+    juce::String rowNameOf (int osc, int row) const
+    {
+        const auto kind = kindOf (osc);
+        if (kind != Kind::physical)
+            return rowName (kind, row);
+        if (physicalRowsMerged (osc))
+        {
+            const auto tine = juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")) == 7;
+            return row == 0 ? (tine ? "TINE" : "REED") : row == 1 ? "PITCH" : "UNISON";
+        }
+        return row == 0 ? "STRING" : row == 1 ? "EXCITER" : row == 2 ? "PITCH" : "UNISON";
+    }
+
+    // One sentence on what the exciter does, for the EXCITER row's free cells
+    // (as the PHYSICAL tab had them, A16-4).
+    juce::String physicalHint (int osc) const
+    {
+        static const char* const hints[] {
+            "A short click of noise plucks the string.",
+            "A longer noise burst rubs the string.",
+            "A saw wave drives the string.",
+            "A pulse wave drives the string.",
+            "A steady bow keeps the string sounding.",
+            "A hard felt strike: HAMMER sets the brightness.",
+            "Another oscillator drives the string.",
+            "A struck tine and its pickup.",
+            "A struck reed and its pickup.",
+            "A felt strike: HAMMER sets its brightness, POSITION where it lands.",
+            "The amp pushes sound back at the string." };
+        return hints[juce::jlimit (0, 10, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
+    }
+
     bool unisonShown (int osc) const
     {
         return readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f;
@@ -1545,9 +1636,10 @@ private:
     {
         int osc = 0;
         Kind kind = Kind::wavetable;
-        juce::Rectangle<int> bounds, header, well, wave, group, captionArea;
+        juce::Rectangle<int> bounds, header, well, wave, group, captionArea, statusArea;
         int rows = 3, columns = 9, rowHeight = 28, gridX = 0, gridWidth = 0, labelX = 0, labelWidth = rowLabelWidth;
-        std::array<int, 3> rowY {};
+        std::array<int, 4> rowY {};
+        juce::Rectangle<int> hintArea;
         std::vector<int> separatorY;
     };
 
@@ -1565,8 +1657,15 @@ private:
                 const auto rows = numRows (Kind::sample, readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f);
                 return 1 + cardHeaderHeight + 8 + sampleWaveMin + 8 + sampleGroupHeight (rows) + 8 + 1;
             }
-            default: return compactCardMin;
+            // (A Physical card's fourth row, EXCITER, at the same row height and gap.)
+            default: return compactCardMin + (rowsOf (osc) - 3) * (26 + rowGap);
         }
+    }
+
+    // What a compact card grows to with spare height.
+    int maximumCardHeight (int osc) const
+    {
+        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap);
     }
 
     static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
@@ -1628,7 +1727,7 @@ private:
                     heights[i] += slack / (int) samples.size();
             else if (! compacts.empty())
                 for (const auto i : compacts)
-                    heights[i] = juce::jmin (compactCardMax, heights[i] + slack / (int) compacts.size());
+                    heights[i] = juce::jmin (maximumCardHeight (shown[i]), heights[i] + slack / (int) compacts.size());
         }
 
         const auto width = getWidth() - sideMargin * 2;
@@ -1722,6 +1821,14 @@ private:
             osc.mode.setBounds (right.removeFromRight (100).withSizeKeepingCentre (100, 20));
             right.removeFromRight (6);
             card.captionArea = right.withTrimmedLeft (80);
+
+            // The FM chip / output bar has its own place at the header's right
+            // end, after the engine's name (A16-1: in the grid it sat on SCALE
+            // and WRP SPR); it takes what the name leaves, up to 190 px.
+            const auto statusWidth = juce::jlimit (0, 190, card.captionArea.getWidth() - 130);
+            auto status = card.captionArea;
+            card.statusArea = status.removeFromRight (statusWidth).withSizeKeepingCentre (statusWidth, 22);
+            card.captionArea = status;
         }
 
         if (card.kind == Kind::sample)
@@ -1756,9 +1863,9 @@ private:
             return;
         }
 
-        card.rows = numRows (card.kind, true);
+        card.rows = rowsOf (index);
         card.columns = 9;
-        card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - 2 * rowGap - 8) / 3);
+        card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - (card.rows - 1) * rowGap - 8) / card.rows);
         const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);
         const auto padTop = juce::jmax (4, (body.getHeight() - rowsHeight) / 2);
         card.well = { body.getX() + 10, body.getY() + juce::jmin (5, padTop), wellWidth, body.getHeight() - 2 * juce::jmin (5, padTop) };
@@ -1766,7 +1873,7 @@ private:
         card.gridX = card.labelX + rowLabelWidth + 8;
         card.gridWidth = inner.getRight() - 10 - card.gridX;
 
-        for (int r = 0; r < 3; ++r)
+        for (int r = 0; r < card.rows; ++r)
             card.rowY[(size_t) r] = body.getY() + padTop + r * (card.rowHeight + rowGap);
 
         for (const auto& slot : slotsFor (index))
@@ -1784,16 +1891,51 @@ private:
 
         // The right-hand cells: the FM chip or the output bar in PITCH's, the
         // unison picture in UNISON's.
+        // The string's partials take the right-hand cells the string, the
+        // exciter and PITCH leave free (two or three columns, down to PITCH);
+        // free cells left in the EXCITER row say what the exciter does.
+        card.hintArea = {};
         if (card.kind == Kind::physical)
-            pieces.partials.setBounds (cellRect (card, 0, 4, 5).reduced (4, 0));
-
-        if (card.kind != Kind::live)
         {
-            pieces.status.setBounds (cellRect (card, 1 - (card.kind == Kind::fm ? 1 : 0), 6, 3));
-            pieces.spreadView.setBounds (cellRect (card, 2, 6, 3));
+            const auto slots = slotsFor (index);
+            const auto pitchRow = card.rows - 2;
+            const auto used = [&slots] (int row, int col)
+            {
+                for (const auto& slot : slots)
+                    if (slot.row == row && col >= slot.col && col < slot.col + slot.span)
+                        return true;
+                return false;
+            };
+            const auto freeRun = [&] (int fromRow, int fromCol)
+            {
+                for (int r = fromRow; r <= pitchRow; ++r)
+                    for (int c = fromCol; c < 9; ++c)
+                        if (used (r, c))
+                            return false;
+                return true;
+            };
+            auto top = pitchRow;
+            while (top > 0 && freeRun (top - 1, 7))
+                --top;
+            const auto from = freeRun (top, 6) ? 6 : 7;
+            pieces.partials.setBounds (cellRect (card, top, from, 9 - from).getUnion (cellRect (card, pitchRow, from, 9 - from)).reduced (4, 0));
+
+            if (! physicalRowsMerged (index))
+            {
+                auto last = 0;
+                for (const auto& slot : slots)
+                    if (slot.row == 1)
+                        last = juce::jmax (last, slot.col + slot.span);
+                const auto to = top <= 1 ? from : 9;
+                if (to - last >= 2)
+                    card.hintArea = cellRect (card, 1, last, to - last).reduced (6, 0);
+            }
         }
-        else
-            pieces.status.setBounds (cellRect (card, 0, 6, 3));
+
+        pieces.status.setBounds (card.statusArea);
+        // (A wavetable's UNISON row keeps FRM SPR and WRP SPR in columns 6 and 7: the picture takes the last cell, A16-1.)
+        if (card.kind != Kind::live)
+            pieces.spreadView.setBounds (card.kind == Kind::wavetable ? cellRect (card, 2, 8, 1) : cellRect (card, card.rows - 1, 6, 3));
     }
 
     void paintOscCard (juce::Graphics& g, const CardGeometry& card) const
@@ -1830,7 +1972,7 @@ private:
             g.setColour (tint.withAlpha (0.8f));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             // (An operator's third row is there only for UNISON or a shaper in use.)
-            auto name = rowName (card.kind, r);
+            auto name = rowNameOf (index, r);
             if (card.kind == Kind::fm && r == 2)
             {
                 auto shaper = false;
@@ -1843,6 +1985,13 @@ private:
             }
             IlanaTheme::drawFitted (g, name,
                                     juce::Rectangle<int> (card.labelX, card.rowY[(size_t) r], card.labelWidth, card.rowHeight), juce::Justification::centredLeft, 1);
+        }
+
+        if (! card.hintArea.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, physicalHint (index), card.hintArea, juce::Justification::centredLeft, 2);
         }
 
         for (const auto y : card.separatorY)
@@ -1883,7 +2032,7 @@ private:
     };
 
     std::vector<std::tuple<juce::Rectangle<int>, juce::String, juce::Colour>> stripNames;
-    std::vector<juce::Rectangle<int>> stripSeparators;
+    std::vector<juce::Rectangle<int>> stripSeparators, stripPods;
 
     static int textWidth (const juce::String& text, float size, bool bold = false)
     {
@@ -1952,6 +2101,7 @@ private:
         {
             auto& group = groups[gi];
             const auto nameArea = juce::Rectangle<int> (x, row.getY(), group.nameWidth, row.getHeight());
+            const auto groupStart = x;
 
             if (group.nameSwitch != nullptr)
                 group.nameSwitch->setBounds (nameArea);
@@ -1967,12 +2117,13 @@ private:
                 x += entry.width;
             }
 
+            // Each group sits in its own quiet pod, its name first: the strip
+            // reads as groups, not one packed row (A16-9).
+            const auto pad = juce::jmax (2, juce::jmin (6, space - 1));
+            stripPods.push_back ({ groupStart - pad, row.getY(), x - groupStart + 2 * pad, row.getHeight() });
+
             if (gi + 1 < groups.size())
-            {
-                x += space;
-                stripSeparators.push_back ({ x, row.getCentreY() - 13, 1, 26 });
-                x += 1 + space;
-            }
+                x += 2 * space + 1;
         }
     }
 
@@ -1980,6 +2131,7 @@ private:
     {
         stripNames.clear();
         stripSeparators.clear();
+        stripPods.clear();
 
         auto inner = stripArea.reduced (12, 6);
         auto rowA = inner.removeFromTop (stripRowHeight);
@@ -2019,6 +2171,14 @@ private:
     void paintStrip (juce::Graphics& g) const
     {
         IlanaTheme::paintCard (g, stripArea.toFloat(), 10.0f, IlanaTheme::accent());
+
+        for (const auto& pod : stripPods)
+        {
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.18f));
+            g.fillRoundedRectangle (pod.toFloat(), 7.0f);
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.55f));
+            g.drawRoundedRectangle (pod.toFloat().reduced (0.5f), 7.0f, 1.0f);
+        }
 
         for (const auto& [area, name, colour] : stripNames)
         {
@@ -2062,7 +2222,8 @@ private:
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             key << osc << ":" << getMode (osc) << (OscRole::usesOperatorEg (processorRef, osc) ? "o" : "-") << OscRole::tuning (processorRef, osc)
-                << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-") << ";";
+                << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-")
+                << (getMode (osc) == 1 ? juce::String (juce::roundToInt (readFloat (prefix + "_excite"))) : juce::String()) << ";";
         }
         key << (stripOpen ? "open" : "shut") << (readBool ("sym_manual") ? "m" : "-") << (canAdd() ? "+" : "=");
         return key;
@@ -2147,7 +2308,7 @@ private:
     }
 
     // The list the tests pick an oscillator from (not drawn), each entry's role
-    // in its tooltip; also the OUTPUT / DEPTH name of an operator's level.
+    // in its tooltip; also the OUTPUT name of an operator's level.
     void updateTabItems()
     {
 
@@ -2498,10 +2659,9 @@ private:
                                static_cast<juce::Component*> (subOscLevel.get()) })
             if (control != nullptr && control->getAlpha() != (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha))
                 control->setAlpha (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha);
-        // COLOUR does nothing while there is no noise.
-        const auto colourAlpha = readFloat ("noise_level") > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
-        if (noiseColourStrip->getAlpha() != colourAlpha)
-            noiseColourStrip->setAlpha (colourAlpha);
+        // COLOUR stays a live knob at any noise level (V15-14).
+        if (noiseColourStrip->getAlpha() != 1.0f)
+            noiseColourStrip->setAlpha (1.0f);
 
         const auto boardOn = readBool ("sb_on");
         sbModel.setAlpha (boardOn ? 1.0f : IlanaTheme::dimmedAlpha);

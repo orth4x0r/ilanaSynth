@@ -440,6 +440,8 @@ public:
             fadeTotal = fadeRemaining = juce::jmax (1, samples);
     }
     bool isFadingOut() const noexcept { return fadeTotal > 0; }
+    // False until the note has been rendered once (a note stolen in the sample it started has made no sound to cut).
+    bool hasSounded() const noexcept { return sounded; }
 
     float getLastAmpValue() const { return lastAmpValue; }
     // Gain bringing each exciter's first-second RMS within ~2 dB of a plucked
@@ -780,6 +782,7 @@ private:
     bool envSlow[17] {};
     // SUSTAIN VOICES fade (startFadeOut): samples left of fadeTotal.
     int fadeTotal = 0, fadeRemaining = 0;
+    bool sounded = false;
     float ampGainFade = 1.0f;
     bool modFilterFm = false;
     float stepEnvelope (TensionAdsr& env, int index, bool control)

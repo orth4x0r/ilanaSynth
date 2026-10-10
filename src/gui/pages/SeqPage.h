@@ -493,18 +493,25 @@ public:
                 // stands in the column's middle, so no row floats 100 px from the next.)
                 const auto isMenu = [] (juce::Component* item) { return item == nullptr || dynamic_cast<ComboControl*> (item) != nullptr; };
                 const auto menuRow = 13 + 24 + 12;
+                auto menuRowHeight = menuRow;
                 auto rowHeight = juce::jlimit (cellHeight, cellHeight + 12, column.getHeight() / juce::jmax (1, rows));
                 auto needed = 0;
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)
                     needed += isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k])) ? menuRow : rowHeight;
-                column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed));
+                // (V15-15: the spare height is shared out between the rows, so the column fills
+                // its height instead of leaving a floor above and below.)
+                const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
+                const auto extra = juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount);
+                column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed + extra * rowCount));
+                menuRowHeight = menuRow + extra;
+                rowHeight += extra;
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)
                 {
                     std::vector<juce::Component*> pair { items[k] };
                     if (perRow == 2)
                         pair.push_back (k + 1 < items.size() ? items[k + 1] : nullptr);
                     const auto menus = isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k]));
-                    leftAligned (column.removeFromTop (menus ? menuRow : rowHeight), pair);
+                    leftAligned (column.removeFromTop (menus ? menuRowHeight : rowHeight), pair);
                 }
             }
             else

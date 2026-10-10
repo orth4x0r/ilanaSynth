@@ -13,7 +13,7 @@ inline juce::File findSourceTree()
 {
     const juce::String here (__FILE__);
     const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
-    for (const auto& base : { juce::File::getCurrentWorkingDirectory(), exe.getParentDirectory().getParentDirectory().getParentDirectory() })
+    for (const auto& base : { juce::File::getCurrentWorkingDirectory(), exe.getParentDirectory().getParentDirectory(), exe.getParentDirectory().getParentDirectory().getParentDirectory() })
     {
         const auto file = juce::File::isAbsolutePath (here) ? juce::File (here) : base.getChildFile (here);
         if (const auto src = file.getParentDirectory().getSiblingFile ("src"); src.getChildFile ("gui").isDirectory())
@@ -102,7 +102,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         std::set<juce::String> seen;
         auto painted = 0, shrunkCount = 0;
 
-        for (const auto* preset : { "Neuro Wobble", "Felt Hammer Board", "E.PIANO 1 (ROM1A)" })
+        for (const auto* preset : { "Neuro Wobble", "Felt Hammer Board", "E.PIANO 1 (ROM1A)", "Init", "Bright Concert Grand" })
         {
             loadNamed (preset);
 
@@ -121,6 +121,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     probe = {};
                     probe.armed = true;
                     editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+                    // And at the 1.5 x pixel scale of the review's screenshots
+                    // (A16-2: "PRESSUR" was only cut there).
+                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
                     probe.armed = false;
                     ++painted;
                     shrunkCount += probe.shrunk.size();
@@ -382,6 +385,92 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         const auto meterBounds = boundsInEditor (meter);
         expect (meter != nullptr && meterBounds.getRight() <= editor.getWidth() - 26,
                 "the OUT meter keeps clear of the window's corner (" + meterBounds.toString() + " in " + juce::String (editor.getWidth()) + ")");
+    }
+
+    // Review 17 polish: the OUT meter's scale sits wholly inside its box, wherever the meter is
+    // drawn; every parameter's help fits the hover line whole (no "..."); the TAPE STOP time
+    // reads in its own unit.
+    {
+        auto& probe = IlanaTheme::textFitProbe();
+
+        // The meter: its three labels' letters lie within the well.
+        std::vector<OutputMeter*> meters;
+        findAll<OutputMeter> (editor, meters);
+        auto labelsChecked = 0;
+        juce::StringArray outside;
+        {
+            OutputMeter meter (processor);
+            meter.setBounds (0, 0, 110, 30);
+            for (auto* shape : { &meter })
+            {
+                probe = {};
+                probe.armed = true;
+                probe.recordRects = true;
+                probe.origin = {};
+                shape->createComponentSnapshot (shape->getLocalBounds(), true, 1.5f);
+                probe.armed = false;
+                for (const auto& [text, rect] : probe.rects)
+                    if (text == "0" || text == "-12" || text == "-24")
+                    {
+                        ++labelsChecked;
+                        if (! shape->getLocalBounds().contains (rect))
+                            outside.add (text + " " + rect.toString());
+                    }
+            }
+        }
+        probe = {};
+        expect (labelsChecked == 3 && outside.isEmpty(),
+                "the OUT meter's scale labels lie inside its box (" + juce::String (labelsChecked) + " checked"
+                    + (outside.isEmpty() ? juce::String() : ", outside: " + outside.joinIntoString (", ")) + ")");
+
+        // The hover line, at the size it has in the dock, with each parameter's own help.
+        if (auto* line = findChild<InfoStrip> (editor))
+        {
+            juce::StringArray cut;
+            auto checked = 0, longHelps = 0;
+            juce::String dump;
+            const auto dumping = std::getenv ("ILANA_HELP_DUMP") != nullptr;
+            // Every parameter's help shows whole in the line (its first sentence is short enough;
+            // later sentences are for the tooltip).
+            for (auto* parameter : processor.getParameters())
+                if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+                {
+                    const auto help = describeParameter (withId->paramID);
+                    if (help.isEmpty())
+                        continue;
+                    // (The title as the hover line shows it: "OSC 1 > Grain Spread", the control's own name.)
+                    const auto name = withId->getName (32);
+                    const auto own = name.fromFirstOccurrenceOf (" ", false, false);
+                    const auto title0 = "OSC 1 " + juce::String::fromUTF8 ("\xe2\x80\xba") + " " + (own.isNotEmpty() ? own : name);
+                    line->showTextForTest (title0, help);
+                    probe = {};
+                    probe.armed = true;
+                    line->createComponentSnapshot (line->getLocalBounds(), true, 1.0f);
+                    probe.armed = false;
+                    ++checked;
+                    if (dumping)
+                        dump << withId->paramID << "\t" << (probe.cutDetails.isEmpty() ? "ok" : "CUT") << "\t" << title0 << "\t" << help << "\n";
+                    longHelps += probe.cutDetails.isEmpty() ? 0 : 1;
+                    if (! probe.cutDetails.isEmpty())
+                        cut.add (withId->paramID + " (" + probe.cutDetails[0].upToLastOccurrenceOf (": needs", false, false) + ")");
+                }
+            probe = {};
+            line->restOn (nullptr);
+            std::cout << "  (hover line: " << longHelps << " of " << checked << " helps still trail off)" << std::endl;
+            if (dumping)
+            {
+                juce::File (std::getenv ("ILANA_HELP_DUMP")).replaceWithText (dump);
+                std::exit (0);
+            }
+            expect (checked > 100 && cut.isEmpty(),
+                    "no parameter's help trails off in the hover line, N must be 0 (" + juce::String (checked) + " checked"
+                        + (cut.isEmpty() ? juce::String() : ", cut: " + cut.joinIntoString (" | ")) + ")");
+        }
+        else
+            expect (false, "the editor has a hover line");
+
+        expect (describeValue ("fx_tape_stop_time", 0.6f) == "600 ms" && describeValue ("fx_tape_stop_time", 1.5f) == "1.50 s",
+                "TAPE STOP's time reads 600 ms / 1.50 s, not \"1 ms\" (" + describeValue ("fx_tape_stop_time", 0.6f) + ")");
     }
 
     // I8-21, I8-20: with the approved OSC design the shared tabs are gone (the

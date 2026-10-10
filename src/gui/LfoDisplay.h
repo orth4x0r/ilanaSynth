@@ -269,6 +269,30 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.9f));
         g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
 
+        // The value scale and the live reading (N16-4: one line in a big well):
+        // +1 / 0 / -1 against the centre line, and where the dot is now.
+        std::vector<std::pair<juce::String, float>> scaleLabels;
+        if (plot.getHeight() > 120.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (const auto [level, name] : { std::pair<float, const char*> { 1.0f, "+1" }, { 0.0f, "0" }, { -1.0f, "-1" } })
+            {
+                const auto y = centreY - level * halfHeight;
+                if (level != 0.0f)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.05f));
+                    g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre ({ plot.getCentreX(), y }));
+                }
+                scaleLabels.push_back ({ name, y });
+            }
+            const auto readout = juce::String ("PHASE ") + juce::String (phase - std::floor (phase), 2) + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  VALUE "))
+                                 + (value >= 0.0f ? "+" : "") + juce::String (value, 2);
+            g.setColour (traceColour.interpolatedWith (juce::Colours::white, 0.35f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, readout, juce::Rectangle<float> (wellArea().getX() + 12.0f, wellArea().getY() + 4.0f, 190.0f, 12.0f).toNearestInt(),
+                                    juce::Justification::centredLeft, 1);
+        }
+
         if (shape == IlanaSynthAudioProcessor::curveShape)
         {
             paintCurveHandles (g, plot, centreY, halfHeight);
@@ -284,6 +308,22 @@ public:
             {
                 const auto tension = curve.points[(size_t) dragTension].tension;
                 paintReadout (g, tensionHandle (dragTension), "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2), plot);
+            }
+        }
+
+        // The value scale last, on small plates just inside the graph's left edge: a node
+        // or a trace at the edge never covers it.
+        {
+            const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+            g.setFont (tiny);
+            for (const auto& [name, y] : scaleLabels)
+            {
+                const auto width = juce::GlyphArrangement::getStringWidth (tiny, name) + 1.0f;
+                const juce::Rectangle<float> box (plot.getX() + 10.0f, y - 12.0f, 24.0f, 11.0f);
+                g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+                g.fillRoundedRectangle (box.withWidth (width + 4.0f).translated (-2.0f, 0.0f), 2.0f);
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+                g.drawText (name, box, juce::Justification::centredLeft);
             }
         }
 
@@ -897,8 +937,20 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("click: add   drag: move   dot on a line: curve   double-click: delete   right-click: shapes",
-                    wellArea().toNearestInt().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
+        // The whole hint at any width: the longest wording that fits (nothing cut).
+        const auto hintBox = wellArea().toNearestInt().reduced (10, 2).removeFromBottom (12);
+        const auto hintFont = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        juce::String hint;
+        for (const auto* wording : { "click: add   drag: move   dot on a line: curve   double-click: delete   right-click: shapes",
+                                     "click: add   drag: move   dot: curve   double-click: delete   right-click: shapes",
+                                     "click: add   drag: move   dot: curve   double-click: delete",
+                                     "click: add   drag: move   double-click: delete" })
+        {
+            hint = wording;
+            if (juce::GlyphArrangement::getStringWidth (hintFont, hint) <= (float) hintBox.getWidth())
+                break;
+        }
+        IlanaTheme::drawFitted (g, hint, hintBox, juce::Justification::centredLeft, 1);
     }
 
     // Simulated physics output across physicsCycles cycles, one value per
@@ -1124,7 +1176,7 @@ private:
         if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), true), index))))
+        if (IlanaAnim::showing (*this) && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), true), index))))
             repaint();
     }
 

@@ -214,10 +214,6 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
 
                     const auto pageArea = editor.getLocalArea (shown, shown->getLocalBounds()).reduced (4);
                     auto snapshot = editor.createComponentSnapshot (pageArea, true, 1.0f).createCopy();
-                    // (A PHYSICAL page that has no physical oscillator is a composed
-                    // empty state: its picture and message are not measured.)
-                    if (page == "PHYSICAL" && juce::String (preset) != "Felt Hammer Board")
-                        continue;
                     // (The matrix's rows and its REMAP note share the page's
                     // height by their own rule, tested in LayoutUiTests9.)
                     if (page == "MATRIX")
@@ -520,7 +516,7 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                                         + (cutTexts.isEmpty() ? juce::String() : ": " + cutTexts.joinIntoString (" | ")));
     }
 
-    // V10-9: SUB + NOISE (OSC) and BODY (PHYSICAL) fold while off, and open on
+    // V10-9: SUB + NOISE (OSC) and BODY (FILTER) fold while off, and open on
     // their switch.
     {
         loadNamed ("Felt Hammer Board");
@@ -556,7 +552,7 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto subOn = subAlpha() > 0.99f;
         setParam ("subosc_on", 0.0f);
         settle (300);
-        editor.showPage ("PHYSICAL");
+        editor.showPage ("FILTER");
         settle (500);
         // (BODY stays drawn, dimmed, while off: V13-9.)
         const auto bodyKnob = [&editor] (const juce::String& id) -> KnobControl*

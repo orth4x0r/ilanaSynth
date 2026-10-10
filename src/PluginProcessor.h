@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <utility>
 
@@ -57,6 +59,8 @@ public:
     static constexpr int numFxSlots = 10;
     // Tests: keep the effects running through silence (no rack sleep).
     inline static bool disableFxSleep = false;
+    // Tests: how often the effects' safety net caught a non-finite sample (reset to 0) or one beyond +-16 (clamped).
+    inline static std::atomic<long> sanitisedNonFinite { 0 }, sanitisedClamped { 0 };
     // Tests: -1 follows MULTI-CORE, 0 one core, 1 several.
     inline static int forceVoiceThreads = -1;
     static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
@@ -389,11 +393,17 @@ public:
 
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
     void panic() { synth.allNotesOff (0, false); }
+
+    // A whole patch's parameters swapped in under playing notes (the A/B
+    // button): the next block's first sample continues from the last one's
+    // (the step is cancelled, then eased out over 2 ms) instead of jumping.
+    // Call it after the new values are in.
+    void easeNextBlock() { easeStep = true; }
     float getCpuUsage() const { return cpuUsage.load(); }
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
-    // For views that animate with the playing (the PHYSICAL page): notes
+    // For views that animate with the playing (a Physical oscillator's string): notes
     // started so far, and the last block's peak (not reset by reading).
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
     float getOutputPeak() const { return outputLevelDisplay.load(); }
@@ -883,6 +893,7 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    std::atomic<bool> easeStep { false };
     // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
     std::atomic<bool> exciterLevelMatch { true };
     void updateExciterLevelMatch (bool savedWithMatch);
@@ -1259,6 +1270,45 @@ private:
     float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
     float tiltLowState[2] {};
     float tiltHighState[2] {};
+    // Knobs read once a block (an effect's MIX, a slot's blend, MASTER) are
+    // eased across the block from where the last block ended, so a knob move
+    // or a host's automation step is a ramp, not a step at the block edge. A
+    // steady knob gives its value exactly (the ramp's start is its end), so
+    // nothing changes while nothing moves. Reset with a patch change.
+    struct BlockRamp
+    {
+        float last = std::numeric_limits<float>::quiet_NaN();
+        float from = 0.0f, step = 0.0f;
+
+        void begin (float target, int numSamples) noexcept
+        {
+            from = std::isfinite (last) ? last : target;
+            step = numSamples > 0 ? (target - from) / (float) numSamples : 0.0f;
+            last = target;
+        }
+        float at (int i) const noexcept { return from + step * (float) i; }
+        bool moving() const noexcept { return step != 0.0f; }
+        void reset() noexcept { last = std::numeric_limits<float>::quiet_NaN(); }
+    };
+    enum class FxRamp
+    {
+        DriveMix, CrushMix, CombMix, DelayMix, StutterMix, SmearMix, CompMix, HaasMix, FlangerMix, DimMix, GateMix,
+        TapeStopMix, OttMix, WidthMix, ShifterMix, RingMix, OctaverMix, VowelMix, FeedbackMix,
+        DriveAmount, FoldAmount, DelayTimeL, DelayTimeR, AmpDrive, AmpLevel, CompMakeup, HaasDelay, TiltLow, TiltHigh,
+        UtilGain, LimitCeiling, Count
+    };
+    std::array<BlockRamp, (size_t) FxRamp::Count> fxRamps;
+    std::array<BlockRamp, (size_t) numFxSlots> slotBlendRamps;
+    BlockRamp masterRamp;
+    void resetBlockRamps() noexcept
+    {
+        for (auto& ramp : fxRamps)
+            ramp.reset();
+        for (auto& ramp : slotBlendRamps)
+            ramp.reset();
+        masterRamp.reset();
+    }
+
     float ottLowState[2][2] {};
     float ottHighState[2][2] {};
     float ottEnvelope[2][3] {};
@@ -1288,7 +1338,7 @@ private:
     juce::AudioBuffer<float> fxBand;
     // PARALLEL routing: the rack's input, and one branch's copy of it.
     juce::AudioBuffer<float> fxParallelIn, fxBranch;
-    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
+    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend, float blendFrom);
     juce::AudioBuffer<float> reverbScratch;
     // KEEP DRY's wet copy, and how long its wet is still added after MIX
     // reaches 0 (review 7); reverbWetOnly while that copy is processed.

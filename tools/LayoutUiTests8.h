@@ -1,4 +1,4 @@
-// UI review 8, package R5 (PLAY / OSC / PHYSICAL / VECTOR / FILTER / FX
+// UI review 8, package R5 (PLAY / OSC / VECTOR / FILTER / FX
 // layout): checks for its fixes, each layout fix with a geometric check.
 // Included by Snapshot.cpp after its helpers (findAll, findChild, settle,
 // expect, visibleInTree); runLayoutReview8Tests runs from runUiTests.
@@ -259,64 +259,6 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     "SIGNAL FLOW: strings and soundboard together are one PHYSICAL node, never a joined name that wraps (I11-8; " + box.toString() + ")");
         }
         setParam ("sym_on", 0.0f);
-    }
-
-    // PHYSICAL (V8-23, V8-6): BODY and SOUNDBOARD each with a switch and
-    // their main controls, none overlapping; the empty state at the page's
-    // margins.
-    {
-        loadNamed ("Felt Hammer Board");
-        editor.showPage ("PHYSICAL");
-        settle (400);
-        setParam ("res_on", 1.0f);
-        setParam ("sb_on", 1.0f);
-        settle (300);
-        auto* bodyOn = toggleFor ("res_on");
-        auto* boardOn = toggleFor ("sb_on");
-        auto* amount = knobFor ("res_amount");
-        auto* mix = knobFor ("sb_mix");
-        // The design's rows each carry one "EDIT ›": BODY's above SOUNDBOARD's.
-        std::vector<juce::Button*> editLinks;
-        {
-            std::vector<juce::Button*> buttons;
-            findAll<juce::Button> (editor, buttons);
-            for (auto* button : buttons)
-                if (visibleInTree (button) && ! button->getBounds().isEmpty() && button->getButtonText() == juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba"))
-                    editLinks.push_back (button);
-            std::sort (editLinks.begin(), editLinks.end(), [&editor] (juce::Button* a, juce::Button* b)
-                       { return editor.getLocalArea (a->getParentComponent(), a->getBounds()).getY() < editor.getLocalArea (b->getParentComponent(), b->getBounds()).getY(); });
-        }
-        auto* bodyLink = editLinks.size() > 0 ? editLinks[0] : nullptr;
-        auto* boardLink = editLinks.size() > 1 ? editLinks[1] : nullptr;
-        const auto clash = overlaps ({ bodyOn, boardOn, amount, knobFor ("res_decay"), mix, bodyLink, boardLink });
-        expect (bodyOn != nullptr && boardOn != nullptr && amount != nullptr && mix != nullptr && bodyLink != nullptr && boardLink != nullptr
-                    && clash.isEmpty(),
-                "PHYSICAL: BODY and SOUNDBOARD have their switch, main controls and a link, none overlapping " + clash);
-        auto* page = editor.getCurrentPage();
-        if (bodyOn != nullptr && page != nullptr)
-        {
-            const auto wasOn = processor.apvts.getRawParameterValue ("res_on")->load();
-            const auto boardWas = processor.apvts.getRawParameterValue ("sb_on")->load();
-            setParam ("res_on", 0.0f);
-            setParam ("sb_on", 0.0f);
-            settle (300);
-            // (Off, they stay drawn and dim: the page keeps its size, V13-9.)
-            expect (amount != nullptr && amount->isVisible() && amount->getAlpha() < 0.99f && mix != nullptr && mix->isVisible()
-                        && mix->getAlpha() < 0.99f,
-                    "PHYSICAL: BODY and SOUNDBOARD off stay drawn, dimmed (V13-9)");
-            setParam ("res_on", wasOn);
-            setParam ("sb_on", boardWas);
-        }
-
-        setParam ("osc1_mode", 0.0f);
-        settle (500);
-        auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
-        auto* makePhysical = buttonNamed ("SWITCH TO PHYSICAL");
-        expect (view != nullptr && page != nullptr && view->getWidth() > page->getWidth() - 60 && view->getAlpha() < 0.99f && makePhysical != nullptr
-                    && makePhysical->isVisible() && makePhysical->getY() < page->getHeight() / 4 && amount != nullptr && amount->isVisible(),
-                "PHYSICAL: not physical, the page keeps its shape: the preview at its margins, the switch on the picker's row, BODY and SOUNDBOARD still there (V14-3)");
-        setParam ("osc1_mode", 1.0f);
-        settle (300);
     }
 
     // VECTOR (V8-26, S8-38): the pad right under the header; the controls

@@ -1175,6 +1175,31 @@ private:
             }
         }
 
+        // A multisample region's own sustain loop (SF2 / SFZ loop points, the
+        // ones the voice wraps at): dashed lines and flags while LOOP is on
+        // (S15-4). Display only.
+        if (loop && ! compact && ! sample->zones.empty() && numSamples > 1)
+            if (const auto* zone = sample->zoneFor (60, 100); zone != nullptr && zone->loop && zone->loopEnd > zone->loopStart)
+            {
+                const auto inX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopStart / (float) numSamples) * plot.getWidth();
+                const auto outX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopEnd / (float) numSamples) * plot.getWidth();
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                for (const auto& [x, name, leftOf] : { std::tuple<float, juce::String, bool> { inX, "LOOP IN", false }, { outX, "LOOP OUT", true } })
+                {
+                    const float dashes[] { 3.0f, 3.0f };
+                    g.setColour (traceColour.withAlpha (0.95f));
+                    g.drawDashedLine (juce::Line<float> (x, plot.getY(), x, plot.getBottom()), dashes, 2, 1.5f);
+                    if (plot.getHeight() > 60.0f)
+                    {
+                        const auto width = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), name) + 10.0f;
+                        const auto flag = juce::Rectangle<float> (leftOf ? x - width : x, plot.getY() + 16.0f, width, 13.0f);
+                        g.fillRoundedRectangle (flag, 2.0f);
+                        g.setColour (juce::Colours::black.withAlpha (0.8f));
+                        g.drawText (name, flag, juce::Justification::centred, false);
+                    }
+                }
+            }
+
         if (fadeIn > 0.001f)
         {
             juce::Path fadePath;
@@ -1368,7 +1393,7 @@ private:
         {
             modeEpoch = epoch;
             updateViewButtons();
-            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS)." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
                                             "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                         : isLiveInput() ? "The audio coming into ilanaSynth FX."
                         : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
@@ -1404,7 +1429,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0)
             liveSeconds += (double) frameSeconds();
 
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))

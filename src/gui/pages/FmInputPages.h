@@ -158,7 +158,7 @@ public:
         addChildComponent (pitchLfoLink);
         // An oscillator of another type: one click makes it an FM / DX7
         // operator (the same sound, the operator's controls).
-        // (An action, not a jump: the pill the PHYSICAL page's SWITCH TO PHYSICAL is.)
+        // (An action, not a jump: a tinted pill.)
         makeOperator.setButtonText ("SWITCH TO FM / DX7");
         IlanaTheme::makePill (makeOperator, fmColour());
         makeOperator.setToggleState (true, juce::dontSendNotification);
@@ -224,11 +224,10 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            const auto envelopeName = operators[(size_t) selectedOperator]->ampEnv.getComboBox().getText();
-            IlanaTheme::drawFitted (g, isFmType (selectedOperator)
-                                           ? "Edit " + envelopeName + " on MOD or PLAY, or pick OP ENV for a DX7 envelope here."
-                                           : OscRole::modeName (OscRole::mode (processorRef, selectedOperator))
-                                                 + ": tuned in semitones. Ratio and OP ENV are FM / DX7's.",
+            // One short hint, the same on every type (I15-11); the longer
+            // sentence is ENVELOPE's tooltip.
+            IlanaTheme::drawFitted (g, isFmType (selectedOperator) ? "Edit the envelope on MOD or PLAY."
+                                                                    : "Ratio and OP ENV are FM / DX7's.",
                                     ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
                                     juce::Justification::centredLeft, 3);
         }
@@ -290,7 +289,7 @@ public:
             resized();
             repaint();
         }
-        else if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        else if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
         {
             repaint (matrixCard);
             repaint (operatorCard.withHeight (26));
@@ -536,6 +535,13 @@ private:
             for (auto* control : controls.all())
                 control->setVisible (selected);
 
+            if (selected)
+            {
+                const auto tip = isFmType (op) ? juce::String ("Envelope\nEdit it on MOD or PLAY, or pick OP ENV for a DX7 envelope here.")
+                                               : juce::String ("Envelope\nEdit it on MOD or PLAY. Ratio tuning and OP ENV are FM / DX7's: switch this oscillator to FM / DX7 to use them.");
+                controls.ampEnv.setTooltip (tip);
+                controls.ampEnv.getComboBox().setTooltip (tip);
+            }
             controls.ratio.setVisible (selected && tune == OscTuning::Ratio);
             controls.snap.setVisible (selected && tune == OscTuning::Ratio);
             controls.fixedHz.setVisible (selected && tune == OscTuning::Fixed);
@@ -804,12 +810,14 @@ private:
         // (Three oscillators or fewer draw larger cells, so the matrix of a
         // small patch fills its card: UI review 9, V9-8.)
         const auto fewOperators = count <= 3;
+        // (V15-3: a one- or two-oscillator patch's cells are near-square, not 170 x 240 px with one
+        // dot each: the card's spare height goes to the readout at its foot, which lists the routes.)
         // (Cells are sized for their count, not stretched to the card: a
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 168 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
-        const auto columnWidth = juce::jmin (fewOperators ? 124 : 76, (inner.getWidth() - headWidth) / count);
+        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 100 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
+        const auto columnWidth = juce::jmin (fewOperators ? (count <= 2 ? 100 : 124) : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
@@ -929,9 +937,69 @@ private:
         if (extras)
         {
             const auto readoutTop = pairRow.getBottom() + 4;
-            const auto room = juce::jmin (readoutHeight, matrixCard.getBottom() - 6 - readoutTop);
+            const auto room = matrixCard.getBottom() - 6 - readoutTop;
             readoutArea = room >= 14 ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, room)
                                      : juce::Rectangle<int>();
+        }
+    }
+
+    // The matrix as a picture (N16-1): a node per oscillator in the grid, an arc over the row
+    // for each route with its depth, a short stem down from each one that is heard.
+    void paintRoutingPicture (juce::Graphics& g, juce::Rectangle<int> area) const
+    {
+        const auto ops = gridOps();
+        if (area.getHeight() < 70 || ops.empty())
+            return;
+
+        const auto count = (int) ops.size();
+        const auto scale = juce::jlimit (1.0f, 1.8f, ((float) area.getHeight() - 20.0f) / 80.0f);
+        const auto step = juce::jmin (90.0f * scale, (float) (area.getWidth() - 40) / (float) juce::jmax (1, count));
+        const auto left = (float) area.getCentreX() - step * (float) (count - 1) * 0.5f;
+        const auto rowY = (float) area.getCentreY() - 6.0f * scale;
+        const auto nodeAt = [&] (int k) { return juce::Point<float> (left + step * (float) k, rowY); };
+
+        for (int from = 0; from < count; ++from)
+            for (int to = 0; to < count; ++to)
+            {
+                const auto source = ops[(size_t) from], target = ops[(size_t) to];
+                if (from == to || ! isLiveCell (source, target) || cellAmount (source, target) <= 0.001f)
+                    continue;
+
+                const auto a = nodeAt (from), b = nodeAt (to);
+                const auto height = juce::jmin (40.0f * scale, (14.0f + 10.0f * (float) std::abs (to - from)) * scale);
+                juce::Path arc;
+                arc.startNewSubPath (a.translated (0.0f, -12.0f * scale));
+                arc.cubicTo (a.translated (0.0f, -12.0f * scale - height), b.translated (0.0f, -12.0f * scale - height), b.translated (0.0f, -15.0f * scale));
+                g.setColour (FmDiagram::oscColour (source).withAlpha (0.8f));
+                g.strokePath (arc, juce::PathStrokeType (1.4f));
+                juce::Path head;
+                head.addTriangle (b.x - 3.5f * scale, b.y - 21.0f * scale, b.x + 3.5f * scale, b.y - 21.0f * scale, b.x, b.y - 14.0f * scale);
+                g.fillPath (head);
+            }
+
+        for (int k = 0; k < count; ++k)
+        {
+            const auto op = ops[(size_t) k];
+            const auto centre = nodeAt (k);
+            const auto colour = FmDiagram::oscColour (op);
+            g.setColour (colour.withAlpha (0.18f));
+            g.fillEllipse (juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre));
+            g.setColour (colour.withAlpha (0.9f));
+            g.drawEllipse (juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre), 1.4f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            IlanaTheme::drawFitted (g, juce::String (op + 1), juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre).toNearestInt(),
+                                    juce::Justification::centred, 1);
+
+            if (read (FmOperatorInfo::prefixOf (op) + "_out") > 0.5f)
+            {
+                g.setColour (colour.withAlpha (0.7f));
+                g.fillRect (centre.x - 0.75f, centre.y + 12.0f * scale, 1.5f, 8.0f * scale);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                IlanaTheme::drawFitted (g, "OUT", juce::Rectangle<float> (34.0f, 14.0f).withCentre (centre.translated (0.0f, 27.0f * scale)).toNearestInt(),
+                                        juce::Justification::centred, 1);
+            }
         }
     }
 
@@ -967,9 +1035,33 @@ private:
                     }
             g.setColour (IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, routes.isEmpty() ? juce::String ("No FM routes yet: hover a cell and click its dot.")
-                                                         : best + (routes.size() > 1 ? ", and " + juce::String (routes.size() - 1) + " more." : "."),
-                                    readoutArea, juce::Justification::centredLeft, 1);
+            constexpr int lineHeight = 20;
+            const auto lines = readoutArea.getHeight() / lineHeight;
+            if (lines >= 2)
+            {
+                // Room for more than one line (a small patch's cells are short): every route in
+                // words, or how to make one.
+                auto area = readoutArea;
+                if (routes.isEmpty())
+                    IlanaTheme::drawFitted (g, "No FM routes yet: hover a cell and click its dot.", area.removeFromTop (lineHeight),
+                                            juce::Justification::centredLeft, 1);
+                else
+                {
+                    // (The routes' words, then the picture of them under: the lines it needs first.)
+                    const auto words = juce::jmin (routes.size(), juce::jmax (1, lines - 4));
+                    for (int line = 0; line < words; ++line)
+                    {
+                        const auto last = line == words - 1 && routes.size() > words;
+                        IlanaTheme::drawFitted (g, last ? juce::String (routes.size() - line) + " more routes." : routes[line] + ".",
+                                                area.removeFromTop (lineHeight), juce::Justification::centredLeft, 1);
+                    }
+                }
+                paintRoutingPicture (g, area.withTrimmedTop (4));
+            }
+            else
+                IlanaTheme::drawFitted (g, routes.isEmpty() ? juce::String ("No FM routes yet: hover a cell and click its dot.")
+                                                             : best + (routes.size() > 1 ? ", and " + juce::String (routes.size() - 1) + " more." : "."),
+                                        readoutArea, juce::Justification::centredLeft, 1);
         }
 
         // Matrix cells: tinted by the source, brighter the deeper the route;

@@ -25,7 +25,7 @@ class FxDisplay : public juce::Component,
                   private IlanaAnim::FrameTimer
 {
 public:
-    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb, vowel, comb, chorus, phaser, vocoder, airwindowsImpulse, airwindowsResponse, freeze };
+    enum class Kind { none, transfer, airwindowsTransfer, dynamics, delay, reverb, vowel, comb, chorus, phaser, vocoder, airwindowsImpulse, airwindowsResponse, freeze, picture };
 
     explicit FxDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
@@ -67,6 +67,9 @@ public:
             case 37: case 39: case 40: return Kind::airwindowsTransfer; // AW Dynamics, Console, Lo-Fi: what it does to a sine
             case 38: return Kind::airwindowsResponse; // AW EQ
             case 34: case 35: return Kind::airwindowsImpulse; // AW Reverb (spaces), AW Delay (echo)
+            // The effects that were a sentence in a well: a small picture each (N16-3).
+            case 8: case 10: case 11: case 14: case 15: case 17: case 18: case 19: case 22:
+            case 23: case 24: case 25: case 26: case 28: case 36: case 41: return Kind::picture;
             default: return Kind::none;
         }
     }
@@ -76,7 +79,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         // Offscreen (snapshots, tests) the poll doesn't run: catch up here.
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             refresh (false);
 
         IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
@@ -96,8 +99,10 @@ public:
             case Kind::airwindowsImpulse:  paintImpulse (g); break;
             case Kind::airwindowsResponse: paintResponse (g); break;
             case Kind::freeze:             paintFreeze (g); break;
+            case Kind::picture:            paintPicture (g); break;
             case Kind::none:               break;
         }
+        flushTicks (g);
     }
 
 private:
@@ -438,13 +443,57 @@ private:
         }
     }
 
+    // A tiny axis label: grey, tiny type, never louder than the grid it names. It is queued and
+    // drawn after the picture (flushTicks) on a small plate in the well's colour, so a trace,
+    // fill or bar never runs through it.
+    void paintTick (juce::Graphics&, const juce::String& text, juce::Rectangle<float> box, juce::Justification justification, float alpha = 0.55f) const
+    {
+        pendingTicks.push_back ({ text, box, justification, alpha });
+    }
+
+    void flushTicks (juce::Graphics& g) const
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        for (const auto& tick : pendingTicks)
+        {
+            const auto room = tick.box.toNearestInt();
+            const auto width = juce::jmin ((float) room.getWidth(), juce::GlyphArrangement::getStringWidth (font, tick.text) + 1.0f);
+            auto plate = juce::Rectangle<float> (width, juce::jmin (tick.box.getHeight(), font.getHeight() + 1.0f));
+            plate.setCentre (tick.box.getCentre());
+            if (tick.justification.testFlags (juce::Justification::left))
+                plate.setX (tick.box.getX());
+            else if (tick.justification.testFlags (juce::Justification::right))
+                plate.setRight (tick.box.getRight());
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+            g.fillRoundedRectangle (plate.expanded (2.0f, 0.0f), 2.0f);
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (tick.alpha));
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, tick.text, room, tick.justification, 1);
+        }
+        pendingTicks.clear();
+    }
+
+    struct PendingTick { juce::String text; juce::Rectangle<float> box; juce::Justification justification; float alpha; };
+    mutable std::vector<PendingTick> pendingTicks;
+
+    static juce::String dbText (float db, bool signedValue = false)
+    {
+        const auto minus = juce::String::fromUTF8 ("\xe2\x88\x92");
+        const auto value = juce::String (std::abs (db), std::abs (db) < 10.0f ? 1 : 0);
+        return (db < -0.05f ? minus : (signedValue && db > 0.05f ? juce::String ("+") : juce::String())) + value;
+    }
+
     void paintDynamics (juce::Graphics& g)
     {
         auto area = plotArea();
         const auto meters = area.removeFromRight (type == 20 ? 34.0f : 14.0f);
         area.removeFromRight (6.0f);
-        // (A row's picture is wide and low: the curve stretches with it, V14-1.)
-        const auto plot = area;
+        // The curve is a picture of its own shape, not a line stretched over
+        // the whole card: it keeps a 2.2 : 1 plot and the spare width carries
+        // the settings as labelled readings (UI review 15, V15-2).
+        const auto plotWidth = juce::jmin (area.getWidth(), juce::jmax (180.0f, area.getHeight() * 2.2f));
+        const auto plot = area.withWidth (plotWidth);
+        auto readout = area.withTrimmedLeft (plotWidth + 18.0f);
 
         const auto toX = [plot] (float db) { return plot.getX() + (db - floorDb) / (topDb - floorDb) * plot.getWidth(); };
         const auto toY = [plot] (float db) { return plot.getBottom() - (juce::jlimit (floorDb, topDb, db) - floorDb) / (topDb - floorDb) * plot.getHeight(); };
@@ -458,6 +507,16 @@ private:
         g.setColour (juce::Colours::white.withAlpha (0.12f));
         const float dashes[] { 3.0f, 3.0f };
         g.drawDashedLine ({ toX (floorDb), toY (floorDb), toX (topDb), toY (topDb) }, dashes, 2, 1.0f);
+
+        // The dB scale: the same on both axes (input across, output up).
+        if (plot.getHeight() > 34.0f)
+            for (const auto db : { -48.0f, -24.0f, 0.0f })
+            {
+                const auto name = db < -0.5f ? juce::String::fromUTF8 ("\xe2\x88\x92") + juce::String ((int) -db) : juce::String ("0");
+                paintTick (g, name, juce::Rectangle<float> (toX (db) + 3.0f, plot.getBottom() - 10.0f, 22.0f, 10.0f), juce::Justification::centredLeft);
+                if (db > -40.0f)
+                    paintTick (g, name, juce::Rectangle<float> (plot.getX() + 2.0f, toY (db) + 1.0f, 22.0f, 10.0f), juce::Justification::centredLeft);
+            }
 
         juce::Path curve;
         for (int i = 0; i <= 66; ++i)
@@ -483,10 +542,61 @@ private:
                 g.drawDashedLine ({ plot.getX(), toY (db), plot.getRight(), toY (db) }, dashes, 2, 1.0f);
         }
 
+        // Where the signal sits on the curve now.
+        if (inputLevel >= 0.004f)
+        {
+            const auto inDb = juce::jlimit (floorDb, topDb, juce::Decibels::gainToDecibels (inputLevel, floorDb));
+            const juce::Point<float> centre (toX (inDb), toY (dynamicsOutDb (inDb)));
+            g.setColour (colour.withAlpha (0.25f));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (centre));
+            g.setColour (juce::Colours::white);
+            g.fillEllipse (juce::Rectangle<float> (4.5f, 4.5f).withCentre (centre));
+        }
+
         if (type == 20)
             paintOttMeters (g, meters);
         else
             paintGrMeter (g, meters, meterGr[0]);
+
+        // The settings, named, beside the curve.
+        if (readout.getWidth() >= 110.0f)
+        {
+            std::vector<std::pair<juce::String, juce::String>> rows;
+            if (type == 4)
+            {
+                rows.push_back ({ "THRESHOLD", dbText (param ("fx_comp_threshold")) + " dB" });
+                rows.push_back ({ "RATIO", juce::String (param ("fx_comp_ratio"), 1) + " : 1" });
+                rows.push_back ({ "MAKEUP", dbText (param ("fx_comp_makeup"), true) + " dB" });
+            }
+            else if (type == 21)
+            {
+                rows.push_back ({ "CEILING", dbText (param ("fx_limit_ceiling")) + " dB" });
+            }
+            else
+            {
+                rows.push_back ({ "AMOUNT", juce::String (juce::roundToInt (param ("fx_ott_amount") * 100.0f)) + "%" });
+                static const char* const bandNames[] { "LOW", "MID", "HIGH" };
+                for (size_t band = 0; band < 3; ++band)
+                    rows.push_back ({ bandNames[band], dbText (meterGr[band], true) + " dB" });
+            }
+            if (type != 20)
+                rows.push_back ({ "REDUCTION", dbText (meterGr[0]) + " dB" });
+
+            // (A low picture shows the first readings that fit, a line each, never overlapped.)
+            rows.resize ((size_t) juce::jlimit (1, (int) rows.size(), (int) (readout.getHeight() / 12.0f)));
+            const auto rowHeight = juce::jmin (16.0f, readout.getHeight() / (float) rows.size());
+            auto column = readout.withHeight (rowHeight * (float) rows.size()).withCentre (readout.getCentre()).withWidth (juce::jmin (readout.getWidth(), 190.0f));
+            for (const auto& row : rows)
+            {
+                auto line = column.removeFromTop (rowHeight);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                IlanaTheme::drawFitted (g, row.first, line.removeFromLeft (84.0f).toNearestInt(), juce::Justification::centredLeft, 1);
+                g.setColour (IlanaTheme::Ui::text2);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                IlanaTheme::drawFitted (g, row.second, line.toNearestInt(), juce::Justification::centredLeft, 1);
+            }
+        }
 
         paintCaption (g, "IN / OUT", type == 20 ? "BANDS" : "GR " + juce::String (meterGr[0], 1) + " dB");
     }
@@ -1026,19 +1136,40 @@ private:
     {
         const auto plot = plotArea();
         constexpr float range = 24.0f;
+        const auto toY = [&] (float db) { return plot.getCentreY() - juce::jlimit (-range, range, db) / range * 0.5f * plot.getHeight(); };
+        const auto toX = [&] (float hz) { return plot.getX() + std::log10 (hz / 20.0f) / 3.0f * plot.getWidth(); };
+
+        // The grid is the display: decades across, +-12 dB and 0 up, each
+        // labelled, so a flat response still reads as "flat at 0 dB" (N16-10).
         g.setColour (juce::Colours::white.withAlpha (0.06f));
-        for (const auto hz : { 100.0f, 1000.0f, 10000.0f })
-            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + std::log10 (hz / 20.0f) / 3.0f * plot.getWidth(), plot.getY()));
+        for (const auto hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (hz), plot.getY()));
+        for (const auto db : { -12.0f, 12.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), toY (db)));
         g.setColour (juce::Colours::white.withAlpha (0.14f));
         g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
 
+        if (plot.getHeight() > 30.0f)
+        {
+            for (const auto& tick : { std::pair<float, const char*> { 100.0f, "100" }, { 1000.0f, "1k" }, { 10000.0f, "10k" } })
+                paintTick (g, tick.second, juce::Rectangle<float> (toX (tick.first) + 2.0f, plot.getBottom() - 10.0f, 26.0f, 10.0f), juce::Justification::centredLeft);
+            paintTick (g, "0 dB", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getCentreY() - 11.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
+            if (plot.getHeight() > 56.0f)
+            {
+                paintTick (g, "+12", juce::Rectangle<float> (plot.getX() + 2.0f, toY (12.0f) + 1.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+                paintTick (g, juce::String::fromUTF8 ("\xe2\x88\x92") + "12", juce::Rectangle<float> (plot.getX() + 2.0f, toY (-12.0f) - 11.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+            }
+        }
+
+        auto lo = 0.0f, hi = 0.0f;
         if (! responseDb.empty())
         {
             juce::Path curve;
             for (size_t i = 0; i < responseDb.size(); ++i)
             {
-                const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) (responseDb.size() - 1),
-                                                plot.getCentreY() - juce::jlimit (-range, range, responseDb[i]) / range * 0.5f * plot.getHeight());
+                lo = juce::jmin (lo, responseDb[i]);
+                hi = juce::jmax (hi, responseDb[i]);
+                const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) (responseDb.size() - 1), toY (responseDb[i]));
                 if (i == 0)
                     curve.startNewSubPath (point);
                 else
@@ -1047,7 +1178,10 @@ private:
             strokeCurve (g, curve, plot, plot.getCentreY());
         }
 
-        paintCaption (g, "RESPONSE", juce::String::fromUTF8 ("\xc2\xb1") + juce::String ((int) range) + " dB");
+        // The extremes, so a flat line says how flat.
+        const auto flat = hi - lo < 0.3f;
+        const auto text = flat ? juce::String ("FLAT") : "+" + juce::String (hi, 1) + " / " + dbText (lo) + " dB";
+        paintCaption (g, "RESPONSE", text);
     }
 
     // ---- FREEZE: the spectrum it holds (or, with HOLD off, the one passing) ----
@@ -1154,10 +1288,30 @@ private:
     void paintImpulse (juce::Graphics& g)
     {
         const auto plot = plotArea();
+        auto step = 1.0f;
+        for (const auto candidate : { 0.005f, 0.01f, 0.02f, 0.05f, 0.1f, 0.25f, 0.5f, 1.0f })
+            if (impulseSeconds / candidate <= 6.0f)
+            {
+                step = candidate;
+                break;
+            }
         g.setColour (juce::Colours::white.withAlpha (0.06f));
-        const auto step = impulseSeconds < 0.6f ? 0.05f : 0.5f;
-        for (auto t = step; t < impulseSeconds; t += step)
+        for (auto t = step; t < impulseSeconds - step * 0.1f; t += step)
             g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getX() + t / impulseSeconds * plot.getWidth(), plot.getY()));
+        for (const auto db : { -12.0f, -24.0f, -36.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - (db + 48.0f) / 48.0f * plot.getHeight()));
+
+        // The scales: seconds along the foot, dB up the side.
+        if (plot.getHeight() > 30.0f)
+        {
+            for (auto t = step; t < impulseSeconds - step * 0.4f; t += step)
+            {
+                const auto label = impulseSeconds < 1.0f ? juce::String (juce::roundToInt (t * 1000.0f)) + " ms" : juce::String (t, 1) + " s";
+                paintTick (g, label, juce::Rectangle<float> (plot.getX() + t / impulseSeconds * plot.getWidth() + 2.0f, plot.getBottom() - 10.0f, 40.0f, 10.0f), juce::Justification::centredLeft);
+            }
+            paintTick (g, "0 dB", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getY(), 30.0f, 10.0f), juce::Justification::centredLeft);
+            paintTick (g, juce::String::fromUTF8 ("\xe2\x88\x92") + "24", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getCentreY() - 5.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
+        }
 
         auto peak = 1.0e-6f;
         for (const auto v : impulseEnvelope)
@@ -1185,12 +1339,573 @@ private:
         }
         else
         {
+            // The dry hit alone, where the echoes would start: one bar at 0 s.
+            g.setColour (colour.withAlpha (0.8f));
+            g.fillRect (juce::Rectangle<float> (3.0f, plot.getHeight()).withPosition (plot.getX(), plot.getY()));
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            g.drawText (isSpace() ? "no tail at these settings" : "no echo within " + juce::String (impulseSeconds, 1) + " s at these settings", plot, juce::Justification::centred);
+            g.drawText (isSpace() ? "no tail at these settings" : "no echo within " + juce::String (impulseSeconds, 1) + " s at these settings",
+                        plot.withTrimmedLeft (12.0f), juce::Justification::centred);
         }
 
         paintCaption (g, isSpace() ? "IMPULSE" : "ECHOES", impulseSeconds < 1.0f ? juce::String (juce::roundToInt (impulseSeconds * 1000.0f)) + " ms" : juce::String (impulseSeconds, 1) + " s");
+    }
+
+    // ---- Pictures for the effects that had only a sentence (UI review 16, N16-3) ----
+    // Each one is drawn from the effect's own settings, in the style of the
+    // graphs above: a plot with a quiet grid, the effect's curve in its
+    // colour, a caption and a reading. The sentence on what the effect does
+    // moved to the card's title tooltip.
+    static constexpr float pi = juce::MathConstants<float>::pi;
+
+    juce::String choiceText (const char* id) const
+    {
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (id)))
+            return choice->getCurrentChoiceName();
+        return {};
+    }
+
+    static float hash01 (int n)
+    {
+        auto x = (juce::uint32) (n * 7919 + 17);
+        x = (x ^ (x >> 13)) * 1274126177u;
+        return (float) ((x ^ (x >> 16)) & 0xffffu) / 65535.0f;
+    }
+
+    static juce::String signedText (float value, int decimals, const char* unit)
+    {
+        return (value > 0.0f ? "+" : (value < 0.0f ? juce::String::fromUTF8 ("\xe2\x88\x92") : juce::String())) + juce::String (std::abs (value), decimals) + unit;
+    }
+
+    void paintLaneLabel (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> lane) const
+    {
+        paintTick (g, text, lane.withWidth (28.0f).withHeight (10.0f), juce::Justification::centredLeft, 0.8f);
+    }
+
+    // A sweep of a delay against time: the chorus family's picture.
+    void paintSweep (juce::Graphics& g, juce::Rectangle<float> plot, float rate, float centreMs, float swingMs, float topMs,
+                     std::initializer_list<float> phases, float seconds) const
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        const auto step = topMs > 12.0f ? 5.0f : 1.0f;
+        for (auto ms = step; ms < topMs; ms += step)
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - ms / topMs * plot.getHeight()));
+        if (plot.getHeight() > 30.0f)
+            for (auto ms = step * 2.0f; ms < topMs; ms += step * 2.0f)
+                paintTick (g, juce::String ((int) ms) + " ms", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getBottom() - ms / topMs * plot.getHeight() - 10.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
+
+        auto alpha = 1.0f;
+        for (const auto phase : phases)
+        {
+            juce::Path sweep;
+            const auto steps = juce::jmax (32, (int) plot.getWidth());
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = seconds * (float) i / (float) steps;
+                const auto ms = juce::jlimit (0.0f, topMs, centreMs + swingMs * std::sin (2.0f * pi * rate * t + phase));
+                const juce::Point<float> point (plot.getX() + plot.getWidth() * (float) i / (float) steps, plot.getBottom() - ms / topMs * plot.getHeight());
+                if (i == 0)
+                    sweep.startNewSubPath (point);
+                else
+                    sweep.lineTo (point);
+            }
+            g.setColour (colour.withAlpha (alpha));
+            g.strokePath (sweep, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            alpha *= 0.55f;
+        }
+    }
+
+    void paintHaas (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto delay = param ("fx_haas_delay"), mix = param ("fx_haas_mix");
+        const auto left = plot.withHeight (plot.getHeight() * 0.5f - 2.0f);
+        const auto right = plot.withTrimmedTop (plot.getHeight() * 0.5f + 2.0f);
+        const auto x0 = plot.getX() + 26.0f, span = plot.getWidth() - 34.0f;
+        const auto toX = [=] (float ms) { return x0 + ms / 40.0f * span; };
+
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto ms : { 10.0f, 20.0f, 30.0f, 40.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (ms), plot.getY()));
+        for (const auto lane : { left, right })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), lane.getBottom()));
+        paintLaneLabel (g, "L", left);
+        paintLaneLabel (g, "R", right);
+        if (plot.getHeight() > 30.0f)
+            for (const auto ms : { 10.0f, 20.0f, 30.0f })
+                paintTick (g, juce::String ((int) ms) + " ms", juce::Rectangle<float> (toX (ms) + 2.0f, plot.getBottom() - 10.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
+
+        const auto pulse = [&] (juce::Rectangle<float> lane, float ms, float level, float alpha)
+        {
+            const auto height = (lane.getHeight() - 4.0f) * level;
+            g.setColour (colour.withAlpha (alpha));
+            g.fillRoundedRectangle (juce::Rectangle<float> (3.0f, juce::jmax (2.0f, height)).withBottomY (lane.getBottom() - 1.0f).withX (toX (ms) - 1.5f), 1.5f);
+        };
+        pulse (left, 0.0f, 1.0f, 1.0f);
+        pulse (right, 0.0f, 1.0f - mix, 0.5f);
+        pulse (right, delay, 0.35f + 0.65f * mix, 1.0f);
+
+        // The gap between the two ears.
+        const auto y = right.getY() - 2.0f;
+        g.setColour (colour.withAlpha (0.6f));
+        g.drawLine (toX (0.0f), y, toX (delay), y, 1.0f);
+        paintCaption (g, "EAR TO EAR", juce::String (delay, 1) + " ms");
+    }
+
+    void paintStutter (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto reverse = param ("fx_stutter_reverse") > 0.5f;
+        const auto pitch = param ("fx_stutter_pitch");
+        const auto slices = 4;
+        const auto width = plot.getWidth() / (float) slices;
+        for (int s = 0; s < slices; ++s)
+        {
+            const auto cell = juce::Rectangle<float> (plot.getX() + width * (float) s, plot.getY(), width, plot.getHeight()).reduced (2.0f, 0.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.fillRoundedRectangle (cell, 3.0f);
+            const auto flipped = reverse && (s % 2 == 1);
+            juce::Path wave;
+            const auto steps = juce::jmax (16, (int) cell.getWidth() / 2);
+            const auto lane = plot.getHeight() > 30.0f ? cell.withTrimmedTop (12.0f) : cell;
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = (float) i / (float) steps;
+                const auto u = flipped ? 1.0f - t : t;
+                const auto level = (0.25f + 0.75f * u) * std::sin (2.0f * pi * (3.0f + std::abs (pitch) / 12.0f) * u) * 0.42f + 0.0f;
+                const juce::Point<float> point (lane.getX() + t * lane.getWidth(), lane.getCentreY() - level * lane.getHeight());
+                if (i == 0)
+                    wave.startNewSubPath (point);
+                else
+                    wave.lineTo (point);
+            }
+            g.setColour (colour.withAlpha (s == 0 ? 0.45f : 1.0f));
+            g.strokePath (wave, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            if (plot.getHeight() > 30.0f)
+                paintTick (g, s == 0 ? "SLICE" : (flipped ? "REVERSED" : "REPEAT"), cell.withTrimmedLeft (3.0f).withHeight (10.0f), juce::Justification::centredLeft);
+        }
+        paintCaption (g, "REPEATS", choiceText ("fx_stutter_div") + (pitch != 0.0f ? "  " + signedText (pitch, 0, " st") : juce::String()));
+    }
+
+    void paintSmear (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto size = param ("fx_smear_size"), density = param ("fx_smear_density"), mix = param ("fx_smear_mix");
+        const auto x0 = plot.getX() + 6.0f;
+        const auto span = (plot.getWidth() - 14.0f) * juce::jlimit (0.15f, 1.0f, size / 300.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - 1.0f));
+        // The hit going in.
+        g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+        g.fillRect (juce::Rectangle<float> (2.0f, plot.getHeight() - 2.0f).withPosition (x0 - 1.0f, plot.getY()));
+        // The cloud of grains it becomes: more of them with DENSITY, lower with the tail.
+        const auto grains = juce::jlimit (3, 60, (int) (density * 1.6f));
+        g.setColour (colour.withAlpha (0.35f + 0.6f * mix));
+        for (int i = 0; i < grains; ++i)
+        {
+            const auto t = (float) (i + 1) / (float) grains;
+            const auto envelope = std::exp (-2.6f * t) * (0.45f + 0.55f * hash01 (i));
+            const auto h = juce::jmax (2.0f, (plot.getHeight() - 4.0f) * envelope * (0.55f + 0.45f * mix));
+            g.fillRoundedRectangle (juce::Rectangle<float> (2.0f, h).withBottomY (plot.getBottom() - 1.0f).withX (x0 + 5.0f + t * span), 1.0f);
+        }
+        paintTick (g, "IN", juce::Rectangle<float> (x0 + 3.0f, plot.getY(), 20.0f, 10.0f), juce::Justification::centredLeft, 0.8f);
+        paintCaption (g, "HIT BLURRED", juce::String (juce::roundToInt (size)) + " ms " + juce::String::fromUTF8 ("\xc2\xb7") + " " + juce::String (juce::roundToInt (density)) + " grains");
+    }
+
+    void paintTapeStop (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto stop = param ("fx_tape_stop_time"), mix = param ("fx_tape_stop_mix");
+        const auto armed = param ("fx_tape_stop_trigger") > 0.5f;
+        constexpr float window = 4.0f;
+        const auto toX = [&] (float s) { return plot.getX() + 12.0f + s / window * (plot.getWidth() - 14.0f); };
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto s : { 1.0f, 2.0f, 3.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (s), plot.getY()));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - 1.0f));
+        if (plot.getHeight() > 30.0f)
+        {
+            for (const auto s : { 1.0f, 2.0f, 3.0f })
+                paintTick (g, juce::String ((int) s) + " s", juce::Rectangle<float> (toX (s) + 2.0f, plot.getBottom() - 11.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+            paintTick (g, "100%", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getY(), 26.0f, 10.0f), juce::Justification::centredLeft);
+            paintTick (g, "0", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getBottom() - 11.0f, 10.0f, 10.0f), juce::Justification::centredLeft);
+        }
+        // The tape's speed: full, a ramp down over the stop time, and standstill.
+        juce::Path speed;
+        const auto top = plot.getY() + 3.0f, bottom = plot.getBottom() - 2.0f;
+        speed.startNewSubPath (plot.getX() + 12.0f, top);
+        speed.lineTo (toX (0.4f), top);
+        speed.lineTo (toX (juce::jmin (window, 0.4f + stop)), bottom);
+        speed.lineTo (plot.getRight() - 2.0f, bottom);
+        strokeCurve (g, speed, plot, bottom);
+        paintCaption (g, "TAPE SPEED", juce::String (stop, 2) + " s " + juce::String::fromUTF8 ("\xc2\xb7") + " " + juce::String (juce::roundToInt (mix * 100.0f)) + "%" + (armed ? "  STOPPED" : juce::String()));
+    }
+
+    void paintTilt (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto tilt = juce::jlimit (-1.0f, 1.0f, param ("fx_tilt")), level = param ("fx_tilt_level");
+        constexpr double low = 20.0, high = 20000.0;
+        constexpr float range = 18.0f;
+        const auto lowGain = (double) std::pow (10.0f, (-tilt * 12.0f + level) / 20.0f);
+        const auto highGain = (double) std::pow (10.0f, (tilt * 12.0f + level) / 20.0f);
+        paintFrequencyGrid (g, plot, low, high);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto db : { -12.0f, 12.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY() - db / range * 0.5f * plot.getHeight() * 1.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+        if (plot.getHeight() > 30.0f)
+        {
+            for (const auto& tick : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+                paintTick (g, tick.second, juce::Rectangle<float> (logX (plot, tick.first, low, high) + 2.0f, plot.getBottom() - 10.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+            paintTick (g, "0 dB", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getCentreY() - 11.0f, 30.0f, 10.0f), juce::Justification::centredLeft);
+        }
+        // The pivot, 700 Hz.
+        g.setColour (colour.withAlpha (0.3f));
+        const auto pivot = logX (plot, 700.0, low, high);
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (pivot, plot.getY()));
+        const auto curve = responsePath (plot, low, high, -range, range, [&] (double f)
+        {
+            const std::complex<double> s (0.0, f / 700.0);
+            return lowGain / (1.0 + s) + highGain * s / (1.0 + s);
+        });
+        strokeCurve (g, curve, plot, plot.getCentreY());
+        paintCaption (g, "SEE-SAW AT 700 Hz", signedText (-tilt * 12.0f, 1, " dB low") + "  " + signedText (tilt * 12.0f, 1, " dB high"));
+    }
+
+    void paintUtility (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto gainDb = param ("fx_util_gain");
+        const auto mono = param ("fx_util_mono") > 0.5f, invert = param ("fx_util_invert") > 0.5f;
+        const auto gain = juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (gainDb) * 0.5f);
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+
+        const auto draw = [&] (float amount, juce::Colour c, float thickness)
+        {
+            juce::Path wave;
+            const auto steps = juce::jmax (32, (int) plot.getWidth());
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = (float) i / (float) steps;
+                const auto y = juce::jlimit (-0.5f, 0.5f, amount * 0.5f * std::sin (2.0f * pi * 3.0f * t));
+                const juce::Point<float> point (plot.getX() + t * plot.getWidth(), plot.getCentreY() - y * (plot.getHeight() - 2.0f));
+                if (i == 0)
+                    wave.startNewSubPath (point);
+                else
+                    wave.lineTo (point);
+            }
+            g.setColour (c);
+            g.strokePath (wave, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        };
+        draw (1.0f, IlanaTheme::Ui::text3.withAlpha (0.55f), 1.0f);
+        draw ((invert ? -1.0f : 1.0f) * gain * 2.0f, colour, 1.6f);
+
+        // The two switches, lit while on.
+        // (On the caption's line, left of the gain reading.)
+        auto chips = getLocalBounds().toFloat().reduced (8.0f, 0.0f).removeFromTop (16.0f).withTrimmedTop (2.0f).withTrimmedBottom (1.0f);
+        chips.removeFromRight (juce::GlyphArrangement::getStringWidth (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), signedText (gainDb, 1, " dB")) + 12.0f);
+        for (const auto& [name, on] : { std::pair<const char*, bool> { "MONO", mono }, { "INVERT", invert } })
+        {
+            const auto chip = chips.removeFromRight (juce::GlyphArrangement::getStringWidth (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), name) + 12.0f);
+            chips.removeFromRight (4.0f);
+            g.setColour (on ? colour.withAlpha (0.25f) : juce::Colours::white.withAlpha (0.05f));
+            g.fillRoundedRectangle (chip, 5.0f);
+            g.setColour (on ? colour : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (name, chip, juce::Justification::centred);
+        }
+        paintCaption (g, "IN (GREY) / OUT", signedText (gainDb, 1, " dB"));
+    }
+
+    void paintWidener (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto width = param ("fx_width"), mix = param ("fx_width_mix");
+        const auto effective = 1.0f + (width - 1.0f) * mix;
+        // MID and SIDE as bars against the 100 % mark: widening is the side's level.
+        auto bars = plot.withTrimmedLeft (44.0f).withTrimmedRight (6.0f);
+        const auto rowHeight = bars.getHeight() / 2.0f;
+        const auto toX = [&] (float v) { return bars.getX() + v / 2.0f * bars.getWidth(); };
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto v : { 0.5f, 1.0f, 1.5f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (v), plot.getY()));
+        g.setColour (juce::Colours::white.withAlpha (0.2f));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (1.0f), plot.getY()));
+        int row = 0;
+        for (const auto& [name, value] : { std::pair<const char*, float> { "MID", 1.0f }, { "SIDE", effective } })
+        {
+            const auto lane = juce::Rectangle<float> (plot.getX(), plot.getY() + rowHeight * (float) row, plot.getWidth(), rowHeight).reduced (0.0f, 3.0f);
+            paintTick (g, name, lane.withWidth (40.0f), juce::Justification::centredLeft, 0.9f);
+            g.setColour (row == 0 ? IlanaTheme::Ui::text3.withAlpha (0.6f) : colour);
+            g.fillRoundedRectangle (juce::Rectangle<float> (toX (value) - bars.getX(), lane.getHeight()).withPosition (bars.getX(), lane.getY()), 3.0f);
+            if (lane.getHeight() > 12.0f)
+                paintTick (g, juce::String (juce::roundToInt (value * 100.0f)) + "%", juce::Rectangle<float> (toX (value) + 4.0f, lane.getY(), 36.0f, lane.getHeight()), juce::Justification::centredLeft, 0.9f);
+            ++row;
+        }
+        paintCaption (g, "MID / SIDE", "WIDTH " + juce::String (juce::roundToInt (width * 100.0f)) + "%");
+    }
+
+    // The Airwindows stereo module: the stereo field itself, a cloud of
+    // points spreading from L to R (no parameter of its own to read).
+    void paintStereoField (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (plot.getCentreX(), plot.getY()));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+        paintTick (g, "L", plot.withWidth (12.0f).withHeight (10.0f), juce::Justification::centredLeft, 0.8f);
+        paintTick (g, "R", plot.withTrimmedLeft (plot.getWidth() - 12.0f).withHeight (10.0f), juce::Justification::centredRight, 0.8f);
+        g.setColour (colour);
+        for (int i = 0; i < 90; ++i)
+        {
+            const auto a = hash01 (i) * 2.0f * pi, r = std::sqrt (hash01 (i + 200));
+            const auto x = plot.getCentreX() + std::cos (a) * r * plot.getWidth() * 0.42f;
+            const auto y = plot.getCentreY() - std::sin (a) * r * plot.getHeight() * 0.42f;
+            g.setColour (colour.withAlpha (0.35f + 0.5f * (1.0f - r)));
+            g.fillEllipse (juce::Rectangle<float> (2.5f, 2.5f).withCentre ({ x, y }));
+        }
+        paintCaption (g, "STEREO FIELD");
+    }
+
+    void paintFlanger (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto rate = juce::jlimit (0.05f, 8.0f, param ("fx_flanger_rate")), depth = juce::jlimit (0.0f, 1.0f, param ("fx_flanger_depth"));
+        const auto feedback = param ("fx_flanger_feedback");
+        paintSweep (g, plot, rate, 2.5f, 2.5f * depth * 0.8f, 5.0f, { 0.0f }, juce::jmax (0.5f, 2.0f / rate));
+        paintCaption (g, "DELAY SWEEP", "2.5 ms " + juce::String (juce::CharPointer_UTF8 ("\xc2\xb1 ")) + juce::String (2.0f * depth, 1) + " ms " + juce::String::fromUTF8 ("\xc2\xb7") + " FB " + juce::String (juce::roundToInt (feedback * 100.0f)) + "%");
+    }
+
+    void paintDimension (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto rate = juce::jlimit (0.05f, 4.0f, param ("fx_dim_rate")), depth = juce::jlimit (0.0f, 1.0f, param ("fx_dim_depth"));
+        // The two ears: 12 ms and 19 ms, swept against each other.
+        paintSweep (g, plot, rate, 12.0f, 12.0f * 0.25f * depth, 25.0f, { 0.0f }, juce::jmax (0.5f, 2.0f / rate));
+        paintSweep (g, plot, rate, 19.0f, 19.0f * 0.25f * depth, 25.0f, { 2.1f }, juce::jmax (0.5f, 2.0f / rate));
+        paintCaption (g, "L / R DELAY SWEEP", juce::String (rate, 2) + " Hz");
+    }
+
+    void paintEnsemble (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        paintSweep (g, plot, 1.0f, 7.0f, 4.0f, 20.0f, { 0.0f, 2.1f, 4.2f }, 2.0f);
+        paintCaption (g, "VOICE SWEEPS");
+    }
+
+    void paintTremolo (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto rate = juce::jlimit (0.05f, 20.0f, param ("fx_trem_rate")), depth = juce::jlimit (0.0f, 1.0f, param ("fx_trem_depth"));
+        const auto shape = (int) param ("fx_trem_shape");
+        const auto seconds = juce::jmax (0.5f, 2.0f / rate);
+        const auto lfo = [&] (float t)
+        {
+            const auto phase = t * rate - std::floor (t * rate);
+            switch (shape)
+            {
+                case 1:  return std::abs (2.0f * phase - 1.0f);
+                case 2:  return phase;
+                case 3:  return 1.0f - phase;
+                case 4:  return phase < 0.5f ? 1.0f : 0.0f;
+                case 5:  return hash01 ((int) std::floor (t * rate * 4.0f));
+                default: return 0.5f + 0.5f * std::sin (2.0f * pi * phase);
+            }
+        };
+        // (1 at the top of the LFO, 0 at the bottom; the gain dips by DEPTH.)
+        const auto gainAt = [&] (float t) { return 1.0f - depth * (1.0f - juce::jlimit (0.0f, 1.0f, lfo (t))); };
+
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+        const auto steps = juce::jmax (64, (int) plot.getWidth());
+        const auto carrier = 5.0f * juce::jmax (4.0f, seconds * rate * 2.0f);
+        juce::Path envelope;
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto t = seconds * (float) i / (float) steps;
+            const auto x = plot.getX() + plot.getWidth() * (float) i / (float) steps;
+            const auto amplitude = gainAt (t) * 0.5f * (plot.getHeight() - 2.0f);
+            g.setColour (colour.withAlpha (0.35f));
+            const auto wave = std::sin (2.0f * pi * carrier * (float) i / (float) steps);
+            g.drawLine (x, plot.getCentreY(), x, plot.getCentreY() - wave * amplitude, 1.0f);
+            const juce::Point<float> top (x, plot.getCentreY() - amplitude);
+            if (i == 0)
+                envelope.startNewSubPath (top);
+            else
+                envelope.lineTo (top);
+        }
+        g.setColour (colour);
+        g.strokePath (envelope, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        paintCaption (g, "LEVEL OVER TIME", juce::String (rate, 1) + " Hz " + juce::String::fromUTF8 ("\xc2\xb7") + " " + choiceText ("fx_trem_shape").toUpperCase());
+    }
+
+    void paintFreqShift (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto shift = param ("fx_shifter_shift");
+        constexpr float top = 3000.0f;
+        const auto toX = [&] (float hz) { return plot.getX() + 4.0f + hz / top * (plot.getWidth() - 8.0f); };
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto hz : { 1000.0f, 2000.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (hz), plot.getY()));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - 1.0f));
+        if (plot.getHeight() > 30.0f)
+            for (const auto& tick : { std::pair<float, const char*> { 1000.0f, "1 kHz" }, { 2000.0f, "2 kHz" } })
+                paintTick (g, tick.second, juce::Rectangle<float> (toX (tick.first) + 2.0f, plot.getBottom() - 11.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
+        // A harmonic series, and the same lines moved by the same number of Hz (no longer in tune with each other).
+        for (int k = 1; k <= 12; ++k)
+        {
+            const auto level = 1.0f / (float) std::pow ((float) k, 0.7f);
+            const auto bar = [&] (float hz, juce::Colour c)
+            {
+                const auto f = std::abs (hz);
+                if (f > top)
+                    return;
+                g.setColour (c);
+                g.fillRect (juce::Rectangle<float> (2.0f, (plot.getHeight() - 14.0f) * level).withBottomY (plot.getBottom() - 1.0f).withX (toX (f) - 1.0f));
+            };
+            bar ((float) k * 220.0f, IlanaTheme::Ui::text3.withAlpha (0.5f));
+            bar ((float) k * 220.0f + shift, colour);
+        }
+        paintCaption (g, "PARTIALS (GREY) MOVED", signedText (shift, 0, " Hz"));
+    }
+
+    void paintRingMod (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto carrier = param ("fx_ring_freq");
+        constexpr double low = 20.0, high = 20000.0;
+        paintFrequencyGrid (g, plot, low, high);
+        if (plot.getHeight() > 30.0f)
+            for (const auto& tick : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+                paintTick (g, tick.second, juce::Rectangle<float> (logX (plot, tick.first, low, high) + 2.0f, plot.getBottom() - 10.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+        const auto bar = [&] (double hz, juce::Colour c, float level)
+        {
+            if (hz < low || hz > high)
+                return;
+            g.setColour (c);
+            g.fillRect (juce::Rectangle<float> (2.0f, (plot.getHeight() - 14.0f) * level).withBottomY (plot.getBottom() - 11.0f).withX (logX (plot, hz, low, high) - 1.0f));
+        };
+        const float dashes[] { 3.0f, 3.0f };
+        g.setColour (IlanaTheme::Ui::text3.withAlpha (0.7f));
+        g.drawDashedLine ({ logX (plot, carrier, low, high), plot.getY(), logX (plot, carrier, low, high), plot.getBottom() - 11.0f }, dashes, 2, 1.0f);
+        bar (440.0, IlanaTheme::Ui::text3.withAlpha (0.6f), 1.0f);
+        bar (std::abs (440.0 - (double) carrier), colour, 0.8f);
+        bar (440.0 + (double) carrier, colour, 0.8f);
+        paintTick (g, "IN", juce::Rectangle<float> (logX (plot, 440.0, low, high) + 3.0f, plot.getY() + 2.0f, 20.0f, 10.0f), juce::Justification::centredLeft, 0.9f);
+        {
+            const auto x = logX (plot, carrier, low, high);
+            if (x - plot.getX() > 56.0f)
+                paintTick (g, "CARRIER", juce::Rectangle<float> (x - 50.0f, plot.getY() + 2.0f, 46.0f, 10.0f), juce::Justification::centredRight, 0.9f);
+            else
+                paintTick (g, "CARRIER", juce::Rectangle<float> (x + 3.0f, plot.getY() + 12.0f, 46.0f, 10.0f), juce::Justification::centredLeft, 0.9f);
+        }
+        paintCaption (g, "SIDEBANDS OF A 440 Hz NOTE", juce::String (juce::roundToInt (carrier)) + " Hz");
+    }
+
+    void paintOctaver (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto mix = param ("fx_octaver_mix");
+        const auto upper = plot.withHeight (plot.getHeight() * 0.5f - 1.0f), lower = plot.withTrimmedTop (plot.getHeight() * 0.5f + 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getCentreY()));
+        const auto draw = [&] (juce::Rectangle<float> lane, float cycles, float amount, juce::Colour c)
+        {
+            juce::Path wave;
+            const auto steps = juce::jmax (32, (int) lane.getWidth());
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = (float) i / (float) steps;
+                const juce::Point<float> point (lane.getX() + t * lane.getWidth(), lane.getCentreY() - std::sin (2.0f * pi * cycles * t) * amount * lane.getHeight() * 0.45f);
+                if (i == 0)
+                    wave.startNewSubPath (point);
+                else
+                    wave.lineTo (point);
+            }
+            g.setColour (c);
+            g.strokePath (wave, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        };
+        draw (upper, 5.0f, 1.0f, IlanaTheme::Ui::text3.withAlpha (0.8f));
+        draw (lower, 2.5f, 0.35f + 0.65f * mix, colour);
+        paintLaneLabel (g, "IN", upper);
+        paintLaneLabel (g, juce::String::fromUTF8 ("\xe2\x88\x92") + "1 OCT", lower.translated (0.0f, 0.0f));
+        paintCaption (g, "ONE OCTAVE DOWN", juce::String (juce::roundToInt (mix * 100.0f)) + "% MIX");
+    }
+
+    void paintFeedbackLoop (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto amount = param ("fx_feedback_amount"), delay = juce::jmax (1.0f, param ("fx_feedback_delay"));
+        constexpr float window = 250.0f;
+        const auto toX = [&] (float ms) { return plot.getX() + 6.0f + ms / window * (plot.getWidth() - 12.0f); };
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        for (const auto ms : { 50.0f, 100.0f, 150.0f, 200.0f })
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (toX (ms), plot.getY()));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - 1.0f));
+        if (plot.getHeight() > 30.0f)
+            for (const auto ms : { 100.0f, 200.0f })
+                paintTick (g, juce::String ((int) ms) + " ms", juce::Rectangle<float> (toX (ms) + 2.0f, plot.getBottom() - 11.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
+        // Each trip round the loop comes back AMOUNT as loud.
+        auto level = 1.0f;
+        for (int i = 0; i < 80 && toX ((float) i * delay) < plot.getRight(); ++i)
+        {
+            g.setColour (colour.withAlpha (i == 0 ? 0.5f : 1.0f));
+            const auto h = juce::jmax (1.0f, (plot.getHeight() - 14.0f) * level);
+            g.fillRect (juce::Rectangle<float> (2.0f, h).withBottomY (plot.getBottom() - 1.0f).withX (toX ((float) i * delay) - 1.0f));
+            level *= amount;
+        }
+        paintCaption (g, "ROUND THE LOOP", juce::String (juce::roundToInt (amount * 100.0f)) + "% " + juce::String::fromUTF8 ("\xc2\xb7") + " " + juce::String (juce::roundToInt (delay)) + " ms");
+    }
+
+    void paintPicture (juce::Graphics& g)
+    {
+        switch (type)
+        {
+            case 8:  paintHaas (g); break;
+            case 10: paintStutter (g); break;
+            case 11: paintSmear (g); break;
+            case 14: paintFlanger (g); break;
+            case 15: paintDimension (g); break;
+            case 17: paintTapeStop (g); break;
+            case 18: paintTilt (g); break;
+            case 19: paintUtility (g); break;
+            case 22: paintWidener (g); break;
+            case 23: paintTremolo (g); break;
+            case 24: paintFreqShift (g); break;
+            case 25: paintRingMod (g); break;
+            case 26: paintOctaver (g); break;
+            case 28: paintFeedbackLoop (g); break;
+            case 36: paintEnsemble (g); break;
+            case 41: paintStereoField (g); break;
+            default: break;
+        }
+    }
+
+    // The settings each picture is drawn from (for the poll's signature).
+    static std::vector<juce::String> pictureIds (int fxType)
+    {
+        switch (fxType)
+        {
+            case 8:  return { "fx_haas_delay", "fx_haas_mix" };
+            case 10: return { "fx_stutter_div", "fx_stutter_reverse", "fx_stutter_pitch" };
+            case 11: return { "fx_smear_size", "fx_smear_density", "fx_smear_mix" };
+            case 14: return { "fx_flanger_rate", "fx_flanger_depth", "fx_flanger_feedback" };
+            case 15: return { "fx_dim_rate", "fx_dim_depth" };
+            case 17: return { "fx_tape_stop_time", "fx_tape_stop_mix", "fx_tape_stop_trigger" };
+            case 18: return { "fx_tilt", "fx_tilt_level" };
+            case 19: return { "fx_util_gain", "fx_util_mono", "fx_util_invert" };
+            case 22: return { "fx_width", "fx_width_mix" };
+            case 23: return { "fx_trem_rate", "fx_trem_depth", "fx_trem_shape" };
+            case 24: return { "fx_shifter_shift" };
+            case 25: return { "fx_ring_freq" };
+            case 26: return { "fx_octaver_mix" };
+            case 28: return { "fx_feedback_amount", "fx_feedback_delay" };
+            default: return {};
+        }
     }
 
     // ---- Polling ----
@@ -1244,6 +1959,7 @@ private:
                 }
                 break;
             case Kind::freeze: mixIn (param ("fx_freeze_on")); break;
+            case Kind::picture: for (const auto& id : pictureIds (type)) mixIn (param (id)); break;
             case Kind::none: break;
         }
         return hash;
@@ -1303,7 +2019,7 @@ private:
             dirty = dirty || moving;
         }
 
-        if (kind == Kind::transfer || (kind == Kind::airwindowsTransfer && ! measured.empty()))
+        if (kind == Kind::transfer || kind == Kind::dynamics || (kind == Kind::airwindowsTransfer && ! measured.empty()))
             dirty = updateInputLevel (smooth) || dirty;
 
         if (kind == Kind::dynamics)
@@ -1318,7 +2034,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && refresh (true))
+        if (IlanaAnim::showing (*this) && refresh (true))
             repaint();
     }
 };

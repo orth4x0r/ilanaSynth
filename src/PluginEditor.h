@@ -54,7 +54,7 @@ public:
     void closeWavetableEditor();
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
-    // Pages by id ("MAIN", "VECTOR", "OSC", "PHYSICAL", "FILTER", "ENV/LFO",
+    // Pages by id ("MAIN", "VECTOR", "OSC", "FILTER", "ENV/LFO",
     // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
@@ -177,7 +177,7 @@ private:
     float hostScaleFactor() const;
 
     // The hover line's own strip, between the pages and the source chips.
-    static constexpr int infoLineHeight = 22;
+    static constexpr int infoLineHeight = 38;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "1.3";
@@ -259,6 +259,7 @@ private:
         }
     };
     ClickArea voicesArea;
+    juce::String readoutSignature; // (what the BPM / CPU / VOICES readouts last said)
     // TUNING in the status line while a Scala scale or MTS-ESP plays (a
     // click opens the tuning menu).
     ClickArea tuningArea;

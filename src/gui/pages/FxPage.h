@@ -329,6 +329,13 @@ public:
         addButton.onClick = [this] { showLibrary (addButton, addButton.getLocalBounds()); };
         addTile.onClick = [this] { showLibrary (addTile, addTile.getLocalBounds().withSizeKeepingCentre (120, addTile.getHeight())); };
         addChildComponent (addTile);
+        for (const auto type : FxSuggestTile::candidates())
+        {
+            auto tile = std::make_unique<FxSuggestTile> (type);
+            tile->onClick = [this, type] { pickFromLibrary (type); };
+            addChildComponent (*tile);
+            suggestTiles.push_back (std::move (tile));
+        }
         fileButton.setTooltip ("This chain as a whole: copy it over the other chain, save it to a file, or load one into it");
         fileButton.onClick = [this] { showFileMenu(); };
         // The chain's own actions are quiet.
@@ -538,6 +545,13 @@ public:
         paintRailPill (g, inColumn, "IN");
         paintRailPill (g, outColumn, "OUT");
         paintOutput (g);
+
+        if (! suggestCaption.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.08f));
+            g.drawText ("SUGGESTED NEXT", suggestCaption, juce::Justification::bottomLeft, false);
+        }
     }
 
     void paintOutput (juce::Graphics& g)
@@ -591,15 +605,20 @@ public:
 
         if (stackView.getViewPositionY() > 2)
         {
-            const auto head = stackView.getBounds().removeFromTop (14).toFloat();
-            g.setGradientFill (juce::ColourGradient (background, 0.0f, head.getY(), background.withAlpha (0.0f), 0.0f, head.getBottom(), false));
+            // The card cut off under the toolbar is hidden almost wholly, then
+            // fades in: its half-drawn controls no longer show through (N16-5).
+            const auto head = stackView.getBounds().removeFromTop (34).toFloat();
+            auto fade = juce::ColourGradient (background, 0.0f, head.getY(), background.withAlpha (0.0f), 0.0f, head.getBottom(), false);
+            fade.addColour (0.55, background.withAlpha (0.92f));
+            g.setGradientFill (fade);
             g.fillRect (head);
         }
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (0, 8);
+        // A 12 px gutter at the right, as the other pages keep (N16-4).
+        auto area = getLocalBounds().reduced (0, 8).withTrimmedRight (12);
 
         // The top bar: IN above the rail, the two chains, the routing; at the
         // right the chain's file menu, + ADD and the dice.
@@ -647,17 +666,32 @@ public:
         // free slot ends in a dashed "+ ADD EFFECT" row that takes the rest of
         // the height, so OUTPUT closes the page where the design puts it
         // (design round 2: no empty band under OUTPUT either).
-        const auto tileReserve = addTileMinimum + rowGap;
         const auto offersTile = ! empty && firstEmptySlot() >= 0;
-        availableStackHeight = stackArea.getHeight() - (offersTile ? tileReserve : 0);
+        // The add area: the + ADD EFFECT target, then a row of suggested next
+        // effects (N16-1). A tight rack keeps the target alone, and a full one
+        // scrolls with neither.
+        const auto fullReserve = addTileHeight + suggestCaptionHeight + suggestMinHeight + rowGap;
+        growRows = offersTile;
+        availableStackHeight = stackArea.getHeight() - (offersTile ? fullReserve : 0);
         stackView.setBounds (stackArea);
         layoutStack();
         auto tile = offersTile && stackNaturalHeight <= availableStackHeight;
+        auto suggestions = tile;
         if (offersTile && ! tile)
         {
+            availableStackHeight = stackArea.getHeight() - (addTileMinimum + rowGap);
+            layoutStack();
+            tile = stackNaturalHeight <= availableStackHeight;
+        }
+        if (offersTile && ! tile)
+        {
+            growRows = false;
             availableStackHeight = stackArea.getHeight();
             layoutStack();
         }
+        for (auto& suggest : suggestTiles)
+            suggest->setVisible (false);
+        suggestCaption = {};
         if (! empty)
         {
             stackView.setBounds (stackArea.withHeight (juce::jmin (stackArea.getHeight(), stackNaturalHeight)));
@@ -669,10 +703,38 @@ public:
             if (tile)
             {
                 const auto top = stackView.getBottom() - (stackFootMargin - rowGap);
-                addTile.setBounds (stackArea.getX() + railWidth + railGap, top,
-                                   stackContent.getWidth() - railWidth - railGap, stackArea.getBottom() - top);
+                const auto left = stackArea.getX() + railWidth + railGap, width = stackContent.getWidth() - railWidth - railGap;
+                const auto block = stackArea.getBottom() - top;
+                addTile.setBounds (left, top, width, suggestions ? addTileHeight : block);
                 addTile.setVisible (true);
-                outRow.setY (addTile.getBottom() + rowGap);
+                if (suggestions)
+                {
+                    std::vector<int> offered;
+                    for (const auto type : FxSuggestTile::candidates())
+                        if (slotHoldingType (type) < 0 && (fxTwinOf (type) < 0 || slotHoldingType (fxTwinOf (type)) < 0))
+                            offered.push_back (type);
+                    constexpr int gap = 10, minWidth = 190;
+                    // One row of tiles, or two when the rack leaves the height for them.
+                    const auto perRow = juce::jmax (1, std::min ({ 4, (int) offered.size(), (width + gap) / (minWidth + gap) }));
+                    const auto room = stackArea.getBottom() - addTile.getBottom() - suggestCaptionHeight;
+                    const auto rows = (int) offered.size() > perRow ? juce::jlimit (1, 2, (room + gap) / (suggestMinHeight + gap)) : 1;
+                    const auto count = juce::jmin ((int) offered.size(), perRow * rows);
+                    const auto tileHeight = juce::jlimit (suggestMinHeight, suggestMaxHeight, (room - gap * (rows - 1)) / rows);
+                    suggestCaption = { left, addTile.getBottom() + 6, width, suggestCaptionHeight - 6 };
+                    const auto top = addTile.getBottom() + suggestCaptionHeight;
+                    for (int i = 0; i < count; ++i)
+                        for (auto& suggest : suggestTiles)
+                            if (suggest->getType() == offered[(size_t) i])
+                            {
+                                // (One column grid for every row: a short last row keeps the tiles' width.)
+                                const auto each = (width - gap * (perRow - 1)) / perRow;
+                                suggest->setBounds (left + (i % perRow) * (each + gap), top + (i / perRow) * (tileHeight + gap), each, tileHeight);
+                                suggest->setVisible (true);
+                            }
+                    if (count == 0)
+                        suggestCaption = {};
+                }
+                outRow.setY (stackArea.getBottom() + rowGap);
             }
         }
 
@@ -1183,6 +1245,8 @@ private:
     static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
     static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 88, duplicateHeight = 56, addTileMinimum = 40;
+    // The add area under a short rack: the target, a caption, the suggested tiles; and how far a card's picture and dials may grow into spare height.
+    static constexpr int addTileHeight = 36, suggestCaptionHeight = 22, suggestMinHeight = 70, suggestMaxHeight = 104, rowGrowMax = 90;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
@@ -1405,12 +1469,38 @@ private:
             stretchy += isStretchy (card) ? 1 : 0;
         }
 
-        if (naturalTotal < viewHeight && stretchy > 0)
+        if (naturalTotal < viewHeight && (stretchy > 0 || growRows))
         {
-            const auto each = (viewHeight - naturalTotal) / stretchy;
-            for (size_t i = 0; i < cards.size(); ++i)
-                if (isStretchy (cards[i]))
-                    heights[i] = juce::jmin (rowHeightMost, heights[i] + each);
+            // Spare height goes to the cards: a short rack's single-line rows
+            // stretch to 88; with a free slot under them (growRows) every
+            // card's picture and dials grow into it, up to a cap, so the add
+            // area under them stays small (N16-1).
+            const auto natural = heights;
+            auto extra = viewHeight - naturalTotal;
+            for (auto pass = 0; pass < 6 && extra > 0; ++pass)
+            {
+                std::vector<size_t> growable;
+                for (size_t i = 0; i < cards.size(); ++i)
+                {
+                    const auto cap = growRows ? natural[i] + (cards[i].duplicate ? 0 : rowGrowMax)
+                                              : (isStretchy (cards[i]) ? rowHeightMost : natural[i]);
+                    if (! cards[i].duplicate && heights[i] < cap)
+                        growable.push_back (i);
+                }
+                if (growable.empty())
+                    break;
+                // (An even share: rows of one kind stay the same height; the odd pixel stays unspent.)
+                const auto share = extra / (int) growable.size();
+                if (share < 1)
+                    break;
+                for (const auto i : growable)
+                {
+                    const auto cap = growRows ? natural[i] + rowGrowMax : (isStretchy (cards[i]) ? rowHeightMost : natural[i]);
+                    const auto add = juce::jmin (share, cap - heights[i], extra);
+                    heights[i] += add;
+                    extra -= add;
+                }
+            }
         }
         else if (naturalTotal > viewHeight)
         {
@@ -1527,6 +1617,7 @@ private:
         header.type.setVisible (true);
         header.type.setTooltip ("Slot " + juce::String (slot + 1) + ": " + getSlotName (type)
                                 + ". Click to change the effect, move or remove it; drag the number or name to reorder."
+                                + (cardInfoText (type).isNotEmpty() ? "\n" + cardInfoText (type) : juce::String())
                                 + (isAirwindowsType (type) ? "\n" + airwindowsBadgeTip (type) : juce::String()));
         header.solo.setBounds (left.solo);
         header.solo.setVisible (true);
@@ -2117,7 +2208,7 @@ private:
 
     void visibilityChanged() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
         {
             dragSlot = dropTarget = -1;
             dragActive = false;
@@ -2379,6 +2470,9 @@ private:
     juce::TextButton copyChainButton { "COPY TO 2" };
     juce::TextButton addButton { "+ ADD" };
     DashedAddButton addTile { "+  ADD EFFECT", "+  ADD EFFECT" };
+    std::vector<std::unique_ptr<FxSuggestTile>> suggestTiles;
+    juce::Rectangle<int> suggestCaption;
+    bool growRows = false;
     std::array<bool, 64> ownMix {};
     int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, availableStackHeight = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;

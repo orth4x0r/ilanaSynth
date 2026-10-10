@@ -231,9 +231,11 @@ public:
         // ruler as the arp's and PROB SEQ's (review 8, I8-23): numbers over
         // their steps, every fourth stronger (every fourth only when the
         // steps are narrow), the step playing in the colour.
+        // (The gap row below it (N16-8) is part of the block, so the block stands in the well's middle.)
         const auto strip = area.withSizeKeepingCentre (area.getWidth(), juce::jlimit (juce::jmin (area.getHeight(), 46.0f),
                                                                                      juce::jmax (0.0f, area.getHeight() - 22.0f),
-                                                                                     area.getHeight() * 0.42f));
+                                                                                     area.getHeight() * 0.5f))
+                               .translated (0.0f, area.getHeight() >= 200.0f ? -30.0f : 0.0f);
         const auto width = strip.getWidth() / (float) steps;
 
         if (strip.getY() - 17.0f >= area.getY())
@@ -261,6 +263,60 @@ public:
             g.setColour (hit ? colour.withAlpha ((on ? 0.75f : 0.35f) + (playing ? 0.25f : 0.0f))
                              : juce::Colours::white.withAlpha (playing ? 0.3f : 0.1f));
             g.fillRoundedRectangle (bar, juce::jmin (2.0f, width * 0.3f));
+        }
+
+        // The rhythm as its gaps (N16-8): under the strip, a bracket from each
+        // hit to the next, wrapping round at the end, with the distance in
+        // steps: 7 hits in 16 reads 2 3 2 2 3 2 2.
+        if (hits > 0 && hits <= steps)
+        {
+            std::vector<int> hitSteps;
+
+            for (int step = 0; step < steps; ++step)
+                if (euclidHit (step, hits, steps, rotate))
+                    hitSteps.push_back (step);
+
+            const auto top = strip.getBottom() + 14.0f;
+
+            if (! hitSteps.empty() && top + 30.0f <= area.getBottom() + 40.0f)
+            {
+                const auto labelFont = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+                g.setFont (labelFont);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText ("GAP BETWEEN HITS, IN STEPS", juce::Rectangle<float> (strip.getX(), top - 2.0f, strip.getWidth(), 14.0f).toNearestInt(),
+                            juce::Justification::centredLeft, false);
+                const auto y = top + 28.0f;
+
+                for (size_t k = 0; k < hitSteps.size(); ++k)
+                {
+                    const auto from = hitSteps[k];
+                    const auto next = k + 1 < hitSteps.size() ? hitSteps[k + 1] : hitSteps.front() + steps;
+                    const auto gap = next - from;
+                    const auto x0 = strip.getX() + ((float) from + 0.5f) * width;
+                    // (The last gap runs on past the strip's end, round to the first hit: it stops at the edge.)
+                    const auto x1 = juce::jmin (strip.getRight() - width * 0.5f, strip.getX() + ((float) next + 0.5f) * width);
+                    const auto wraps = next >= steps;
+
+                    g.setColour (colour.withAlpha (on ? 0.7f : 0.3f));
+                    g.fillRect (x0 - 1.0f, y - 5.0f, 2.0f, 10.0f);
+                    g.setColour (colour.withAlpha (on ? 0.4f : 0.18f));
+                    g.fillRect (x0, y - 0.5f, x1 - x0, 1.0f);
+
+                    if (! wraps)
+                    {
+                        g.setColour (colour.withAlpha (on ? 0.7f : 0.3f));
+                        g.fillRect (x1 - 1.0f, y - 5.0f, 2.0f, 10.0f);
+                    }
+
+                    if (x1 - x0 >= 14.0f)
+                    {
+                        g.setColour (juce::Colours::white.withAlpha (on ? 0.85f : 0.45f));
+                        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                        g.drawText (juce::String (gap), juce::Rectangle<float> (x0, y + 4.0f, x1 - x0, 16.0f).toNearestInt(),
+                                    juce::Justification::centred, false);
+                    }
+                }
+            }
         }
     }
 
@@ -290,7 +346,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -538,7 +594,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -732,7 +788,7 @@ public:
                 const auto edited = std::abs (value - defaultFor (lane)) > 1.0e-3f;
 
                 const auto hovered = lane == hoverLane && step == hoverStep;
-                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : 0.045f) * (active ? 1.0f : 0.6f)));
+                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : on ? 0.045f : 0.07f) * (active ? 1.0f : 0.6f)));
                 g.fillRoundedRectangle (full, 2.0f);
                 // Off, the bars also lose most of their colour, so they read
                 // as stored, not playing (I8-24), while the values stay clear.
@@ -754,6 +810,11 @@ public:
                         g.setColour (fill);
                         g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX(), juce::jmin (mid, y), cell.getWidth(),
                                                                         juce::jmax (2.0f, std::abs (y - mid))), 2.0f);
+                    }                    else if (! on)
+                    {
+                        // The pattern the arp would play, dimmed: no transpose.
+                        g.setColour (IlanaTheme::Ui::text3.withAlpha (0.6f * cellAlpha));
+                        g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX() + 2.0f, mid - 2.0f, cell.getWidth() - 4.0f, 4.0f), 2.0f);
                     }
                 }
                 else if (lane == gate && value < 0.005f)
@@ -766,10 +827,18 @@ public:
                 }
                 else if (! on && ! edited)
                 {
-                    // Off and never drawn in: a faint baseline, not a pattern
-                    // that looks in use (V11-16).
-                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.25f * cellAlpha));
-                    g.fillRect (cell.getX(), cell.getBottom() - 1.5f, cell.getWidth(), 1.5f);
+                    // Off and never drawn in: the pattern the arp would play
+                    // (every step at its default), as dimmed ghost bars, so the
+                    // lane shows content but never reads as in use (V11-16,
+                    // V15-1).
+                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.5f * cellAlpha));
+                    g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
+
+                    if (lane == gate)
+                    {
+                        g.setColour (juce::Colours::white.withAlpha (0.18f * cellAlpha));
+                        g.fillRect (cell.getX(), cell.getCentreY() - 0.5f, cell.getWidth(), 1.0f);
+                    }
                 }
                 else
                 {
@@ -1004,7 +1073,7 @@ private:
         const auto signature = processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
                              ^ ((juce::uint64) (processorRef.getEngineDisplayStep() + 1) << 44);
 
-        if (isShowing() && changeGate.check (signature))
+        if (IlanaAnim::showing (*this) && changeGate.check (signature))
             repaint();
     }
 
@@ -1226,7 +1295,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing() && changeGate.check (processorRef.getUiEpoch()))
+        if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()))
             repaint();
     }
 

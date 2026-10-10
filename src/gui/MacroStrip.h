@@ -146,23 +146,20 @@ public:
 
         assignBounds = {};
 
-        if (macroIndex >= 0 && ! isAssigned() && (! quietAssign || hover))
+        if (macroIndex >= 0 && ! isAssigned())
         {
-            // Nothing to move yet: a small button that adds a routing from
-            // this macro in the matrix (review 9, I9-20), so macros 5-8 need
-            // no drag.
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+            // Nothing to move yet: "+ ASSIGN" in the second line, where the
+            // other states put their text, so every tile has one shape
+            // (V15-17). It adds a routing from this macro in the matrix
+            // (review 9, I9-20), so macros 5-8 need no drag.
             const juce::String label ("+ ASSIGN");
-            const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 14);
-            assignBounds = text.withWidth (width).withSizeKeepingCentre (width, 16).withX (text.getX());
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 2);
+            assignBounds = text.withWidth (width).expanded (3, 1).getIntersection (getLocalBounds());
             const auto over = hover && assignBounds.contains (getMouseXYRelative());
-            g.setColour (over ? IlanaTheme::accent().withAlpha (0.22f) : IlanaTheme::Ui::raised);
-            g.fillRoundedRectangle (assignBounds.toFloat(), 4.0f);
-            g.setColour (over ? IlanaTheme::accent() : IlanaTheme::Ui::line.brighter (0.2f));
-            g.drawRoundedRectangle (assignBounds.toFloat().reduced (0.5f), 4.0f, 1.0f);
-            g.setColour (over ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+            g.setColour (over ? IlanaTheme::accent() : hover ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
             g.setFont (font);
-            g.drawText (label, assignBounds, juce::Justification::centred, false);
+            IlanaTheme::drawFitted (g, label, text, juce::Justification::topLeft, 1);
             return;
         }
 
@@ -176,7 +173,9 @@ public:
             g.setColour (juce::Colour (0xffffb020));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             const auto warning = juce::String (idleTargets) + " OFF";
-            g.drawText (warning, text, juce::Justification::topLeft, true);
+            IlanaTheme::drawFitted (g, warning, text, juce::Justification::topLeft, 1);
+            if (hover && markBounds.contains (getMouseXYRelative()))
+                g.fillRect (text.getX(), text.getY() + 12, juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning)), 1);
             markBounds = text.withWidth (juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning) + 2))
                              .expanded (3).getIntersection (getLocalBounds());
             return;
@@ -243,7 +242,8 @@ public:
 
     void mouseMove (const juce::MouseEvent& event) override
     {
-        const auto over = ! assignBounds.isEmpty() && assignBounds.contains (event.getPosition());
+        const auto over = (! assignBounds.isEmpty() && assignBounds.contains (event.getPosition()))
+                          || (! markBounds.isEmpty() && markBounds.contains (event.getPosition()));
 
         if (over != overAssign)
         {
@@ -259,6 +259,11 @@ public:
         if (macroIndex >= 0 && ! assignBounds.isEmpty() && ! event.mouseWasDraggedSinceMouseDown()
             && assignBounds.contains (event.getPosition()) && onAssign != nullptr)
             onAssign (macroIndex);
+        // "1 OFF": opens that route in the matrix (I15-9).
+        else if (macroIndex >= 0 && idleTargets > 0 && firstIdleSlot >= 0 && ! markBounds.isEmpty()
+                 && ! event.mouseWasDraggedSinceMouseDown() && markBounds.contains (event.getPosition())
+                 && ModNames::openMatrixRow() != nullptr)
+            ModNames::openMatrixRow() (firstIdleSlot);
     }
 
     // The + ASSIGN button's bounds (empty while the macro moves something).
@@ -315,7 +320,7 @@ public:
         const auto title = idleTargets >= routedTargets ? name + ": no effect now"
                                                          : name + ": " + juce::String (idleTargets) + " of " + juce::String (routedTargets)
                                                                + " targets have no effect now";
-        return title + "\n" + idleText + "." + (base.isNotEmpty() ? "  " + base : juce::String());
+        return title + "\n" + idleText + ". Click the count to open the route." + (base.isNotEmpty() ? "  " + base : juce::String());
     }
 
     // Opens the macro's card: where it goes, with warnings (hover does it
@@ -364,11 +369,12 @@ public:
     }
 
 private:
-    int countIdleTargets (juce::String& text) const
+    int countIdleTargets (juce::String& text)
     {
         const auto source = Mod::macroSourceFor (macroIndex);
         auto count = 0;
         text.clear();
+        firstIdleSlot = -1;
 
         for (int i = 0; i < Mod::maxSlots; ++i)
         {
@@ -377,6 +383,8 @@ private:
             if (slot.source == source && slot.isActive())
                 if (const auto why = ModNames::whyDestinationIsIdle (processorRef, slot.destination); why.isNotEmpty())
                 {
+                    if (firstIdleSlot < 0)
+                        firstIdleSlot = i;
                     text << (count > 0 ? "; " : "") << ModNames::destination (slot.destination, processorRef) << " (" << why << ")";
                     ++count;
                 }
@@ -432,7 +440,7 @@ private:
     int macroIndex = -1;
     float lastValue = -1.0f;
     float hoverRest = 0.0f, idleCheck = 1.0f;
-    int idleTargets = 0, routedTargets = -1;
+    int idleTargets = 0, routedTargets = -1, firstIdleSlot = -1;
     bool evolving = false;
     juce::String idleText;
     juce::Rectangle<int> markBounds;

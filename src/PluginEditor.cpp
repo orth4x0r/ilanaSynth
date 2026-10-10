@@ -329,8 +329,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
     // Seven tabs; the ones holding several pages switch them from the tab
-    // row (PLAY: overview and vector, OSC: oscillators and the physical
-    // view, MOD: envelopes, LFOs and the MSEG, the matrix).
+    // row (PLAY: overview and vector, MOD: envelopes, LFOs and the MSEG,
+    // the matrix).
     const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
     {
         auto* section = new SectionPage();
@@ -351,7 +351,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
-    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
+    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
@@ -1415,9 +1415,20 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
     if (transitionPage == nullptr)
     {
         updateUndoButtons();
-        bpmArea.repaint();
-        cpuArea.repaint();
-        voicesArea.repaint();
+
+        // The three readouts redraw when what they say changes (they
+        // repainted four times a second regardless).
+        const auto* voiceMode = processorRef.apvts.getRawParameterValue ("voice_mode");
+        const auto signature = juce::String (processorRef.getCurrentBpm(), 1) + "|" + juce::String (juce::roundToInt (processorRef.getCpuUsage() * 100.0f))
+                               + "|" + getVoicesText() + "|" + juce::String (voiceMode != nullptr ? juce::roundToInt (voiceMode->load()) : 0);
+
+        if (signature != readoutSignature)
+        {
+            readoutSignature = signature;
+            bpmArea.repaint();
+            cpuArea.repaint();
+            voicesArea.repaint();
+        }
     }
 }
 
@@ -1607,14 +1618,14 @@ void IlanaSynthAudioProcessorEditor::resized()
     // resize grip owns the corner: the meter keeps clear of it.
     auto strip = dockBounds.withTrimmedTop (1 + 6 + 22 + 6).withTrimmedBottom (6).reduced (14, 0);
     strip.removeFromRight (12); // (the meter ends 26 px from the edge: the resize grip's corner)
-    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 30));
+    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 36));
     strip.removeFromRight (8);
     masterKnob->setBounds (strip.removeFromRight (100));
     strip.removeFromRight (10);
 
     // The "+ MACRO" tile sits right after the last macro (review 11, S11-9).
     const auto plusWidth = shownMacros < (int) macroKnobs.size() ? macroPlusButton.getIdealWidth() + 4 : 0;
-    const auto macroWidth = juce::jlimit (72, 92, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
+    const auto macroWidth = juce::jlimit (84, 122, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
@@ -1698,6 +1709,14 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
     if (id == "STEPS")
     {
         showPage ("ENV/LFO");
+        return;
+    }
+
+    // The PHYSICAL tab folded into the oscillator cards (2026-10-10): its
+    // old id opens OSC.
+    if (id == "PHYSICAL")
+    {
+        showPage ("OSC");
         return;
     }
 
@@ -2296,6 +2315,7 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
         processorRef.apvts.replaceState (slotA);
     }
 
+    processorRef.easeNextBlock(); // the new patch continues from the old one's last sample
     showingA = ! showingA;
     abButton.setButtonText (showingA ? "A" : "B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);

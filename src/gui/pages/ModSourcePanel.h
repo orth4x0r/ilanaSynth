@@ -120,10 +120,12 @@ public:
 private:
     void timerCallback() override
     {
-        if (open && isShowing())
+        // (The bars follow the OUTPUT knobs: redraw when a parameter moved.)
+        if (open && IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()))
             repaint();
     }
 
+    IlanaAnim::ChangeGate changeGate;
     IlanaSynthAudioProcessor& processorRef;
     bool open = true; // (open, as PLAY's OP ENV card listed them: ilana, 2026-10-09)
 };
@@ -430,7 +432,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && dragRow < 0)
+        if (IlanaAnim::showing (*this) && dragRow < 0)
             refresh (false);
     }
 
@@ -721,13 +723,24 @@ private:
             return;
         // (Clear of the LFO graph's GRID menu and of EDIT OP ENV.)
         auto pill = graphArea.reduced (8).withHeight (20);
-        pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : kind == Kind::lfo ? graphArea.getRight() - 110 : pill.getRight());
+        pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : pill.getRight());
+        // An LFO's hint sits across the middle of its graph, where the whole
+        // sentence fits (A16-6: it was cut by the GRID menu's corner).
+        if (kind == Kind::lfo)
+            pill = pill.withY (graphArea.getCentreY() - 10);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
-        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+        // A solid plate hugging the sentence (A17: the old translucent strip let the curve run through
+        // the words); it is never wider than its strip, and the text shrinks before it is cut.
+        const auto wanted = (int) std::ceil (juce::GlyphArrangement::getStringWidth (font, unusedNote)) + 20;
+        if (kind == Kind::lfo && wanted < pill.getWidth())
+            pill = pill.withSizeKeepingCentre (wanted, pill.getHeight());
+        g.setColour (IlanaTheme::Ui::well.withAlpha (0.97f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
+        g.setColour (IlanaTheme::Ui::line2);
+        g.drawRoundedRectangle (pill.toFloat().reduced (0.5f), 4.0f, 1.0f);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (font);
-        IlanaTheme::drawFitted (g, unusedNote, pill.reduced (8, 0), juce::Justification::centredLeft, 1);
+        IlanaTheme::drawFitted (g, unusedNote, pill.reduced (8, 0), juce::Justification::centred, 1);
     }
 
     void refreshUnused()
@@ -746,7 +759,7 @@ private:
             return;
         unusedNote = note;
         const auto alpha = inUse ? 1.0f : IlanaTheme::dimmedAlpha;
-        if (graph != nullptr && kind == Kind::envelope)
+        if (graph != nullptr && (kind == Kind::envelope || kind == Kind::lfo))
             graph->setAlpha (alpha);
         for (auto& control : controls)
             control->setAlpha (alpha);
@@ -761,9 +774,9 @@ private:
 
     void timerCallback() override
     {
-        if ((kind == Kind::envelope || kind == Kind::lfo) && isShowing())
+        if ((kind == Kind::envelope || kind == Kind::lfo) && IlanaAnim::showing (*this))
             refreshUnused();
-        if (kind != Kind::other || ! isShowing())
+        if (kind != Kind::other || ! IlanaAnim::showing (*this))
             return;
         history[historyPos] = std::abs (processorRef.getSourceDisplayValue (source));
         historyPos = (historyPos + 1) % history.size();

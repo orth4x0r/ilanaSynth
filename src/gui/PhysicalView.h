@@ -1,6 +1,6 @@
 #pragma once
 
-// M8.7: the PHYSICAL page's animated view of the first Physical oscillator:
+// M8.7: a Physical oscillator's animated view, in its OSC card's well:
 // the string (its modes, shaped by the strike point, the felt or pick and
 // the stiffness, decaying with DECAY and DAMP), the hammer, pick or bow
 // that excites it, and the body underneath, glowing with the output. It is
@@ -74,10 +74,56 @@ public:
         const auto bodyArea = area.removeFromBottom (compact ? juce::jlimit (10.0f, 18.0f, area.getHeight() * 0.2f)
                                                              : juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
         area.removeFromBottom (compact ? 4.0f : 8.0f);
+        // The page's picture keeps a footer for the string's ruler (A16-4).
+        const auto footer = compact ? juce::Rectangle<float>() : area.removeFromBottom (13.0f);
         const auto stringY = area.getCentreY() + area.getHeight() * 0.12f;
         const auto left = area.getX() + 12.0f, right = area.getRight() - 12.0f;
         const auto excite = (int) read ("_excite");
         const auto strike = excitePosition();
+
+        // The page's picture also carries the string's anatomy (A16-4): its
+        // first three standing modes ghosted behind it, a ruler along the
+        // foot with a tick every sixteenth of the length, and the strike
+        // point marked on the string and the ruler.
+        if (! compact)
+        {
+            for (int mode = 1; mode <= 3; ++mode)
+            {
+                juce::Path ghost;
+                for (int i = 0; i <= 120; ++i)
+                {
+                    const auto t = (float) i / 120.0f;
+                    const auto point = juce::Point<float> (left + (right - left) * t,
+                                                           stringY - std::sin (juce::MathConstants<float>::pi * (float) mode * t) * area.getHeight() * (0.26f - 0.05f * (float) mode));
+                    if (i == 0) ghost.startNewSubPath (point); else ghost.lineTo (point);
+                }
+                g.setColour (accent.withAlpha (0.16f));
+                g.strokePath (ghost, juce::PathStrokeType (1.0f));
+            }
+
+            const auto rulerY = footer.getY() + 2.0f;
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawHorizontalLine ((int) rulerY, left, right);
+            for (int tick = 0; tick <= 16; ++tick)
+                g.fillRect (left + (right - left) * (float) tick / 16.0f - 0.5f, rulerY, 1.0f, tick % 4 == 0 ? 4.0f : 2.0f);
+
+            const auto strikeX = left + (right - left) * strike;
+            juce::Path guide, guideLine;
+            guideLine.startNewSubPath (strikeX, stringY);
+            guideLine.lineTo (strikeX, rulerY);
+            const float guideDashes[] { 3.0f, 3.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (guide, guideLine, guideDashes, 2);
+            g.setColour (accent.withAlpha (0.55f));
+            g.fillPath (guide);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ strikeX, stringY }));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.drawText ("STRIKE " + juce::String (juce::roundToInt (strike * 100.0f)) + "%",
+                        juce::Rectangle<float> (90.0f, 12.0f).withPosition (strikeX + 6.0f, rulerY + 1.0f).toNearestInt(), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("NUT", juce::Rectangle<float> (40.0f, 12.0f).withPosition (left, rulerY + 1.0f).toNearestInt(), juce::Justification::centredLeft);
+            g.drawText ("BRIDGE", juce::Rectangle<float> (50.0f, 12.0f).withPosition (right - 50.0f, rulerY + 1.0f).toNearestInt(), juce::Justification::centredRight);
+        }
 
         // Nut and bridge.
         g.setColour (juce::Colours::white.withAlpha (0.5f));
@@ -288,11 +334,18 @@ private:
         const auto b = 1.0e-4 * std::pow (10.0, 2.5 * stiffness);
         const auto decay = (double) read ("_string_decay");
         const auto damp = (double) read ("_string_damp");
+        // The last ten pixels or so of a long ring-out are barely visible but keep
+        // the page repainting for tens of seconds, so they fade a little
+        // faster (no step: the extra damping is constant below 12 px).
+        auto shownTotal = 0.0;
+        for (const auto level : modeLevel)
+            shownTotal += std::abs (level);
+        const auto tailRate = shownTotal * (double) getHeight() * 0.3 < 12.0 ? 0.8 : 0.0;
         for (int n = 1; n <= numModes; ++n)
         {
             modePhase[(size_t) n - 1] += juce::MathConstants<double>::twoPi * 0.9 * n * std::sqrt (1.0 + b * n * n) * dt;
             const auto seconds = (0.4 + 6.0 * decay) / (1.0 + damp * 0.4 * (n - 1));
-            modeLevel[(size_t) n - 1] *= std::exp (-dt / seconds);
+            modeLevel[(size_t) n - 1] *= std::exp (-dt * (1.0 / seconds + tailRate));
         }
         // A held note that keeps sounding (bow, feedback, SUSTAIN) keeps the
         // string moving with the output.
@@ -305,22 +358,37 @@ private:
 
         // Another mode's preview plucks itself now and then (while shown),
         // so the page shows what the switch would give.
-        if (juce::roundToInt (read ("_mode")) != 1 && isShowing() && sinceNote > 3.0)
-            restart();
+        // It does so once after the page opens or a setting changes, then
+        // rests (a preview that never stopped kept the page repainting).
+        const auto shown = IlanaAnim::showing (*this);
+        const auto epoch = processorRef.getUiEpoch();
+        if (! shown || epoch != lastEpoch)
+        {
+            lastEpoch = epoch;
+            autoPlucks = 0;
+        }
 
-        // The string rests once its motion is under a tenth of a pixel.
+        if (shown && autoPlucks < 1 && juce::roundToInt (read ("_mode")) != 1 && sinceNote > 3.0)
+        {
+            ++autoPlucks;
+            restart();
+        }
+
+        // The string rests once its motion is under a third of a pixel.
         auto total = 0.0;
         for (const auto level : modeLevel)
             total += std::abs (level);
-        const auto moving = bodyGlow > 0.005f || total * (double) getHeight() * 0.3 > 0.1;
+        const auto moving = bodyGlow > 0.005f || total * (double) getHeight() * 0.3 > 0.3;
         if (! moving && total > 0.0)
             modeLevel.fill (0.0);
 
-        if (isShowing() && (moving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (moving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
+    juce::uint64 lastEpoch = 0;
+    int autoPlucks = 0;
 
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix;
@@ -331,10 +399,10 @@ private:
     float bodyGlow = 0.0f;
 };
 
-// The physical oscillator's controls, one list for its OSC card and the
-// PHYSICAL page (UI review 6, S13, I6-18): rows named for the part of the
-// instrument, each control as its parameter suffix and label, for the
-// exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
+// The physical oscillator's controls, the list its OSC card lays out (UI
+// review 6, S13, I6-18; the PHYSICAL tab folded into the card, 2026-10-10):
+// rows named for the part of the instrument, each control as its parameter
+// suffix and label, for the exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
 // hammer has no pick, pickup or buzz; HARDNESS and PICK POS shape only a
 // plucked burst, SLAP is a pluck's or a strike's: UI review 7, I7-27).
 struct PhysicalSpec
@@ -354,7 +422,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
                                        { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
                                        { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
-                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } }; // (I8-25)
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLE" } }; // (I8-25)
     std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
 
     const auto plucked = excite <= 3 || excite == 10;
@@ -362,7 +430,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     if (! piano && excite != 4)
         exciter.push_back ({ "_string_slap", "SLAP" });
 
-    exciter.push_back ({ "_string_excite_pos", "EXCITE POS" });
+    exciter.push_back ({ "_string_excite_pos", "POSITION" });
 
     if (plucked)
         exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
@@ -374,8 +442,13 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     else if (excite == 10)
         exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
 
+    // The bridge's buzz and the fret's rattle are the string's: they close
+    // its row on the oscillator card, so the exciter's row stays one row.
     if (! piano)
-        exciter.insert (exciter.end(), { { "_string_pickup", "PICKUP" }, { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+    {
+        exciter.push_back ({ "_string_pickup", "PICKUP" });
+        string.insert (string.end(), { { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+    }
 
     return { { "STRING", string }, { "EXCITER", exciter } };
 }

@@ -49,6 +49,9 @@ inline juce::Colour body() { return IlanaTheme::accent(); }
 // (UI review 7, V7-34, S7-23). Lighter than IlanaTheme::dimmedAlpha, which
 // marks one control with no effect in a module that is on.
 inline constexpr float offAlpha = 0.55f;
+// WEST and BODY keep their full-height cards while off: their controls dim less than the
+// default (they stay readable) and the header says what the switch does (N16-8).
+inline constexpr float cardOffAlpha = 0.72f;
 }
 
 // The filter models by what they are (UI review 6, V5-17, S5-12, S6-20):
@@ -625,7 +628,7 @@ public:
         else if (! layout.post.isEmpty() && layout.post.contains (event.position))
             tip = "After the voices: " + juce::String (read ("sym_on") > 0.5f ? "the sympathetic strings" : "")
                   + (read ("sym_on") > 0.5f && read ("sb_on") > 0.5f ? " and " : "") + (read ("sb_on") > 0.5f ? "the soundboard" : "")
-                  + " (OSC > PHYSICAL).";
+                  + " (the OSC page's strip).";
         else if (layout.bypassUsed && std::abs (event.position.y - layout.bypassY) < 6.0f && event.position.x > layout.f1.getX())
             tip = "Bypass: these sources go around the filters, straight into what follows them.";
 
@@ -963,10 +966,12 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        // It draws parameters (and the hover): redraw when one moved.
+        if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
             repaint();
     }
 
+    IlanaAnim::ChangeGate changeGate;
     IlanaSynthAudioProcessor& processorRef;
     juce::Rectangle<float> reservedCorner;
 };

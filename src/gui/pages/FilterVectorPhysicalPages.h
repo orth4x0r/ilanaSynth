@@ -4,6 +4,16 @@
 
 namespace
 {
+// An operator (DX7) voice with both filters wide open has none: PLAY's FILTER OFF
+// note and the FILTER page's state say so (a macro sitting at 0 pulls nothing).
+inline bool operatorVoiceFilterOff (const IlanaSynthAudioProcessor& p)
+{
+    auto operatorVoice = false;
+    for (int osc = 0; osc < OscillatorIds::count && ! operatorVoice; ++osc)
+        operatorVoice = p.isOscillatorShown (osc) && OscRole::isOperator (p, osc) && OscRole::usesOperatorEg (p, osc);
+    return operatorVoice && FilterDisplay::isPassThrough (p, 0, true) && FilterDisplay::isPassThrough (p, 1, true);
+}
+
 // One filter: its type picker and slope in the header, then only the knobs
 // its model uses (UI review 6: the type is a compact menu with arrows, not a
 // 12-button grid, so the card is one row of knobs).
@@ -67,7 +77,7 @@ public:
             return;
 
         const auto note = getLocalBounds().withTrimmedTop (headerHeight).reduced (24, 0).withSizeKeepingCentre (getWidth() - 48, 40);
-        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.92f));
+        g.setColour (IlanaTheme::Ui::panel); // opaque: the dimmed labels under it must not show through
         g.fillRoundedRectangle (note.toFloat(), 6.0f);
         g.setColour (FilterColours::west().withAlpha (0.6f));
         g.drawRoundedRectangle (note.toFloat().reduced (0.5f), 6.0f, 1.0f);
@@ -144,13 +154,18 @@ private:
         // A filter that passes everything (open at 20 kHz) dims, as an off
         // module would, all but its type and CUTOFF, which bring it in (UI
         // review 8, V8-39).
-        const auto openNow = FilterDisplay::isPassThrough (processorRef, prefix == "f1" ? 0 : 1);
-        if (replacedNow != replaced || openNow != passThrough)
+        const auto voiceNow = operatorVoiceFilterOff (processorRef);
+        const auto openNow = FilterDisplay::isPassThrough (processorRef, prefix == "f1" ? 0 : 1, voiceNow);
+        if (replacedNow != replaced || openNow != passThrough || voiceNow != voiceOff)
         {
             replaced = replacedNow;
             passThrough = openNow;
+            voiceOff = voiceNow;
+            // (A DX7 voice has no filter: the whole card steps back, CUTOFF and
+            // the type menu a little less, since they bring one in. N16-2.)
             for (auto* child : getChildren())
                 child->setAlpha (replaced ? IlanaTheme::dimmedAlpha * 0.6f
+                                          : voiceOff ? (child == &cutoff || child == &picker || child == &f2Switch ? 0.8f : IlanaTheme::dimmedAlpha * 0.6f)
                                           : passThrough && child != &cutoff && child != &picker && child != &f2Switch ? openAlpha : 1.0f);
             setTooltip (passThrough && ! replaced ? title.substring (0, 1) + title.substring (1).toLowerCase()
                                                         + " is open: it passes everything. Turn CUTOFF down (or pick another type) to use it."
@@ -206,7 +221,7 @@ private:
     juce::TextButton f2Switch;
     float rememberedCutoff = 8000.0f;
     int type = -1;
-    bool replaced = false, passThrough = false;
+    bool replaced = false, passThrough = false, voiceOff = false;
 };
 
 // M8.3: the WEST card: a wavefolder into a low-pass gate, after the filters
@@ -252,8 +267,10 @@ public:
     {
         IlanaTheme::paintCard (g, getLocalBounds().toFloat(), 7.0f, colour().withAlpha (0.35f));
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (30);
-        IlanaTheme::paintCardHeader (g, header, "WEST", juce::roundToInt (read ("west_pos")) == 1 ? "wavefolder and low-pass gate, in Filter 2's place"
-                                                                                                    : "wavefolder and low-pass gate, after the filters",
+        const auto westOn = read ("west_on") > 0.5f;
+        IlanaTheme::paintCardHeader (g, header, "WEST", ! westOn ? juce::String (juce::CharPointer_UTF8 ("off \xc2\xb7 switch on to fold and gate"))
+                                                       : juce::roundToInt (read ("west_pos")) == 1 ? juce::String ("wavefolder and low-pass gate, in Filter 2's place")
+                                                                                                    : juce::String ("wavefolder and low-pass gate, after the filters"),
                                      colour(), 60);
 
         if (folded())
@@ -262,7 +279,7 @@ public:
         // The fold's transfer curve and the gate's vactrol, lit by its level
         // (at the off alpha, as the controls, while WEST is off).
         const auto plot = picture.toFloat();
-        g.beginTransparencyLayer (read ("west_on") > 0.5f ? 1.0f : FilterColours::offAlpha);
+        g.beginTransparencyLayer (read ("west_on") > 0.5f ? 1.0f : FilterColours::cardOffAlpha);
         IlanaTheme::paintWell (g, plot, 5.0f);
         const auto curveArea = plot.withWidth (plot.getWidth() * 0.62f).reduced (8.0f, 6.0f);
         juce::Path curve;
@@ -353,12 +370,12 @@ private:
                                      (juce::Component*) &open, (juce::Component*) &mode, (juce::Component*) &source,
                                      (juce::Component*) &position })
         {
-            const auto alpha = active ? 1.0f : FilterColours::offAlpha;
+            const auto alpha = active ? 1.0f : FilterColours::cardOffAlpha;
             if (c->getAlpha() != alpha)
                 c->setAlpha (alpha);
         }
         // (The header says where WEST sits, so a change repaints it all.)
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -577,604 +594,5 @@ private:
     bool shownActive = false;
     int shownOscillators = -1;
 };
-
-// M8.7: the PHYSICAL page. The big view of one physical oscillator (the
-// first in Physical mode unless another is picked): its string moving
-// across the page, an electric piano's pickup, and under it its string and
-// exciter controls in a compact band, built from the same list as its OSC
-// card (UI review 6, S13, I6-18; review 7, V7-33, V7-29, V7-32). The body
-// and the soundboard keep their full editors on FILTER and OSC > ACOUSTIC
-// KEYS; here each has its switch and main controls, with a link to the
-// rest (S14, I6-17; review 8, V8-23).
-// The PHYSICAL page's two read-outs (the approved design): the string's
-// PARTIALS (their levels from the strike point, DAMP and STIFF) and the BODY +
-// BOARD RESPONSE (the body's and soundboard's resonances from their settings).
-// Pictures of the settings, like the string view above them.
-class PhysicalReadout : public juce::Component
-{
-public:
-    enum class Kind { partials, response };
-
-    PhysicalReadout (IlanaSynthAudioProcessor& p, Kind kindIn) : processorRef (p), kind (kindIn) {}
-
-    void setOscillator (const juce::String& newPrefix, juce::Colour newColour) { prefix = newPrefix; colour = newColour; repaint(); }
-
-    void paint (juce::Graphics& g) override
-    {
-        const auto bounds = getLocalBounds().toFloat();
-        IlanaTheme::paintWell (g, bounds, 6.0f);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (IlanaTheme::Ui::text3);
-        const auto title = kind == Kind::partials ? juce::String ("PARTIALS") : juce::String ("BODY + BOARD RESPONSE");
-        const auto note = kind == Kind::partials ? juce::String ("16") : juce::String ("100 Hz - 8 kHz");
-        const auto header = bounds.reduced (8.0f, 5.0f).withHeight (14.0f).toNearestInt();
-        const auto noteWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), note) + 4;
-        IlanaTheme::drawFitted (g, title, header.withTrimmedRight (noteWidth + 6), juce::Justification::centredLeft, 1);
-        g.drawText (note, header, juce::Justification::centredRight);
-
-        auto plot = bounds.reduced (10.0f, 8.0f).withTrimmedTop (16.0f);
-
-        // A faint grid.
-        g.setColour (juce::Colours::white.withAlpha (0.05f));
-        for (int i = 1; i < 4; ++i)
-            g.drawHorizontalLine ((int) (plot.getY() + plot.getHeight() * (float) i / 4.0f), plot.getX(), plot.getRight());
-
-        if (kind == Kind::partials)
-        {
-            const auto damp = read (prefix + "_string_damp");
-            const auto stiff = read (prefix + "_string_stiffness");
-            const auto pos = juce::jlimit (0.05f, 0.5f, read (prefix + "_string_excite_pos") > 0.001f ? read (prefix + "_string_excite_pos") : 0.25f);
-            constexpr int count = 16;
-            const auto slot = plot.getWidth() / (float) count;
-            for (int n = 1; n <= count; ++n)
-            {
-                const auto comb = 0.3f + 0.7f * std::abs (std::sin (juce::MathConstants<float>::pi * (float) n * pos));
-                const auto level = juce::jlimit (0.03f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3)));
-                const auto bar = juce::Rectangle<float> (plot.getX() + slot * (float) (n - 1) + slot * 0.2f, plot.getBottom() - plot.getHeight() * level,
-                                                         slot * 0.6f, plot.getHeight() * level);
-                g.setColour (colour.withAlpha (0.45f + 0.55f * level));
-                g.fillRoundedRectangle (bar, 1.0f);
-            }
-            return;
-        }
-
-        const auto bodyOn = read ("res_on") > 0.5f;
-        const auto boardOn = read ("sb_on") > 0.5f;
-        const auto bodyAmount = bodyOn ? 0.25f + 0.75f * read ("res_amount") : 0.12f;
-        const auto boardMix = boardOn ? 0.25f + 0.75f * read ("sb_mix") : 0.0f;
-        const auto bodySize = read ("body_size"), boardSize = read ("sb_size");
-        const auto peak = [] (float x, float centre, float width) { return std::exp (-std::pow ((x - centre) / width, 2.0f)); };
-        juce::Path curve;
-        for (int i = 0; i <= 120; ++i)
-        {
-            const auto x = (float) i / 120.0f;
-            const auto y = 0.1f + bodyAmount * (0.5f * peak (x, 0.12f + 0.25f * (1.0f - bodySize), 0.05f) + 0.38f * peak (x, 0.32f + 0.2f * (1.0f - bodySize), 0.06f)
-                                                + 0.3f * peak (x, 0.55f + 0.1f * (1.0f - bodySize), 0.08f))
-                           + boardMix * (0.3f * peak (x, 0.2f + 0.3f * (1.0f - boardSize), 0.07f) + 0.2f * peak (x, 0.8f - 0.2f * boardSize, 0.08f));
-            const auto point = juce::Point<float> (plot.getX() + x * plot.getWidth(), plot.getBottom() - juce::jmin (1.0f, y) * plot.getHeight());
-            if (i == 0)
-                curve.startNewSubPath (point);
-            else
-                curve.lineTo (point);
-        }
-        auto filled (curve);
-        filled.lineTo (plot.getRight(), plot.getBottom());
-        filled.lineTo (plot.getX(), plot.getBottom());
-        filled.closeSubPath();
-        g.setColour (colour.withAlpha (0.16f));
-        g.fillPath (filled);
-        g.setColour (colour);
-        g.strokePath (curve, juce::PathStrokeType (2.0f));
-    }
-
-private:
-    float read (const juce::String& id) const
-    {
-        const auto* value = processorRef.apvts.getRawParameterValue (id);
-        return value != nullptr ? value->load() : 0.0f;
-    }
-
-    IlanaSynthAudioProcessor& processorRef;
-    Kind kind;
-    juce::String prefix { "osc1" };
-    juce::Colour colour { IlanaTheme::accent() };
-};
-
-class PhysicalPage : public juce::Component,
-                     private juce::Timer
-{
-public:
-    explicit PhysicalPage (IlanaSynthAudioProcessor& p)
-        : processorRef (p),
-          view (p),
-          partials (p, PhysicalReadout::Kind::partials),
-          response (p, PhysicalReadout::Kind::response),
-          bodyOn (p.apvts, "res_on", "ON"),
-          boardOn (p.apvts, "sb_on", "ON"),
-          bodyType (p.apvts, "body_type", "TYPE"),
-          boardModel (p.apvts, "sb_model", "MODEL"),
-          bodyAmount (p.apvts, "res_amount", "AMOUNT", IlanaTheme::accent(), true),
-          bodyDecay (p.apvts, "res_decay", "DECAY", IlanaTheme::accent(), true),
-          boardMix (p.apvts, "sb_mix", "MIX", IlanaTheme::accent(), true),
-          bodyCouplingMode (p.apvts, "body_coupling_mode", "COUPLING"),
-          bodyMaterial (p.apvts, "body_material", "MATERIAL", IlanaTheme::accent(), true),
-          bodySize (p.apvts, "body_size", "SIZE", IlanaTheme::accent(), true),
-          bodyOffset (p.apvts, "res_offset", "OFFSET", IlanaTheme::accent(), true),
-          bodyKeytrack (p.apvts, "res_keytrack", "KEY TRK", IlanaTheme::accent(), true),
-          bodyCoupling (p.apvts, "body_coupling", "COUPLE", IlanaTheme::accent(), true),
-          boardTone (p.apvts, "sb_tone", "TONE", IlanaTheme::accent(), true),
-          boardSize (p.apvts, "sb_size", "SIZE", IlanaTheme::accent(), true),
-          boardStretch (p.apvts, "stretch", "STRETCH", IlanaTheme::accent(), true)
-    {
-        addAndMakeVisible (view);
-        addAndMakeVisible (partials);
-        addAndMakeVisible (response);
-        // The one oscillator picker (UI review 8, I8-10).
-        oscPicker.onPick = [this] (int i) { choose (i, true); };
-        addAndMakeVisible (oscPicker);
-        makePhysical.setButtonText ("SWITCH TO PHYSICAL");
-        makePhysical.setTooltip ("Puts this oscillator in Physical mode.");
-        // The theme's outlined button (a tinted pill), not a flat default one.
-        IlanaTheme::makePill (makePhysical, IlanaTheme::accent());
-        makePhysical.setToggleState (true, juce::dontSendNotification);
-        makePhysical.onClick = [this]
-        {
-            processorRef.setOscillatorMode (chosen, OscMode::physical);
-        };
-        addChildComponent (makePhysical);
-
-        styleJumpLink (bodyLink, "BODY");
-        bodyLink.setButtonText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"));
-        bodyLink.setTooltip ("The same controls are on the FILTER page");
-        bodyLink.onClick = [this]
-        {
-            if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
-                editor->showPage ("FILTER");
-        };
-        styleJumpLink (boardLink, "SOUNDBOARD");
-        boardLink.setButtonText (juce::String ("EDIT ") + juce::String::fromUTF8 ("\xe2\x80\xba"));
-        boardLink.setTooltip ("All of the soundboard's controls are on OSC, under SOUNDBOARD");
-        boardLink.onClick = [this] { showAcousticKeys(); };
-        for (auto* button : { &bodyLink, &boardLink })
-            addAndMakeVisible (*button);
-
-        for (auto* knob : { &bodyAmount, &bodyDecay, &boardMix, &bodyMaterial, &bodySize, &bodyOffset, &bodyKeytrack, &bodyCoupling,
-                            &boardTone, &boardSize, &boardStretch })
-            knob->setSizeRole (IlanaTheme::KnobSize::compact);
-        addAll (*this, bodyOn, boardOn, bodyType, boardModel, bodyAmount, bodyDecay, boardMix, bodyCouplingMode, bodyMaterial, bodySize,
-                bodyOffset, bodyKeytrack, bodyCoupling, boardTone, boardSize, boardStretch);
-        // Off, a module's controls dim, as on its own card (and stay drawn,
-        // so the box is the same size on or off: V13-9).
-        for (auto* control : { (juce::Component*) &bodyType, (juce::Component*) &bodyAmount, (juce::Component*) &bodyDecay,
-                               (juce::Component*) &bodyCouplingMode, (juce::Component*) &bodyOffset, (juce::Component*) &bodyKeytrack })
-            effectRules.add (*control, effectRules.isOn ("res_on"), "BODY is off", [] { return FilterColours::offAlpha; });
-        // MATERIAL and SIZE shape the modal bodies only; COUPLE needs a
-        // coupling mode (as on FILTER's BODY card).
-        const auto modalOn = [this] { return readParam ("res_on") > 0.5f && readParam ("body_type") > 0.5f; };
-        const auto couplingOn = [this]
-        {
-            const auto mode = juce::roundToInt (readParam ("body_coupling_mode"));
-            return readParam ("res_on") > 0.5f && (mode == 3 || (mode != 0 && readParam ("body_type") > 0.5f));
-        };
-        effectRules.add (bodyMaterial, modalOn, "BODY is off or Classic", [] { return FilterColours::offAlpha; });
-        effectRules.add (bodySize, modalOn, "BODY is off or Classic", [] { return FilterColours::offAlpha; });
-        effectRules.add (bodyCoupling, couplingOn, "COUPLING is Off, or needs a modal BODY", [] { return FilterColours::offAlpha; });
-        for (auto* control : { (juce::Component*) &boardModel, (juce::Component*) &boardMix, (juce::Component*) &boardTone,
-                               (juce::Component*) &boardSize, (juce::Component*) &boardStretch })
-            effectRules.add (*control, effectRules.isOn ("sb_on"), "the SOUNDBOARD is off", [] { return FilterColours::offAlpha; });
-
-        choose (firstPhysical(), false);
-        startTimerHz (5);
-    }
-
-    ~PhysicalPage() override { pickup.reset(); }
-
-    // The page belongs to the chosen oscillator: its identity colour.
-    juce::Colour colour() const { return IlanaTheme::oscColour (chosen); }
-
-    void paint (juce::Graphics& g) override
-    {
-        IlanaTheme::paintPageBackground (g, getLocalBounds());
-        const auto title = [&g] (juce::Rectangle<int> card, const juce::String& name, const juce::String& note, juce::Colour tag)
-        {
-            IlanaTheme::paintCardHeader (g, card.reduced (12, 0).removeFromTop (28), name, note, tag);
-        };
-
-        IlanaTheme::paintCard (g, viewCard.toFloat(), 7.0f, colour().withAlpha (0.35f));
-        title (viewCard, "PHYSICAL", isPhysical (chosen) ? "OSC " + juce::String (chosen + 1) + "'s string, moving as you play"
-                                                         : "OSC " + juce::String (chosen + 1) + "'s string as Physical would play it", colour());
-
-        // Not a Physical oscillator: the page keeps its shape (the string, its
-        // controls dimmed) and one line on the picker's row says why and
-        // offers the switch, rather than a page of its own (V14-3).
-        if (! isPhysical (chosen))
-        {
-            static const char* const plays[] { "a wavetable", "a string", "a sample", "grains", "the live input", "FM / DX7" };
-            const auto mode = juce::jlimit (0, OscMode::count - 1, juce::roundToInt (readParam (prefix() + "_mode")));
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-            // An FM operator is not offered a string: switching it would take it out of the FM voice (V12-24).
-            IlanaTheme::drawFitted (g, isOperatorVoice (chosen)
-                                           ? "OSC " + juce::String (chosen + 1) + " is an FM operator: pick another for a string"
-                                           : "OSC " + juce::String (chosen + 1) + " plays " + plays[mode],
-                                    messageArea, juce::Justification::centredLeft, 1);
-        }
-
-        for (const auto& [area, name] : rowLabels)
-        {
-            g.setColour (name == "BODY" || name == "SOUNDBOARD" ? IlanaTheme::accent() : colour());
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            IlanaTheme::drawFitted (g, name, area, juce::Justification::centredLeft, 1);
-        }
-
-        g.setColour (IlanaTheme::Ui::line.withAlpha (0.5f));
-        for (const auto& line : separators)
-            g.fillRect (line);
-    }
-
-    void resized() override
-    {
-        // The approved design: the picker row (28 px), then ONE card: the
-        // string view on top, and four rows STRING, EXCITER, BODY and
-        // SOUNDBOARD on one column grid (a 96 px gutter and nine columns),
-        // PARTIALS beside the string rows and BODY + BOARD RESPONSE beside
-        // the soundboard row.
-        auto area = getLocalBounds().reduced (14, 12);
-        const auto physical = isPhysical (chosen);
-        rowLabels.clear();
-        separators.clear();
-
-        view.setInterceptsMouseClicks (physical, physical);
-        view.setAlpha (physical ? 1.0f : 0.75f);
-        messageArea = {};
-
-        auto picker = area.removeFromTop (28);
-        area.removeFromTop (10);
-        viewCard = area;
-        const auto pickerWidth = juce::jmin (picker.getWidth(), oscPicker.getIdealWidth());
-        oscPicker.setBounds (picker.withWidth (pickerWidth));
-        if (! physical)
-        {
-            auto rest = picker.withTrimmedLeft (pickerWidth + 16);
-            makePhysical.setBounds (rest.removeFromRight (190));
-            messageArea = rest.withTrimmedRight (12);
-        }
-
-        constexpr int rowHeight = 74, gutter = 96, columnGap = 6;
-        auto inner = viewCard.withTrimmedTop (30).reduced (10, 8);
-        auto grid = inner.removeFromBottom (4 * rowHeight);
-        inner.removeFromBottom (8);
-
-        // A tine or reed: its pickup under the string (S13).
-        if (pickup != nullptr && pickup->isVisible())
-        {
-            pickup->setBounds (inner.removeFromBottom (inner.getHeight() * 32 / 100));
-            inner.removeFromBottom (8);
-        }
-        view.setBounds (inner);
-
-        const auto columnWidth = (float) (grid.getWidth() - gutter - 9 * columnGap) / 9.0f;
-        const auto columnX = [&] (int column) { return grid.getX() + gutter + columnGap + juce::roundToInt ((float) column * (columnWidth + (float) columnGap)); };
-        const auto rowY = [&] (int row) { return grid.getY() + row * rowHeight; };
-        const auto cell = [&] (int column, int row, int span = 1)
-        {
-            return juce::Rectangle<int> (columnX (column), rowY (row), juce::roundToInt (columnWidth * (float) span + (float) (columnGap * (span - 1))), rowHeight);
-        };
-        const auto place = [&] (juce::Component* item, int column, int row)
-        {
-            const auto box = cell (column, row);
-            if (dynamic_cast<ComboControl*> (item) != nullptr)
-                item->setBounds (box.withSizeKeepingCentre (box.getWidth(), 13 + 24));
-            else
-                item->setBounds (box);
-        };
-        const auto gutterName = [&] (const juce::String& name, int row)
-        {
-            rowLabels.push_back ({ juce::Rectangle<int> (grid.getX(), rowY (row) + 4, gutter, 16), name });
-        };
-        const auto separator = [&] (int row, int toColumn)
-        {
-            if (row > 0)
-                separators.push_back (juce::Rectangle<int> (grid.getX(), rowY (row), columnX (toColumn) - columnGap - grid.getX(), 1));
-        };
-
-        // STRING and EXCITER rows. The exciter's SLAP switch sits in its gutter.
-        auto widest = 7;
-        for (size_t line = 0; line < layoutRows.size() && line < 2; ++line)
-        {
-            const auto row = (int) line;
-            gutterName (layoutRows[line].first, row);
-            auto column = 0;
-            for (auto* item : layoutRows[line].second)
-            {
-                if (dynamic_cast<ToggleControl*> (item) != nullptr)
-                {
-                    item->setBounds (grid.getX(), rowY (row) + 24, 70, 13 + 24);
-                    continue;
-                }
-                place (item, column++, row);
-            }
-            widest = juce::jmax (widest, column);
-        }
-        // (Rows may be wider than the default seven: the readout takes what is left.)
-        const auto stringColumns = 7;
-        juce::ignoreUnused (stringColumns);
-        int usedColumns = 0;
-        for (size_t line = 0; line < layoutRows.size() && line < 2; ++line)
-        {
-            int count = 0;
-            for (auto* item : layoutRows[line].second)
-                count += dynamic_cast<ToggleControl*> (item) != nullptr ? 0 : 1;
-            usedColumns = juce::jmax (usedColumns, count);
-        }
-        const auto partialsFrom = juce::jmax (usedColumns, layoutRows.size() > 1 && layoutRows[1].second.size() > 0 ? 3 : 0);
-        partials.setVisible (partialsFrom <= 8);
-        if (partialsFrom <= 8)
-            partials.setBounds (cell (partialsFrom, 0, 9 - partialsFrom).withHeight (2 * rowHeight).reduced (0, 6));
-        separator (1, partialsFrom <= 8 ? partialsFrom : 9);
-
-        // BODY and SOUNDBOARD: name, switch and EDIT in the gutter.
-        const auto gutterBlock = [&] (const juce::String& name, int row, ToggleControl& power, juce::TextButton& link)
-        {
-            gutterName (name, row);
-            power.setBounds (grid.getX(), rowY (row) + 22, 40, 13 + 20);
-            link.setBounds (grid.getX() + 46, rowY (row) + 35, 50, 22);
-        };
-        separator (2, 9);
-        gutterBlock ("BODY", 2, bodyOn, bodyLink);
-        const auto bodyItems = std::vector<juce::Component*> { &bodyType, &bodyCouplingMode, &bodyAmount, &bodyDecay, &bodyMaterial, &bodySize,
-                                                                &bodyOffset, &bodyKeytrack, &bodyCoupling };
-        for (size_t i = 0; i < bodyItems.size(); ++i)
-            place (bodyItems[i], (int) i, 2);
-        separator (3, 9);
-        gutterBlock ("SOUNDBOARD", 3, boardOn, boardLink);
-        const auto boardItems = std::vector<juce::Component*> { &boardModel, &boardMix, &boardTone, &boardSize, &boardStretch };
-        for (size_t i = 0; i < boardItems.size(); ++i)
-            place (boardItems[i], (int) i, 3);
-        response.setBounds (cell (5, 3, 4).reduced (0, 6));
-        partials.setOscillator (prefix(), colour());
-        response.setOscillator (prefix(), IlanaTheme::accent());
-    }
-
-    int getChosenOscillator() const { return chosen; }
-
-    // Opens on an oscillator's string (OSC's EDIT STRING ›, UI review 9, I9-3).
-    void showOscillator (int osc) { choose (osc, true); }
-
-    // The controls shown for the chosen oscillator's string, in order (the
-    // UI test compares them with the OSC card's).
-    juce::StringArray getControlIds() const { return controlIds; }
-
-private:
-    static constexpr int bodyLineHeight = 108, boxHeaderHeight = 24, stringTitleHeight = 28, linkWidth = 150;
-
-    juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
-
-    float readParam (const juce::String& id) const
-    {
-        const auto* value = processorRef.apvts.getRawParameterValue (id);
-        return value != nullptr ? value->load() : 0.0f;
-    }
-
-    juce::String choiceName (const juce::String& id) const
-    {
-        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (id)))
-            return choice->getCurrentChoiceName();
-        return {};
-    }
-
-    bool isPhysical (int osc) const
-    {
-        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == 1;
-    }
-
-    bool anyPhysical() const
-    {
-        for (int i = 0; i < OscillatorIds::count; ++i)
-            if (isPhysical (i) && processorRef.isOscillatorShown (i))
-                return true;
-        return false;
-    }
-
-    int firstPhysical() const
-    {
-        for (int i = 0; i < OscillatorIds::count; ++i)
-            if (isPhysical (i) && processorRef.isOscillatorShown (i))
-                return i;
-        return 0;
-    }
-
-    void showAcousticKeys()
-    {
-        auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>();
-        auto* section = findParentComponentOfClass<SectionPage>();
-
-        if (editor == nullptr || section == nullptr)
-            return;
-
-        if (auto* viewport = dynamic_cast<OscPageViewport*> (section->getPage (section->indexOf ("OSC"))))
-            if (auto* page = viewport->getPage())
-                page->selectShared (OscPage::sharedKeys);
-
-        editor->showPage ("OSC");
-    }
-
-    void choose (int osc, bool byHand)
-    {
-        chosen = juce::jlimit (0, OscillatorIds::count - 1, osc);
-        pickedByHand = pickedByHand || byHand;
-        const auto id = prefix();
-        view.setOscillator (id);
-        view.setColour (colour());
-
-        // The string's controls, rebound to the chosen oscillator, from
-        // the list its OSC card uses.
-        layoutRows.clear();
-        controls.clear();
-        controlIds.clear();
-        if (excite == nullptr || excitePrefix != id) // not while its own menu may be calling back
-        {
-            excite = std::make_unique<ComboControl> (processorRef.apvts, id + "_excite", "EXCITE");
-            groupExciteMenu (*excite);
-            addAndMakeVisible (*excite);
-            excitePrefix = id;
-        }
-        shownExcite = juce::roundToInt (readParam (id + "_excite"));
-
-        for (const auto& [name, specs] : physicalControlRows (shownExcite))
-        {
-            std::vector<juce::Component*> items;
-
-            for (const auto& spec : specs)
-            {
-                const juce::String suffix (spec.suffix);
-
-                if (processorRef.apvts.getParameter (id + suffix) == nullptr)
-                    continue;
-
-                controlIds.add (id + suffix);
-
-                if (suffix == "_excite")
-                {
-                    items.push_back (excite.get());
-                    continue;
-                }
-
-                if (suffix == "_string_slap")
-                    controls.push_back (std::make_unique<ToggleControl> (processorRef.apvts, id + suffix, spec.label));
-                else
-                {
-                    auto knob = std::make_unique<KnobControl> (processorRef.apvts, id + suffix, spec.label, colour(), false);
-                    knob->setSizeRole (IlanaTheme::KnobSize::compact);
-                    controls.push_back (std::move (knob));
-                }
-
-                addAndMakeVisible (*controls.back());
-                items.push_back (controls.back().get());
-            }
-
-            layoutRows.push_back ({ name, items });
-        }
-
-        // A tine or reed's pickup curve, as on its OSC card.
-        const auto electric = shownExcite == 7 || shownExcite == 8;
-        if (electric && (pickup == nullptr || pickupPrefix != id))
-        {
-            pickup = std::make_unique<WaveDisplay> (processorRef, id + "_table", id + "_frame", id + "_unison", id + "_spread",
-                                                    id + "_detune", false, juce::String {}, id + "_mode", chosen, colour(), false);
-            addChildComponent (*pickup);
-            pickupPrefix = id;
-        }
-        if (pickup != nullptr)
-            pickup->setVisible (electric);
-
-        oscPicker.setSelectedOsc (chosen);
-        updateAvailability();
-        resized();
-        repaint();
-    }
-
-    // An oscillator that plays as an FM operator: the FM / DX7 type.
-    bool isOperatorVoice (int osc) const
-    {
-        return juce::roundToInt (readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode")) == OscMode::fmOperator
-               && FmOperatorInfo::isPlaying (processorRef, osc);
-    }
-
-    void updateAvailability()
-    {
-        const auto physical = isPhysical (chosen);
-        makePhysical.setVisible (! physical && ! isOperatorVoice (chosen));
-        // A non-physical oscillator's string controls stay, dimmed.
-        const auto stringAlpha = physical ? 1.0f : FilterColours::offAlpha;
-        if (excite != nullptr)
-            excite->setAlpha (stringAlpha);
-        for (auto& control : controls)
-            control->setAlpha (stringAlpha);
-        if (pickup != nullptr)
-            pickup->setVisible (physical && (shownExcite == 7 || shownExcite == 8));
-        std::vector<int> shownOscs;
-        for (int i = 0; i < OscillatorIds::count; ++i)
-            if (processorRef.isOscillatorShown (i))
-                shownOscs.push_back (i);
-        // Lit while Physical; the others greyed, to switch over.
-        oscPicker.setOscillators (shownOscs, [this] (int i) { return isPhysical (i); },
-                                  [this] (int i) { return isPhysical (i) ? "Edit OSC " + juce::String (i + 1) + "'s string"
-                                                                         : "OSC " + juce::String (i + 1) + " is not Physical"; });
-        oscPicker.setSelectedOsc (chosen);
-
-        // The PHYSICAL tab greys while no oscillator has a string (UI
-        // review 6, V23, S37); it still opens, to offer the switch.
-        if (auto* section = findParentComponentOfClass<SectionPage>())
-            section->switcher.setItemDimmed (section->indexOf ("PHYSICAL"),
-                                             anyPhysical() ? juce::String()
-                                                           : juce::String ("No oscillator is Physical: pick Physical in an oscillator's MODE menu "
-                                                                           "(OSC page) to give it a string to edit here"));
-    }
-
-    void timerCallback() override
-    {
-        // Follow the patch: a preset with its Physical string on another
-        // oscillator moves the view there, unless one was picked by hand.
-        if (! pickedByHand && ! isPhysical (chosen) && isPhysical (firstPhysical()))
-            choose (firstPhysical(), false);
-        else if (juce::roundToInt (readParam (prefix() + "_excite")) != shownExcite)
-            choose (chosen, false);
-        if (lastPhysical != isPhysical (chosen))
-        {
-            lastPhysical = isPhysical (chosen);
-            resized();
-            repaint();
-        }
-        updateAvailability();
-        effectRules.apply();
-        partials.repaint();
-        response.repaint();
-
-        if (const auto body = readParam ("res_on") + 2.0f * readParam ("sb_on") + 4.0f * readParam ("body_type") + 64.0f * readParam ("sb_model");
-            body != shownBody)
-        {
-            shownBody = body;
-            resized(); // (a block folds while off)
-            repaint();
-        }
-    }
-
-    IlanaSynthAudioProcessor& processorRef;
-    PhysicalView view;
-    PhysicalReadout partials, response;
-    OscPicker oscPicker;
-    juce::TextButton makePhysical, bodyLink, boardLink;
-    ToggleControl bodyOn, boardOn;
-    ComboControl bodyType, boardModel;
-    KnobControl bodyAmount, bodyDecay, boardMix;
-    ComboControl bodyCouplingMode;
-    KnobControl bodyMaterial, bodySize, bodyOffset, bodyKeytrack, bodyCoupling, boardTone, boardSize, boardStretch;
-    EffectRules effectRules { processorRef };
-    std::unique_ptr<ComboControl> excite;
-    juce::String excitePrefix, pickupPrefix;
-    std::unique_ptr<WaveDisplay> pickup;
-    std::vector<std::unique_ptr<juce::Component>> controls;
-    std::vector<std::pair<juce::String, std::vector<juce::Component*>>> layoutRows;
-    std::vector<std::pair<juce::Rectangle<int>, juce::String>> rowLabels;
-    juce::StringArray controlIds;
-    int chosen = 0, shownExcite = -1;
-    float shownBody = -1.0f;
-    bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> messageArea, viewCard;
-    std::vector<juce::Rectangle<int>> separators;
-};
-// OSC's EDIT STRING ›: the PHYSICAL page, on that oscillator.
-void showPhysicalString (juce::Component& from, int osc)
-{
-    auto* editor = from.findParentComponentOfClass<IlanaSynthAudioProcessorEditor>();
-    auto* section = from.findParentComponentOfClass<SectionPage>();
-    if (editor == nullptr || section == nullptr)
-        return;
-
-    if (auto* page = dynamic_cast<PhysicalPage*> (section->getPage (section->indexOf ("PHYSICAL"))))
-        page->showOscillator (osc);
-    editor->showPage ("PHYSICAL");
-}
 
 } // namespace

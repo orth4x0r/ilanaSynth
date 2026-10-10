@@ -13,12 +13,15 @@
 // ILANA_STRESS_REALTIME=1 renders as live (tables built in the background,
 // so runs no longer match sample for sample; for ThreadSanitizer);
 // ILANA_STRESS_SECONDS=n lengthens the phrase.
+//
+// ILANA_AUDIO_DEBUG=1 runs the audio-bug harness instead (tools/AudioDebug.h).
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cmath>
 #include <iostream>
 
+#include "AudioDebug.h"
 #include "PluginProcessor.h"
 #include "dsp/Voice.h"
 
@@ -199,6 +202,9 @@ void check (const juce::String& what, const Result& r)
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
+    // ILANA_AUDIO_DEBUG=1: the click / zipper / extreme-setting harness (tools/AudioDebug.h).
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_AUDIO_DEBUG", "").isNotEmpty())
+        return audiodebug::run();
     // The same switches as ilanaFingerprint, to tell a new problem from an old one.
     Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
     Voice::disableSlowEnvelopes = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_SLOW_ENVELOPES", "").isNotEmpty();

@@ -218,8 +218,8 @@ private:
             return path;
         };
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.strokePath (trace (historyB), juce::PathStrokeType (1.1f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.strokePath (trace (historyB), juce::PathStrokeType (1.2f));
         g.setColour (colour);
         g.strokePath (trace (historyA), juce::PathStrokeType (1.7f));
 
@@ -253,13 +253,13 @@ private:
         const auto count = (int) trail.size();
         for (int i = 1; i < count; ++i)
         {
-            const auto alpha = 0.08f + 0.8f * (float) i / (float) count;
+            const auto alpha = (dots ? 0.3f : 0.12f) + 0.7f * (float) i / (float) count;
             g.setColour (colour.withAlpha (alpha));
             const auto p1 = map (project (trail[(size_t) i]));
             if (dots)
-                g.fillEllipse (juce::Rectangle<float> (2.2f, 2.2f).withCentre (p1));
+                g.fillEllipse (juce::Rectangle<float> (3.6f, 3.6f).withCentre (p1));
             else
-                g.drawLine ({ map (project (trail[(size_t) i - 1])), p1 }, 1.2f);
+                g.drawLine ({ map (project (trail[(size_t) i - 1])), p1 }, 1.6f);
         }
         g.setColour (juce::Colours::white);
         g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (map (project (trail.back()))));
@@ -334,13 +334,24 @@ private:
             case Pendulum:
             {
                 const auto pivot = juce::Point<float> (box.getCentreX(), box.getY() + 12.0f);
-                const auto length = box.getHeight() - 30.0f;
+                // (Short enough that a full sideways swing stays inside the box.)
+                const auto length = juce::jmax (20.0f, juce::jmin (box.getHeight() - 30.0f, box.getWidth() * 0.5f - 12.0f));
+                juce::Graphics::ScopedSaveState keepInside (g);
+                g.reduceClipRegion (box.getSmallestIntegerContainer());
                 const auto angle = (float) st[0];
                 const auto bob = pivot + juce::Point<float> (std::sin (angle), std::cos (angle)) * length;
-                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.setColour (juce::Colours::white.withAlpha (0.2f));
                 g.drawLine ({ pivot, pivot + juce::Point<float> (0.0f, length) }, 1.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.7f));
-                g.drawLine ({ pivot, bob }, 2.0f);
+                // Where the bob has been: its trail along the arc, fading.
+                const auto count = (int) trail.size();
+                for (int i = 0; i < count; ++i)
+                {
+                    const auto at = pivot + juce::Point<float> (std::sin ((float) trail[(size_t) i].x), std::cos ((float) trail[(size_t) i].x)) * length;
+                    g.setColour (colour.withAlpha (0.08f + 0.6f * (float) i / (float) count));
+                    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre (at));
+                }
+                g.setColour (juce::Colours::white.withAlpha (0.85f));
+                g.drawLine ({ pivot, bob }, 2.2f);
                 g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (pivot));
                 g.setColour (colour);
                 g.fillEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (bob));
@@ -354,8 +365,15 @@ private:
                 const auto massY = restY + (float) st[0] * travel;
                 g.setColour (juce::Colours::white.withAlpha (0.35f));
                 g.fillRect (box.getCentreX() - 20.0f, top - 2.0f, 40.0f, 2.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.setColour (juce::Colours::white.withAlpha (0.2f));
                 g.drawHorizontalLine ((int) (restY + (float) value (3) * travel), box.getX() + 8.0f, box.getRight() - 8.0f);
+                // The mass's recent places, a fading column beside it.
+                const auto count = (int) trail.size();
+                for (int i = 0; i < count; i += 2)
+                {
+                    g.setColour (colour.withAlpha (0.05f + 0.5f * (float) i / (float) count));
+                    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ box.getCentreX() + 26.0f + 0.04f * (float) (count - i), restY + (float) trail[(size_t) i].x * travel }));
+                }
                 juce::Path coil;
                 coil.startNewSubPath (box.getCentreX(), top);
                 constexpr int turns = 9;

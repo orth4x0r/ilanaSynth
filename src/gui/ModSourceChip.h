@@ -251,7 +251,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         auto changed = false;
@@ -360,14 +360,14 @@ public:
     }
 
     const std::vector<int>& getSources() const { return sources; }
-    juce::String getLabel() const { return "+" + juce::String ((int) sources.size()); }
+    juce::String getLabel() const { return juce::String ((int) sources.size()) + " MORE"; }
     const juce::String& getGroupName() const { return group; }
     float getNaturalWidth() const { return widthFor ({}, (int) sources.size()); }
 
     float getLayoutWidth() const { return layoutWidthFor ({}, (int) sources.size()); }
     static float layoutWidthFor (const juce::String&, int count)
     {
-        return ModSourceChip::layoutTextWidth ("+" + juce::String (count)) + extraWidth;
+        return ModSourceChip::layoutTextWidth (juce::String (count) + " MORE") + extraWidth;
     }
 
     // Room beside the "+N": its members' dots at the left, where a chip's dot
@@ -378,7 +378,7 @@ public:
     static float widthFor (const juce::String&, int count)
     {
         return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true),
-                                                                 "+" + juce::String (count))
+                                                                 juce::String (count) + " MORE")
                + extraWidth;
     }
 
@@ -440,7 +440,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         const auto target = isMouseOver() ? 1.0f : 0.0f;

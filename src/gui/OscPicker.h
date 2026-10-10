@@ -12,7 +12,7 @@
 // The one way to pick an oscillator (UI review 8, I8-10): OSC's tabs
 // (StateTabs), each oscillator in its colour, its tag lit while it plays.
 // OSC (with each oscillator's role after its name), FM's operator card,
-// MOD's OP ENV editor and PHYSICAL all use this class (UI review 9, I9-5).
+// MOD's OP ENV editor use this class (UI review 9, I9-5).
 // Short of room the names shrink to their numbers: the compact variant.
 class OscPicker : public StateTabs
 {

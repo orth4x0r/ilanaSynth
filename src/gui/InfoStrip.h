@@ -78,21 +78,80 @@ public:
         g.setFont (titleFont);
         g.drawText (title, textArea.removeFromLeft (titleWidth), juce::Justification::centredLeft, true);
 
+        // The description wraps onto a second line, shrinks to the passive
+        // floor, then trails off with an ellipsis (the full text is in the
+        // tooltip): it never runs under the fade into MASTER (A16-2).
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText (description, textArea, juce::Justification::centredLeft);
+        const auto descriptionArea = textArea.reduced (0, 2);
+        const auto [shownText, shownFont] = fitHelp (g.getCurrentFont(), description, descriptionArea.getWidth(), descriptionArea.getHeight());
+        g.setFont (shownFont);
+        IlanaTheme::drawFitted (g, shownText, descriptionArea, juce::Justification::centredLeft, 2);
+    }
 
-        // Long text trails off instead of being chopped off.
-        const auto fadeWidth = juce::jmin (30.0f, (float) textArea.getWidth() * 0.5f);
-        const auto fadeX = (float) textArea.getRight() - fadeWidth;
-
-        if (fadeWidth > 4.0f)
+    // The help that fits the line whole: as many of its sentences as wrap into the line's rows at
+    // the text's own size; else its first sentence at the smallest size that holds it (down to the
+    // passive floor); else its first clause. Never a sentence cut short ("With Hard Sync this
+    // set..."): the tooltip has all of it.
+    static std::pair<juce::String, juce::Font> fitHelp (const juce::Font& base, const juce::String& text, int room, int height)
+    {
+        const auto fits = [&] (const juce::Font& font, const juce::String& candidate)
         {
-            juce::ColourGradient fade (IlanaTheme::Ui::well.withAlpha (0.0f), fadeX, 0.0f,
-                                       IlanaTheme::Ui::well, (float) textArea.getRight(), 0.0f, false);
-            g.setGradientFill (fade);
-            g.fillRect (juce::Rectangle<float> (fadeX, 0.0f, fadeWidth, (float) getHeight()));
+            if (juce::GlyphArrangement::getStringWidth (font, candidate) <= (float) room - 2.0f)
+                return true;
+            juce::GlyphArrangement wrapped;
+            wrapped.addJustifiedText (font, candidate, 0.0f, font.getAscent(), (float) room - 2.0f, juce::Justification::left);
+            const auto lines = wrapped.getNumGlyphs() > 0 ? juce::roundToInt (wrapped.getBoundingBox (0, -1, true).getHeight() / font.getHeight()) : 1;
+            return lines <= 2 && (float) lines * font.getHeight() <= (float) height + 0.5f;
+        };
+
+        const auto trimmed = text.trim();
+        if (fits (base, trimmed))
+            return { trimmed, base };
+
+        juce::StringArray sentences;
+        for (auto from = 0;;)
+        {
+            const auto end = trimmed.indexOf (from, ". ");
+            if (end < 0)
+            {
+                sentences.add (trimmed.substring (0, trimmed.length()));
+                break;
+            }
+            sentences.add (trimmed.substring (0, end + 1));
+            from = end + 2;
         }
+
+        // Sentence prefixes (each the text so far), the longest that fits at the text's size.
+        for (auto i = sentences.size() - 1; i >= 0; --i)
+            if (fits (base, sentences[i]))
+                return { sentences[i], base };
+
+        // The first sentence alone, smaller, down to the floor.
+        const auto floor = juce::jmin (base.getHeight(), IlanaTheme::TextSize::minPassive);
+        for (auto size = base.getHeight() - 1.0f; size >= floor - 0.01f; size -= 1.0f)
+        {
+            const auto smaller = base.withHeight (size);
+            if (fits (smaller, sentences[0]))
+                return { sentences[0], smaller };
+        }
+
+        // Still too long: its last clause break that fits at the floor.
+        const auto smallest = base.withHeight (floor);
+        const auto& first = sentences[0];
+        for (auto end = first.length() - 1; end > 0; --end)
+            if ((first[end] == ',' || first[end] == ';' || first[end] == ':') && fits (smallest, first.substring (0, end)))
+                return { first.substring (0, end) + ".", smallest };
+
+        return { first, smallest };
+    }
+
+    // For the tests: the line showing this text at once.
+    void showTextForTest (const juce::String& newTitle, const juce::String& newDescription)
+    {
+        title = pendingTitle = newTitle;
+        description = pendingDescription = newDescription;
+        shown = target = 1.0f;
     }
 
     // For the tests: what the line does with the mouse resting on a

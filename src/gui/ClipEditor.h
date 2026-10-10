@@ -388,7 +388,7 @@ public:
         reload (false);
         endGesture();
 
-        if (isShowing())
+        if (IlanaAnim::showing (*this))
             grabKeyboardFocus();
 
         const auto position = event.position;
@@ -1179,7 +1179,7 @@ private:
         if (auditionNote >= 0 && juce::Time::getMillisecondCounter() >= auditionEnd)
             stopAudition();
 
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         reload (false);

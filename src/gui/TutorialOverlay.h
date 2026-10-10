@@ -33,9 +33,9 @@ public:
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
             { "SF2 / SFZ", "OSC", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },
             { "VOCODER", "FX", "A vocoder effect module." },
-            { "PHYSICAL PAGE", "PHYSICAL", "Strings, plates and tubes struck, plucked or bowed." },
-            { "FELT HAMMER BOARD", "PHYSICAL", "The reworked piano exciter: try the Felt Hammer Board preset." },
-            { "FEEDBACK GUITAR", "PHYSICAL", "A string that feeds back through its amp." },
+            { "PHYSICAL STRINGS", "OSC", "Strings struck, plucked or bowed: pick Physical in an oscillator's menu." },
+            { "FELT HAMMER BOARD", "OSC", "The reworked piano exciter: try the Felt Hammer Board preset." },
+            { "FEEDBACK GUITAR", "OSC", "A string that feeds back through its amp." },
             { "CHAOS LFO SHAPES", "ENV/LFO", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
             { "WEST COAST", "FILTER", "A wavefolder and low-pass gate after (or in place of) the filters." },
             { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad; EVOLVE is on each macro's card." },
@@ -115,7 +115,7 @@ public:
         // A reading column, not the window's width (review 11, S11-16).
         auto area = getLocalBounds().reduced (70);
         area = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 720), area.getHeight());
-        const auto tipsWidth = area.getWidth() - 56 - (area.getWidth() - 56) / 5;
+        const auto tipsWidth = area.getWidth() - 56;
         const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight() + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
@@ -247,7 +247,7 @@ public:
                 }
             }
 
-            drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", getTips());
+            drawTipColumn (g, area, "START HERE", getTips());
 
             // The shortcuts as key caps and a word each (V12-29); the settings
             // menu, which has no key, is named last.

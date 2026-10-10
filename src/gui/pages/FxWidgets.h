@@ -111,7 +111,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -260,7 +260,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -340,7 +340,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && isOn() != shownOn)
+        if (IlanaAnim::showing (*this) && isOn() != shownOn)
         {
             shownOn = isOn();
             repaint();

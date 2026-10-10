@@ -242,6 +242,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     releaseSilentSamples = 0;
     releasePeak = 0.0f;
     fadeTotal = fadeRemaining = 0;
+    sounded = false;
     ampGainFade = 1.0f;
     const auto keepRunning = mono && monoKeepRunning;
     const auto glide = ! mono || monoGlide;
@@ -1083,6 +1084,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         clearCurrentNote();
         return;
     }
+
+    sounded = true;
 
     // Block-rate modulation first: everything below can use it. The
     // per-sample values only clear destinations that are routed, so wipe

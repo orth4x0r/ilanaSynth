@@ -83,7 +83,7 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -425,7 +425,7 @@ private:
     {
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (isShowing() && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
                                                                 ^ IlanaAnim::phaseSignature (processorRef.getMsegPhase(), 77))))
             repaint();
     }

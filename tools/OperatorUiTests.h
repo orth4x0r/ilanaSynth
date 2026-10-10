@@ -124,12 +124,26 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         picker->pick (0);
     settle (200);
 
+    // N16-3: on a DX7 patch the FM page's ENVELOPE menu reads OP ENV, not blank.
+    {
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        auto found = false, blank = false;
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getNameLabel().getText() == "ENVELOPE")
+            {
+                found = true;
+                blank = blank || combo->getComboBox().getText() != "OP ENV";
+            }
+        expect (found && ! blank, "FM: the ENVELOPE menu of an Operator Env oscillator reads OP ENV (N16-3)");
+    }
+
     // I10-1: an operator shows one level, OUTPUT (dB), on PLAY, FM and OSC; the
     // oscillator's own level (VOICE LEVEL) is on no operator page (I12-1).
     {
         editor.showPage ("MAIN");
         settle (400);
-        const auto playOutput = textOf (knobFor ("osc2_eg_out", "DEPTH")); // (a modulator's OUTPUT is a DEPTH, I12-3)
+        const auto playOutput = textOf (knobFor ("osc2_eg_out", "OUTPUT")); // (a modulator's level is an OUTPUT too, I15-1)
         const auto playLevel = knobFor ("osc2_level") != nullptr;
         editor.showPage ("FM");
         settle (400);
@@ -146,7 +160,7 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
     }
 
     // I12-6: the OSC drawer on an operator voice has no STRINGS or SOUNDBOARD
-    // tab; I12-3: a modulator says what it modulates and its OUTPUT is a DEPTH.
+    // tab; I12-3: a modulator says what it modulates and its level is still OUTPUT (I15-1).
     {
         editor.showPage ("OSC");
         settle (400);
@@ -166,8 +180,8 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                 "OSC: the strip has no tabs, and STRINGS and SOUNDBOARD sit dimmed on an operator voice (I12-6)");
         editor.showPage ("MAIN");
         settle (300);
-        expect (knobFor ("osc2_eg_out", "DEPTH") != nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
-                "PLAY: a modulator's level knob reads DEPTH, a carrier's OUTPUT (I12-3)");
+        expect (knobFor ("osc2_eg_out", "OUTPUT") != nullptr && knobFor ("osc2_eg_out", "DEPTH") == nullptr && knobFor ("osc1_eg_out", "OUTPUT") != nullptr,
+                "PLAY: a modulator's level knob reads OUTPUT, never DEPTH (I15-1)");
     }
 
     // I8-2, I9-7: the oscillator's LEVEL is "Level" in the matrix whether
@@ -403,12 +417,6 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                     + unusedEditor.getUseButton().getButtonText()
                     + (attack != nullptr ? ", alpha " + juce::String (attack->getAlpha(), 2) : juce::String ()) + ")");
     }
-
-    // I8-10: PHYSICAL picks its oscillator on the same picker.
-    loadNamed ("Init");
-    editor.showPage ("PHYSICAL");
-    settle (400);
-    expect (shownPicker() != nullptr && oscPillButtons() == 0, "PHYSICAL picks its oscillator on the one picker (I8-10)");
 
     // I8-40: host names as the pages write them.
     expect (processor.apvts.getParameter ("osc1_eg_r1")->getName (64) == "OSC 1 OP ENV Attack"

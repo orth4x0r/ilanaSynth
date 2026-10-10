@@ -144,10 +144,14 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         const auto& ids = fxSlotIds[(size_t) (slot - 1)];
         const auto type = (int) getParam (ids.type);
         const auto solo = getParam (ids.solo) > 0.5f;
-        const auto blend = getParam (ids.mix);
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
+        // The slot's blend eases across the block from the last one.
+        auto& blendRamp = slotBlendRamps[(size_t) (slot - 1)];
+        blendRamp.begin (getParam (ids.mix), numSamples);
+        const auto blend = blendRamp.last;
+        const auto blendFrom = blendRamp.from;
         const auto band = (int) getParam (ids.band);
         const auto levelOf = [&buffer, numChannels, numSamples]
         {
@@ -164,9 +168,9 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
 
         if (band > 0 && numChannels == 2)
         {
-            processSlotBand (slot - 1, type, band, buffer, solo, blend);
+            processSlotBand (slot - 1, type, band, buffer, solo, blend, blendFrom);
         }
-        else if (solo || blend < 0.999f)
+        else if (solo || blend < 0.999f || blendFrom < 0.999f)
         {
             if (fxScratch.getNumChannels() < numChannels || fxScratch.getNumSamples() < numSamples)
                 fxScratch.setSize (numChannels, numSamples, false, false, true);
@@ -181,6 +185,11 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
                 if (solo)
                 {
                     buffer.copyFrom (channel, 0, fxScratch, channel, 0, numSamples);
+                }
+                else if (blendRamp.moving())
+                {
+                    buffer.applyGainRamp (channel, 0, numSamples, 1.0f - blendFrom, 1.0f - blend);
+                    buffer.addFromWithRamp (channel, 0, fxScratch.getReadPointer (channel), numSamples, blendFrom, blend);
                 }
                 else
                 {
@@ -212,7 +221,7 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
     }
 }
 
-void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend)
+void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend, float blendFrom)
 {
     const auto numSamples = buffer.getNumSamples();
     if (fxBand.getNumChannels() < 2 || fxBand.getNumSamples() < numSamples)
@@ -322,12 +331,15 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     fxScratch.copyFrom (1, 0, fxBand, 1, 0, numSamples);
     processSlot (type, fxScratch);
     const auto wet = solo ? 1.0f : blend, dry = solo ? 0.0f : 1.0f - blend;
+    const auto wetFrom = solo ? 1.0f : blendFrom, dryFrom = solo ? 0.0f : 1.0f - blendFrom;
+    const auto wetStep = numSamples > 0 ? (wet - wetFrom) / (float) numSamples : 0.0f;
+    const auto dryStep = numSamples > 0 ? (dry - dryFrom) / (float) numSamples : 0.0f;
     for (int channel = 0; channel < 2; ++channel)
     {
         auto* out = fxScratch.getWritePointer (channel);
         const auto* in = fxBand.getReadPointer (channel);
         for (int i = 0; i < numSamples; ++i)
-            out[i] = out[i] * wet + in[i] * dry;
+            out[i] = out[i] * (wetFrom + wetStep * (float) i) + in[i] * (dryFrom + dryStep * (float) i);
     }
 
     // Soloed, the slot's band is all that is heard.
@@ -402,8 +414,11 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
 
     if (getParam ("fx_drive_on") > 0.5f)
     {
-        const auto amount = juce::jlimit (1.0f, 20.0f, getParam ("fx_drive_amount") + getFxMod (Mod::Destination::FxDriveAmount, 19.0f));
-        const auto mix = getParam ("fx_drive_mix");
+        auto& amountRamp = fxRamps[(size_t) FxRamp::DriveAmount];
+        amountRamp.begin (getParam ("fx_drive_amount"), numSamples);
+        const auto amountMod = getFxMod (Mod::Destination::FxDriveAmount, 19.0f);
+        auto& mixRamp = fxRamps[(size_t) FxRamp::DriveMix];
+        mixRamp.begin (getParam ("fx_drive_mix"), numSamples);
         const auto hardClip = getParam ("fx_drive_type") > 0.5f;
 
         for (int channel = 0; channel < numChannels; ++channel)
@@ -412,17 +427,17 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
 
             for (int i = 0; i < numSamples; ++i)
             {
+                const auto amount = juce::jlimit (1.0f, 20.0f, amountRamp.at (i) + amountMod);
                 const auto driven = hardClip ? juce::jlimit (-1.0f, 1.0f, data[i] * amount) : std::tanh (data[i] * amount);
-                data[i] = data[i] + (driven - data[i]) * mix;
+                data[i] = data[i] + (driven - data[i]) * mixRamp.at (i);
             }
         }
     }
 
     if (getParam ("fx_fold") > 0.001f)
     {
-        const auto amount = getParam ("fx_fold");
-        const auto gain = 1.0f + amount * 5.0f;
-        const auto compensation = 1.0f / (1.0f + amount * 1.5f);
+        auto& foldRamp = fxRamps[(size_t) FxRamp::FoldAmount];
+        foldRamp.begin (getParam ("fx_fold"), numSamples);
         const auto sineFold = getParam ("fx_fold_type") > 0.5f;
 
         for (int channel = 0; channel < numChannels; ++channel)
@@ -430,8 +445,13 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
             auto* data = buffer.getWritePointer (channel);
 
             for (int i = 0; i < numSamples; ++i)
+            {
+                const auto amount = foldRamp.at (i);
+                const auto gain = 1.0f + amount * 5.0f;
+                const auto compensation = 1.0f / (1.0f + amount * 1.5f);
                 data[i] = (sineFold ? std::sin (data[i] * gain * juce::MathConstants<float>::halfPi)
                                     : foldTriangle (data[i] * gain)) * compensation;
+            }
         }
     }
 }
@@ -445,11 +465,15 @@ void IlanaSynthAudioProcessor::processCrush (juce::AudioBuffer<float>& buffer)
     {
         const auto bits = juce::jlimit (1.0f, 16.0f, getParam ("fx_crush_bits"));
         const auto downsample = juce::jlimit (1, 64, (int) getParam ("fx_crush_down"));
-        const auto mix = juce::jlimit (0.0f, 1.0f, getParam ("fx_crush_mix") + getFxMod (Mod::Destination::FxCrushMix, 1.0f));
+        auto& mixRamp = fxRamps[(size_t) FxRamp::CrushMix];
+        mixRamp.begin (getParam ("fx_crush_mix"), numSamples);
+        const auto mixMod = getFxMod (Mod::Destination::FxCrushMix, 1.0f);
         const auto levels = std::pow (2.0f, bits) - 1.0f;
 
         for (int i = 0; i < numSamples; ++i)
         {
+            const auto mix = juce::jlimit (0.0f, 1.0f, mixRamp.at (i) + mixMod);
+
             if (crushCounter == 0)
             {
                 for (int channel = 0; channel < juce::jmin (2, numChannels); ++channel)
@@ -480,7 +504,8 @@ void IlanaSynthAudioProcessor::processComb (juce::AudioBuffer<float>& buffer)
     {
         const auto frequency = juce::jlimit (20.0f, 2000.0f, getParam ("fx_comb_freq") * std::exp2 (getFxMod (Mod::Destination::FxCombFreq, 4.0f)));
         const auto feedback = juce::jlimit (0.0f, 0.97f, getParam ("fx_comb_feedback"));
-        const auto mix = getParam ("fx_comb_mix");
+        auto& mixRamp = fxRamps[(size_t) FxRamp::CombMix];
+        mixRamp.begin (getParam ("fx_comb_mix"), numSamples);
         const auto delaySamples = juce::jlimit (1.0f, (float) (currentSampleRate * 0.149),
                                                 (float) (currentSampleRate / frequency));
 
@@ -496,7 +521,7 @@ void IlanaSynthAudioProcessor::processComb (juce::AudioBuffer<float>& buffer)
                 const auto input = data[i];
 
                 combLine.pushSample (channel, input + delayed * feedback);
-                data[i] = input + delayed * mix;
+                data[i] = input + delayed * mixRamp.at (i);
             }
         }
     }
@@ -562,8 +587,15 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
                                             (float) (timeMsR * 0.001 * currentSampleRate));
         delaySamples[0] = baseDelaySamples[0];
         delaySamples[1] = baseDelaySamples[1];
+        // The delay time glides across the block from the last one (a step is a click).
+        auto& timeRampL = fxRamps[(size_t) FxRamp::DelayTimeL];
+        auto& timeRampR = fxRamps[(size_t) FxRamp::DelayTimeR];
+        timeRampL.begin (baseDelaySamples[0], numSamples);
+        timeRampR.begin (baseDelaySamples[1], numSamples);
         const auto feedback = juce::jlimit (0.0f, 0.95f, getParam ("fx_delay_feedback") + getFxMod (Mod::Destination::FxDelayFeedback, 0.9f));
-        const auto mix = juce::jlimit (0.0f, 1.0f, getParam ("fx_delay_mix") + getFxMod (Mod::Destination::FxDelayMix, 1.0f));
+        auto& mixRamp = fxRamps[(size_t) FxRamp::DelayMix];
+        mixRamp.begin (getParam ("fx_delay_mix"), numSamples);
+        const auto mixMod = getFxMod (Mod::Destination::FxDelayMix, 1.0f);
         const auto damping = getParam ("fx_delay_damping");
         const auto pingPong = getParam ("fx_delay_pingpong") > 0.5f;
         const auto duck = getParam ("fx_delay_duck");
@@ -611,6 +643,10 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
 
         for (int i = 0; i < numSamples; ++i)
         {
+            const auto mix = juce::jlimit (0.0f, 1.0f, mixRamp.at (i) + mixMod);
+            baseDelaySamples[0] = delaySamples[0] = timeRampL.at (i);
+            baseDelaySamples[1] = delaySamples[1] = timeRampR.at (i);
+
             if (wowAmount > 0.001f)
             {
                 wowPhase += 0.6 / currentSampleRate;
@@ -719,7 +755,8 @@ void IlanaSynthAudioProcessor::processStutter (juce::AudioBuffer<float>& buffer)
 
     if (stutterOn && stutterLength > 0 && stutterLength <= stutterBuffer.getNumSamples())
     {
-        const auto mix = getParam ("fx_stutter_mix");
+        auto& mixRamp = fxRamps[(size_t) FxRamp::StutterMix];
+        mixRamp.begin (getParam ("fx_stutter_mix"), numSamples);
         const auto reverse = getParam ("fx_stutter_reverse") > 0.5f;
         const auto channels = juce::jmin (2, numChannels);
         stutterRate = (float) std::exp2 (getParam ("fx_stutter_pitch") / 12.0f);
@@ -754,7 +791,7 @@ void IlanaSynthAudioProcessor::processStutter (juce::AudioBuffer<float>& buffer)
                     const auto held = stutterBuffer.getSample (channel, index)
                                       + (stutterBuffer.getSample (channel, next)
                                          - stutterBuffer.getSample (channel, index)) * frac;
-                    buffer.setSample (channel, i, value + (held - value) * mix);
+                    buffer.setSample (channel, i, value + (held - value) * mixRamp.at (i));
                 }
 
                 stutterPosition += (double) stutterRate;
@@ -773,7 +810,9 @@ void IlanaSynthAudioProcessor::processSmear (juce::AudioBuffer<float>& buffer)
     const auto numChannels = buffer.getNumChannels();
 
     const auto smearOn = getParam ("fx_smear_on") > 0.5f;
-    const auto smearMix = juce::jlimit (0.0f, 1.0f, getParam ("fx_smear_mix") + getFxMod (Mod::Destination::FxSmearMix, 1.0f));
+    auto& smearRamp = fxRamps[(size_t) FxRamp::SmearMix];
+    smearRamp.begin (getParam ("fx_smear_mix"), numSamples);
+    const auto smearMod = getFxMod (Mod::Destination::FxSmearMix, 1.0f);
     const auto smearChannels = juce::jmin (2, numChannels);
 
     for (int channel = 0; channel < smearChannels; ++channel)
@@ -785,6 +824,7 @@ void IlanaSynthAudioProcessor::processSmear (juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < numSamples; ++i)
         {
             smear[channel].push (data[i]);
+            const auto smearMix = juce::jlimit (0.0f, 1.0f, smearRamp.at (i) + smearMod);
 
             if (smearOn && smearMix > 0.001f)
             {
@@ -986,11 +1026,13 @@ void IlanaSynthAudioProcessor::processAmp (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = juce::jmin (2, buffer.getNumChannels());
     const auto mode = juce::jlimit (0, 2, (int) getParam ("fx_amp_mode"));
-    const auto drive = getParam ("fx_amp_drive");
+    auto& driveRamp = fxRamps[(size_t) FxRamp::AmpDrive];
+    driveRamp.begin (getParam ("fx_amp_drive"), numSamples);
     const auto bass = getParam ("fx_amp_bass");
     const auto mid = getParam ("fx_amp_mid");
     const auto treble = getParam ("fx_amp_treble");
-    const auto level = getParam ("fx_amp_level");
+    auto& levelRamp = fxRamps[(size_t) FxRamp::AmpLevel];
+    levelRamp.begin (getParam ("fx_amp_level"), numSamples);
 
     const auto lowCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 250.0 / currentSampleRate);
     const auto highCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 2200.0 / currentSampleRate);
@@ -1001,7 +1043,7 @@ void IlanaSynthAudioProcessor::processAmp (juce::AudioBuffer<float>& buffer)
 
         for (int i = 0; i < numSamples; ++i)
         {
-            auto value = data[i] * drive;
+            auto value = data[i] * driveRamp.at (i);
 
             switch (mode)
             {
@@ -1017,7 +1059,7 @@ void IlanaSynthAudioProcessor::processAmp (juce::AudioBuffer<float>& buffer)
             const auto high = value - ampHighState[channel];
             const auto mids = value - low - high;
 
-            data[i] = (low * bass + mids * mid + high * treble) * level;
+            data[i] = (low * bass + mids * mid + high * treble) * levelRamp.at (i);
         }
     }
 }
@@ -1032,8 +1074,10 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
     const auto releaseMs = juce::jmax (1.0f, getParam ("fx_comp_release"));
     const auto attackCoefficient = (float) std::exp (-1.0 / ((double) attackMs * 0.001 * currentSampleRate));
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
-    const auto makeup = juce::Decibels::decibelsToGain (getParam ("fx_comp_makeup"));
-    const auto mix = getParam ("fx_comp_mix");
+    auto& makeupRamp = fxRamps[(size_t) FxRamp::CompMakeup];
+    makeupRamp.begin (juce::Decibels::decibelsToGain (getParam ("fx_comp_makeup")), numSamples);
+    auto& mixRamp = fxRamps[(size_t) FxRamp::CompMix];
+    mixRamp.begin (getParam ("fx_comp_mix"), numSamples);
     auto deepestGain = 1.0f; // for the card's meter only
 
     for (int channel = 0; channel < numChannels; ++channel)
@@ -1053,8 +1097,8 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
                 gain = std::pow (envelope / threshold, 1.0f / ratio - 1.0f);
 
             deepestGain = juce::jmin (deepestGain, gain);
-            const auto processed = data[i] * gain * makeup;
-            data[i] = data[i] + (processed - data[i]) * mix;
+            const auto processed = data[i] * gain * makeupRamp.at (i);
+            data[i] = data[i] + (processed - data[i]) * mixRamp.at (i);
         }
 
         compEnvelope[channel] = envelope;
@@ -1073,18 +1117,20 @@ void IlanaSynthAudioProcessor::processHaas (juce::AudioBuffer<float>& buffer)
 
     const auto delaySamples = juce::jlimit (1.0f, (float) (currentSampleRate * 0.055),
                                             (float) (getParam ("fx_haas_delay") * 0.001 * currentSampleRate));
-    const auto mix = getParam ("fx_haas_mix");
-
-    haasLine.setDelay (delaySamples);
+    auto& mixRamp = fxRamps[(size_t) FxRamp::HaasMix];
+    mixRamp.begin (getParam ("fx_haas_mix"), numSamples);
+    auto& delayRamp = fxRamps[(size_t) FxRamp::HaasDelay];
+    delayRamp.begin (delaySamples, numSamples);
 
     auto* right = buffer.getWritePointer (1);
 
     for (int i = 0; i < numSamples; ++i)
     {
+        haasLine.setDelay (delayRamp.at (i));
         const auto input = right[i];
         haasLine.pushSample (1, input);
         const auto delayed = haasLine.popSample (1);
-        right[i] = input + (delayed - input) * mix;
+        right[i] = input + (delayed - input) * mixRamp.at (i);
     }
 }
 
@@ -1095,7 +1141,8 @@ void IlanaSynthAudioProcessor::processFlanger (juce::AudioBuffer<float>& buffer)
     const auto rate = juce::jlimit (0.05f, 8.0f, getParam ("fx_flanger_rate"));
     const auto depth = juce::jlimit (0.0f, 1.0f, getParam ("fx_flanger_depth"));
     const auto feedback = juce::jlimit (0.0f, 0.9f, getParam ("fx_flanger_feedback"));
-    const auto mix = getParam ("fx_flanger_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::FlangerMix];
+    mixRamp.begin (getParam ("fx_flanger_mix"), numSamples);
     const auto increment = (double) rate / currentSampleRate;
 
     for (int i = 0; i < numSamples; ++i)
@@ -1109,7 +1156,7 @@ void IlanaSynthAudioProcessor::processFlanger (juce::AudioBuffer<float>& buffer)
                                                                          + channel * 0.6));
             const auto delayed = flangerLine.popSample (channel, modulated, true);
             flangerLine.pushSample (channel, data[i] + delayed * feedback);
-            data[i] = data[i] + (delayed - data[i]) * mix;
+            data[i] = data[i] + (delayed - data[i]) * mixRamp.at (i);
         }
 
         flangerPhase += increment;
@@ -1125,7 +1172,8 @@ void IlanaSynthAudioProcessor::processDimension (juce::AudioBuffer<float>& buffe
     const auto channels = juce::jmin (2, buffer.getNumChannels());
     const auto rate = juce::jlimit (0.05f, 4.0f, getParam ("fx_dim_rate"));
     const auto depth = juce::jlimit (0.0f, 1.0f, getParam ("fx_dim_depth"));
-    const auto mix = getParam ("fx_dim_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::DimMix];
+    mixRamp.begin (getParam ("fx_dim_mix"), numSamples);
     const auto increment = (double) rate / currentSampleRate;
 
     for (int i = 0; i < numSamples; ++i)
@@ -1139,7 +1187,7 @@ void IlanaSynthAudioProcessor::processDimension (juce::AudioBuffer<float>& buffe
                                                                          + channel * 2.1));
             const auto delayed = dimLine.popSample (channel, modulated, true);
             dimLine.pushSample (channel, data[i]);
-            data[i] = data[i] + (delayed - data[i]) * mix * 0.8f;
+            data[i] = data[i] + (delayed - data[i]) * mixRamp.at (i) * 0.8f;
         }
 
         dimPhase += increment;
@@ -1177,7 +1225,8 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
     const auto euclidRotate = juce::jlimit (0, 31, (int) getParam ("euc_rotate"));
     const auto swing = (double) juce::jlimit (0.0f, 0.5f, getParam ("fx_gate_swing"));
     const auto smooth = juce::jlimit (0.0f, 1.0f, getParam ("fx_gate_smooth"));
-    const auto mix = getParam ("fx_gate_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::GateMix];
+    mixRamp.begin (getParam ("fx_gate_mix"), numSamples);
 
     // SMOOTH sets the edge times: quick clicks-free edges up to soft swells.
     const auto attackCoeff = 1.0f - std::exp (-1.0f / ((0.0005f + smooth * 0.03f) * (float) currentSampleRate));
@@ -1224,7 +1273,7 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
             level = step >= gateCycleCount % steps ? 1.0f : 0.0f;
 
         gateEnvelope += (level - gateEnvelope) * (level > gateEnvelope ? attackCoeff : releaseCoeff);
-        const auto applied = 1.0f - (1.0f - gateEnvelope) * mix;
+        const auto applied = 1.0f - (1.0f - gateEnvelope) * mixRamp.at (i);
 
         for (int channel = 0; channel < numChannels; ++channel)
             buffer.getWritePointer (channel)[i] *= applied;
@@ -1249,7 +1298,8 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
         return;
 
     const auto time = juce::jmax (0.05f, getParam ("fx_tape_stop_time"));
-    const auto mix = getParam ("fx_tape_stop_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::TapeStopMix];
+    mixRamp.begin (getParam ("fx_tape_stop_mix"), numSamples);
     const auto target = getParam ("fx_tape_stop_trigger") > 0.5f ? 0.0f : 1.0f;
     const auto rateStep = 1.0f / (time * (float) currentSampleRate);
     const auto fadeStep = 1.0f / (0.03f * (float) currentSampleRate);
@@ -1288,7 +1338,7 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
             if (catchingUp)
                 wet = data[i] + (wet - data[i]) * tapeStopLagFade;
 
-            data[i] = data[i] + (wet - data[i]) * mix;
+            data[i] = data[i] + (wet - data[i]) * mixRamp.at (i);
         }
 
         if (catchingUp && tapeStopLagFade <= 0.0f)
@@ -1311,8 +1361,10 @@ void IlanaSynthAudioProcessor::processTilt (juce::AudioBuffer<float>& buffer)
     const auto channels = juce::jmin (2, buffer.getNumChannels());
     const auto tilt = juce::jlimit (-1.0f, 1.0f, getParam ("fx_tilt"));
     const auto level = juce::Decibels::decibelsToGain (getParam ("fx_tilt_level"));
-    const auto lowGain = juce::Decibels::decibelsToGain (-tilt * 12.0f) * level;
-    const auto highGain = juce::Decibels::decibelsToGain (tilt * 12.0f) * level;
+    auto& lowRamp = fxRamps[(size_t) FxRamp::TiltLow];
+    auto& highRamp = fxRamps[(size_t) FxRamp::TiltHigh];
+    lowRamp.begin (juce::Decibels::decibelsToGain (-tilt * 12.0f) * level, numSamples);
+    highRamp.begin (juce::Decibels::decibelsToGain (tilt * 12.0f) * level, numSamples);
     const auto coefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 700.0 / currentSampleRate);
 
     for (int channel = 0; channel < channels; ++channel)
@@ -1324,7 +1376,7 @@ void IlanaSynthAudioProcessor::processTilt (juce::AudioBuffer<float>& buffer)
             tiltLowState[channel] += (data[i] - tiltLowState[channel]) * coefficient;
             const auto low = tiltLowState[channel];
             const auto high = data[i] - low;
-            data[i] = low * lowGain + high * highGain;
+            data[i] = low * lowRamp.at (i) + high * highRamp.at (i);
         }
     }
 }
@@ -1482,8 +1534,15 @@ void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
     const auto mono = getParam ("fx_util_mono") > 0.5f;
     const auto invert = getParam ("fx_util_invert") > 0.5f;
 
+    auto& gainRamp = fxRamps[(size_t) FxRamp::UtilGain];
+    gainRamp.begin (gain, numSamples);
+    const auto sign = invert ? -1.0f : 1.0f;
+
     for (int channel = 0; channel < channels; ++channel)
-        buffer.applyGain (channel, 0, numSamples, gain * (invert ? -1.0f : 1.0f));
+        if (gainRamp.moving())
+            buffer.applyGainRamp (channel, 0, numSamples, gainRamp.from * sign, gain * sign);
+        else
+            buffer.applyGain (channel, 0, numSamples, gain * sign);
 
     if (mono && channels > 1)
     {
@@ -1504,7 +1563,8 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
     const auto amount = juce::jlimit (0.0f, 1.0f, getParam ("fx_ott_amount"));
-    const auto mix = getParam ("fx_ott_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::OttMix];
+    mixRamp.begin (getParam ("fx_ott_mix"), numSamples);
     const auto lowCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 200.0 / currentSampleRate);
     const auto highCoefficient = (float) juce::jlimit (0.0, 1.0, 2.0 * juce::MathConstants<double>::pi * 2000.0 / currentSampleRate);
     const auto envelopeCoefficient = (float) std::exp (-1.0 / (0.01 * currentSampleRate));
@@ -1538,7 +1598,7 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
                 bandGains[band] = gain;
             }
 
-            data[i] = input + (output - input) * mix;
+            data[i] = input + (output - input) * mixRamp.at (i);
         }
     }
 
@@ -1550,7 +1610,8 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
-    const auto ceiling = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 0.0f, getParam ("fx_limit_ceiling")));
+    auto& ceilingRamp = fxRamps[(size_t) FxRamp::LimitCeiling];
+    ceilingRamp.begin (juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 0.0f, getParam ("fx_limit_ceiling"))), numSamples);
     const auto releaseMs = juce::jmax (1.0f, getParam ("fx_limit_release"));
     const auto releaseCoefficient = (float) std::exp (-1.0 / ((double) releaseMs * 0.001 * currentSampleRate));
 
@@ -1563,6 +1624,7 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < numSamples; ++i)
         {
             const auto magnitude = std::abs (data[i]);
+            const auto ceiling = ceilingRamp.at (i);
 
             if (magnitude > limiterEnvelope[channel])
                 limiterEnvelope[channel] = magnitude;
@@ -1585,7 +1647,8 @@ void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)
 
     const auto numSamples = buffer.getNumSamples();
     const auto width = juce::jlimit (0.0f, 2.0f, getParam ("fx_width"));
-    const auto mix = getParam ("fx_width_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::WidthMix];
+    mixRamp.begin (getParam ("fx_width_mix"), numSamples);
     auto* left = buffer.getWritePointer (0);
     auto* right = buffer.getWritePointer (1);
 
@@ -1595,6 +1658,7 @@ void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)
         const auto side = (left[i] - right[i]) * 0.5f * width;
         const auto wetL = mid + side;
         const auto wetR = mid - side;
+        const auto mix = mixRamp.at (i);
         left[i] = left[i] + (wetL - left[i]) * mix;
         right[i] = right[i] + (wetR - right[i]) * mix;
     }
@@ -1629,7 +1693,8 @@ void IlanaSynthAudioProcessor::processFreqShift (juce::AudioBuffer<float>& buffe
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
     const auto shiftHz = juce::jlimit (-2000.0f, 2000.0f, getParam ("fx_shifter_shift"));
-    const auto mix = getParam ("fx_shifter_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::ShifterMix];
+    mixRamp.begin (getParam ("fx_shifter_mix"), numSamples);
     const auto increment = (double) shiftHz / currentSampleRate;
     constexpr auto coefficient = 0.6f;
 
@@ -1649,7 +1714,7 @@ void IlanaSynthAudioProcessor::processFreqShift (juce::AudioBuffer<float>& buffe
             shifterAllpass[channel] = quadrature;
 
             const auto shifted = input * phaseCos - quadrature * phaseSin;
-            data[i] = input + (shifted - input) * mix;
+            data[i] = input + (shifted - input) * mixRamp.at (i);
         }
 
         shifterPhase += increment;
@@ -1666,7 +1731,8 @@ void IlanaSynthAudioProcessor::processRingMod (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
     const auto frequency = juce::jlimit (1.0f, 5000.0f, getParam ("fx_ring_freq"));
-    const auto mix = getParam ("fx_ring_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::RingMix];
+    mixRamp.begin (getParam ("fx_ring_mix"), numSamples);
     const auto increment = (double) frequency / currentSampleRate;
 
     for (int i = 0; i < numSamples; ++i)
@@ -1676,7 +1742,7 @@ void IlanaSynthAudioProcessor::processRingMod (juce::AudioBuffer<float>& buffer)
         for (int channel = 0; channel < numChannels; ++channel)
         {
             auto* data = buffer.getWritePointer (channel);
-            data[i] = data[i] + (data[i] * carrier - data[i]) * mix;
+            data[i] = data[i] + (data[i] * carrier - data[i]) * mixRamp.at (i);
         }
 
         ringPhase += increment;
@@ -1690,7 +1756,8 @@ void IlanaSynthAudioProcessor::processOctaver (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
-    const auto mix = getParam ("fx_octaver_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::OctaverMix];
+    mixRamp.begin (getParam ("fx_octaver_mix"), numSamples);
 
     for (int channel = 0; channel < channels; ++channel)
     {
@@ -1701,7 +1768,7 @@ void IlanaSynthAudioProcessor::processOctaver (juce::AudioBuffer<float>& buffer)
         {
             octaverShift[channel].push (data[i]);
             const auto shifted = octaverShift[channel].process();
-            data[i] = data[i] + (shifted - data[i]) * mix;
+            data[i] = data[i] + (shifted - data[i]) * mixRamp.at (i);
         }
     }
 }
@@ -1714,7 +1781,8 @@ void IlanaSynthAudioProcessor::processVowel (juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
     const auto morph = juce::jlimit (0.0f, 1.0f, getParam ("fx_vowel_morph"));
-    const auto mix = getParam ("fx_vowel_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::VowelMix];
+    mixRamp.begin (getParam ("fx_vowel_mix"), numSamples);
     const auto position = morph * 4.0f;
     const auto index = juce::jlimit (0, 3, (int) position);
     const auto frac = position - (float) index;
@@ -1741,7 +1809,7 @@ void IlanaSynthAudioProcessor::processVowel (juce::AudioBuffer<float>& buffer)
             const auto wet = vowelFilters[channel][0].processSample (input)
                              + vowelFilters[channel][1].processSample (input) * 0.7f
                              + vowelFilters[channel][2].processSample (input) * 0.35f;
-            data[i] = input + (wet - input) * mix;
+            data[i] = input + (wet - input) * mixRamp.at (i);
         }
     }
 }
@@ -1754,7 +1822,8 @@ void IlanaSynthAudioProcessor::processFeedback (juce::AudioBuffer<float>& buffer
     const auto delaySamples = juce::jlimit (1.0f, (float) (currentSampleRate * 0.11),
                                             (float) (getParam ("fx_feedback_delay") * 0.001 * currentSampleRate));
     const auto tone = juce::jlimit (0.0f, 1.0f, getParam ("fx_feedback_tone"));
-    const auto mix = getParam ("fx_feedback_mix");
+    auto& mixRamp = fxRamps[(size_t) FxRamp::FeedbackMix];
+    mixRamp.begin (getParam ("fx_feedback_mix"), numSamples);
     const auto coefficient = 1.0f - tone * 0.9f;
 
     for (int i = 0; i < numSamples; ++i)
@@ -1766,7 +1835,7 @@ void IlanaSynthAudioProcessor::processFeedback (juce::AudioBuffer<float>& buffer
 
             feedbackState[channel] += (delayed - feedbackState[channel]) * coefficient;
             feedbackLine.pushSample (channel, data[i] + feedbackState[channel] * amount);
-            data[i] += delayed * mix;
+            data[i] += delayed * mixRamp.at (i);
         }
     }
 }

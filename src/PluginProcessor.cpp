@@ -336,8 +336,10 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
     synth.addSound (new WavetableSound());
 
-    for (int i = 0; i < numVoices; ++i)
+    // The poly limit counts numVoices of them; the spares let a stolen voice fade out.
+    for (int i = 0; i < numVoices + numSpareVoices; ++i)
         synth.addVoice (new Voice());
+    synth.setSpareVoices (numSpareVoices);
 
     synth.setNoteStealingEnabled (true);
 
@@ -525,6 +527,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     // A new stream: nothing to ease from.
     for (int channel = 0; channel < 2; ++channel)
         lastOutput[channel] = declick[channel] = 0.0f;
+    resetBlockRamps();
 
     currentSampleRate = sampleRate;
     sympatheticStrings.prepare (sampleRate);
@@ -729,6 +732,7 @@ void IlanaSynthAudioProcessor::cutPatchTails()
             channel = { 0.0f, 0.0f };
     fxAsleep = false;
     fxSilentSamples = 0;
+    resetBlockRamps();
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -784,6 +788,37 @@ void IlanaSynthAudioProcessor::cutPatchTails()
             ottEnvelope[channel][band] = 0.0f;
     }
     compEnvelope[0] = compEnvelope[1] = 0.0f;
+
+    // The effects' filters and followers that the lists above leave out
+    // (OTT, tilt, EQ, vowel, frequency shifter, amp, band splitters, crush):
+    // their state otherwise rings into the next patch.
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        for (int band = 0; band < 2; ++band)
+            ottLowState[channel][band] = ottHighState[channel][band] = 0.0f;
+        tiltLowState[channel] = tiltHighState[channel] = 0.0f;
+        shifterAllpass[channel] = shifterDelay[channel] = 0.0f;
+        ampLowState[channel] = ampHighState[channel] = 0.0f;
+        crushHold[channel] = 0.0f;
+        for (auto& band : eqBands[channel])
+            band.reset();
+        for (auto& filter : vowelFilters[channel])
+            filter.reset();
+    }
+    crushCounter = 0;
+    for (auto& split : fxSplit)
+    {
+        for (auto& stage : split.lowA)
+            for (auto& filter : stage)
+                filter.reset();
+        for (auto& stage : split.lowB)
+            for (auto& filter : stage)
+                filter.reset();
+        for (auto& filter : split.allLow)
+            filter.reset();
+        for (auto& filter : split.allHigh)
+            filter.reset();
+    }
 
     // The modulators start over too, as in a new instance, so a patch sounds
     // the same whatever played before it (a slow free-running LFO otherwise
@@ -1836,7 +1871,15 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     // MASTER plus the preset's own level (output_trim, 0 unless a factory
     // preset set it), summed in dB.
-    buffer.applyGain (juce::Decibels::decibelsToGain (getParam (masterRef) + getRawParam (outputTrimRef)));
+    {
+        const auto masterGain = juce::Decibels::decibelsToGain (getParam (masterRef) + getRawParam (outputTrimRef));
+        masterRamp.begin (masterGain, buffer.getNumSamples());
+
+        if (masterRamp.moving())
+            buffer.applyGainRamp (0, buffer.getNumSamples(), masterRamp.from, masterGain);
+        else
+            buffer.applyGain (masterGain);
+    }
 
     if (getParam ("master_clip") > 0.5f)
     {
@@ -1853,10 +1896,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     // After a patch change: ease from where the old patch's output stopped
     // (a 2 ms decay) instead of stepping from it to the new patch.
+    const auto cancelStep = easeStep.exchange (false) && buffer.getNumSamples() > 0;
     for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
     {
         auto* data = buffer.getWritePointer (channel);
         const auto numSamples = buffer.getNumSamples();
+        if (cancelStep)
+            declick[channel] = lastOutput[channel] - data[0];
         if (declick[channel] != 0.0f)
         {
             const auto decay = std::exp (-1.0f / (0.002f * (float) juce::jmax (1.0, baseSampleRate)));

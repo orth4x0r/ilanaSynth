@@ -35,11 +35,16 @@ public:
         }
 
         mode = newMode;
-        polyLimit = juce::jlimit (1, voices.size() > 0 ? voices.size() : 1, newPolyLimit);
+        polyLimit = juce::jlimit (1, juce::jmax (1, voices.size() - spareVoices), newPolyLimit);
         glideOnlyLegato = newGlideOnlyLegato;
     }
 
     Mode getVoiceMode() const { return mode; }
+
+    // The last `count` voices are spares: the voice limit never counts them,
+    // so a note that steals a voice can start on a spare while the stolen
+    // one fades out (8 ms) instead of being cut dead (a click).
+    void setSpareVoices (int count) noexcept { spareVoices = juce::jmax (0, count); }
 
     // The Scala tuning of this block (nullptr: 12-TET, every key plays).
     void setTuning (const Tuning* newTuning) noexcept { tuning = newTuning; }
@@ -176,11 +181,24 @@ protected:
         auto active = 0;
 
         for (auto* voice : voices)
-            if (voice->isVoiceActive())
+            if (voice->isVoiceActive() && ! isFading (voice))
                 ++active;
 
         if (active >= polyLimit)
-            return stealActiveVoice();
+        {
+            auto* victim = stealActiveVoice();
+
+            // A free voice plays the new note while the stolen one fades out.
+            if (spareVoices > 0 && victim != nullptr)
+                if (auto* spare = Synthesiser::findFreeVoice (sound, midiChannel, midiNoteNumber, false))
+                    if (auto* stolen = dynamic_cast<Voice*> (victim); stolen != nullptr && stolen->hasSounded())
+                    {
+                        stolen->startFadeOut ((int) (0.008 * getSampleRate()));
+                        return spare;
+                    }
+
+            return victim;
+        }
 
         return Synthesiser::findFreeVoice (sound, midiChannel, midiNoteNumber, stealIfNoneAvailable);
     }
@@ -195,7 +213,7 @@ protected:
 
         for (auto* voice : voices)
         {
-            if (! voice->isVoiceActive())
+            if (! voice->isVoiceActive() || isFading (voice))
                 continue;
 
             if (voice->isPlayingButReleased()
@@ -206,7 +224,18 @@ protected:
                 oldest = voice;
         }
 
+        if (oldest == nullptr) // every sounding voice is already fading out: take the oldest of those
+            for (auto* voice : voices)
+                if (voice->isVoiceActive() && (oldest == nullptr || voice->wasStartedBefore (*oldest)))
+                    oldest = voice;
+
         return oldestReleased != nullptr ? oldestReleased : oldest;
+    }
+
+    static bool isFading (const juce::SynthesiserVoice* voice)
+    {
+        const auto* ilanaVoice = dynamic_cast<const Voice*> (voice);
+        return ilanaVoice != nullptr && ilanaVoice->isFadingOut();
     }
 
 private:
@@ -234,6 +263,7 @@ private:
     VoiceThreads voiceThreads;
     bool useVoiceThreads = false;
     int sustainVoiceCap = 0;
+    int spareVoices = 0;
 
     Voice* monoVoice() const
     {

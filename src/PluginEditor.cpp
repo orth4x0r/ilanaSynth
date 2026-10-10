@@ -2296,6 +2296,7 @@ void IlanaSynthAudioProcessorEditor::toggleAB()
         processorRef.apvts.replaceState (slotA);
     }
 
+    processorRef.easeNextBlock(); // the new patch continues from the old one's last sample
     showingA = ! showingA;
     abButton.setButtonText (showingA ? "A" : "B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);

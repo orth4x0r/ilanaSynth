@@ -5697,6 +5697,27 @@ int runUiTests()
                     expect (! panel->isDeleteEnabled() && panel->getDeleteTooltip().containsIgnoreCase ("factory"),
                             "DELETE explains itself on a factory preset: " + panel->getDeleteTooltip());
 
+                    // S15-10: the caption says why too, and DOCK is as tall as the bottom buttons.
+                    expect (panel->getAuditionCaption().containsIgnoreCase ("factory"), "DELETE's reason is written in the details: " + panel->getAuditionCaption());
+                    expect (panel->getDockBounds().getHeight() == panel->getFooterButtonBounds().getHeight(),
+                            "DOCK is the height of the bottom buttons (" + juce::String (panel->getDockBounds().getHeight()) + " vs "
+                                + juce::String (panel->getFooterButtonBounds().getHeight()) + ")");
+
+                    // S15-1: the audition sounds C3 and stops by itself.
+                    if (! panel->getPlayBounds().isEmpty())
+                    {
+                        panel->startAudition();
+                        const auto sounding = panel->isAuditioning();
+                        settle (1300);
+                        expect (sounding && ! panel->isAuditioning(), "PLAY sounds C3 and lets go after about a second");
+
+                        // (No audio device runs here: the preview events wait in the FIFO; hand them to the processor.)
+                        juce::AudioBuffer<float> drain (2, 512);
+                        juce::MidiBuffer noMidi;
+                        processor.processBlock (drain, noMidi);
+                        processor.processBlock (drain, noMidi);
+                    }
+
                     panel->setSortMode (PresetPanel::sortByCategory);
                     listed = panel->getListedNames();
                     const auto categories = processor.getAllPresetCategories();

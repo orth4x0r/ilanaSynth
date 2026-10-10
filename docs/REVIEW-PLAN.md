@@ -256,3 +256,13 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    2026-10-04 (branch `claude/project-thread-smvgfk`): every finding of reviews 5 and 6 fixed except the ones HANDOFF lists
    as not done on purpose, plus the 10 % type scale-up. Reviews 7-15 and their fixes followed (PR #13, merged); the passes are paused until the user says go
    (goal: one review at 9.5 against Vital or Serum 2; the last scored 9.1).
+16. **Reroutable oscillators and patch cables** (ilana, 2026-10-10: decided, not started; do not build yet). Her words:
+   each oscillator can go to F1, to F2, only to WEST, or direct to the output, and all of them can run in parallel, in
+   any mix of those. WEST can sit before the filters. Routing is done by dragging virtual cables from an oscillator to a
+   filter (or WEST, or the output), and the filter order is changed the same way. This is the audio half of the older
+   future idea of a Bitwig Grid-style patch view (see the MODULATION note in HANDOFF.md). Open questions for when work
+   starts: whether the cable view replaces the current OSC and FILTER layout or sits beside it, and how the per-oscillator
+   route is stored (new parameters appended, never renumbered).
+   **Rules when it starts:** a patch that uses none of it renders as it does now (its default routing is today's chain),
+   so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to ilana for
+   a look (a UI review after it) before the build is merged.

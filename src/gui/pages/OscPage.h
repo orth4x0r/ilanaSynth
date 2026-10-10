@@ -147,6 +147,9 @@ inline void showOperatorChoices (juce::ComboBox* tune, juce::ComboBox* envelope,
         return;
 
     const auto id = OperatorEg::envelopeChoice + 1;
+    // (An oscillator that is not an operator but still holds OP ENV keeps the item, so the menu
+    // shows its setting rather than a blank: N16-3.)
+    envelopeChoice = envelopeChoice || current == OperatorEg::envelopeChoice;
     const auto has = envelope->indexOfItemId (id) >= 0;
     if (has == envelopeChoice)
     {

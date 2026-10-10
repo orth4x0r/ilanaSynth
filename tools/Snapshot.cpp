@@ -8913,6 +8913,8 @@ int main (int argc, char** argv)
         {
             if (auto* mode = processor.apvts.getParameter ("osc1_mode"))
             {
+                // (Put back as it was, not to Wavetable: a DX7 patch's OSC 1 is an operator, N16-3.)
+                const auto modeBefore = mode->getValue();
                 mode->setValueNotifyingHost (mode->convertTo0to1 (1.0f));
                 settle (300);
                 save (*editor, outDir.getChildFile ("osc-physical.png"));
@@ -8943,7 +8945,7 @@ int main (int argc, char** argv)
                     save (*editor, outDir.getChildFile ("osc-sympathetic-manual.png"));
                     viewport->setViewPosition (0, 0);
                 }
-                mode->setValueNotifyingHost (mode->convertTo0to1 (0.0f));
+                mode->setValueNotifyingHost (modeBefore);
             }
         }
 
@@ -8978,6 +8980,10 @@ int main (int argc, char** argv)
                     button->onClick();
                     settle (300);
                     save (*editor, outDir.getChildFile (stem + "-pitch-lfo.png"));
+                    // (The link jumps to MOD's pools: back to this page, so the shots after it are this page's, N16-10.)
+                    pages->showPage (pageIds[i]);
+                    settle (300);
+                    break;
                 }
         }
 

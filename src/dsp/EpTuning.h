@@ -13,7 +13,7 @@ struct EpModelTuning
 {
     // Hammer contact (ms at C4, medium velocity and hardness): shorter for
     // harder hits and higher notes, which lets more of the upper modes in.
-    float contactMs = 1.36f, contactVelocity = 0.8062f, contactRegister = 0.5512f, contactHardness = 0.6f;
+    float contactMs = 1.36f, contactVelocity = 0.8062f, contactRegister = 0.5512f, contactHardness = 1.2f;
     // Displacement at the pickup (relative to the pickup distance) at full
     // velocity, at MIDI 40 and 84, and how it falls with softer playing.
     float ampLow = 2.736f, ampHigh = 0.6239f, velocityFloor = 0.03594f, velocityCurve = 1.569f;

@@ -105,7 +105,8 @@ public:
     void setParams (float newDecay, float newDamp, float newStiffness, float newHardness, float newDamper,
                     float newStrikePosition, bool newEco)
     {
-        if (newDecay != decay || newDamp != damp || newStiffness != stiffness || newStrikePosition != strikeKnob || newEco != eco)
+        if (newDecay != decay || newDamp != damp || newStiffness != stiffness || newStrikePosition != strikeKnob || newEco != eco
+            || newHardness != hardness)
             designed = false;
         decay = newDecay;
         damp = newDamp;

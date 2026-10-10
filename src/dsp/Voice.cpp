@@ -2892,13 +2892,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 // which soaks up their in-phase motion. The in-phase part of
                 // the note dies fast (the prompt sound); as the detuned
                 // strings drift apart, the rest rings on (the aftersound).
-                if (settings.stringMode && ! settings.sampleMode && settings.couple > 0.0f)
+                if (settings.stringMode && ! settings.sampleMode && settings.couple > 0.0f && numOscUnison[osc] > 1)
                 {
                     const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
                     const auto bridge = stringSum / (float) juce::jmax (1, count);
 
                     for (int u = 0; u < count; ++u)
-                        stringFor (osc, u).addBridgeInput (-settings.couple * PianoTuning::get().coupling * bridge);
+                        stringFor (osc, u).addBridgeInput (-settings.couple * settings.couple * 30.0f * PianoTuning::get().coupling * bridge);
                 }
                 if (settings.stringMode && ! settings.sampleMode)
                     stringDrive[osc] = stringSum / (float) juce::jmax (1, numOscUnison[osc]);
@@ -3133,10 +3133,12 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
     // strings that ring longer.
     if (settings.registerMap > 0.0f)
     {
-        const auto amount = settings.registerMap;
-        const auto t = keyTrackValue; // -1 at C2, +1 at C6
+        // The knob's whole travel: bass (-1, C2 and below) to treble (+1, C6
+        // and above), twice as steep as before so the range is audible.
+        const auto amount = settings.registerMap * 2.0f;
+        const auto t = juce::jlimit (-1.0f, 1.0f, keyTrackValue * 2.0f);
         // Wound bass strings are less stiff than the plain treble ones.
-        stiffness = juce::jlimit (0.0f, 1.0f, stiffness + amount * (0.08f + 0.35f * juce::jmax (0.0f, t)
+        stiffness = juce::jlimit (0.0f, 1.0f, stiffness + amount * (0.16f + 0.35f * juce::jmax (0.0f, t)
                                                                          - 0.1f * juce::jmax (0.0f, -t)));
         damping = juce::jlimit (0.0f, 1.0f, damping - amount * 0.25f * t);
         decay = juce::jlimit (0.0f, 1.0f, decay - amount * 0.05f * t);

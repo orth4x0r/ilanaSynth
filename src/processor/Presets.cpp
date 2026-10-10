@@ -964,6 +964,21 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     applyPresetTrims (presets[(size_t) index].name, getFactoryPresetCategories()[index], values);
     moveLevelToTrim (values);
 
+    // The factory recipes were written for the old string knob scales.
+    migrateStringKnobs ([&values] (const juce::String& id, float fallback)
+                        {
+                            for (const auto& entry : values)
+                                if (entry.first == id)
+                                    return entry.second;
+                            return fallback;
+                        },
+                        [&values] (const juce::String& id, float value)
+                        {
+                            for (auto& entry : values)
+                                if (entry.first == id)
+                                    entry.second = value;
+                        });
+
     // Its operators (a wavetable tuned by ratio or fixed Hz, or on the
     // Operator EG) load as FM / DX7, which renders the same.
     {

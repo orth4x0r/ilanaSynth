@@ -49,6 +49,7 @@
 // Page classes (anonymous namespace), in dependency order.
 #include "gui/StateTabs.h"
 #include "gui/pages/PageHelpers.h"
+#include "gui/PhysicalApplies.h"
 #include "gui/pages/OscPage.h"
 #include "gui/pages/FilterVectorPhysicalPages.h"
 #include "gui/pages/EnvLfoPages.h"

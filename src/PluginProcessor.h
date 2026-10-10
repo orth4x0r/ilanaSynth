@@ -335,6 +335,12 @@ public:
     // oscillator becomes FM / DX7 (OscMode::fmOperator), which renders the
     // same. Works on stored values (get falls back to the default); returns
     // how many oscillators moved. Idempotent.
+    // The string and exciter knobs were rescaled so each has a clear effect
+    // across its travel (see tools/knob_audit.py); this moves a saved patch's
+    // old values to the new scales so it keeps its sound. Returns how many
+    // values it changed.
+    static int migrateStringKnobs (const std::function<float (const juce::String&, float)>& get,
+                                   const std::function<void (const juce::String&, float)>& set);
     static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
                                      const std::function<void (const juce::String&, float)>& set);
     // The same on the live parameters (after a bounce or a factory preset).

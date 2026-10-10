@@ -16,7 +16,7 @@ struct PianoModelTuning
     float massBass = 11.8894f, massTreble = 5.03f;
     float exponentBass = 2.05762f, exponentTreble = 2.82263f;
     float feltBass = 65.0f, feltTreble = 30.0f;
-    float hardnessRange = 0.5f;
+    float hardnessRange = 2.0f;
     // Felt hysteresis (units of 1e-4 s).
     float hysteresis = 0.12005f;
     // Hammer speed at velocity 0 and 127 (m/s).

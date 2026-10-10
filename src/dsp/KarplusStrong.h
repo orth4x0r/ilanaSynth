@@ -134,12 +134,15 @@ public:
     {
         stiffness = juce::jlimit (0.0f, 1.0f, newStiffness);
         loopSetupDirty = true;
-        pickupPosition = juce::jlimit (0.0f, 1.0f, newPickup);
-        excitationPosition = juce::jlimit (0.0f, 1.0f, newExcitationPosition);
+        // The three positions are fractions of the string: past the middle a
+        // position only mirrors the first half, so the knob's whole travel
+        // covers bridge (0) to middle (1) and the fraction is half of it.
+        pickupPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newPickup);
+        excitationPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newExcitationPosition);
         pickHardness = juce::jlimit (0.0f, 1.0f, newPickHardness);
-        pickPosition = juce::jlimit (0.0f, 1.0f, newPickPosition);
+        pickPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newPickPosition);
         slap = newSlap;
-        dispersionCoefficient = -0.7f * stiffness;
+        dispersionCoefficient = -0.95f * stiffness;
         loopSetupDirty = true;
         updateDispersionDelay();
         updatePianoDispersion();
@@ -243,7 +246,7 @@ public:
             phase = 0.0;
             for (auto& stage : dispersionPairState) stage[0] = 0.0f;
             for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
-            slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
+            slapRemaining = slap ? slapSamples() : 0;
             slapLevel = level;
             strikeVelocity = level;
             bridgeInput = 0.0f;
@@ -259,23 +262,39 @@ public:
         // Hardness 1 (the default) keeps the raw burst; lower values soften it.
         if (pickHardness < 1.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
         {
-            const auto period = juce::jlimit (2, (int) buffer.size() - 1, (int) (sampleRate / frequency));
+            // The loop recirculates the last `period` samples of the buffer:
+            // the pick and strike positions are combs round that circle (a
+            // partner past its end would be noise the string never plays, and
+            // the comb would only half work).
+            const auto size = (int) buffer.size();
+            const auto period = juce::jlimit (2, size - 1, (int) (sampleRate / frequency));
+            const auto first = size - period;
             const auto offset = juce::jlimit (1, period - 1, (int) (period * juce::jmax (0.01f, pickPosition)));
             const auto exciteOffset = juce::jlimit (1, period - 1, (int) (period * excitationPosition));
+            // A softer pick or finger lets fewer harmonics through: the
+            // burst's low-pass cutoff runs from 2 x the note (0) to 45 x (1),
+            // so HARDNESS means the same on every key.
+            const auto cutoff = frequency * std::pow (2.0, 4.3 * (double) pickHardness + 1.0);
+            const auto smoothing = pickHardness < 1.0f
+                                       ? (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sampleRate))
+                                       : 1.0f;
+
+            std::vector<float>& raw = combScratch;
+            raw.assign (buffer.begin() + first, buffer.end());
             auto smooth = 0.0f;
 
-            for (int i = 0; i < (int) buffer.size(); ++i)
+            for (int i = 0; i < period; ++i)
             {
-                auto value = buffer[(size_t) i];
-                smooth += (value - smooth) * (0.15f + 0.85f * pickHardness);
+                auto value = raw[(size_t) i];
 
                 if (pickPosition > 0.0f)
-                    value -= 0.75f * buffer[(size_t) ((i + offset) % (int) buffer.size())];
+                    value -= 0.75f * raw[(size_t) ((i + offset) % period)];
 
                 if (excitationPosition > 0.0f)
-                    value -= 0.6f * buffer[(size_t) ((i + exciteOffset) % (int) buffer.size())];
+                    value -= 0.6f * raw[(size_t) ((i + exciteOffset) % period)];
 
-                buffer[(size_t) i] = juce::jmap (pickHardness, smooth, value);
+                smooth += (value - smooth) * smoothing;
+                buffer[(size_t) (first + i)] = pickHardness < 1.0f ? smooth : value;
             }
         }
 
@@ -284,7 +303,7 @@ public:
         phase = 0.0;
         for (auto& stage : dispersionPairState) stage[0] = 0.0f;
         for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
-        slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
+        slapRemaining = slap ? slapSamples() : 0;
         slapLevel = level;
         strikeVelocity = level;
     }
@@ -383,9 +402,9 @@ public:
 
         auto output = delayed;
 
-        if (rattle > 0.0f && std::abs (delayed) > 0.18f)
+        if (rattle > 0.0f)
             output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity
-                      * std::abs (delayed) * 0.12f;
+                      * std::abs (delayed);
 
         if (pickupPosition > 0.0f)
         {
@@ -464,8 +483,8 @@ public:
         // can never feed energy into the loop.
         if (buzz > 0.0f)
         {
-            constexpr auto contact = 0.2f;
-            loopValue -= buzz * 0.6f * (loopValue - contact * std::tanh (loopValue / contact));
+            const auto contact = 0.04f;
+            loopValue -= buzz * 0.8f * (loopValue - contact * std::tanh (loopValue / contact));
         }
 
         buffer[(size_t) writePosition] = loopValue + excitation;
@@ -476,8 +495,8 @@ public:
 
         if (slapRemaining > 0)
         {
-            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, (int) (sampleRate * 0.004));
-            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * slapLevel;
+            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, slapSamples());
+            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * slapLevel * 2.0f; // a click you can hear over the string
             --slapRemaining;
         }
 
@@ -563,6 +582,7 @@ private:
         loopCoefficient = coefficient;
     }
 
+    int slapSamples() const { return (int) (sampleRate * 0.010); }
     int dispersionStages() const { return excite == Excite::Hammer ? maxDispersionStages : 2; }
     void updateDispersionDelay()
     {
@@ -957,6 +977,13 @@ private:
         auto bridgeReflection = -lowpassState * feedback;
         if (damper > 0.0f && ! noteHeld)
             bridgeReflection *= 1.0f - damper * 0.16f;
+        // The bridge's buzz (as on the plucked string) flattens the peaks
+        // that come back from it.
+        if (buzz > 0.0f)
+        {
+            const auto contact = 0.04f;
+            bridgeReflection -= buzz * 0.8f * (bridgeReflection - contact * std::tanh (bridgeReflection / contact));
+        }
         const auto neckReflection = -neckOut;
         const auto stringVelocity = bridgeReflection + neckReflection;
 
@@ -986,7 +1013,9 @@ private:
         bowDcInput = bridgeOut;
         bowDcOutput = std::isfinite (blocked) ? blocked : 0.0f;
 
-        const auto output = bowDcOutput * bowOutputGain;
+        auto output = bowDcOutput * bowOutputGain;
+        if (rattle > 0.0f)
+            output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity * std::abs (output);
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
 
@@ -1017,7 +1046,7 @@ private:
     void updatePiano()
     {
         if (isPiano())
-            piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition, eco);
+            piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition * 2.0f, eco);
     }
 
 public:
@@ -1041,6 +1070,7 @@ private:
     }
 
     std::vector<float> buffer;
+    std::vector<float> combScratch;
     juce::Random random;
     double sampleRate = 44100.0;
     double frequency = 440.0;

@@ -2713,6 +2713,16 @@ private:
             {
                 osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
                 osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
+
+                // A string or exciter knob the exciter in use ignores dims too.
+                if (readChoice (prefix + "_mode") == 1)
+                {
+                    const auto excite = readChoice (prefix + "_excite");
+                    const auto unison = juce::roundToInt (readFloat (prefix + "_unison"));
+                    for (const auto& [suffix, component] : physicalLookup[(size_t) index])
+                        if (suffix != "_excite")
+                            component->setAlpha (physicalKnobApplies (excite, suffix, unison) ? 1.0f : IlanaTheme::dimmedAlpha);
+                }
             }
 
             for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spread })

@@ -566,7 +566,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (id.endsWith ("_bow_pressure")) return "Bow grip on the string. MPE pressure and channel aftertouch add to it.";
     if (id.endsWith ("_bow_speed")) return "Bow travel speed; changes the sustained tone and scrape.";
     if (id.endsWith ("_bridge_buzz")) return "Nonlinear bridge contact, from clean to sitar-like buzz.";
-    if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret contact noise. Zero is clean.";
+    if (id.endsWith ("_fret_rattle")) return "Velocity-scaled fret noise that follows the string. Zero is clean.";
     if (isOscParameter (id, "_hammer_hard"))
         return "Hammer felt hardness. Used by the Hammer and Piano exciters. Harder felt and faster keys give a shorter contact and a brighter tone.";
     if (id == "in_gain") return "ilanaSynth FX: the input's level into the engine (DRY is not affected).";
@@ -585,8 +585,8 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_ep_position"))
         return "Tine / Reed: the pickup's offset from the tine or reed. It changes the balance of even and odd harmonics.";
     if (isOscParameter (id, "_couple"))
-        return "The note's strings share the bridge. Set UNISON to 2-3 and a small DETUNE for a fast first decay "
-               "and a long, beating aftersound, as in a piano.";
+        return "The note's strings share the bridge: needs UNISON 2-3 and a small DETUNE. Low gives a piano's fast first decay "
+               "and long beating aftersound; high mutes the strings.";
     if (isOscParameter (id, "_damper")) return "How quickly the dampers stop the string. They act once the key (and the sustain pedal) is up.";
     if (isOscParameter (id, "_register"))
         return "Changes the string across the keyboard. Stiffer and brighter in the treble, looser and longer in the bass.";
@@ -668,7 +668,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Loop damping: higher is darker and more muted.";
 
     if (isOscParameter (id, "_string_sustain", false))
-        return "Level of the continuous excitation. Ignored for Burst.";
+        return "Level of the continuous excitation: Noise, Saw, Pulse, Osc In and Feedback only.";
 
     if (id.endsWith ("_string_stiffness"))
         return "String stiffness. Higher values push upper harmonics sharp.";

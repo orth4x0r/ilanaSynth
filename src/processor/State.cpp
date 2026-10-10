@@ -4,6 +4,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 {
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
+    state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 3, nullptr);
     state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
@@ -432,6 +433,62 @@ void IlanaSynthAudioProcessor::removeOscillator (int index)
         on->setValueNotifyingHost (0.0f);
 
     setRevealed (Module::Oscillator, index, false);
+}
+
+int IlanaSynthAudioProcessor::migrateStringKnobs (const std::function<float (const juce::String&, float)>& get,
+                                                 const std::function<void (const juce::String&, float)>& set)
+{
+    auto changed = 0;
+
+    for (const auto* prefixText : OscillatorIds::prefixes)
+    {
+        const juce::String prefix (prefixText);
+        const auto excite = juce::roundToInt (get (prefix + "_excite", 0.0f));
+        const auto remap = [&] (const char* suffix, const std::function<float (float)>& convert)
+        {
+            const auto id = prefix + suffix;
+            const auto old = get (id, 0.0f);
+
+            if (old == 0.0f)
+                return;
+
+            const auto converted = juce::jlimit (0.0f, 1.0f, convert (old));
+
+            if (converted != old)
+            {
+                set (id, converted);
+                ++changed;
+            }
+        };
+
+        // A position only mirrors past the middle of the string: the knob
+        // now spans bridge to middle (the Piano already did, and its strike
+        // keeps its scale; the bow clamped at the middle).
+        const auto folded = [] (float v) { return 2.0f * juce::jmin (v, 1.0f - v); };
+        const auto clamped = [] (float v) { return juce::jmin (1.0f, 2.0f * v); };
+
+        if (excite != 7 && excite != 8 && excite != 9)
+            remap ("_string_excite_pos", excite == 4 ? std::function<float (float)> (clamped) : std::function<float (float)> (folded));
+
+        remap ("_string_pick_pos", folded);
+        remap ("_string_pickup", folded);
+
+        // The plucked string's stiffness (an allpass of coefficient -0.7 at
+        // full) now reaches -0.95; the Piano's and the hammer's stiffness
+        // keep their own scale.
+        if (excite != 4 && excite != 5 && excite != 9)
+            remap ("_string_stiffness", [] (float v) { return v * 0.7f / 0.95f; });
+
+        // REGISTER's key scale doubled and its steps doubled again.
+        remap ("_register", [] (float v) { return v * 0.25f; });
+        // COUPLE grew 30-fold and takes the square, for finer low settings.
+        remap ("_couple", [] (float v) { return std::sqrt (v / 30.0f); });
+        // RATTLE lost its threshold and BUZZ's contact came down.
+        remap ("_fret_rattle", [] (float v) { return v * 0.12f; });
+        remap ("_bridge_buzz", [] (float v) { return v * 0.25f; });
+    }
+
+    return changed;
 }
 
 int IlanaSynthAudioProcessor::migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
@@ -884,6 +941,29 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                 state.appendChild (missingParameter, nullptr);
             }
         }
+
+    // A patch saved before the string knobs were rescaled keeps its sound.
+    if ((int) state.getProperty ("stringSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateStringKnobs ([&find] (const juce::String& id, float fallback)
+                            {
+                                const auto child = find (id);
+                                return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                            },
+                            [&find] (const juce::String& id, float value)
+                            {
+                                if (auto child = find (id); child.isValid())
+                                    child.setProperty ("value", value, nullptr);
+                            });
+        state.setProperty ("stringSchema", 2, nullptr);
+    }
 
     // An operator saved before the FM / DX7 type loads as one (it renders
     // the same: the type only picks its card).

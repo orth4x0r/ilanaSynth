@@ -13,7 +13,7 @@ inline juce::File findSourceTree()
 {
     const juce::String here (__FILE__);
     const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
-    for (const auto& base : { juce::File::getCurrentWorkingDirectory(), exe.getParentDirectory().getParentDirectory().getParentDirectory() })
+    for (const auto& base : { juce::File::getCurrentWorkingDirectory(), exe.getParentDirectory().getParentDirectory(), exe.getParentDirectory().getParentDirectory().getParentDirectory() })
     {
         const auto file = juce::File::isAbsolutePath (here) ? juce::File (here) : base.getChildFile (here);
         if (const auto src = file.getParentDirectory().getSiblingFile ("src"); src.getChildFile ("gui").isDirectory())

@@ -272,9 +272,9 @@ public:
             const auto offset = juce::jlimit (1, period - 1, (int) (period * juce::jmax (0.01f, pickPosition)));
             const auto exciteOffset = juce::jlimit (1, period - 1, (int) (period * excitationPosition));
             // A softer pick or finger lets fewer harmonics through: the
-            // burst's low-pass cutoff runs from 2 x the note (0) to 45 x (1),
+            // burst's low-pass cutoff runs from 2 x the note (0) to 128 x (1),
             // so HARDNESS means the same on every key.
-            const auto cutoff = frequency * std::pow (2.0, 4.3 * (double) pickHardness + 1.0);
+            const auto cutoff = frequency * std::pow (2.0, 6.0 * (double) pickHardness + 1.0);
             const auto smoothing = pickHardness < 1.0f
                                        ? (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sampleRate))
                                        : 1.0f;
@@ -540,9 +540,16 @@ private:
         const auto hammered = excite == Excite::Hammer;
         const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
         const auto stages = (double) dispersionStages();
-        auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
+        // The allpasses delay the fundamental by their phase delay there, less
+        // than at DC: taking the DC delay off instead leaves a stiff string
+        // sharp (a hundred cents at full STIFF).
+        const auto fullDelay = ! useDispersion ? 0.0
+                               : hammered ? (double) dispersionDelay
+                                          : stages * allpassPhaseDelay ((double) dispersionCoefficient,
+                                                                        juce::MathConstants<double>::twoPi / juce::jmax (2.0, period));
+        auto delay = useDispersion ? juce::jmin (fullDelay, period - 1.25) : 0.0;
         auto coefficient = dispersionCoefficient;
-        if (delay < (double) dispersionDelay)
+        if (delay < fullDelay)
         {
             if (delay != cachedShortDelay || stages != cachedShortStages)
             {

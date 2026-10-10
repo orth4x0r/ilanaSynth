@@ -692,9 +692,9 @@ void runPhysicalStringTest()
     };
 
     const auto legacy = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
-    const auto stiff = render (1.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
-    const auto pickup = render (0.0f, 0.5f, 0.0f, 1.0f, 0.0f, false);
-    const auto excitation = render (0.0f, 0.0f, 0.5f, 1.0f, 0.0f, false);
+    const auto stiff = render (0.74f, 0.0f, 0.0f, 1.0f, 0.0f, false); // allpass -0.7: the partials sit well inside the search window
+    const auto pickup = render (0.0f, 1.0f, 0.0f, 1.0f, 0.0f, false); // 1 = the middle: the 2nd harmonic's notch
+    const auto excitation = render (0.0f, 0.0f, 1.0f, 1.0f, 0.0f, false);
     const auto soft = render (0.0f, 0.0f, 0.0f, 0.0f, 0.25f, false);
     const auto hard = render (0.0f, 0.0f, 0.0f, 1.0f, 0.25f, false);
     const auto slapped = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, true);

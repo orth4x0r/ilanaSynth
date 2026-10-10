@@ -585,8 +585,7 @@ inline juce::String describeParameter (const juce::String& id)
     if (isOscParameter (id, "_ep_position"))
         return "Tine / Reed: the pickup's offset from the tine or reed. It changes the balance of even and odd harmonics.";
     if (isOscParameter (id, "_couple"))
-        return "The note's strings share the bridge: needs UNISON 2-3 and a small DETUNE. Low gives a piano's fast first decay "
-               "and long beating aftersound; high mutes the strings.";
+        return "Strings share the bridge: needs UNISON 2-3. Fast first decay, long aftersound.";
     if (isOscParameter (id, "_damper")) return "How quickly the dampers stop the string. They act once the key (and the sustain pedal) is up.";
     if (isOscParameter (id, "_register"))
         return "Changes the string across the keyboard. Stiffer and brighter in the treble, looser and longer in the bass.";
@@ -668,7 +667,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Loop damping: higher is darker and more muted.";
 
     if (isOscParameter (id, "_string_sustain", false))
-        return "Level of the continuous excitation: Noise, Saw, Pulse, Osc In and Feedback only.";
+        return "Level of the continuous excitation. Not used by Burst, Hammer, Bow or Piano.";
 
     if (id.endsWith ("_string_stiffness"))
         return "String stiffness. Higher values push upper harmonics sharp.";

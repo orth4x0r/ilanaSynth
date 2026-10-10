@@ -257,7 +257,73 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    as not done on purpose, plus the 10 % type scale-up. Reviews 7-15 and their fixes followed (PR #13, merged); the passes are paused until the user says go
    (goal: one review at 9.5 against Vital or Serum 2; the last scored 9.1).
    Status (2026-10-10): cycle 1 done. Cycle 2 (reviews 7-16) had its fixes merged, and review 16 scored 9.1 / 8.8 / 9.2 against the 9.5 goal. The passes are paused until ilana says go.
-Steps 16 to 26 are listed hardest to easiest, judged from the code each one touches (2026-10-10). The number is the step's ID, which HANDOFF and the threads cite, so it does not follow the list order.
+Steps 16 to 26 run in the execution order below, not in ID order. ilana's 2026-10-10 ask: shared code and restructuring first, so later steps build on it. Each number is the step's ID, which HANDOFF and the threads cite. Sub-step A is shared foundation work with no ID of its own; sub-step B is inside step 17.
+
+18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; decided, not started). Clicking some
+   drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
+   nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
+   which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test
+   that opens every selector on each page. ilana (2026-10-10) sees the same failure on the OSC tab, not only PLAY, so it
+   is probably one shared menu problem rather than one control's bug; look for the shared cause first.
+   **Rules when it starts:** no sound or preset change; the fix is in the UI only.
+   Size: 5 of 11, medium, cause unknown. Touches the menu code across `src/gui` (271 combo-box and popup-menu references). First step: find which selectors fail to open and why.
+   Order 1. Why here: the menus are shared, and every UI step after this uses them (the cable view in 16 and 17 included). The OSC, FILTER and FX menus can't be tested until they open.
+
+21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: decided, not started). The KEYBOARD toggle should
+   only add the keyboard below the synth, so the window grows and the layout above stays as it is. If it can't work that
+   way, the toggle is disabled or removed rather than changing the overall layout.
+   **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and
+   the positions of the existing panels with the keyboard on and off.
+   Size: 3 of 11, large. Touches `src/PluginEditor.cpp` (the KEYBOARD button and window size) and the design scale (height / 720), which makes everything shrink when the keyboard adds height; decoupling the scale from the window height is the main work.
+   Order 2. Why here: the window scale comes from the window height. Changing it later would re-lay-out and re-snapshot every page, so it goes before any layout work.
+
+26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
+   response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).
+   Restyle it to match the rest of the interface.
+   **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.
+   Size: 8 of 11, small-medium. Touches `src/gui/FilterDisplay.h` (776 lines, paint code only). The values and the parameter layout don't change.
+   Order 3. Why here: the filter graph's paint code sets the look that the new graph views (the cable view and the FX patcher) should copy, so restyle it first.
+
+23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
+   lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the
+   pages and the clip editor.
+   **Rules when it starts:** UI only; no sound or preset change.
+   Size: 7 of 11, small-medium. Touches `mouseWheelMove` in `src/gui/ClipEditor.h`, the only custom wheel handling; the other pages use JUCE's default scrolling. Tune the wheel delta and trackpad handling.
+   Order 4. Why here: small, and it changes the same wheel code that step 22 rewrites next.
+
+24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided, not started). The spray tool in
+   the clip editor does not place notes correctly. Find what it does wrong, fix it, and add a test that sprays notes
+   and checks where they land.
+   **Rules when it starts:** no sound or preset change.
+   Size: 6 of 11, medium, needs reproduction. Spray is the generative note-spray stage (`src/dsp/Generative.h`, `src/PluginProcessor.cpp`) feeding the arpeggiator. The clip editor is separate (`src/ClipState.h`, `src/gui/ClipEditor.h`), so the clip interaction must be reproduced before fixing.
+   Order 5. Why here: fix the spray bug in the current clip editor first, so its behaviour can be checked before the gesture model changes.
+
+22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided, not started). A double-click places a
+   note, and a double-click then drag lengthens it. The current behaviour stays as a pencil mode for placing many notes
+   quickly, switched on and off from the editor.
+   **Rules when it starts:** the clip file format and playback do not change; the UI test covers both modes.
+   Size: 4 of 11, medium-large. Touches `src/gui/ClipEditor.h` (1,840 lines): the mouse gestures and a pencil mode. The clip data and playback don't change.
+   Order 6. Why here: after the wheel (23) and spray (24) fixes, so the clip editor is changed once rather than three times.
+
+20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided, not started). Add a small icon
+   on the oscillator's waveform display (on PLAY and OSC) that opens the wavetable picker, so changing the table is
+   obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
+   left of the Wavetable, Basic and Off menus.
+   **Rules when it starts:** UI only; the picker and the dropdown set the same parameter.
+   Size: 11 of 11, smallest. Touches `src/gui/WaveDisplay.h`: one icon in the display, and clicking it opens the existing table menu. The corner key that cycles WAVE, 3D and SPEC stays.
+   Order 7. Why here: a small change to the wavetable display, which is where the picker in 19 is reached from.
+
+19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided, not started). The current
+   library is thin. Source more wavetables, including unusual ones she has seen on Reddit. Before any file is added,
+   check its licence and permission for personal use, and write the source and licence into the content's notes
+   (`content/wavetables`). New tables are appended to the table list, so existing presets keep their table numbers.
+   **Rules when it starts:** no existing preset changes sound; the fingerprint check stays at 0 changed.
+   Size: 9 of 11, data-heavy. Touches `content/wavetables` and `tools/build_content.py`, with new tables appended. The code change is small; sourcing and the licence checks take the time.
+   Order 8. Why here: the new tables are reached through the icon from 20. Content only and appended, so no existing preset changes.
+
+A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A node-and-cable model and the cable widget: drag from an output to an input, with the menus from 18. No audio change of its own.
+   Size: medium-large. Touches a new set of files under `src/gui` and a small model under `src/processor`.
+   Order 9. Why here: 16 and 17 both need it. Build it once and test it on the FX side first.
 
 17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided, not started; do not build yet). Her
    words: patch FX from one output to the next, so complex parallel or feedback routes can be built, and allow more than
@@ -271,6 +337,7 @@ Steps 16 to 26 are listed hardest to easiest, judged from the code each one touc
    default), so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to
    ilana for a look (a UI review after it) before the build is merged.
    Size: 1 of 11, very large. Touches `src/processor/Effects.cpp` (the fixed slot model, `fx_slotN_*` parameters and state), `src/gui/pages/FxPage.h` (a new node-graph sub-tab), and the parameter layout; several instances of one effect need parameter IDs that don't renumber. Shares the cable view with step 16.
+   Order 10. Why here: the FX chain is its own processor (`Effects.cpp`) and can ship without touching the voice core. Multi-instance first needs the fixed slot model turned into a list (sub-step B: the old slots become its first entries and keep their IDs, so old presets render the same and the fingerprint check stays at 0 changed). Then the patcher sub-tab uses shared foundation A.
 
 16. **Reroutable oscillators and patch cables** (ilana, 2026-10-10: decided, not started; do not build yet). Her words:
    each oscillator can go to F1, to F2, only to WEST, or direct to the output, and all of them can run in parallel, in
@@ -283,62 +350,10 @@ Steps 16 to 26 are listed hardest to easiest, judged from the code each one touc
    so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to ilana for
    a look (a UI review after it) before the build is merged.
    Size: 2 of 11, very large. Touches `src/dsp/Voice.cpp` (the fixed oscillator, F1, F2, WEST and output chain in `renderNextBlock`, 3,650 lines), `src/dsp/Voice.h`, the parameter layout, the OSC and FILTER pages, and a new cable view.
-
-21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: decided, not started). The KEYBOARD toggle should
-   only add the keyboard below the synth, so the window grows and the layout above stays as it is. If it can't work that
-   way, the toggle is disabled or removed rather than changing the overall layout.
-   **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and
-   the positions of the existing panels with the keyboard on and off.
-   Size: 3 of 11, large. Touches `src/PluginEditor.cpp` (the KEYBOARD button and window size) and the design scale (height / 720), which makes everything shrink when the keyboard adds height; decoupling the scale from the window height is the main work.
-
-22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided, not started). A double-click places a
-   note, and a double-click then drag lengthens it. The current behaviour stays as a pencil mode for placing many notes
-   quickly, switched on and off from the editor.
-   **Rules when it starts:** the clip file format and playback do not change; the UI test covers both modes.
-   Size: 4 of 11, medium-large. Touches `src/gui/ClipEditor.h` (1,840 lines): the mouse gestures and a pencil mode. The clip data and playback don't change.
-
-18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; decided, not started). Clicking some
-   drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
-   nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
-   which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test
-   that opens every selector on each page. ilana (2026-10-10) sees the same failure on the OSC tab, not only PLAY, so it
-   is probably one shared menu problem rather than one control's bug; look for the shared cause first.
-   **Rules when it starts:** no sound or preset change; the fix is in the UI only.
-   Size: 5 of 11, medium, cause unknown. Touches the menu code across `src/gui` (271 combo-box and popup-menu references). First step: find which selectors fail to open and why.
-
-24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided, not started). The spray tool in
-   the clip editor does not place notes correctly. Find what it does wrong, fix it, and add a test that sprays notes
-   and checks where they land.
-   **Rules when it starts:** no sound or preset change.
-   Size: 6 of 11, medium, needs reproduction. Spray is the generative note-spray stage (`src/dsp/Generative.h`, `src/PluginProcessor.cpp`) feeding the arpeggiator. The clip editor is separate (`src/ClipState.h`, `src/gui/ClipEditor.h`), so the clip interaction must be reproduced before fixing.
-
-23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
-   lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the
-   pages and the clip editor.
-   **Rules when it starts:** UI only; no sound or preset change.
-   Size: 7 of 11, small-medium. Touches `mouseWheelMove` in `src/gui/ClipEditor.h`, the only custom wheel handling; the other pages use JUCE's default scrolling. Tune the wheel delta and trackpad handling.
-
-26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
-   response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).
-   Restyle it to match the rest of the interface.
-   **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.
-   Size: 8 of 11, small-medium. Touches `src/gui/FilterDisplay.h` (776 lines, paint code only). The values and the parameter layout don't change.
-
-19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided, not started). The current
-   library is thin. Source more wavetables, including unusual ones she has seen on Reddit. Before any file is added,
-   check its licence and permission for personal use, and write the source and licence into the content's notes
-   (`content/wavetables`). New tables are appended to the table list, so existing presets keep their table numbers.
-   **Rules when it starts:** no existing preset changes sound; the fingerprint check stays at 0 changed.
-   Size: 9 of 11, data-heavy. Touches `content/wavetables` and `tools/build_content.py`, with new tables appended. The code change is small; sourcing and the licence checks take the time.
+   Order 11. Why here: it changes `Voice.cpp`, which every preset renders through. By then the shared widget and the fingerprint workflow have been proven on the FX side.
 
 25. **Better trance gate presets** (ilana, 2026-10-10: decided, not started). The current trance gate presets are not
    good enough. Make new ones, judged by how they sound (ilana listens to them herself).
    **Rules when it starts:** new presets are appended, so no existing preset changes sound.
    Size: 10 of 11, content only. Touches `src/PresetVoicing.h` and `src/PresetPackM10.h` (the Euclid Trance Gate and the new presets), with level tuning. Judged by ilana's ear.
-
-20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided, not started). Add a small icon
-   on the oscillator's waveform display (on PLAY and OSC) that opens the wavetable picker, so changing the table is
-   obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
-   left of the Wavetable, Basic and Off menus.
-   **Rules when it starts:** UI only; the picker and the dropdown set the same parameter.
-   Size: 11 of 11, smallest. Touches `src/gui/WaveDisplay.h`: one icon in the display, and clicking it opens the existing table menu. The corner key that cycles WAVE, 3D and SPEC stays.
+   Order 12, any time in parallel. Why here: content only and appended, so it can run whenever; it goes last so ilana judges the presets on the final engine.

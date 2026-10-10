@@ -13,6 +13,7 @@
 #include "../dsp/Voice.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 #include "TableBrowser.h"
 #include "PhysicalView.h"
 
@@ -1542,8 +1543,7 @@ private:
                 path.lineTo ((float) plot.getX() + (float) x, y);
         }
 
-        g.setColour (colour);
-        g.strokePath (path, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        IlanaTrace::paintTrace (g, path, colour, thickness);
     }
 
     // The phase warps the oscillator applies itself (not FM or Ring), for
@@ -1619,8 +1619,7 @@ private:
                 path.lineTo (plot.getX() + (float) x, y);
         }
 
-        g.setColour (traceColour);
-        g.strokePath (path, juce::PathStrokeType (1.6f));
+        IlanaTrace::paintTrace (g, path, traceColour);
     }
 
     // The view switch and the table arrows show over a wavetable only, and

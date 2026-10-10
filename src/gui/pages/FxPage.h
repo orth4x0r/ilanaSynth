@@ -860,6 +860,17 @@ private:
 
     void removeSlot (int slot)
     {
+        // The card fades out where it stood (a ghost of it, while the cards
+        // below close up at once); N16 leftover.
+        for (const auto& panel : stackPanels)
+            if (panel.slot == slot && ! panel.bounds.isEmpty() && IlanaAnim::showing (stackContent))
+            {
+                removeImage = stackContent.createComponentSnapshot (panel.bounds);
+                removeBounds = panel.bounds;
+                removeFade = 1.0f;
+                break;
+            }
+
         processorRef.performEdit ("Remove " + getSlotName (getSlotType (slot)), [this, slot]
         {
             if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (slot + 1)))
@@ -2077,6 +2088,13 @@ private:
     // ghost under the pointer.
     void paintDragGhost (juce::Graphics& g)
     {
+        if (removeFade > 0.01f && removeImage.isValid())
+        {
+            g.setOpacity (removeFade * 0.6f);
+            g.drawImageAt (removeImage, removeBounds.getX(), removeBounds.getY());
+            g.setOpacity (1.0f);
+        }
+
         if (! dragActive)
             return;
 
@@ -2223,6 +2241,18 @@ private:
         const auto ticks = frameTicks();
         const auto flashing = dropFlash > 0.01f;
         dropFlash = IlanaAnim::decay (dropFlash, 0.85f, ticks);
+
+        if (removeFade > 0.01f)
+        {
+            removeFade = IlanaAnim::decay (removeFade, 0.82f, ticks);
+            stackContent.repaint (removeBounds);
+
+            if (removeFade <= 0.01f)
+            {
+                removeFade = 0.0f;
+                removeImage = {};
+            }
+        }
 
         const auto showingA = processorRef.isShowingChainA();
 
@@ -2444,6 +2474,9 @@ private:
     }
 
     std::vector<StackPanel> stackPanels;
+    juce::Image removeImage;           // a removed card, fading out where it stood
+    juce::Rectangle<int> removeBounds;
+    float removeFade = 0.0f;
     std::vector<SplitGroup> splitGroups;
     int selectedSlot = 0;
     int dragSlot = -1, dropTarget = -1;

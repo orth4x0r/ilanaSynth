@@ -552,6 +552,12 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     const auto voiceRate = baseSampleRate * (double) oversamplingFactor.load();
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
+    // A new stream (a buffer-size or rate change in the host): notes still
+    // held from the old one stop here, as the pedal and the arp's held keys
+    // above do. Voices that carried on across the change buzzed on the PC
+    // until their keys were let go and pressed again (ilana, 2026-10-10;
+    // not reproduced on Linux, where every output matched).
+    synth.allNotesOff (0, false);
     // MULTI-CORE: up to three more threads (the host runs its own too), with
     // buffers for a chunk at the highest oversampling.
     synth.prepareVoiceThreads (juce::jlimit (0, 3, juce::SystemStats::getNumCpus() - 1), expectedBlockSize * 4);

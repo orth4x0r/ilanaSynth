@@ -328,9 +328,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* mainPage = new MainPage (p);
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
-    // Seven tabs; the ones holding several pages switch them from the tab
-    // row (PLAY: overview and vector, MOD: envelopes, LFOs and the MSEG,
-    // the matrix).
+    // Eight tabs; the ones holding several pages switch them from the tab
+    // row (PLAY: overview and vector, MOD: envelopes, LFOs and the MSEG).
     const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
     {
         auto* section = new SectionPage();
@@ -354,8 +353,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);
-    addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
-                         { "MATRIX", "MATRIX", matrixPage } });
+    addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage } });
+    // The matrix has its own tab (ilana, 2026-10-10).
+    addSection ("MATRIX", { { "MATRIX", "MATRIX", matrixPage } });
     // An LFO card's DRIVES row opens its routing in the matrix.
     ModNames::openMatrixRow() = [this, matrixPage] (int slot)
     {
@@ -2542,6 +2542,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
    #endif
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
+    menu.addItem (510, "Multi-core voices (several threads, same sound)", true, read ("multi_core") > 0.5f);
     menu.addItem (410, "Ask before replacing an edited patch", true, asksBeforeReplacingEdits());
     menu.addSeparator();
     menu.addItem (400, "Show welcome tour");
@@ -2586,6 +2587,15 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                                 safeThis->settings->saveIfNeeded();
                             }
                            #endif
+                            else if (result == 510)
+                            {
+                                if (auto* multiCore = safeThis->processorRef.apvts.getParameter ("multi_core"))
+                                {
+                                    multiCore->beginChangeGesture();
+                                    multiCore->setValueNotifyingHost (multiCore->getValue() > 0.5f ? 0.0f : 1.0f);
+                                    multiCore->endChangeGesture();
+                                }
+                            }
                             else if (result == 500)
                             {
                                 if (auto* mpe = safeThis->processorRef.apvts.getParameter ("mpe_mode"))
@@ -3117,7 +3127,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
             }
         }
 
-        // Ctrl / Cmd + 1-7 pick a tab (bare digits are left to the host:
+        // Ctrl / Cmd + 1-8 pick a tab (bare digits are left to the host:
         // DAWs play notes or run actions with them).
         if (const auto digit = key.getKeyCode(); digit >= '1' && digit <= '9' && ! modifiers.isAltDown() && ! modifiers.isShiftDown())
         {

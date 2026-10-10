@@ -1,6 +1,6 @@
 #pragma once
 
-// M8.7: the PHYSICAL page's animated view of the first Physical oscillator:
+// M8.7: a Physical oscillator's animated view, in its OSC card's well:
 // the string (its modes, shaped by the strike point, the felt or pick and
 // the stiffness, decaying with DECAY and DAMP), the hammer, pick or bow
 // that excites it, and the body underneath, glowing with the output. It is
@@ -399,10 +399,10 @@ private:
     float bodyGlow = 0.0f;
 };
 
-// The physical oscillator's controls, one list for its OSC card and the
-// PHYSICAL page (UI review 6, S13, I6-18): rows named for the part of the
-// instrument, each control as its parameter suffix and label, for the
-// exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
+// The physical oscillator's controls, the list its OSC card lays out (UI
+// review 6, S13, I6-18; the PHYSICAL tab folded into the card, 2026-10-10):
+// rows named for the part of the instrument, each control as its parameter
+// suffix and label, for the exciter in use (the Tine and Reed have a hammer and a pickup; the Piano
 // hammer has no pick, pickup or buzz; HARDNESS and PICK POS shape only a
 // plucked burst, SLAP is a pluck's or a strike's: UI review 7, I7-27).
 struct PhysicalSpec
@@ -422,7 +422,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },
                                        { "_string_sustain", excite == 10 ? "FEEDBACK" : "SUSTAIN" },
                                        { "_string_stiffness", "STIFF" }, { "_register", "REGISTER" },
-                                       { "_damper", "DAMPER" }, { "_couple", "COUPLING" } }; // (I8-25)
+                                       { "_damper", "DAMPER" }, { "_couple", "COUPLE" } }; // (I8-25)
     std::vector<PhysicalSpec> exciter { { "_excite", "EXCITE" } };
 
     const auto plucked = excite <= 3 || excite == 10;
@@ -430,7 +430,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     if (! piano && excite != 4)
         exciter.push_back ({ "_string_slap", "SLAP" });
 
-    exciter.push_back ({ "_string_excite_pos", "EXCITE POS" });
+    exciter.push_back ({ "_string_excite_pos", "POSITION" });
 
     if (plucked)
         exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
@@ -442,8 +442,13 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     else if (excite == 10)
         exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
 
+    // The bridge's buzz and the fret's rattle are the string's: they close
+    // its row on the oscillator card, so the exciter's row stays one row.
     if (! piano)
-        exciter.insert (exciter.end(), { { "_string_pickup", "PICKUP" }, { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+    {
+        exciter.push_back ({ "_string_pickup", "PICKUP" });
+        string.insert (string.end(), { { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
+    }
 
     return { { "STRING", string }, { "EXCITER", exciter } };
 }

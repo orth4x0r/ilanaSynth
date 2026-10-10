@@ -445,9 +445,6 @@ inline void groupExciteMenu (ComboControl& control)
     });
 }
 
-// Opens the PHYSICAL page on an oscillator's string (defined after
-// PhysicalPage, in FilterVectorPhysicalPages.h).
-void showPhysicalString (juce::Component& from, int osc);
 
 
 // The unison block's little picture (the OSC cards' UNISON row): one bar per
@@ -523,11 +520,9 @@ private:
     bool isActive = false;
 };
 
-// A Physical oscillator's STRING row, right of its knobs: the string's
-// partials as bars (their levels from the strike point, DAMP and STIFF, as
-// the PHYSICAL page's PARTIALS read-out), so the row reads as the wavetable
-// card's, full to its end, without a second copy of the string's controls
-// (those stay on PHYSICAL: UI review 9, I9-3). A picture only.
+// A Physical oscillator's card, right of its string and exciter: the
+// string's partials as bars (their levels from the strike point, DAMP and
+// STIFF). A picture only.
 class StringPartialsView : public juce::Component,
                            public juce::SettableTooltipClient
 {
@@ -535,21 +530,13 @@ public:
     StringPartialsView (IlanaSynthAudioProcessor& p, int index)
         : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
     {
-        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is. OSC > PHYSICAL edits the string.");
+        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is.");
     }
 
     void setColour (juce::Colour newColour)
     {
         colour = newColour;
         repaint();
-    }
-
-    std::function<void()> onClick;
-
-    void mouseUp (const juce::MouseEvent& event) override
-    {
-        if (onClick != nullptr && getLocalBounds().contains (event.getPosition()))
-            onClick();
     }
 
     // Re-reads the settings; repaints when they changed.
@@ -790,7 +777,7 @@ class OscPage : public juce::Component,
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
               feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
 
-        // Every knob in the oscillator's own colour, as on PLAY and PHYSICAL.
+        // Every knob in the oscillator's own colour, as on PLAY.
         void setColour (juce::Colour colour)
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
@@ -873,6 +860,19 @@ public:
                                 physicalControls.damper, physicalControls.registerMap,
                                 physicalControls.epDistance, physicalControls.epPosition,
                                 physicalControls.fbGain, physicalControls.fbDistance);
+            // The card's one inline style, as the string's DECAY and DAMP.
+            for (auto* knob : { &physicalControls.stiffness, &physicalControls.pickup, &physicalControls.excitePos, &physicalControls.hardness,
+                                &physicalControls.pickPos, &physicalControls.bowPressure, &physicalControls.bowSpeed, &physicalControls.bridgeBuzz,
+                                &physicalControls.fretRattle, &physicalControls.hammer, &physicalControls.couple, &physicalControls.damper,
+                                &physicalControls.registerMap, &physicalControls.epDistance, &physicalControls.epPosition, &physicalControls.fbGain,
+                                &physicalControls.fbDistance })
+                knob->setInlineKnob (true);
+            physicalControls.slap.setInlineLabel (true);
+            // (The short names the grid has room for, as the list names them.)
+            physicalControls.bridgeBuzz.setLabelText ("BUZZ");
+            physicalControls.fretRattle.setLabelText ("RATTLE");
+            physicalControls.excitePos.setLabelText ("POSITION");
+            physicalControls.couple.setLabelText ("COUPLE");
 
             // The card's controls for each entry of the shared physical list.
             auto& osc = *controls[(size_t) i];
@@ -969,7 +969,6 @@ public:
             };
             card.spreadView.setColour (oscColour (i));
             card.partials.setColour (oscColour (i));
-            card.partials.onClick = [this, i] { showPhysicalString (*this, i); };
             addChildComponent (card.partials);
             card.status.setColour (oscColour (i));
             card.status.onClick = [i]
@@ -1015,12 +1014,17 @@ public:
             };
             addChildComponent (card.opEnvButton);
 
-            // A Physical oscillator's string has one editor, the PHYSICAL page;
-            // here its picture, its main knobs and a link there (UI review 9,
-            // I9-3).
-            styleJumpLink (card.stringButton, "STRING");
-            card.stringButton.setTooltip ("Every control of this oscillator's string, exciter and body is on the PHYSICAL page");
-            card.stringButton.onClick = [this, i] { showPhysicalString (*this, i); };
+            // A Physical oscillator's card holds its whole string and exciter
+            // (the PHYSICAL tab folded in, 2026-10-10); the body it shares
+            // with the other voices is on FILTER, the soundboard in the strip
+            // below.
+            styleJumpLink (card.stringButton, "BODY");
+            card.stringButton.setTooltip ("The resonant body is on the FILTER page; the soundboard is in the strip below the oscillators");
+            card.stringButton.onClick = [this]
+            {
+                if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                    editor->showPage ("FILTER");
+            };
             addChildComponent (card.stringButton);
 
             card.sampleLoadButton.setButtonText ("LOAD...");
@@ -1453,18 +1457,42 @@ private:
                 break;
             }
             case Kind::physical:
-                // The string is edited on PHYSICAL only (UI review 9, I9-3): the
-                // card keeps its exciter, DECAY and DAMP (PLAY's two).
-                add (osc.excite, 0, 0, 2);
-                add (osc.stringDecay, 0, 2);
-                add (osc.stringDamp, 0, 3);
-                add (osc.level, 1, 0);
-                add (osc.pan, 1, 1);
-                add (osc.semi, 1, 3);
-                add (osc.fine, 1, 4);
-                add (osc.ampEnv, 1, 5);
-                unisonRow (2, true);
+            {
+                // The whole string on the card (the PHYSICAL tab folded in,
+                // 2026-10-10): STRING, then EXCITER (its menu two cells wide),
+                // on the same nine columns; a tine or reed has so few that
+                // both share the first row. PITCH and UNISON as on every card.
+                const auto rows = physicalControlRows (juce::roundToInt (readFloat (prefix + "_excite")));
+                const auto& lookup = physicalLookup[(size_t) index];
+                const auto merged = physicalRowsMerged (index);
+                int row = 0, col = 0;
+                for (size_t line = 0; line < rows.size(); ++line)
+                {
+                    if (line > 0 && ! merged)
+                    {
+                        ++row;
+                        col = 0;
+                    }
+                    for (const auto& spec : rows[line].second)
+                    {
+                        const juce::String suffix (spec.suffix);
+                        const auto found = lookup.find (suffix);
+                        if (found == lookup.end() || processorRef.apvts.getParameter (prefix + suffix) == nullptr)
+                            continue;
+                        const auto span = suffix == "_excite" ? 2 : 1;
+                        add (*found->second, row, col, span);
+                        col += span;
+                    }
+                }
+                const auto pitch = row + 1;
+                add (osc.level, pitch, 0);
+                add (osc.pan, pitch, 1);
+                add (osc.semi, pitch, 3);
+                add (osc.fine, pitch, 4);
+                add (osc.ampEnv, pitch, 5);
+                unisonRow (pitch + 1, true);
                 break;
+            }
             case Kind::grain:
             {
                 int col = 0;
@@ -1528,6 +1556,54 @@ private:
         return slots;
     }
 
+    // A tine's or reed's string and exciter fit one row (eight cells).
+    bool physicalRowsMerged (int osc) const
+    {
+        return isElectric (osc);
+    }
+
+    // The rows a card shows: a Physical card adds its EXCITER row.
+    int rowsOf (int osc) const
+    {
+        const auto kind = kindOf (osc);
+        if (kind == Kind::physical)
+            return physicalRowsMerged (osc) ? 3 : 4;
+        return numRows (kind, kind != Kind::sample || unisonShown (osc));
+    }
+
+    // A card's row names: a Physical card's from its exciter.
+    juce::String rowNameOf (int osc, int row) const
+    {
+        const auto kind = kindOf (osc);
+        if (kind != Kind::physical)
+            return rowName (kind, row);
+        if (physicalRowsMerged (osc))
+        {
+            const auto tine = juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")) == 7;
+            return row == 0 ? (tine ? "TINE" : "REED") : row == 1 ? "PITCH" : "UNISON";
+        }
+        return row == 0 ? "STRING" : row == 1 ? "EXCITER" : row == 2 ? "PITCH" : "UNISON";
+    }
+
+    // One sentence on what the exciter does, for the EXCITER row's free cells
+    // (as the PHYSICAL tab had them, A16-4).
+    juce::String physicalHint (int osc) const
+    {
+        static const char* const hints[] {
+            "A short click of noise plucks the string.",
+            "A longer noise burst rubs the string.",
+            "A saw wave drives the string.",
+            "A pulse wave drives the string.",
+            "A steady bow keeps the string sounding.",
+            "A hard felt strike: HAMMER sets the brightness.",
+            "Another oscillator drives the string.",
+            "A struck tine and its pickup.",
+            "A struck reed and its pickup.",
+            "A felt strike: HAMMER sets its brightness, POSITION where it lands.",
+            "The amp pushes sound back at the string." };
+        return hints[juce::jlimit (0, 10, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
+    }
+
     bool unisonShown (int osc) const
     {
         return readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f;
@@ -1562,7 +1638,8 @@ private:
         Kind kind = Kind::wavetable;
         juce::Rectangle<int> bounds, header, well, wave, group, captionArea, statusArea;
         int rows = 3, columns = 9, rowHeight = 28, gridX = 0, gridWidth = 0, labelX = 0, labelWidth = rowLabelWidth;
-        std::array<int, 3> rowY {};
+        std::array<int, 4> rowY {};
+        juce::Rectangle<int> hintArea;
         std::vector<int> separatorY;
     };
 
@@ -1580,8 +1657,15 @@ private:
                 const auto rows = numRows (Kind::sample, readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f);
                 return 1 + cardHeaderHeight + 8 + sampleWaveMin + 8 + sampleGroupHeight (rows) + 8 + 1;
             }
-            default: return compactCardMin;
+            // (A Physical card's fourth row, EXCITER, at the same row height and gap.)
+            default: return compactCardMin + (rowsOf (osc) - 3) * (26 + rowGap);
         }
+    }
+
+    // What a compact card grows to with spare height.
+    int maximumCardHeight (int osc) const
+    {
+        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap);
     }
 
     static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
@@ -1643,7 +1727,7 @@ private:
                     heights[i] += slack / (int) samples.size();
             else if (! compacts.empty())
                 for (const auto i : compacts)
-                    heights[i] = juce::jmin (compactCardMax, heights[i] + slack / (int) compacts.size());
+                    heights[i] = juce::jmin (maximumCardHeight (shown[i]), heights[i] + slack / (int) compacts.size());
         }
 
         const auto width = getWidth() - sideMargin * 2;
@@ -1779,9 +1863,9 @@ private:
             return;
         }
 
-        card.rows = numRows (card.kind, true);
+        card.rows = rowsOf (index);
         card.columns = 9;
-        card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - 2 * rowGap - 8) / 3);
+        card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - (card.rows - 1) * rowGap - 8) / card.rows);
         const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);
         const auto padTop = juce::jmax (4, (body.getHeight() - rowsHeight) / 2);
         card.well = { body.getX() + 10, body.getY() + juce::jmin (5, padTop), wellWidth, body.getHeight() - 2 * juce::jmin (5, padTop) };
@@ -1789,7 +1873,7 @@ private:
         card.gridX = card.labelX + rowLabelWidth + 8;
         card.gridWidth = inner.getRight() - 10 - card.gridX;
 
-        for (int r = 0; r < 3; ++r)
+        for (int r = 0; r < card.rows; ++r)
             card.rowY[(size_t) r] = body.getY() + padTop + r * (card.rowHeight + rowGap);
 
         for (const auto& slot : slotsFor (index))
@@ -1807,15 +1891,51 @@ private:
 
         // The right-hand cells: the FM chip or the output bar in PITCH's, the
         // unison picture in UNISON's.
-        // The string's partials take the right two rows (the status chip moved
-        // to the header, V15-11).
+        // The string's partials take the right-hand cells the string, the
+        // exciter and PITCH leave free (two or three columns, down to PITCH);
+        // free cells left in the EXCITER row say what the exciter does.
+        card.hintArea = {};
         if (card.kind == Kind::physical)
-            pieces.partials.setBounds (cellRect (card, 0, 6, 3).getUnion (cellRect (card, 1, 6, 3)).reduced (4, 0));
+        {
+            const auto slots = slotsFor (index);
+            const auto pitchRow = card.rows - 2;
+            const auto used = [&slots] (int row, int col)
+            {
+                for (const auto& slot : slots)
+                    if (slot.row == row && col >= slot.col && col < slot.col + slot.span)
+                        return true;
+                return false;
+            };
+            const auto freeRun = [&] (int fromRow, int fromCol)
+            {
+                for (int r = fromRow; r <= pitchRow; ++r)
+                    for (int c = fromCol; c < 9; ++c)
+                        if (used (r, c))
+                            return false;
+                return true;
+            };
+            auto top = pitchRow;
+            while (top > 0 && freeRun (top - 1, 7))
+                --top;
+            const auto from = freeRun (top, 6) ? 6 : 7;
+            pieces.partials.setBounds (cellRect (card, top, from, 9 - from).getUnion (cellRect (card, pitchRow, from, 9 - from)).reduced (4, 0));
+
+            if (! physicalRowsMerged (index))
+            {
+                auto last = 0;
+                for (const auto& slot : slots)
+                    if (slot.row == 1)
+                        last = juce::jmax (last, slot.col + slot.span);
+                const auto to = top <= 1 ? from : 9;
+                if (to - last >= 2)
+                    card.hintArea = cellRect (card, 1, last, to - last).reduced (6, 0);
+            }
+        }
 
         pieces.status.setBounds (card.statusArea);
         // (A wavetable's UNISON row keeps FRM SPR and WRP SPR in columns 6 and 7: the picture takes the last cell, A16-1.)
         if (card.kind != Kind::live)
-            pieces.spreadView.setBounds (card.kind == Kind::wavetable ? cellRect (card, 2, 8, 1) : cellRect (card, 2, 6, 3));
+            pieces.spreadView.setBounds (card.kind == Kind::wavetable ? cellRect (card, 2, 8, 1) : cellRect (card, card.rows - 1, 6, 3));
     }
 
     void paintOscCard (juce::Graphics& g, const CardGeometry& card) const
@@ -1852,7 +1972,7 @@ private:
             g.setColour (tint.withAlpha (0.8f));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             // (An operator's third row is there only for UNISON or a shaper in use.)
-            auto name = rowName (card.kind, r);
+            auto name = rowNameOf (index, r);
             if (card.kind == Kind::fm && r == 2)
             {
                 auto shaper = false;
@@ -1865,6 +1985,13 @@ private:
             }
             IlanaTheme::drawFitted (g, name,
                                     juce::Rectangle<int> (card.labelX, card.rowY[(size_t) r], card.labelWidth, card.rowHeight), juce::Justification::centredLeft, 1);
+        }
+
+        if (! card.hintArea.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, physicalHint (index), card.hintArea, juce::Justification::centredLeft, 2);
         }
 
         for (const auto y : card.separatorY)
@@ -2095,7 +2222,8 @@ private:
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             key << osc << ":" << getMode (osc) << (OscRole::usesOperatorEg (processorRef, osc) ? "o" : "-") << OscRole::tuning (processorRef, osc)
-                << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-") << ";";
+                << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-")
+                << (getMode (osc) == 1 ? juce::String (juce::roundToInt (readFloat (prefix + "_excite"))) : juce::String()) << ";";
         }
         key << (stripOpen ? "open" : "shut") << (readBool ("sym_manual") ? "m" : "-") << (canAdd() ? "+" : "=");
         return key;

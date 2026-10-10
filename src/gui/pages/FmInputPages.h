@@ -158,7 +158,7 @@ public:
         addChildComponent (pitchLfoLink);
         // An oscillator of another type: one click makes it an FM / DX7
         // operator (the same sound, the operator's controls).
-        // (An action, not a jump: the pill the PHYSICAL page's SWITCH TO PHYSICAL is.)
+        // (An action, not a jump: a tinted pill.)
         makeOperator.setButtonText ("SWITCH TO FM / DX7");
         IlanaTheme::makePill (makeOperator, fmColour());
         makeOperator.setToggleState (true, juce::dontSendNotification);

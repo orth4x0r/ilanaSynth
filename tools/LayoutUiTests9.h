@@ -214,11 +214,9 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // states, centred on purpose: not measured.)
                     if (shown == nullptr || (juce::String (preset) == "Init" && (page == "FX" || page == "MATRIX")))
                         continue;
-                    // (FX cards keep their own widths and heights, and a PHYSICAL page with
-                    // no string is one composed card: the rest of those pages is
-                    // bare by design, V11-4, V11-15. Card interiors are judged by
+                    // (FX cards keep their own widths and heights. Card interiors are judged by
                     // runLayoutReview10Tests.)
-                    if (page == "FX" || (page == "PHYSICAL" && juce::String (preset) != "Felt Hammer Board"))
+                    if (page == "FX")
                         continue;
 
                     const auto pageArea = area (shown).reduced (4);

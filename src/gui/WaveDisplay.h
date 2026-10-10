@@ -1393,7 +1393,7 @@ private:
         {
             modeEpoch = epoch;
             updateViewButtons();
-            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS)." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
                                             "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                         : isLiveInput() ? "The audio coming into ilanaSynth FX."
                         : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."

@@ -329,8 +329,8 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
     // Seven tabs; the ones holding several pages switch them from the tab
-    // row (PLAY: overview and vector, OSC: oscillators and the physical
-    // view, MOD: envelopes, LFOs and the MSEG, the matrix).
+    // row (PLAY: overview and vector, MOD: envelopes, LFOs and the MSEG,
+    // the matrix).
     const auto addSection = [this] (const juce::String& name, std::initializer_list<std::tuple<juce::String, juce::String, juce::Component*>> pages)
     {
         auto* section = new SectionPage();
@@ -351,7 +351,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
-    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport }, { "PHYSICAL", "PHYSICAL", new PhysicalPage (p) } });
+    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage },
@@ -1709,6 +1709,14 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
     if (id == "STEPS")
     {
         showPage ("ENV/LFO");
+        return;
+    }
+
+    // The PHYSICAL tab folded into the oscillator cards (2026-10-10): its
+    // old id opens OSC.
+    if (id == "PHYSICAL")
+    {
+        showPage ("OSC");
         return;
     }
 

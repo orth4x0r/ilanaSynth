@@ -384,10 +384,11 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
 
         // The exciters: one name table, in groups; a hammer has no pick
         // controls (I7-27).
-        // (Its controls are on PHYSICAL, the one string editor: I9-3.)
+        // (On the oscillator's card, the one string editor since the
+        // PHYSICAL tab folded in.)
         setParam ("osc1_mode", 1.0f);
         setParam ("osc1_excite", 5.0f);
-        editor.showPage ("PHYSICAL");
+        editor.showPage ("OSC");
         settle (400);
         std::vector<ComboControl*> combos;
         findAll<ComboControl> (editor, combos);
@@ -396,12 +397,11 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
                 hammerName = combo->getComboBox().getText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
-                    && knobFor ("osc1_couple", "COUPLING") != nullptr,
+                    && knobFor ("osc1_couple", "COUPLE") != nullptr,
                 "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
         setParam ("osc1_excite", 0.0f);
         settle (300);
         expect (knobFor ("osc1_string_pick_hardness") != nullptr, "OSC: a plucked burst has HARDNESS");
-        editor.showPage ("OSC");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -453,35 +453,33 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (barChips == 2 && offChips == 0, "VEC X / VEC Y are in the chip bar while VECTOR is on (" + juce::String (barChips) + ")");
     }
 
-    // PHYSICAL: the string across the page, the controls in a band under
-    // it, the piano's EXCITER on STRING's line (V7-33, V7-32, V7-29).
+    // A Physical oscillator's card: the moving string in its well, STRING and
+    // EXCITER rows of the card's one grid (the PHYSICAL tab folded in), the
+    // body a link to FILTER.
     loadNamed ("Felt Hammer Board");
-    editor.showPage ("PHYSICAL");
+    editor.showPage ("OSC");
     settle (400);
     {
-        for (const char* id : { "res_on", "sb_on" })
-            if (auto* parameter = processor.apvts.getParameter (id))
-                parameter->setValueNotifyingHost (1.0f);
-        settle (300);
-        auto* page = editor.getCurrentPage();
-        auto* view = page != nullptr ? findChild<PhysicalView> (*page) : nullptr;
         auto* decay = knobFor ("osc1_string_decay");
         auto* hammer = knobFor ("osc1_hammer_hard");
+        std::vector<PhysicalView*> views;
+        findAll<PhysicalView> (editor, views);
+        auto stringShown = false;
+        for (auto* view : views)
+            stringShown = stringShown || (visibleInTree (view) && view->getOscillator() == "osc1");
         // (STRING and EXCITER are two rows of one grid: the hammer sits under the decay.)
-        const auto sameLine = decay != nullptr && hammer != nullptr
-                              && editor.getLocalArea (decay, decay->getLocalBounds()).getY() < editor.getLocalArea (hammer, hammer->getLocalBounds()).getY();
-        expect (view != nullptr && view->getWidth() > page->getWidth() * 3 / 4 && sameLine
-                    && buttonNamed (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba")) != nullptr,
-                "PHYSICAL: the string spans the page, STRING and EXCITER are rows of one grid, EDIT > links to FILTER");
-        // The renamed exciter menu still shows its choice.
+        const auto sameGrid = decay != nullptr && hammer != nullptr
+                              && decay->getParentComponent() == hammer->getParentComponent() && decay->getBottom() <= hammer->getY() + 6;
+        expect (stringShown && sameGrid && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
+                "OSC: a Physical card shows its moving string, STRING and EXCITER on one grid, EDIT BODY > links to FILTER");
         juce::String exciteText;
         std::vector<ComboControl*> combos;
-        if (page != nullptr)
-            findAll<ComboControl> (*page, combos);
+        findAll<ComboControl> (editor, combos);
         for (auto* combo : combos)
             if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
                 exciteText = combo->getComboBox().getText();
-        expect (exciteText == "Piano Hammer", "PHYSICAL: EXCITE reads Piano Hammer ('" + exciteText + "')");
+        expect (exciteText == "Piano Hammer", "OSC: EXCITE reads Piano Hammer ('" + exciteText + "')");
+        expect (editor.getPageIds().indexOf ("PHYSICAL") < 0, "the PHYSICAL tab is gone: the card holds the whole string");
     }
 }
 
@@ -2886,10 +2884,9 @@ int runUiTests()
                 "OSC 1 always shows its PD chain row (second stage and warp envelope)");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
-        // the PHYSICAL page, the one string editor: I9-3).
+        // the oscillator's card).
         set ("osc1_mode", 1.0f);
         set ("osc1_excite", 7.0f);
-        pages->showPage ("PHYSICAL");
         settle (300);
         expect (visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_ep_position") && visibleKnob ("osc1_hammer_hard")
                     && ! visibleKnob ("osc1_string_stiffness") && ! visibleKnob ("osc1_string_sustain"),
@@ -2898,7 +2895,6 @@ int runUiTests()
         settle (300);
         expect (! visibleKnob ("osc1_ep_distance") && visibleKnob ("osc1_string_stiffness"),
                 "a plucked string hides the pickup controls again");
-        pages->showPage ("OSC");
         set ("osc1_mode", 0.0f);
         settle (300);
 
@@ -4166,127 +4162,79 @@ int runUiTests()
                 "a bounce puts OSC 2 in Sample mode with the sample controls showing");
     }
 
-    // M8.7: the PHYSICAL page follows the patch's Physical oscillator.
+    // The string has one editor, its oscillator's card (the PHYSICAL tab
+    // folded in, 2026-10-10): every control of the physical list is on the
+    // card, in its order, with the moving string in the well; the body is a
+    // link (EDIT BODY > opens FILTER), the soundboard is the strip's.
     {
         processor.loadFactoryPreset (names.indexOf ("Felt Hammer Board"));
-        pages->showPage ("PHYSICAL");
+        pages->showPage ("OSC");
         settle (400);
-        auto* page = pages->getCurrentPage();
-        expect (page != nullptr && findChild<PhysicalView> (*page) != nullptr, "the PHYSICAL page shows the animated string");
-        std::vector<KnobControl*> knobs;
-        if (page != nullptr)
-            findAll<KnobControl> (*page, knobs);
         juce::String physicalPrefix;
         for (const auto* prefix : OscillatorIds::prefixes)
             if (physicalPrefix.isEmpty() && juce::roundToInt (processor.apvts.getRawParameterValue (juce::String (prefix) + "_mode")->load()) == 1)
                 physicalPrefix = prefix;
-        auto bound = false;
-        for (auto* knob : knobs)
-            bound = bound || (knob->getParameterId() == physicalPrefix + "_string_decay" && visibleInTree (knob));
-        expect (physicalPrefix.isNotEmpty() && bound, "the PHYSICAL page shows the Felt Hammer Board's string (" + physicalPrefix + ")");
-
-        // One control list for the PHYSICAL page and the OSC card (UI
-        // review 6, S13, I6-18), the moving string in the card (V24), the
-        // body and soundboard as links, not a second set of controls (S14).
-        SectionPage* oscSection = nullptr;
-        {
-            std::vector<SectionPage*> sections;
-            findAll<SectionPage> (*editor, sections);
-            for (auto* section : sections)
-                if (section->indexOf ("PHYSICAL") >= 0)
-                    oscSection = section;
-        }
-        expect (oscSection != nullptr && ! oscSection->switcher.isItemDimmed (oscSection->indexOf ("PHYSICAL")),
-                "the PHYSICAL tab is lit while an oscillator is physical");
-        juce::StringArray pageIds, listIds;
-        // (BODY's and the SOUNDBOARD's main controls sit under the string's
-        // since UI review 8, V8-23; they aren't the oscillator's.)
-        for (auto* knob : knobs)
-            if (visibleInTree (knob) && knob->getParameterId().startsWith (physicalPrefix))
-                pageIds.add (knob->getParameterId());
-        const auto excite = juce::roundToInt (processor.apvts.getRawParameterValue (physicalPrefix + "_excite")->load());
-        for (const auto& row : physicalControlRows (excite))
-            for (const auto& spec : row.second)
-                if (dynamic_cast<juce::AudioParameterFloat*> (processor.apvts.getParameter (physicalPrefix + spec.suffix)) != nullptr)
-                    listIds.add (physicalPrefix + spec.suffix);
-        expect (! pageIds.isEmpty() && pageIds == listIds, "PHYSICAL shows the physical control list (" + pageIds.joinIntoString (" ") + ")");
-
-        // (BODY and the SOUNDBOARD fold to a line while off, V10-9: switched on, they show their links.)
-        for (const char* id : { "res_on", "sb_on" })
-            if (auto* parameter = processor.apvts.getParameter (id))
-                parameter->setValueNotifyingHost (1.0f);
-        settle (400);
-        juce::StringArray pageButtons;
-        {
-            std::vector<juce::TextButton*> buttons;
-            if (page != nullptr)
-                findAll<juce::TextButton> (*page, buttons);
-            for (auto* button : buttons)
-                if (visibleInTree (button))
-                    pageButtons.add (button->getButtonText());
-        }
-        std::vector<ToggleControl*> pageToggles;
-        if (page != nullptr)
-            findAll<ToggleControl> (*page, pageToggles);
-        auto bodySwitch = false;
-        for (auto* toggle : pageToggles)
-            bodySwitch = bodySwitch || (visibleInTree (toggle) && toggle->getButton().getTooltip().startsWith (processor.apvts.getParameter ("res_on")->getName (64)));
-        // (UI review 8, V8-23: the body's switch and main controls are here
-        // too now, with links to the rest.)
-        // (The design's rows carry one short "EDIT ›" each: the body's and the soundboard's.)
-        expect (std::count (pageButtons.begin(), pageButtons.end(), juce::String (juce::CharPointer_UTF8 ("EDIT \xe2\x80\xba"))) >= 2 && bodySwitch,
-                "PHYSICAL has BODY's switch and links to the body (FILTER) and the soundboard (SOUNDBOARD)");
-
-        // UI review 9, I9-3: the string has one editor. The OSC card keeps
-        // the moving string, the exciter, DECAY and DAMP, and EDIT STRING ›
-        // opens PHYSICAL on that oscillator; the rest is PHYSICAL's alone.
-        pages->showPage ("OSC");
-        settle (300);
         selectOscTab (physicalPrefix.getTrailingIntValue() - 1);
-        std::vector<KnobControl*> oscKnobs;
-        findAll<KnobControl> (*editor, oscKnobs);
-        juce::StringArray onCard;
-        for (const auto& id : listIds)
-            if (std::any_of (oscKnobs.begin(), oscKnobs.end(), [&id] (KnobControl* k) { return k->getParameterId() == id && visibleInTree (k); }))
-                onCard.add (id);
+
+        for (const auto excite : { 9, 0, 4, 10, 7 })
+        {
+            if (auto* parameter = processor.apvts.getParameter (physicalPrefix + "_excite"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) excite));
+            settle (300);
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            juce::StringArray listIds, missing;
+            for (const auto& row : physicalControlRows (excite))
+                for (const auto& spec : row.second)
+                    if (dynamic_cast<juce::AudioParameterFloat*> (processor.apvts.getParameter (physicalPrefix + spec.suffix)) != nullptr)
+                        listIds.add (physicalPrefix + spec.suffix);
+            std::vector<juce::Rectangle<int>> boxes;
+            for (const auto& id : listIds)
+            {
+                auto shown = false;
+                for (auto* knob : knobs)
+                    if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    {
+                        shown = true;
+                        boxes.push_back (editor->getLocalArea (knob->getParentComponent(), knob->getBounds().reduced (0, 3)));
+                    }
+                if (! shown)
+                    missing.add (id);
+            }
+            auto overlap = false;
+            for (size_t i = 0; i < boxes.size(); ++i)
+                for (size_t j = i + 1; j < boxes.size(); ++j)
+                    overlap = overlap || boxes[i].intersects (boxes[j]);
+            expect (! listIds.isEmpty() && missing.isEmpty() && ! overlap,
+                    "OSC: excite " + juce::String (excite) + ", the card shows every string and exciter control, none overlapping"
+                        + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+        }
+        if (auto* parameter = processor.apvts.getParameter (physicalPrefix + "_excite"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (9.0f));
+        settle (300);
+
         std::vector<PhysicalView*> views;
         findAll<PhysicalView> (*editor, views);
         auto stringShown = false;
         for (auto* view : views)
-            stringShown = stringShown || visibleInTree (view);
-        const juce::StringArray expectedOnCard { physicalPrefix + "_string_decay", physicalPrefix + "_string_damp" };
-        expect (onCard == expectedOnCard && stringShown,
-                "the OSC card shows the moving string with DECAY and DAMP only; the string's other controls are PHYSICAL's ("
-                    + onCard.joinIntoString (", ") + ")");
+            stringShown = stringShown || (visibleInTree (view) && view->getOscillator() == physicalPrefix);
+        expect (stringShown, "the OSC card shows the moving string");
         {
             std::vector<juce::TextButton*> buttons;
             findAll<juce::TextButton> (*editor, buttons);
-            juce::TextButton* editString = nullptr;
+            juce::TextButton* editBody = nullptr;
             for (auto* button : buttons)
-                if (visibleInTree (button) && button->getButtonText() == juce::String::fromUTF8 ("EDIT STRING \xe2\x80\xba"))
-                    editString = button;
-            if (editString != nullptr)
+                if (visibleInTree (button) && button->getButtonText() == juce::String::fromUTF8 ("EDIT BODY \xe2\x80\xba"))
+                    editBody = button;
+            if (editBody != nullptr)
             {
-                editString->triggerClick();
+                editBody->triggerClick();
                 settle (300);
             }
-            auto onString = false;
-            {
-                std::vector<PhysicalView*> physicalViews;
-                if (auto* current = pages->getCurrentPage())
-                    findAll<PhysicalView> (*current, physicalViews);
-                for (auto* candidate : physicalViews)
-                    onString = onString || (visibleInTree (candidate) && candidate->getOscillator() == physicalPrefix
-                                            && candidate->getWidth() > pages->getWidth() / 2);
-            }
-            expect (editString != nullptr && onString,
-                    "OSC's EDIT STRING > opens PHYSICAL on that oscillator");
+            expect (editBody != nullptr && pages->getCurrentPageId() == "FILTER", "OSC's EDIT BODY > opens FILTER");
+            pages->showPage ("OSC");
+            settle (200);
         }
-
-        processor.loadFactoryPreset (neuroWobble);
-        settle (600);
-        expect (oscSection != nullptr && oscSection->switcher.isItemDimmed (oscSection->indexOf ("PHYSICAL")),
-                "the PHYSICAL tab greys, with its reason, when no oscillator is physical");
     }
 
     // (Plain-value parameter access for the review-6 FILTER checks below.)
@@ -7203,8 +7151,8 @@ int runIdleCpu()
             continue;
         pages->showPage (id);
         // Let entrance animations finish (ILANA_IDLE_SETTLE=<ms>: the MATRIX
-        // cable and PHYSICAL's string preview play for a few seconds).
-        settle (juce::jmax (id == "PHYSICAL" ? 14000 : id == "MATRIX" ? 8000 : 1200,
+        // cable plays for a few seconds).
+        settle (juce::jmax (id == "MATRIX" ? 8000 : 1200,
                             juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_SETTLE", "").getIntValue()));
         RegionProbe regions;
         const auto listRegions = juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_REGIONS", "").isNotEmpty();
@@ -9289,8 +9237,8 @@ int main (int argc, char** argv)
                 parameter->setValueNotifyingHost (parameter->getDefaultValue());
     }
 
-    // M8.7: the PHYSICAL page, a moment after a note (Felt Hammer Board, then a
-    // feedback guitar).
+    // M8.7: a Physical oscillator's card, a moment after a note (Felt Hammer
+    // Board, then a feedback guitar).
     for (const auto& [presetName, file] : { std::pair<const char*, const char*> { "Felt Hammer Board", "physical-page.png" },
                                             { "", "physical-feedback.png" } })
     {
@@ -9304,7 +9252,7 @@ int main (int argc, char** argv)
                 if (auto* parameter = processor.apvts.getParameter (id))
                     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         }
-        pages->showPage ("PHYSICAL");
+        pages->showPage ("OSC");
         settle (300);
         juce::AudioBuffer<float> buffer (2, 512);
         for (int block = 0; block < 20; ++block)

@@ -418,12 +418,6 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
                     + (attack != nullptr ? ", alpha " + juce::String (attack->getAlpha(), 2) : juce::String ()) + ")");
     }
 
-    // I8-10: PHYSICAL picks its oscillator on the same picker.
-    loadNamed ("Init");
-    editor.showPage ("PHYSICAL");
-    settle (400);
-    expect (shownPicker() != nullptr && oscPillButtons() == 0, "PHYSICAL picks its oscillator on the one picker (I8-10)");
-
     // I8-40: host names as the pages write them.
     expect (processor.apvts.getParameter ("osc1_eg_r1")->getName (64) == "OSC 1 OP ENV Attack"
                 && processor.apvts.getParameter ("sub_level")->getName (64).startsWith ("OSC 3")

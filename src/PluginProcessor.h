@@ -403,7 +403,7 @@ public:
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
-    // For views that animate with the playing (the PHYSICAL page): notes
+    // For views that animate with the playing (a Physical oscillator's string): notes
     // started so far, and the last block's peak (not reset by reading).
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
     float getOutputPeak() const { return outputLevelDisplay.load(); }

@@ -628,7 +628,7 @@ public:
         else if (! layout.post.isEmpty() && layout.post.contains (event.position))
             tip = "After the voices: " + juce::String (read ("sym_on") > 0.5f ? "the sympathetic strings" : "")
                   + (read ("sym_on") > 0.5f && read ("sb_on") > 0.5f ? " and " : "") + (read ("sb_on") > 0.5f ? "the soundboard" : "")
-                  + " (OSC > PHYSICAL).";
+                  + " (the OSC page's strip).";
         else if (layout.bypassUsed && std::abs (event.position.y - layout.bypassY) < 6.0f && event.position.x > layout.f1.getX())
             tip = "Bypass: these sources go around the filters, straight into what follows them.";
 

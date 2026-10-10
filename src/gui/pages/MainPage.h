@@ -155,7 +155,7 @@ public:
                                                     juce::StringArray {}, 3);
         noiseLevel = std::make_unique<KnobControl> (p.apvts, "noise_level", "VOLUME", subColour(), true);
         for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
-            knob->setSizeRole (34);
+            knob->setSizeRole (40);
         subPreview.onPaint = [this] (juce::Graphics& g, juce::Rectangle<float> well) { paintSubPreview (g, well); };
         noisePreview.onPaint = [this] (juce::Graphics& g, juce::Rectangle<float> well) { paintNoisePreview (g, well); };
         addAll (oscColumn, *subOn, *noiseOn, *subShape, *subOctave, *subLevel, *subColourKnob, *noiseType, *noiseLevel, subPreview, noisePreview);
@@ -1150,40 +1150,44 @@ private:
         subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
         noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
 
+        // One grid for both cards: the body starts where an oscillator card's
+        // picture does (header + padding) and ends one padding above the card's
+        // foot; its left, right and gaps are the page's 10 px. Everything in
+        // a card shares that top and bottom edge: the picture and knobs fill
+        // the height, a menu hangs from the top and a row of pills stands on
+        // the bottom.
         const auto bodyOf = [] (juce::Rectangle<int> card)
         {
-            return card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, 0).withTrimmedBottom (cardPadY);
+            return card.withTrimmedTop (cardHeaderHeight + cardPadY).reduced (cardPadX, 0).withTrimmedBottom (cardPadY);
         };
+        constexpr int gap = cardGap, rowHeight = 28;
 
-        // SUB: the wave's picture, the menu and octave pills, the two knobs.
+        // SUB: the wave's picture, the menu over the octave pills, the two knobs.
         {
             auto body = bodyOf (subCard);
-            const auto knobWidth = juce::jlimit (50, 60, (body.getWidth() - 100) / 3);
-            auto knobs = body.removeFromRight (knobWidth * 2 + 4);
-            subColourKnob->setBounds (knobs.removeFromRight (knobWidth).expanded (0, 3));
-            knobs.removeFromRight (4);
-            subLevel->setBounds (knobs.expanded (0, 3));
-            body.removeFromRight (6);
-            subPreview.setBounds (body.removeFromLeft (juce::jlimit (46, 58, body.getWidth() / 4)).withHeight (juce::jmin (body.getHeight(), 62)));
-            body.removeFromLeft (8);
-            const auto menus = body.withHeight (juce::jmin (body.getHeight(), 66));
-            subShape->setBounds (menus.withHeight (26));
-            subOctave->setBounds (menus.withTrimmedTop (34).withHeight (24));
+            const auto knobWidth = juce::jlimit (60, 66, (body.getWidth() - 3 * gap - 40) / 4);
+            subColourKnob->setBounds (body.removeFromRight (knobWidth));
+            body.removeFromRight (4);
+            subLevel->setBounds (body.removeFromRight (knobWidth));
+            body.removeFromRight (gap);
+            subPreview.setBounds (body.removeFromLeft (juce::jlimit (46, 62, body.getWidth() / 4)));
+            body.removeFromLeft (gap);
+            subShape->setBounds (body.removeFromTop (rowHeight));
+            subOctave->setBounds (body.removeFromBottom (rowHeight));
         }
 
         // NOISE: the 3 x 2 grid and a thin trace under it, the knob at the right.
         {
             auto body = bodyOf (noiseCard);
-            noiseLevel->setBounds (body.removeFromRight (juce::jlimit (56, 66, body.getWidth() / 4)).expanded (0, 3));
-            body.removeFromRight (8);
-            noiseType->setBounds (body.removeFromTop (50));
-            body.removeFromTop (6);
-            noisePreview.setBounds (body.removeFromTop (juce::jmin (body.getHeight(), 20)));
+            noiseLevel->setBounds (body.removeFromRight (juce::jlimit (60, 66, body.getWidth() / 4)));
+            body.removeFromRight (gap);
+            noiseType->setBounds (body.removeFromTop (rowHeight * 2 - 8));
+            noisePreview.setBounds (body.removeFromBottom (14));
         }
 
         for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
-            if (knob->getMaxDial() != 34)
-                knob->setSizeRole (34);
+            if (knob->getMaxDial() != 40)
+                knob->setSizeRole (40);
     }
 
     // A small recessed well with a drawn picture (SUB's wave, NOISE's trace).
@@ -1439,7 +1443,7 @@ private:
     // "+ ADD OSC" row.
     // The design's one spacing grid and fixed heights (mockup panelsA.js, play).
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 118, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 114, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;

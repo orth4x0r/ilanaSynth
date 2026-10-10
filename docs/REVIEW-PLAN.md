@@ -269,6 +269,8 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided, not started; do not build yet). Her
    words: patch FX from one output to the next, so complex parallel or feedback routes can be built, and allow more than
    one instance of the same effect. This pairs with step 16's cable routing: the same cables could carry FX-to-FX links.
+   ilana's follow-up (2026-10-10): the patching works like FL Studio's Patcher, as its own sub-tab under FX, a node graph
+   of the effects with drag-cables from one output to another input.
    Today the rack is a fixed list of slots, each slot one effect, with a series or parallel switch (`fx_routing`).
    Open questions for when work starts: how a feedback loop is kept stable (delay per loop, a limit on its gain), and
    whether an instance is a new slot or a copy of a slot's settings.

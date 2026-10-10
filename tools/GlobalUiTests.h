@@ -428,10 +428,10 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         {
             juce::StringArray cut;
             auto checked = 0, longHelps = 0;
-            // The knobs a patch is played with: their help always shows whole. (Other helps are
-            // long texts for the tooltip; the line shows their first sentence or clause, and a
-            // few still trail off: counted below, to be written shorter.)
-            const juce::StringArray mustFit { "osc1_semi", "osc1_fine", "osc1_level", "osc1_pan", "osc1_unison", "osc2_semi", "osc2_level" };
+            juce::String dump;
+            const auto dumping = std::getenv ("ILANA_HELP_DUMP") != nullptr;
+            // Every parameter's help shows whole in the line (its first sentence is short enough;
+            // later sentences are for the tooltip).
             for (auto* parameter : processor.getParameters())
                 if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
                 {
@@ -441,22 +441,29 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // (The title as the hover line shows it: "OSC 1 > Grain Spread", the control's own name.)
                     const auto name = withId->getName (32);
                     const auto own = name.fromFirstOccurrenceOf (" ", false, false);
-                    line->showTextForTest ("OSC 1 " + juce::String::fromUTF8 ("\xe2\x80\xba") + " " + (own.isNotEmpty() ? own : name), help);
+                    const auto title0 = "OSC 1 " + juce::String::fromUTF8 ("\xe2\x80\xba") + " " + (own.isNotEmpty() ? own : name);
+                    line->showTextForTest (title0, help);
                     probe = {};
                     probe.armed = true;
                     line->createComponentSnapshot (line->getLocalBounds(), true, 1.0f);
                     probe.armed = false;
                     ++checked;
+                    if (dumping)
+                        dump << withId->paramID << "\t" << (probe.cutDetails.isEmpty() ? "ok" : "CUT") << "\t" << title0 << "\t" << help << "\n";
                     longHelps += probe.cutDetails.isEmpty() ? 0 : 1;
-                    if (mustFit.contains (withId->paramID))
-                        for (const auto& detail : probe.cutDetails)
-                            cut.add (withId->paramID + " (" + detail.upToLastOccurrenceOf (": needs", false, false) + ")");
+                    if (! probe.cutDetails.isEmpty())
+                        cut.add (withId->paramID + " (" + probe.cutDetails[0].upToLastOccurrenceOf (": needs", false, false) + ")");
                 }
             probe = {};
             line->restOn (nullptr);
             std::cout << "  (hover line: " << longHelps << " of " << checked << " helps still trail off)" << std::endl;
+            if (dumping)
+            {
+                juce::File (std::getenv ("ILANA_HELP_DUMP")).replaceWithText (dump);
+                std::exit (0);
+            }
             expect (checked > 100 && cut.isEmpty(),
-                    "no parameter's help is cut in the hover line (" + juce::String (checked) + " checked"
+                    "no parameter's help trails off in the hover line, N must be 0 (" + juce::String (checked) + " checked"
                         + (cut.isEmpty() ? juce::String() : ", cut: " + cut.joinIntoString (" | ")) + ")");
         }
         else

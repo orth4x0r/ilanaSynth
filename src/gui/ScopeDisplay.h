@@ -201,6 +201,7 @@ public:
         }
 
         const auto peak = juce::jmax (peakL, peakR);
+        idleScope = peak <= 0.004f;
 
         if (peak > 0.004f && ! hold)
         {
@@ -374,6 +375,33 @@ private:
         label ("0", centreY + 2.0f);
         label ("-1", centreY + halfHeight - 14.0f);
 
+        // Idle: a ghost of a note's wave and a prompt, until one plays.
+        if (idleScope)
+        {
+            juce::Path ghost;
+            const auto steps = juce::jmax (32, (int) area.getWidth() / 2);
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = (float) i / (float) steps;
+                // A decaying pluck: a sine and its octave, so it reads as a sound and not a ruler.
+                const auto v = (0.8f * std::sin (juce::MathConstants<float>::twoPi * 4.0f * t) + 0.25f * std::sin (juce::MathConstants<float>::twoPi * 8.0f * t + 0.6f)) * (1.0f - 0.35f * t);
+                const juce::Point<float> point (area.getX() + t * area.getWidth(), centreY - v * 0.55f * halfHeight);
+                if (i == 0)
+                    ghost.startNewSubPath (point);
+                else
+                    ghost.lineTo (point);
+            }
+            juce::Path dashed;
+            const float pattern[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.4f).createDashedStroke (dashed, ghost, pattern, 2);
+            g.setColour (IlanaTheme::accent().withAlpha (0.38f));
+            g.fillPath (dashed);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "play a note to see its wave", area.withSizeKeepingCentre (area.getWidth() * 0.6f, 18.0f).translated (0.0f, -halfHeight * 0.78f).toNearestInt(),
+                                    juce::Justification::centred, 1);
+        }
+
         auto start = 0;
 
         for (int i = 1; i < fftSize / 2; ++i)
@@ -471,6 +499,38 @@ private:
             const auto db = juce::Decibels::gainToDecibels (buckets[(size_t) x] * spectrumGain, -80.0f);
             const auto target = juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 84.0f);
             spectrumSmoothed[(size_t) x] = IlanaAnim::approach (spectrumSmoothed[(size_t) x], target, 0.35f, paintTicks);
+        }
+
+        // Idle: the outline of a note's harmonics, dim, until one plays.
+        if (idleScope)
+        {
+            juce::Path ghost;
+            ghost.startNewSubPath (area.getX(), area.getBottom());
+            for (int x = 1; x < width; ++x)
+            {
+                const auto hz = 20.0 * std::pow (1000.0, (double) x / (double) width);
+                auto level = 0.04f;
+                for (int k = 1; k <= 14; ++k)
+                {
+                    const auto octaves = (float) std::log2 (hz / (110.0 * k));
+                    level = juce::jmax (level, 0.72f / std::pow ((float) k, 0.7f) * std::exp (-octaves * octaves * 260.0f));
+                }
+                ghost.lineTo (area.getX() + (float) x, area.getBottom() - level * area.getHeight());
+            }
+            auto fill = ghost;
+            fill.lineTo (area.getRight(), area.getBottom());
+            fill.closeSubPath();
+            g.setColour (IlanaTheme::accent().withAlpha (0.10f));
+            g.fillPath (fill);
+            juce::Path dashed;
+            const float pattern[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dashed, ghost, pattern, 2);
+            g.setColour (IlanaTheme::accent().withAlpha (0.38f));
+            g.fillPath (dashed);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "play a note to see its spectrum", area.withSizeKeepingCentre (area.getWidth() * 0.6f, 18.0f).translated (0.0f, -area.getHeight() * 0.18f).toNearestInt(),
+                                    juce::Justification::centred, 1);
         }
 
         juce::Path path;
@@ -630,6 +690,7 @@ private:
     std::vector<float> spectrumSmoothed;
     std::vector<float> spectrumPeak;
     float scopeGain = 1.0f;
+    bool idleScope = false; // nothing playing: the panes show a dim ghost of what a note draws (N16-7)
     float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
     double lastPaintMs = 0.0, lastChangeMs = 0.0;
 

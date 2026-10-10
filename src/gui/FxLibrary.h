@@ -267,6 +267,13 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
             g.drawText (juce::String (inRackSlot + 1), badge.toNearestInt(), juce::Justification::centred, false);
             text.removeFromRight (6);
+            // Greyed, and says why (N16-5): the rack takes each effect once.
+            if (kind != Kind::more && text.getWidth() > 120)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("already in chain", text.removeFromRight (78), juce::Justification::centredRight, false);
+            }
         }
 
         if (kind == Kind::more)
@@ -446,7 +453,7 @@ public:
             if (replacingSlot >= 0 && slot == replacingSlot)
                 tip = name + " is this slot's effect.";
             else if (slot >= 0)
-                tip = name + " is in slot " + juce::String (slot + 1) + ": click to show its card (the rack takes each effect once).";
+                tip = name + ": already in chain, slot " + juce::String (slot + 1) + ". Click to show its card (the rack takes each effect once).";
             else if (replacingSlot >= 0)
                 tip = "Put " + name + " in slot " + juce::String (replacingSlot + 1)
                       + (replacedType > 0 ? " in place of " + fxTypeName (replacedType) : juce::String()) + ".";
@@ -954,4 +961,148 @@ private:
     std::array<bool, 3> bandsUsed {};
     int dragging = 0, hovered = 0;
     std::pair<float, float> shown;
+};
+
+// One suggested next effect under "+ ADD EFFECT": a small tile with the
+// effect's family colour, a tiny picture of what it does, its name and a few
+// words on its job. One click adds it (N16-1).
+class FxSuggestTile : public juce::Button
+{
+public:
+    explicit FxSuggestTile (int typeIn) : juce::Button (fxTypeName (typeIn)), type (typeIn)
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setTooltip ("Add " + fxTypeName (type) + " to the next empty slot.\n" + hint (type) + ".");
+    }
+
+    int getType() const { return type; }
+
+    static juce::String hint (int type)
+    {
+        switch (type)
+        {
+            case 13: return "Space and depth";
+            case 9:  return "Echoes in time";
+            case 7:  return "Doubles and thickens";
+            case 29: return "Shape the tone";
+            case 4:  return "Evens out the level";
+            case 2:  return "Warmth and grit";
+            case 21: return "Caps the peaks";
+            case 6:  return "Sweeping notches";
+            default: return {};
+        }
+    }
+
+    // The effects offered, in the order of how often a sound wants them.
+    static std::vector<int> candidates() { return { 13, 9, 7, 29, 4, 2, 21, 6 }; }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const auto colour = fxColour (type);
+        auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        auto fill = IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f);
+        if (highlighted)
+            fill = fill.interpolatedWith (colour, 0.10f);
+        if (down)
+            fill = fill.darker (0.2f);
+
+        juce::Path shape;
+        shape.addRoundedRectangle (bounds, 6.0f);
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (shape);
+            g.setColour (fill);
+            g.fillRect (bounds);
+            g.setColour (colour);
+            g.fillRect (bounds.withWidth (3.0f));
+        }
+        g.setColour (highlighted ? colour.withAlpha (0.55f) : IlanaTheme::Ui::line);
+        g.strokePath (shape, juce::PathStrokeType (1.0f));
+
+        auto inner = getLocalBounds().reduced (10, 8).withTrimmedLeft (3);
+        auto picture = inner.removeFromLeft (juce::jmin (74, inner.getWidth() / 2)).toFloat();
+        inner.removeFromLeft (10);
+        if (picture.getHeight() > 12.0f)
+        {
+            IlanaTheme::paintWell (g, picture, 5.0f);
+            paintGlyph (g, picture.reduced (7.0f, 6.0f), colour);
+        }
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::pillFont());
+        IlanaTheme::drawFitted (g, getButtonText().toUpperCase(), inner.removeFromTop (juce::jmax (18, inner.getHeight() / 2)), juce::Justification::bottomLeft, 1);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        IlanaTheme::drawFitted (g, hint (type), inner.withTrimmedTop (3), juce::Justification::topLeft, 2);
+    }
+
+private:
+    void paintGlyph (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour colour) const
+    {
+        constexpr float pi = juce::MathConstants<float>::pi;
+        const auto at = [&] (float u, float v) { return juce::Point<float> (r.getX() + u * r.getWidth(), r.getBottom() - v * r.getHeight()); };
+        juce::Path path;
+        const auto curve = [&] (auto fn)
+        {
+            for (int i = 0; i <= 40; ++i)
+            {
+                const auto u = (float) i / 40.0f;
+                if (i == 0)
+                    path.startNewSubPath (at (u, fn (u)));
+                else
+                    path.lineTo (at (u, fn (u)));
+            }
+        };
+        g.setColour (colour);
+
+        switch (type)
+        {
+            case 13: // a decaying tail
+                for (int i = 0; i < 14; ++i)
+                {
+                    const auto u = (float) i / 13.0f;
+                    const auto h = std::exp (-3.0f * u) * (0.6f + 0.4f * (float) ((i * 7) % 5) / 4.0f);
+                    g.fillRect (juce::Rectangle<float> (2.0f, juce::jmax (1.5f, h * r.getHeight())).withBottomY (r.getBottom()).withX (r.getX() + u * (r.getWidth() - 2.0f)));
+                }
+                return;
+            case 9: // echoes, each quieter
+                for (int i = 0; i < 4; ++i)
+                {
+                    const auto h = std::pow (0.6f, (float) i) * r.getHeight();
+                    g.fillRect (juce::Rectangle<float> (3.0f, h).withBottomY (r.getBottom()).withX (r.getX() + (float) i * (r.getWidth() - 3.0f) / 3.0f));
+                }
+                return;
+            case 7: // two copies of a wave, a little apart
+                curve ([&] (float u) { return 0.5f + 0.35f * std::sin (2.0f * pi * 1.5f * u); });
+                g.strokePath (path, juce::PathStrokeType (1.4f));
+                path.clear();
+                g.setColour (colour.withAlpha (0.5f));
+                curve ([&] (float u) { return 0.5f + 0.35f * std::sin (2.0f * pi * 1.5f * u - 0.9f); });
+                g.strokePath (path, juce::PathStrokeType (1.4f));
+                return;
+            case 29: // a bell boost on a flat line
+                curve ([&] (float u) { return 0.35f + 0.5f * std::exp (-std::pow ((u - 0.55f) / 0.16f, 2.0f)); });
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+                return;
+            case 4: // output flattening above the knee
+                curve ([&] (float u) { return u < 0.45f ? u * 1.5f : 0.675f + (u - 0.45f) * 0.5f; });
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+                return;
+            case 2: // a saturating curve
+                curve ([&] (float u) { return 0.5f + 0.5f * std::tanh ((u - 0.5f) * 5.0f); });
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+                return;
+            case 21: // a ceiling
+                curve ([&] (float u) { return juce::jmin (u, 0.7f); });
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+                return;
+            case 6: // notches in a response
+                curve ([&] (float u) { return 0.8f - 0.55f * std::exp (-std::pow ((u - 0.3f) / 0.07f, 2.0f)) - 0.55f * std::exp (-std::pow ((u - 0.7f) / 0.07f, 2.0f)); });
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+                return;
+            default:
+                return;
+        }
+    }
+
+    int type;
 };

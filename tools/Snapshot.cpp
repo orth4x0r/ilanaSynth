@@ -2068,7 +2068,7 @@ int runUiTests()
                 const auto step1 = titles.size() == 3 ? titles[1]->getY() - titles[0]->getY() : 0;
                 const auto step2 = titles.size() == 3 ? titles[2]->getY() - titles[1]->getY() : 0;
                 expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX() && step1 == step2
-                            && step1 > 90 && step1 <= 130,
+                            && step1 > 90 && step1 <= 260,
                         "Vowel, Drive and OTT are equal rows one under the other, taller than 80 px on a short rack ("
                             + juce::String (step1) + ", " + juce::String (step2) + ")");
                 std::vector<DashedAddButton*> tiles;
@@ -2080,7 +2080,7 @@ int runUiTests()
                 const auto tileBox = tile != nullptr ? editor->getLocalArea (tile, tile->getLocalBounds()) : juce::Rectangle<int>();
                 const auto viewBox = viewport != nullptr ? editor->getLocalArea (viewport, viewport->getLocalBounds()) : juce::Rectangle<int>();
                 expect (tile != nullptr && tileBox.getY() >= viewBox.getBottom() - 4 && tileBox.getY() <= viewBox.getBottom() + 2
-                            && tileBox.getHeight() >= 40,
+                            && tileBox.getHeight() >= 32,
                         "a short rack ends in a dashed + ADD EFFECT row right under its last effect");
                 if (tile != nullptr)
                 {

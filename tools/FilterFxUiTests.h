@@ -336,6 +336,50 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     && dice.size() == 1 && dice.front()->getButtonText() == "RANDOMISE FX" && dice.front()->getTooltip().startsWith ("Randomise FX"),
                 "the FX toolbar has CHAIN 1 / CHAIN 2 and a RANDOMISE FX button (I14-9)");
 
+        // N16-4: the toolbar keeps the 12 px gutter the other pages have (it ran to the window's edge).
+        expect (dice.size() == 1 && dice.front()->getParentComponent() != nullptr
+                    && dice.front()->getRight() <= dice.front()->getParentComponent()->getWidth() - 12,
+                "RANDOMISE FX keeps a 12 px gutter at the window's right edge (N16-4)");
+
+        // N16-1: a one-effect rack's add area is a small target with suggested next effects, not a 500 px hole.
+        {
+            loadFx ({ 13 });
+            std::vector<DashedAddButton*> addButtons;
+            findAll<DashedAddButton> (editor, addButtons);
+            DashedAddButton* addTarget = nullptr;
+            for (auto* candidate : addButtons)
+                if (candidate->getButtonText().contains ("ADD EFFECT") && visibleInTree (candidate))
+                    addTarget = candidate;
+            std::vector<FxSuggestTile*> allSuggestions, suggestions;
+            findAll<FxSuggestTile> (editor, allSuggestions);
+            for (auto* tile : allSuggestions)
+                if (visibleInTree (tile))
+                    suggestions.push_back (tile);
+            auto overlap = false, holdsReverb = false;
+            for (size_t i = 0; i < suggestions.size(); ++i)
+            {
+                holdsReverb = holdsReverb || suggestions[i]->getType() == 13;
+                const auto a = editor.getLocalArea (suggestions[i], suggestions[i]->getLocalBounds());
+                if (addTarget != nullptr && a.intersects (editor.getLocalArea (addTarget, addTarget->getLocalBounds())))
+                    overlap = true;
+                for (size_t j = i + 1; j < suggestions.size(); ++j)
+                    overlap = overlap || a.intersects (editor.getLocalArea (suggestions[j], suggestions[j]->getLocalBounds()));
+            }
+            expect (addTarget != nullptr && addTarget->getHeight() <= 120 && suggestions.size() >= 3 && ! overlap && ! holdsReverb,
+                    "a one-effect rack's + ADD EFFECT target is at most 120 px and carries 3 or more suggested next effects that do not overlap it or the effect already in ("
+                        + juce::String (addTarget != nullptr ? addTarget->getHeight() : -1) + " px, " + juce::String ((int) suggestions.size()) + " tiles)");
+            loadFx ({ 7, 13 });
+        }
+
+        // N16-3: every effect has a picture (none is left as a sentence in a well).
+        {
+            auto missing = juce::String();
+            for (int type = 1; type <= 41; ++type)
+                if (! FxDisplay::hasDisplay (type) && type != 16 && type != 29)
+                    missing << type << " ";
+            expect (missing.isEmpty(), "every effect type draws a picture on its card (without: " + missing + ")");
+        }
+
         // Design round 2: SERIES / PARALLEL is a working switch bound to
         // fx_routing (series by default), a click is one undo step, the
         // parameter drives the switch back, and the rail turns into a

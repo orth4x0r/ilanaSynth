@@ -85,7 +85,7 @@ public:
     float getLimiterGainReduction() const { return limiterGainReduction.load(); }
     float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
     // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
-    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze[0].getBands (out); }
+    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze.getBands (out); }
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // What a slot did to the signal in the last blocks: its input and output
     // levels (RMS, linear, smoothed), both 0 while the slot is empty or
@@ -1190,7 +1190,7 @@ private:
     GranularPitchShift tapeShift[2];
     GranularPitchShift shimmerShift[2];
     GranularSmear smear[2];
-    SpectralFreeze freeze[2];
+    SpectralFreeze freeze; // both channels in one FFT pair
     Mseg mseg;
     SympatheticStrings sympatheticStrings;
     bool sympatheticWasOn = false;

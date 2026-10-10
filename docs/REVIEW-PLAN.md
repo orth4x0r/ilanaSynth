@@ -278,7 +278,7 @@ Steps 16 to 45 run in the execution order below, not in ID order. ilana's 2026-1
    Order 2. Why here: the window scale comes from the window height. Changing it later would re-lay-out and re-snapshot every page, so it goes before any layout work.
 
 A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A node-and-cable model and the cable widget: drag from an output to an input, with the menus from 18. No audio change of its own.
-   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow).
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
    Size: medium-large. Touches a new set of files under `src/gui` and a small model under `src/processor`.
    Order 3. Why here: 16 and 17 both need it. Build it once and test it on the FX side first.
 
@@ -293,7 +293,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    **Rules when it starts:** a patch that uses none of it renders as it does now (today's series or parallel chain is the
    default), so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to
    ilana for a look (a UI review after it) before the build is merged.
-   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow).
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
    Size: very large. Touches `src/processor/Effects.cpp` (the fixed slot model, `fx_slotN_*` parameters and state), `src/gui/pages/FxPage.h` (a new node-graph sub-tab), and the parameter layout; several instances of one effect need parameter IDs that don't renumber. Shares the cable view with step 16.
    Order 4. Why here: the FX chain is its own processor (`Effects.cpp`) and can ship without touching the voice core. Multi-instance first needs the fixed slot model turned into a list (sub-step B: the old slots become its first entries and keep their IDs, so old presets render the same and the fingerprint check stays at 0 changed). Then the patcher sub-tab uses shared foundation A.
 
@@ -307,11 +307,11 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    **Rules when it starts:** a patch that uses none of it renders as it does now (its default routing is today's chain),
    so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to ilana for
    a look (a UI review after it) before the build is merged.
-   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow).
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
    Size: very large. Touches `src/dsp/Voice.cpp` (the fixed oscillator, F1, F2, WEST and output chain in `renderNextBlock`, 3,650 lines), `src/dsp/Voice.h`, the parameter layout, the OSC and FILTER pages, and a new cable view.
    Order 5. Why here: it changes `Voice.cpp`, which every preset renders through. By then the shared widget and the fingerprint workflow have been proven on the FX side.
 
-**Checkpoint (after step 16): UI review pass.** Step 15's cycle runs here, once routing has landed, so it reviews FILTER and FX as they now are. It is paused until ilana says go.
+**Checkpoint (after step 16): UI review pass.** Step 15's cycle runs here, once routing has landed, so it reviews FILTER and FX as they now are. ilana approved this at the reorder, so it runs automatically once step 16 lands.
 
 26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
    response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).

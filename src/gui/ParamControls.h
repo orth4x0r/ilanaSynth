@@ -2539,7 +2539,9 @@ private:
         repaint();
     }
 
+public:
     // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
+    // (Public for the dropdown UI test.)
     struct PopupCombo : public juce::ComboBox
     {
         std::function<void()> popupOverride;
@@ -2561,44 +2563,82 @@ private:
                     return true;
                 }
             }
+            if (popupOverride != nullptr && key == juce::KeyPress::returnKey)
+            {
+                openOverride();
+                return true;
+            }
+
             return juce::ComboBox::keyPressed (key);
         }
 
-        // A select with its own menu opens it on the press only. ComboBox also
-        // asks for its popup on a drag and on repeated key events, and (its
-        // own "menu active" flag being cleared below) used to open a second
-        // menu over the first: a menu that opened, closed and opened again
-        // within a few frames (ilana's PC test).
+        // A select with its own menu opens it on the press only, and never
+        // goes through ComboBox's "menu active" flag. The base class sets that
+        // flag on the press, again on the release, and asks showPopup() to
+        // open on a drag and on key repeats; the old override cleared it by
+        // hidePopup() but, on a quick click, a second showPopup() landed
+        // inside the 150 ms debounce and returned with the flag still set, so
+        // every later click did nothing (the list never showed, though the
+        // arrow keys still worked: ilana's PC report, PLAY and OSC). Taking
+        // the press, release, drag and Return key here leaves the flag
+        // alone for good.
+        void mouseDown (const juce::MouseEvent& event) override
+        {
+            if (popupOverride == nullptr)
+            {
+                juce::ComboBox::mouseDown (event);
+                return;
+            }
+
+            // (Asynchronously, as ComboBox does: the press that dismissed
+            // another open menu gets to finish first.)
+            if (isEnabled() && ! event.mods.isPopupMenu())
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PopupCombo> (this)]
+                                                 { if (safe != nullptr) safe->openOverride(); });
+        }
+
         void mouseDrag (const juce::MouseEvent& event) override
         {
             if (popupOverride == nullptr)
                 juce::ComboBox::mouseDrag (event);
         }
 
+        void mouseUp (const juce::MouseEvent& event) override
+        {
+            if (popupOverride == nullptr)
+                juce::ComboBox::mouseUp (event);
+        }
+
         void showPopup() override
         {
-            if (popupOverride != nullptr)
+            if (popupOverride == nullptr)
             {
-                const auto now = juce::Time::getMillisecondCounterHiRes();
-
-                if (now - lastOverrideOpen < 150.0 || (now - lastOverrideOpen < 500.0 && juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown()))
-                    return;
-
-                lastOverrideOpen = now;
-                // ComboBox marks its menu active on click and only clears that
-                // when its own menu closes; without this, later clicks are
-                // ignored. Cleared first: hidePopup() dismisses every open
-                // menu, so after the override it closed the override's own
-                // menu as it opened, and nothing could be picked (ilana's
-                // Airwindows ALGORITHM select).
-                hidePopup();
-                popupOverride();
-            }
-            else
                 juce::ComboBox::showPopup();
+                return;
+            }
+
+            // (Reached by accessibility's "press" action: clear the flag it
+            // set before opening our own list.)
+            hidePopup();
+            openOverride();
+        }
+
+        // Opens the replacement list. A press can arrive twice in a few
+        // milliseconds (a touchpad tap, a double event from the host); the
+        // second would close the first's menu as it opened.
+        void openOverride()
+        {
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+
+            if (now - lastOverrideOpen < 150.0)
+                return;
+
+            lastOverrideOpen = now;
+            popupOverride();
         }
     };
 
+private:
     PopupCombo combo;
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;

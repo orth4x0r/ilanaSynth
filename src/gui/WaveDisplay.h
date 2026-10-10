@@ -1382,7 +1382,19 @@ private:
     juce::uint64 warpSignature() const
     {
         const auto stages = readWarp();
-        return IlanaAnim::phaseSignature (stages.amount1, 11) ^ IlanaAnim::phaseSignature (stages.amount2, 12);
+        auto signature = IlanaAnim::phaseSignature (stages.amount1, 11) ^ IlanaAnim::phaseSignature (stages.amount2, 12);
+
+        // A modulated spectral amount rebuilds the warped table in 64 steps;
+        // redraw when the step moves, not on every tiny change.
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
+
+        if (readChoice (prefix + "_spectral") > 0)
+        {
+            const auto step = juce::roundToInt (juce::jlimit (0.0f, 1.0f, readModulated (prefix + "_spectral_amt")) * (float) SpectralCache::amountSteps);
+            signature ^= IlanaAnim::phaseSignature ((float) step / (float) SpectralCache::amountSteps, 13);
+        }
+
+        return signature;
     }
 
     float readPlain (const juce::String& id) const

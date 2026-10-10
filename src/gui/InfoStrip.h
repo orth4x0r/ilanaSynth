@@ -78,21 +78,12 @@ public:
         g.setFont (titleFont);
         g.drawText (title, textArea.removeFromLeft (titleWidth), juce::Justification::centredLeft, true);
 
+        // The description wraps onto a second line, shrinks to the passive
+        // floor, then trails off with an ellipsis (the full text is in the
+        // tooltip): it never runs under the fade into MASTER (A16-2).
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        g.drawText (description, textArea, juce::Justification::centredLeft);
-
-        // Long text trails off instead of being chopped off.
-        const auto fadeWidth = juce::jmin (30.0f, (float) textArea.getWidth() * 0.5f);
-        const auto fadeX = (float) textArea.getRight() - fadeWidth;
-
-        if (fadeWidth > 4.0f)
-        {
-            juce::ColourGradient fade (IlanaTheme::Ui::well.withAlpha (0.0f), fadeX, 0.0f,
-                                       IlanaTheme::Ui::well, (float) textArea.getRight(), 0.0f, false);
-            g.setGradientFill (fade);
-            g.fillRect (juce::Rectangle<float> (fadeX, 0.0f, fadeWidth, (float) getHeight()));
-        }
+        IlanaTheme::drawFitted (g, description, textArea.reduced (0, 2), juce::Justification::centredLeft, 2);
     }
 
     // For the tests: what the line does with the mouse resting on a

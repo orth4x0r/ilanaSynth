@@ -306,7 +306,21 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
 
 inline bool fitsIn (const juce::Font& font, const juce::String& line, float room)
 {
-    return juce::GlyphArrangement::getStringWidth (font, line) <= room + 0.01f;
+    if (juce::GlyphArrangement::getStringWidth (font, line) > room + 0.01f)
+        return false;
+
+    // The width fits, but drawText curtails by its own glyph positions (the
+    // letters' advances, snapped): a line within a pixel or two of the edge
+    // can lose its last letter ("PRESSUR", A16-2). Ask it the same way.
+    if (juce::GlyphArrangement::getStringWidth (font, line) > room - 2.0f)
+    {
+        juce::GlyphArrangement whole, curtailed;
+        whole.addLineOfText (font, line, 0.0f, 0.0f);
+        curtailed.addCurtailedLineOfText (font, line, 0.0f, 0.0f, room, false);
+        return curtailed.getNumGlyphs() >= whole.getNumGlyphs();
+    }
+
+    return true;
 }
 
 inline void drawFitted (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,

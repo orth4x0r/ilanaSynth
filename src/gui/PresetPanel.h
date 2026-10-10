@@ -115,6 +115,28 @@ public:
         };
         addAndMakeVisible (dockButton);
 
+        // Audition (S15-1): PLAY sounds C3 through the loaded preset (a
+        // click about a second, held for as long as it is down); AUTO-PLAY
+        // does it after every pick. Space does the same in the list.
+        playButton.setTooltip ("Play C3\nHolds the note while pressed, about a second on a click. Space does the same in the list.");
+        playButton.onStateChange = [this]
+        {
+            if (playButton.isDown())
+                startAudition();
+            else if (auditioning && juce::Time::getMillisecondCounter() - auditionStarted >= auditionMs)
+                stopAudition();
+        };
+        addChildComponent (playButton);
+        autoPlayButton.setClickingTogglesState (true);
+        autoPlayButton.setToggleState (settings != nullptr && settings->getBoolValue ("presetAutoPlay", false), juce::dontSendNotification);
+        autoPlayButton.setTooltip ("Auto-play\nPlay C3 each time you pick a preset.");
+        autoPlayButton.onClick = [this]
+        {
+            if (settings != nullptr)
+                settings->setValue ("presetAutoPlay", autoPlayButton.getToggleState());
+        };
+        addChildComponent (autoPlayButton);
+
         closeDockButton.setTooltip ("Close the browser");
         closeDockButton.onClick = [this]
         {
@@ -126,6 +148,7 @@ public:
 
     ~PresetPanel() override
     {
+        stopAudition();
         stopWatchingClicks();
 
         if (auto* parent = scrim.getParentComponent())
@@ -278,6 +301,8 @@ public:
 
             return;
         }
+
+        stopAudition();
 
         if (! isVisible())
             return;
@@ -437,7 +462,7 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         const auto count = juce::String (filtered.size()) + " of " + juce::String (names.size() - repeatCount());
         // The same keys docked and floating (review 7).
-        const auto keys = juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Enter keep  \xc2\xb7  Esc close"));
+        const auto keys = juce::String (juce::CharPointer_UTF8 ("Up/Down browse  \xc2\xb7  Space play  \xc2\xb7  Enter keep  \xc2\xb7  Esc close"));
 
         // One layout floating and docked: the count after the title, the keys
         // centred (review 11, S11-15).
@@ -484,15 +509,16 @@ public:
     void resized() override
     {
         {
-            auto header = getLocalBounds().reduced (12, 0).removeFromTop (34).withSizeKeepingCentre (getWidth() - 24, 20);
+            // The same 28 px as the buttons along the bottom (S15-10).
+            auto header = getLocalBounds().reduced (12, 0).removeFromTop (34).withSizeKeepingCentre (getWidth() - 24, 28);
 
             if (docked)
             {
-                closeDockButton.setBounds (header.removeFromRight (22));
+                closeDockButton.setBounds (header.removeFromRight (28));
                 header.removeFromRight (4);
             }
 
-            dockButton.setBounds (header.removeFromRight (56));
+            dockButton.setBounds (header.removeFromRight (64));
         }
 
         if (docked)
@@ -519,6 +545,7 @@ public:
             detailsArea = area.removeFromRight (250);
             area.removeFromRight (10);
         }
+        layoutAudition();
 
         auto searchRow = area.removeFromTop (30);
         sortButton.setBounds (searchRow.removeFromRight (128).reduced (1, 2));
@@ -547,8 +574,52 @@ public:
             return true;
         }
 
+        if (key == juce::KeyPress::spaceKey)
+        {
+            startAudition();
+            return true;
+        }
+
         return false;
     }
+
+    // Audition: C3 (60) through the loaded preset, by the processor's
+    // preview-note path (the keyboard's: a lock-free hand-over to the audio
+    // thread). Public for the UI test.
+    void startAudition()
+    {
+        if (auditioning)
+            processorRef.triggerPreviewNote (auditionNote, false);
+
+        processorRef.triggerPreviewNote (auditionNote, true, 0.7f);
+        auditioning = true;
+        auditionStarted = juce::Time::getMillisecondCounter();
+        const auto generation = ++auditionGeneration;
+
+        juce::Timer::callAfterDelay (auditionMs, [safeThis = juce::Component::SafePointer<PresetPanel> (this), generation]
+        {
+            if (safeThis != nullptr && safeThis->auditionGeneration == generation && ! safeThis->playButton.isDown())
+                safeThis->stopAudition();
+        });
+        repaint (playButton.getBounds());
+    }
+
+    void stopAudition()
+    {
+        if (! auditioning)
+            return;
+
+        auditioning = false;
+        ++auditionGeneration;
+        processorRef.triggerPreviewNote (auditionNote, false);
+        repaint (playButton.getBounds());
+    }
+
+    bool isAuditioning() const { return auditioning; }
+    juce::String getAuditionCaption() const { return deleteButton.isEnabled() ? juce::String() : deleteReason(); }
+    juce::Rectangle<int> getPlayBounds() const { return playButton.isVisible() ? playButton.getBounds() : juce::Rectangle<int>(); }
+    juce::Rectangle<int> getDockBounds() const { return dockButton.getBounds(); }
+    juce::Rectangle<int> getFooterButtonBounds() const { return surpriseButton.getBounds(); }
 
     // Loads the next (1) or previous (-1) preset of the list shown, leaving
     // the browser open. Also what the arrow keys do wherever focus is.
@@ -613,6 +684,7 @@ private:
 
         detailsArea = area.removeFromRight (250);
         area.removeFromRight (10);
+        layoutAudition();
 
         auto searchRow = area.removeFromTop (30);
         sortButton.setBounds (searchRow.removeFromRight (140).reduced (1, 2));
@@ -635,6 +707,21 @@ private:
                                                                                   : names.indexOf (processorRef.getCurrentPresetName());
 
         auto area = detailsArea.reduced (14, 12);
+
+        // The foot: PLAY, with the reason DELETE is off above it.
+        area.removeFromBottom (28 + 8);
+        {
+            const auto reason = deleteReason();
+
+            if (reason.isNotEmpty())
+            {
+                const auto caption = area.removeFromBottom (32);
+                area.removeFromBottom (4);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                IlanaTheme::drawFitted (g, reason, caption, juce::Justification::bottomLeft, 2);
+            }
+        }
 
         if (! juce::isPositiveAndBelow (index, names.size()))
         {
@@ -734,7 +821,42 @@ private:
         for (const auto& macro : macros)
             named += macro.isNotEmpty() ? 1 : 0;
 
-        if (named > 0)
+        // The oscillators and their types, read from the patch (the preset
+        // is loaded when picked).
+        if (names[index] == processorRef.getCurrentPresetName() && area.getHeight() > 60)
+        {
+            juce::StringArray lines;
+
+            for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            {
+                if (! processorRef.isOscillatorShown (osc))
+                    continue;
+
+                const auto* mode = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode");
+                const auto type = juce::jlimit (0, OscMode::count - 1, mode != nullptr ? (int) mode->load() : 0);
+                lines.add ("OSC " + juce::String (osc + 1) + "|" + juce::String (OscMode::names[(size_t) type]));
+            }
+
+            if (! lines.isEmpty())
+            {
+                heading ("OSCILLATORS");
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+
+                for (const auto& entry : lines)
+                {
+                    if (area.getHeight() < 18 + 18)
+                        break;
+
+                    auto line = area.removeFromTop (18);
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.drawText (entry.upToFirstOccurrenceOf ("|", false, false), line.removeFromLeft (46), juce::Justification::centredLeft);
+                    g.setColour (IlanaTheme::Ui::text2);
+                    IlanaTheme::drawFitted (g, entry.fromFirstOccurrenceOf ("|", false, false), line, juce::Justification::centredLeft, 1);
+                }
+            }
+        }
+
+        if (named > 0 && area.getHeight() >= 16 + 10 + 18)
         {
             heading ("MACROS");
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
@@ -744,14 +866,47 @@ private:
                 if (macros[m].isEmpty())
                     continue;
 
+                if (area.getHeight() < 18)
+                    break;
+
                 auto line = area.removeFromTop (18);
                 g.setColour (IlanaTheme::Ui::text3);
                 g.drawText (juce::String (m + 1), line.removeFromLeft (16), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
-                g.drawText (macros[m], line, juce::Justification::centredLeft, true);
+                IlanaTheme::drawFitted (g, macros[m], line, juce::Justification::centredLeft, 1);
             }
         }
     }
+
+    // PLAY and AUTO-PLAY sit at the foot of the details (S15-1).
+    void layoutAudition()
+    {
+        const auto show = ! detailsArea.isEmpty();
+        playButton.setVisible (show);
+        autoPlayButton.setVisible (show);
+
+        if (! show)
+            return;
+
+        auto foot = detailsArea.reduced (14, 12).removeFromBottom (28);
+        autoPlayButton.setBounds (foot.removeFromRight (juce::jmin (112, foot.getWidth() / 2)));
+        foot.removeFromRight (6);
+        playButton.setBounds (foot);
+    }
+
+    juce::String deleteReason() const
+    {
+        return juce::isPositiveAndBelow (selectedPreset, names.size()) && ! isUserPreset (selectedPreset)
+                   ? juce::String ("DELETE is for your own presets; factory presets can't be deleted.")
+                   : juce::String();
+    }
+
+    static constexpr int auditionNote = 60, auditionMs = 1000;
+    bool auditioning = false;
+    juce::uint32 auditionStarted = 0;
+    int auditionGeneration = 0;
+    juce::TextButton playButton { "PLAY C3" };
+    juce::TextButton autoPlayButton { "AUTO-PLAY" };
 
     bool docked = false;
     juce::TextButton dockButton { "DOCK" };
@@ -937,6 +1092,24 @@ private:
             const auto boxes = layout (getWidth());
             g.setFont (font());
 
+            // The DX7 pack and its banks are a source filter, not a tag
+            // (S15-11): named, and ruled off from the tags under them.
+            if (hasSourceRow())
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                g.drawText ("SOURCE", juce::Rectangle<int> (0, 0, sourceLabelWidth - 4, chipHeight), juce::Justification::centredLeft);
+                g.setFont (font());
+
+                for (const auto& box : boxes)
+                    if (box.entry != nullptr && box.entry->kind == tag && box.bounds.getY() > 0)
+                    {
+                        g.setColour (IlanaTheme::Ui::line);
+                        g.fillRect (0, box.bounds.getY() - sourceRuleGap / 2 - 1, getWidth(), 1);
+                        break;
+                    }
+            }
+
             for (size_t i = 0; i < boxes.size(); ++i)
             {
                 const auto& box = boxes[i];
@@ -989,7 +1162,9 @@ private:
         }
 
     private:
-        static constexpr int chipHeight = 22, gap = 5, groupGap = 13;
+        static constexpr int chipHeight = 22, gap = 5, groupGap = 13, sourceLabelWidth = 56, sourceRuleGap = 10;
+
+        bool hasSourceRow() const { return ! entries.empty() && entries.front().kind == source; }
 
         static juce::Font font() { return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)); }
 
@@ -1010,7 +1185,8 @@ private:
                 return juce::jmin (width, juce::GlyphArrangement::getStringWidthInt (f, text) + 20);
             };
 
-            auto x = 0, y = 0;
+            // "SOURCE" before the pack chip: the first row is not tags.
+            auto x = hasSourceRow() ? sourceLabelWidth - gap : 0, y = 0;
             auto previousKind = -1;
             auto tagCount = 0;
 
@@ -1060,7 +1236,7 @@ private:
                 if (entry.kind == tag && newGroup && x > 0)
                 {
                     x = 0;
-                    y += chipHeight + gap;
+                    y += chipHeight + (hasSourceRow() ? sourceRuleGap : gap);
                 }
 
                 auto startX = x + (x > 0 ? (newGroup ? groupGap : gap) : 0);
@@ -1565,6 +1741,16 @@ private:
 
         loadedBySelection = true;
         loadRow (lastRowSelected, false);
+
+        if (autoPlayButton.getToggleState())
+        {
+            const auto name = names[filtered[lastRowSelected]];
+            juce::Timer::callAfterDelay (80, [safeThis = juce::Component::SafePointer<PresetPanel> (this), name]
+            {
+                if (safeThis != nullptr && safeThis->processorRef.getCurrentPresetName() == name)
+                    safeThis->startAudition();
+            });
+        }
     }
 
     juce::String tagAt (int row, int x) const
@@ -1630,6 +1816,12 @@ private:
             return true;
         }
 
+        if (key == juce::KeyPress::spaceKey && origin == &list)
+        {
+            startAudition();
+            return true;
+        }
+
         if (key == juce::KeyPress::escapeKey)
         {
             close();
@@ -1649,6 +1841,7 @@ private:
             return;
         }
 
+        stopAudition();
         selectedPreset = filtered[row];
         updateDeleteButton();
         noteRecent (names[selectedPreset]);
@@ -2256,7 +2449,8 @@ private:
         const auto canDelete = juce::isPositiveAndBelow (selectedPreset, names.size()) && isUserPreset (selectedPreset);
         deleteButton.setEnabled (canDelete);
         deleteButton.setTooltip (canDelete ? "Move '" + names[selectedPreset] + "' to the recycle bin"
-                                           : juce::String ("Factory presets can't be deleted: select one of your own (User) to delete it"));
+                                           : juce::String ("Delete\nFactory presets can't be deleted: select one of your own (User) to delete it."));
+        repaint (detailsArea);
     }
 
     void deleteSelected()

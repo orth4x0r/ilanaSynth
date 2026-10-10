@@ -102,7 +102,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         std::set<juce::String> seen;
         auto painted = 0, shrunkCount = 0;
 
-        for (const auto* preset : { "Neuro Wobble", "Felt Hammer Board", "E.PIANO 1 (ROM1A)" })
+        for (const auto* preset : { "Neuro Wobble", "Felt Hammer Board", "E.PIANO 1 (ROM1A)", "Init", "Bright Concert Grand" })
         {
             loadNamed (preset);
 
@@ -121,6 +121,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     probe = {};
                     probe.armed = true;
                     editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+                    // And at the 1.5 x pixel scale of the review's screenshots
+                    // (A16-2: "PRESSUR" was only cut there).
+                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
                     probe.armed = false;
                     ++painted;
                     shrunkCount += probe.shrunk.size();

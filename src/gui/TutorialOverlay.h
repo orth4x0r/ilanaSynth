@@ -115,7 +115,7 @@ public:
         // A reading column, not the window's width (review 11, S11-16).
         auto area = getLocalBounds().reduced (70);
         area = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 720), area.getHeight());
-        const auto tipsWidth = area.getWidth() - 56 - (area.getWidth() - 56) / 5;
+        const auto tipsWidth = area.getWidth() - 56;
         const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight() + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
@@ -247,7 +247,7 @@ public:
                 }
             }
 
-            drawTipColumn (g, area.withTrimmedRight (area.getWidth() / 5), "START HERE", getTips());
+            drawTipColumn (g, area, "START HERE", getTips());
 
             // The shortcuts as key caps and a word each (V12-29); the settings
             // menu, which has no key, is named last.

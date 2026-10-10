@@ -177,7 +177,7 @@ private:
     float hostScaleFactor() const;
 
     // The hover line's own strip, between the pages and the source chips.
-    static constexpr int infoLineHeight = 22;
+    static constexpr int infoLineHeight = 38;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     static constexpr const char* appVersion = "1.3";

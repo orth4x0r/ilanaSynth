@@ -277,3 +277,19 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    **Rules when it starts:** a patch that uses none of it renders as it does now (today's series or parallel chain is the
    default), so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to
    ilana for a look (a UI review after it) before the build is merged.
+18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; decided, not started). Clicking some
+   drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
+   nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
+   which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test
+   that opens every selector on each page.
+   **Rules when it starts:** no sound or preset change; the fix is in the UI only.
+19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided, not started). The current
+   library is thin. Source more wavetables, including unusual ones she has seen on Reddit. Before any file is added,
+   check its licence and permission for personal use, and write the source and licence into the content's notes
+   (`content/wavetables`). New tables are appended to the table list, so existing presets keep their table numbers.
+   **Rules when it starts:** no existing preset changes sound; the fingerprint check stays at 0 changed.
+20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided, not started). Add a small icon
+   on the oscillator's waveform display (on PLAY and OSC) that opens the wavetable picker, so changing the table is
+   obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
+   left of the Wavetable, Basic and Off menus.
+   **Rules when it starts:** UI only; the picker and the dropdown set the same parameter.

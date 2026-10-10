@@ -293,3 +293,8 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
    left of the Wavetable, Basic and Off menus.
    **Rules when it starts:** UI only; the picker and the dropdown set the same parameter.
+21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: decided, not started). The KEYBOARD toggle should
+   only add the keyboard below the synth, so the window grows and the layout above stays as it is. If it can't work that
+   way, the toggle is disabled or removed rather than changing the overall layout.
+   **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and
+   the positions of the existing panels with the keyboard on and off.

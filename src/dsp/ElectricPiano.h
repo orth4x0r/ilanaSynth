@@ -237,7 +237,10 @@ private:
                 continue;
             auto& mode = modes[(size_t) activeModes++];
             mode.angle = (float) (juce::MathConstants<double>::twoPi * hz / sampleRate);
-            mode.t60 = juce::jmax (0.005f, entry.t60 * registerScale * decayScale);
+            // DAMP: the higher a mode, the more it shortens (0.35, the fitted
+            // tone, leaves them alone); the fundamental is untouched.
+            const auto dampScale = std::pow (2.0f, -(damping - 0.35f) * 4.0f * std::log2 (juce::jmax (1.0f, entry.ratio)));
+            mode.t60 = juce::jmax (0.005f, entry.t60 * registerScale * decayScale * dampScale);
             mode.drive = entry.level;
         }
         for (int i = activeModes; i < (int) modes.size(); ++i)
@@ -263,7 +266,7 @@ private:
 
         // DAMP: its default (0.35) is the fitted tone; more darkens it.
         const auto cut = juce::jlimit (200.0f, (float) sampleRate * 0.45f,
-                                       t.toneCut * std::pow (2.0f, (0.35f - damping) * 4.0f));
+                                       t.toneCut * std::pow (2.0f, (0.35f - damping) * 5.0f));
         toneCoefficient = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * cut / (float) sampleRate);
         highPassCoefficient = std::exp (-juce::MathConstants<float>::twoPi * t.highPass / (float) sampleRate);
         biasOffset = std::tanh (t.bias);

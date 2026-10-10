@@ -139,6 +139,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
+#include "OscCardOverlapTests.h"
 #include "Review9T2Tests.h"
 
 // UI review 4, batch H: the tour, text sizes, the scope and meters, spelled-out
@@ -6970,6 +6971,7 @@ int runUiTests()
     runLayoutReview8Tests (processor, *pages);
     runLayoutReview9Tests (processor, *pages);
     runLayoutReview10Tests (processor, *pages);
+    runOscCardOverlapTests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // UI review 8, R1: operator editors and names.

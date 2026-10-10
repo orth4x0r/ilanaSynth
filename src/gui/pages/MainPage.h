@@ -913,10 +913,9 @@ private:
                                    static_cast<juce::Component*> (subLevel.get()) })
                 if (control->getAlpha() != alpha)
                     control->setAlpha (alpha);
-            const auto* noise = processorRef.apvts.getRawParameterValue ("noise_level");
-            const auto colourAlpha = noise != nullptr && noise->load() > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
-            if (noiseColour->getAlpha() != colourAlpha)
-                noiseColour->setAlpha (colourAlpha);
+            // COLOUR stays a live knob at any noise level (V15-14: a dimmed ring at 100 % read as disabled).
+            if (noiseColour->getAlpha() != 1.0f)
+                noiseColour->setAlpha (1.0f);
         }
     }
 

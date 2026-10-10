@@ -242,6 +242,7 @@ inline const char* outputKnobName (const IlanaSynthAudioProcessor& p, int osc)
 // PLAY's strip role line: what the oscillator does with its OUTPUT. A carrier
 // goes "TO OUTPUT", a modulator "MODULATES 1, 3" (I12-3); the tabs keep the
 // short form of describe().
+inline juce::String describeLong (const IlanaSynthAudioProcessor& p, int osc);
 inline juce::String roleLine (const IlanaSynthAudioProcessor& p, int osc)
 {
     if (describe (p, osc).isEmpty())
@@ -249,6 +250,12 @@ inline juce::String roleLine (const IlanaSynthAudioProcessor& p, int osc)
 
     const auto out = read (p, prefix (osc) + "_out") > 0.5f;
     const auto modulated = targets (p, osc);
+
+    // A wavetable oscillator in an FM route says it in the OSC card's words
+    // and with its amounts: "TO OUTPUT, FM INTO OSC 1 30 %" (I15-12).
+    if (! isOperator (p, osc))
+        return (out ? juce::String ("TO OUTPUT") : juce::String ("SILENT")) + (describeLong (p, osc).isNotEmpty() ? ", " + describeLong (p, osc) : juce::String());
+
     if (modulated.empty())
         return out ? "TO OUTPUT" : "SILENT";
 
@@ -558,9 +565,12 @@ public:
         auto area = getLocalBounds().toFloat();
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto title = area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
-        g.drawText ("PARTIALS", title.toNearestInt(), juce::Justification::centredLeft, false);
-        area.removeFromLeft (8.0f);
+        // A tall view (two rows) names itself above the bars, a one-row view beside them.
+        const auto tall = area.getHeight() >= 44.0f;
+        const auto titleArea = tall ? area.removeFromTop (14.0f) : area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
+        IlanaTheme::drawFitted (g, "PARTIALS", titleArea, juce::Justification::centredLeft, 1);
+        if (! tall)
+            area.removeFromLeft (8.0f);
         const auto plot = area.reduced (0.0f, 2.0f);
 
         const auto damp = shown[0], stiff = shown[1];
@@ -572,7 +582,7 @@ public:
             const auto comb = 0.3f + 0.7f * std::abs (std::sin (juce::MathConstants<float>::pi * (float) n * pos));
             // (Drawn on a square-root scale, so the upper partials still show in a 28 px row.)
             const auto level = std::sqrt (juce::jlimit (0.02f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3))));
-            const auto bar = juce::Rectangle<float> (juce::jmin (4.0f, slot * 0.6f), plot.getHeight() * level)
+            const auto bar = juce::Rectangle<float> (juce::jmin (tall ? 7.0f : 4.0f, slot * 0.6f), plot.getHeight() * level)
                                  .withCentre ({ plot.getX() + slot * ((float) n - 0.5f), plot.getBottom() - plot.getHeight() * level * 0.5f });
             g.setColour (colour.withAlpha (0.45f + 0.5f * level));
             g.fillRoundedRectangle (bar, 2.0f);
@@ -1547,7 +1557,7 @@ private:
     {
         int osc = 0;
         Kind kind = Kind::wavetable;
-        juce::Rectangle<int> bounds, header, well, wave, group, captionArea;
+        juce::Rectangle<int> bounds, header, well, wave, group, captionArea, statusArea;
         int rows = 3, columns = 9, rowHeight = 28, gridX = 0, gridWidth = 0, labelX = 0, labelWidth = rowLabelWidth;
         std::array<int, 3> rowY {};
         std::vector<int> separatorY;
@@ -1724,6 +1734,14 @@ private:
             osc.mode.setBounds (right.removeFromRight (100).withSizeKeepingCentre (100, 20));
             right.removeFromRight (6);
             card.captionArea = right.withTrimmedLeft (80);
+
+            // The FM chip / output bar has its own place at the header's right
+            // end, after the engine's name (A16-1: in the grid it sat on SCALE
+            // and WRP SPR); it takes what the name leaves, up to 190 px.
+            const auto statusWidth = juce::jlimit (0, 190, card.captionArea.getWidth() - 130);
+            auto status = card.captionArea;
+            card.statusArea = status.removeFromRight (statusWidth).withSizeKeepingCentre (statusWidth, 22);
+            card.captionArea = status;
         }
 
         if (card.kind == Kind::sample)
@@ -1786,16 +1804,15 @@ private:
 
         // The right-hand cells: the FM chip or the output bar in PITCH's, the
         // unison picture in UNISON's.
+        // The string's partials take the right two rows (the status chip moved
+        // to the header, V15-11).
         if (card.kind == Kind::physical)
-            pieces.partials.setBounds (cellRect (card, 0, 4, 5).reduced (4, 0));
+            pieces.partials.setBounds (cellRect (card, 0, 6, 3).getUnion (cellRect (card, 1, 6, 3)).reduced (4, 0));
 
+        pieces.status.setBounds (card.statusArea);
+        // (A wavetable's UNISON row keeps FRM SPR and WRP SPR in columns 6 and 7: the picture takes the last cell, A16-1.)
         if (card.kind != Kind::live)
-        {
-            pieces.status.setBounds (cellRect (card, 1 - (card.kind == Kind::fm ? 1 : 0), 6, 3));
-            pieces.spreadView.setBounds (cellRect (card, 2, 6, 3));
-        }
-        else
-            pieces.status.setBounds (cellRect (card, 0, 6, 3));
+            pieces.spreadView.setBounds (card.kind == Kind::wavetable ? cellRect (card, 2, 8, 1) : cellRect (card, 2, 6, 3));
     }
 
     void paintOscCard (juce::Graphics& g, const CardGeometry& card) const
@@ -1885,7 +1902,7 @@ private:
     };
 
     std::vector<std::tuple<juce::Rectangle<int>, juce::String, juce::Colour>> stripNames;
-    std::vector<juce::Rectangle<int>> stripSeparators;
+    std::vector<juce::Rectangle<int>> stripSeparators, stripPods;
 
     static int textWidth (const juce::String& text, float size, bool bold = false)
     {
@@ -1954,6 +1971,7 @@ private:
         {
             auto& group = groups[gi];
             const auto nameArea = juce::Rectangle<int> (x, row.getY(), group.nameWidth, row.getHeight());
+            const auto groupStart = x;
 
             if (group.nameSwitch != nullptr)
                 group.nameSwitch->setBounds (nameArea);
@@ -1969,12 +1987,13 @@ private:
                 x += entry.width;
             }
 
+            // Each group sits in its own quiet pod, its name first: the strip
+            // reads as groups, not one packed row (A16-9).
+            const auto pad = juce::jmax (2, juce::jmin (6, space - 1));
+            stripPods.push_back ({ groupStart - pad, row.getY(), x - groupStart + 2 * pad, row.getHeight() });
+
             if (gi + 1 < groups.size())
-            {
-                x += space;
-                stripSeparators.push_back ({ x, row.getCentreY() - 13, 1, 26 });
-                x += 1 + space;
-            }
+                x += 2 * space + 1;
         }
     }
 
@@ -1982,6 +2001,7 @@ private:
     {
         stripNames.clear();
         stripSeparators.clear();
+        stripPods.clear();
 
         auto inner = stripArea.reduced (12, 6);
         auto rowA = inner.removeFromTop (stripRowHeight);
@@ -2021,6 +2041,14 @@ private:
     void paintStrip (juce::Graphics& g) const
     {
         IlanaTheme::paintCard (g, stripArea.toFloat(), 10.0f, IlanaTheme::accent());
+
+        for (const auto& pod : stripPods)
+        {
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.18f));
+            g.fillRoundedRectangle (pod.toFloat(), 7.0f);
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.55f));
+            g.drawRoundedRectangle (pod.toFloat().reduced (0.5f), 7.0f, 1.0f);
+        }
 
         for (const auto& [area, name, colour] : stripNames)
         {
@@ -2500,10 +2528,9 @@ private:
                                static_cast<juce::Component*> (subOscLevel.get()) })
             if (control != nullptr && control->getAlpha() != (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha))
                 control->setAlpha (subIsOn ? 1.0f : IlanaTheme::dimmedAlpha);
-        // COLOUR does nothing while there is no noise.
-        const auto colourAlpha = readFloat ("noise_level") > 0.0005f ? 1.0f : IlanaTheme::dimmedAlpha;
-        if (noiseColourStrip->getAlpha() != colourAlpha)
-            noiseColourStrip->setAlpha (colourAlpha);
+        // COLOUR stays a live knob at any noise level (V15-14).
+        if (noiseColourStrip->getAlpha() != 1.0f)
+            noiseColourStrip->setAlpha (1.0f);
 
         const auto boardOn = readBool ("sb_on");
         sbModel.setAlpha (boardOn ? 1.0f : IlanaTheme::dimmedAlpha);

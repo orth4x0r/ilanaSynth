@@ -124,6 +124,20 @@ void runOperatorReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAud
         picker->pick (0);
     settle (200);
 
+    // N16-3: on a DX7 patch the FM page's ENVELOPE menu reads OP ENV, not blank.
+    {
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        auto found = false, blank = false;
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getNameLabel().getText() == "ENVELOPE")
+            {
+                found = true;
+                blank = blank || combo->getComboBox().getText() != "OP ENV";
+            }
+        expect (found && ! blank, "FM: the ENVELOPE menu of an Operator Env oscillator reads OP ENV (N16-3)");
+    }
+
     // I10-1: an operator shows one level, OUTPUT (dB), on PLAY, FM and OSC; the
     // oscillator's own level (VOICE LEVEL) is on no operator page (I12-1).
     {

@@ -259,7 +259,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    Status (2026-10-10): cycle 1 done. Cycle 2 (reviews 7-16) had its fixes merged, and review 16 scored 9.1 / 8.8 / 9.2 against the 9.5 goal. The passes are paused until ilana says go.
 Steps 16 to 46 run in the execution order below, not in ID order. ilana's 2026-10-10 approved reorder puts the routing work right after the quick fixes. Each number is the step's ID, which HANDOFF and the threads cite. Sub-step A is shared foundation work with no ID of its own; sub-step B is inside step 17.
 
-18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; decided, not started). Clicking some
+18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; DONE 2026-10-10 in PR for branch `claude/dropdown-fix-cv7za7`, waiting for her PC check: cause was the shared select's stuck "menu active" flag, see HANDOFF). Clicking some
    drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
    nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
    which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test

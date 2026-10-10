@@ -136,6 +136,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests8.h"
 #include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
+#include "DropdownUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
@@ -947,6 +948,15 @@ int runUiTests()
     if (only == "R6")
     {
         runGlobalReview8Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "DD")
+    {
+        runDropdownTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -6955,6 +6965,8 @@ int runUiTests()
     runOscCardOverlapTests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
+    // Step 18: every drop-down select opens its list, click after click.
+    runDropdownTests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);

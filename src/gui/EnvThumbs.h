@@ -686,7 +686,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (IlanaAnim::showing (*this))
         {
             // Assigning an envelope elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)

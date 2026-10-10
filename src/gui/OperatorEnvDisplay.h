@@ -850,7 +850,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
         refresh();
         // The playhead moves while a note plays (and once more when it stops).

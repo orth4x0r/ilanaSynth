@@ -2117,7 +2117,7 @@ private:
 
     void visibilityChanged() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
         {
             dragSlot = dropTarget = -1;
             dragActive = false;

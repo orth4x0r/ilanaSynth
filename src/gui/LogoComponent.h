@@ -82,7 +82,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isSounding != nullptr && isSounding() && isShowing())
+        if (isSounding != nullptr && isSounding() && IlanaAnim::showing (*this))
         {
             phaseOffset += 0.006f * frameTicks();
             repaint();

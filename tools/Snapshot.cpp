@@ -915,6 +915,18 @@ int runUiTests()
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
     expect (pages != nullptr && pages->getPageIds()[0] == "MAIN", "MAIN is the first page");
 
+    // The animation clock's cheap "is it on screen" (IlanaAnim::showing)
+    // answers as Component::isShowing does, without asking the window system
+    // on every frame: a hidden branch or an editor with no window is not shown.
+    {
+        juce::Component parent, child;
+        parent.addAndMakeVisible (child);
+        parent.setVisible (false);
+        expect (! IlanaAnim::showing (child) && ! child.isShowing(), "a child of a hidden component is not showing");
+        parent.setVisible (true);
+        expect (IlanaAnim::showing (child) == child.isShowing(), "showing() agrees with isShowing() for a component with no window");
+    }
+
     // Loads don't ask over edited patches except in the test that checks it
     // (the user's own choice is put back at the end).
     const auto askedBefore = pages->asksBeforeReplacingEdits();
@@ -5709,8 +5721,10 @@ int runUiTests()
                     {
                         panel->startAudition();
                         const auto sounding = panel->isAuditioning();
+                        const auto lit = panel->isPlayLit();
                         settle (1300);
                         expect (sounding && ! panel->isAuditioning(), "PLAY sounds C3 and lets go after about a second");
+                        expect (lit && ! panel->isPlayLit(), "PLAY is lit while its note sounds and fades out after it");
 
                         // (No audio device runs here: the preview events wait in the FIFO; hand them to the processor.)
                         juce::AudioBuffer<float> drain (2, 512);
@@ -7160,6 +7174,7 @@ int runIdleCpu()
 
     auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
     auto worst = 0.0;
+    auto idleFailures = 0;
 
     // ILANA_IDLE_HIDE=LogoComponent,ModSourceChip,... hides every component
     // of those classes (by their type name) to find what keeps repainting.
@@ -7187,22 +7202,31 @@ int runIdleCpu()
         if (! only.isEmpty() && ! only.contains (id))
             continue;
         pages->showPage (id);
-        settle (1200); // let entrance animations finish
+        // Let entrance animations finish (ILANA_IDLE_SETTLE=<ms>: the MATRIX
+        // cable and PHYSICAL's string preview play for a few seconds).
+        settle (juce::jmax (id == "PHYSICAL" ? 14000 : id == "MATRIX" ? 8000 : 1200,
+                            juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_SETTLE", "").getIntValue()));
         RegionProbe regions;
         const auto listRegions = juce::SystemStats::getEnvironmentVariable ("ILANA_IDLE_REGIONS", "").isNotEmpty();
-        if (listRegions)
-        {
-            editor->addAndMakeVisible (regions);
-            regions.setBounds (editor->getLocalBounds());
-        }
+        // (Always attached: the paints in the window are the idle check below.)
+        editor->addAndMakeVisible (regions);
+        regions.setBounds (editor->getLocalBounds());
         const auto start = cpuSeconds();
         settle (3000);
         const auto percent = 100.0 * (cpuSeconds() - start) / 3.0;
         worst = juce::jmax (worst, percent);
-        std::cout << "idle " << id << ": " << juce::String (percent, 1) << "% of a core" << std::endl;
+        std::cout << "idle " << id << ": " << juce::String (percent, 1) << "% of a core, " << regions.frames << " paints in 3 s" << std::endl;
+        // An idle page redraws a few times a second at most (a clock
+        // readout, the 2 s safety repaint). A page that keeps animating when
+        // nothing sounds or moves is the bug this catches.
+        if (regions.frames > 45)
+        {
+            std::cout << "FAIL: " << id << " keeps repainting while idle (" << regions.frames << " paints in 3 s, at most 45)" << std::endl;
+            idleFailures++;
+        }
+        editor->removeChildComponent (&regions);
         if (listRegions)
         {
-            editor->removeChildComponent (&regions);
             std::vector<std::pair<int, juce::String>> sorted;
             for (auto& [rect, n] : regions.counts)
                 sorted.push_back ({ n, rect });
@@ -7231,7 +7255,7 @@ int runIdleCpu()
     std::cout << "idle SCOPE panel: " << juce::String (100.0 * (cpuSeconds() - start) / 3.0, 1) << "% of a core" << std::endl;
     std::cout << "worst page: " << juce::String (worst, 1) << "%" << std::endl;
     window.removeChildComponent (editor.get());
-    return 0;
+    return idleFailures == 0 ? 0 : 1;
 }
 
 // Frames the editor actually paints while it animates: a page switch, then a

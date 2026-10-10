@@ -595,6 +595,7 @@ public:
         auditioning = true;
         auditionStarted = juce::Time::getMillisecondCounter();
         const auto generation = ++auditionGeneration;
+        playButton.setToggleState (true, juce::dontSendNotification); // (lit while the note sounds; the look-and-feel fades it)
 
         juce::Timer::callAfterDelay (auditionMs, [safeThis = juce::Component::SafePointer<PresetPanel> (this), generation]
         {
@@ -611,11 +612,13 @@ public:
 
         auditioning = false;
         ++auditionGeneration;
+        playButton.setToggleState (false, juce::dontSendNotification);
         processorRef.triggerPreviewNote (auditionNote, false);
         repaint (playButton.getBounds());
     }
 
     bool isAuditioning() const { return auditioning; }
+    bool isPlayLit() const { return playButton.getToggleState(); } // (PLAY lights while the note sounds; the UI test reads it)
     juce::String getAuditionCaption() const { return deleteButton.isEnabled() ? juce::String() : deleteReason(); }
     juce::Rectangle<int> getPlayBounds() const { return playButton.isVisible() ? playButton.getBounds() : juce::Rectangle<int>(); }
     juce::Rectangle<int> getDockBounds() const { return dockButton.getBounds(); }

@@ -76,7 +76,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         // Offscreen (snapshots, tests) the poll doesn't run: catch up here.
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             refresh (false);
 
         IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
@@ -1318,7 +1318,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing() && refresh (true))
+        if (IlanaAnim::showing (*this) && refresh (true))
             repaint();
     }
 };

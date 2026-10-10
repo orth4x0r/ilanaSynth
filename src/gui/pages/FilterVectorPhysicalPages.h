@@ -375,7 +375,7 @@ private:
                 c->setAlpha (alpha);
         }
         // (The header says where WEST sits, so a change repaints it all.)
-        if (isShowing() && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -1185,8 +1185,14 @@ private:
         }
         updateAvailability();
         effectRules.apply();
-        partials.repaint();
-        response.repaint();
+
+        // The two readouts redraw when a parameter moved, not on every frame
+        // (they repainted continuously, shown or not).
+        if (IlanaAnim::showing (*this) && readoutGate.check (processorRef.getUiEpoch()))
+        {
+            partials.repaint();
+            response.repaint();
+        }
 
         if (const auto body = readParam ("res_on") + 2.0f * readParam ("sb_on") + 4.0f * readParam ("body_type") + 64.0f * readParam ("sb_model");
             body != shownBody)
@@ -1200,6 +1206,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     PhysicalView view;
     PhysicalReadout partials, response;
+    IlanaAnim::ChangeGate readoutGate;
     OscPicker oscPicker;
     juce::TextButton makePhysical, bodyLink, boardLink;
     ToggleControl bodyOn, boardOn;

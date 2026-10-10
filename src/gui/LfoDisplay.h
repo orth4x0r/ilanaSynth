@@ -1148,7 +1148,7 @@ private:
         if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), true), index))))
+        if (IlanaAnim::showing (*this) && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), true), index))))
             repaint();
     }
 

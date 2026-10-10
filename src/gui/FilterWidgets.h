@@ -966,10 +966,12 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        // It draws parameters (and the hover): redraw when one moved.
+        if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
             repaint();
     }
 
+    IlanaAnim::ChangeGate changeGate;
     IlanaSynthAudioProcessor& processorRef;
     juce::Rectangle<float> reservedCorner;
 };

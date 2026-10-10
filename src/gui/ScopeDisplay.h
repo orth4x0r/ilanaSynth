@@ -325,7 +325,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)

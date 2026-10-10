@@ -1014,7 +1014,7 @@ private:
 
     void timerCallback() override
     {
-        if (isShowing())
+        if (IlanaAnim::showing (*this))
         {
             // Routing an LFO elsewhere, or loading a patch, can add a card.
             if (numCards() != lastCardCount)

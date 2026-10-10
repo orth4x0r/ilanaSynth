@@ -206,7 +206,7 @@ public:
     {
         for (auto& entry : entries)
         {
-            if (! entry.knob->isShowing())
+            if (! IlanaAnim::showing (*entry.knob))
                 continue;
             const auto value = juce::roundToInt (entry.knob->getSlider().getValue());
             auto tooltipChanged = value != entry.lastValue;
@@ -358,7 +358,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing() && ! dragging)
+        if (IlanaAnim::showing (*this) && ! dragging)
             refresh();
     }
 
@@ -689,7 +689,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
         refreshOperators();
         effectRules.apply();
@@ -884,7 +884,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (isShowing() && changeGate.check (processorRef.getUiEpoch()
+        if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()
                                              ^ IlanaAnim::phaseSignature (processorRef.getSourceDisplayValue ((int) Mod::Source::OpLfo), 41)))
             repaint();
     }
@@ -977,7 +977,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
         effectRules.apply();
         if (changeGate.check (processorRef.getUiEpoch()))

@@ -269,15 +269,18 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
         {
             auto& polarity = cutoffRow->getPolarity();
             const auto automatic = polarity.isEffectivelyBipolar(); // a macro: one way
-            polarity.clickSegment (1);
+            polarity.clickSegment (2);
             const auto bi = (int) processor.readModSlot (1).polarity;
-            polarity.clickSegment (1);
+            polarity.clickSegment (2);
             const auto back = (int) processor.readModSlot (1).polarity;
             polarity.clickSegment (0);
             const auto uni = (int) processor.readModSlot (1).polarity;
             polarity.clickSegment (0);
-            expect (! automatic && bi == 2 && back == 0 && uni == 1 && (int) processor.readModSlot (1).polarity == 0,
-                    "UNI | BI sets unipolar and bipolar, and a second click goes back to Auto");
+            polarity.clickSegment (1);
+            const auto negative = (int) processor.readModSlot (1).polarity;
+            polarity.clickSegment (1);
+            expect (! automatic && bi == 2 && back == 0 && uni == 1 && negative == 3 && (int) processor.readModSlot (1).polarity == 0,
+                    "+ | - | +/- set positive, negative and bipolar, and a second click goes back to Auto");
         }
 
         // Two rows with the same source and destination: MERGE REPEATS

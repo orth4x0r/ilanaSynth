@@ -166,6 +166,17 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         };
         const auto levelIn = levelOf();
 
+        // MIX is 0 and has been since the last block: the slot passes the
+        // signal untouched, so the effect is not run (a bypassed slot is
+        // skipped the same way; its memory stays as it was).
+        if (blend <= 0.0f && blendFrom <= 0.0f && ! solo && band == 0)
+        {
+            fxSlotIn[(size_t) (slot - 1)].store (fxSlotIn[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
+            fxSlotOut[(size_t) (slot - 1)].store (fxSlotOut[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
+            fxSlotCpu[(size_t) (slot - 1)].store (fxSlotCpu[(size_t) (slot - 1)].load() * 0.9f);
+            return;
+        }
+
         if (band > 0 && numChannels == 2)
         {
             processSlotBand (slot - 1, type, band, buffer, solo, blend, blendFrom);
@@ -844,9 +855,8 @@ void IlanaSynthAudioProcessor::processFreeze (juce::AudioBuffer<float>& buffer)
     const auto freezeOn = getParam ("fx_freeze_on") > 0.5f;
     const auto freezeMix = juce::jlimit (0.0f, 1.0f, getParam ("fx_freeze_mix") + getFxMod (Mod::Destination::FxFreezeMix, 1.0f));
 
-    for (int channel = 0; channel < juce::jmin (2, numChannels); ++channel)
-        freeze[channel].process (buffer.getWritePointer (channel), numSamples, freezeOn,
-                                 freezeOn ? freezeMix : 0.0f);
+    freeze.process (buffer.getWritePointer (0), numChannels > 1 ? buffer.getWritePointer (1) : nullptr,
+                    numSamples, freezeOn, freezeOn ? freezeMix : 0.0f);
 
 }
 

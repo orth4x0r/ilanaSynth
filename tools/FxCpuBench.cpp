@@ -5,6 +5,8 @@
 //
 //   ilanaFxCpuBench                 every scenario
 //   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep   one group
+//   ILANA_BENCH_TYPELIST=12,13   effect types the types group measures
+//   ILANA_BENCH_SLEEPTYPES=0,13  effect types the sleep group tests
 //   ILANA_BENCH_BLOCKS=n            timed blocks per measurement (default 600)
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -51,7 +53,7 @@ void quiet (IlanaSynthAudioProcessor& p)
     setParam (p, "amp_sustain", 1.0f);
 }
 
-struct Result { double median, p99; double outRms = 0; };
+struct Result { double median, p99; double outRms = 0; double mean = 0; };
 
 Result measure (IlanaSynthAudioProcessor& p, bool silentInput = false, int warm = 200)
 {
@@ -80,16 +82,18 @@ Result measure (IlanaSynthAudioProcessor& p, bool silentInput = false, int warm 
             for (int i = 0; i < blockSize; ++i) sumSq += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
         }
     }
+    double total = 0;
+    for (const auto t : times) total += t;
     std::sort (times.begin(), times.end());
     const auto blockSeconds = blockSize / sampleRate;
-    return { 100.0 * times[times.size() / 2] / blockSeconds, 100.0 * times[(size_t) (times.size() * 0.99)] / blockSeconds, std::sqrt (sumSq / (timedBlocks * blockSize)) };
+    return { 100.0 * times[times.size() / 2] / blockSeconds, 100.0 * times[(size_t) (times.size() * 0.99)] / blockSeconds, std::sqrt (sumSq / (timedBlocks * blockSize)), 100.0 * total / (double) times.size() / blockSeconds };
 }
 
 void row (const juce::String& name, Result r, double base)
 {
     std::cout << name.paddedRight (' ', 44).toStdString() << " median " << juce::String (r.median, 3).paddedLeft (' ', 8).toStdString()
               << " %   p99 " << juce::String (r.p99, 3).paddedLeft (' ', 8).toStdString()
-              << " %   net " << juce::String (r.median - base, 3).paddedLeft (' ', 8).toStdString() << " %   rms " << juce::String (r.outRms, 3).toStdString() << std::endl;
+              << " %   net " << juce::String (r.median - base, 3).paddedLeft (' ', 8).toStdString() << " %   mean " << juce::String (r.mean, 3).paddedLeft (' ', 8).toStdString() << " %   rms " << juce::String (r.outRms, 3).toStdString() << std::endl;
 }
 }
 
@@ -119,8 +123,11 @@ int main()
     if (want ("types"))
     {
         std::cout << "\n== one effect alone, default settings (net = minus the empty rack)\n";
+        const auto typeList = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_TYPELIST", "");
         for (int type = 1; type < names.size(); ++type)
         {
+            if (typeList.isNotEmpty() && ! juce::StringArray::fromTokens (typeList, ",", "").contains (juce::String (type)))
+                continue;
             quiet (p);
             p.assignFxSlot (1, type);
             row (names[type], measure (p), base);
@@ -164,10 +171,27 @@ int main()
         quiet (p); for (int s = 1; s <= 10; ++s) p.assignFxSlot (s, 19); row ("10 x utility series (per-slot overhead)", measure (p), base);
     }
 
+    if (want ("silentblocks"))
+    {
+        quiet (p);
+        row ("measure(): signal", measure (p), base);
+        quiet (p);
+        row ("measure(): silent input", measure (p, true), base);
+    }
+
     if (want ("sleep"))
     {
         std::cout << "\n== silence: does the rack stop working?\n";
-        for (const int type : { 0, 13, 9, 7, 2 })
+        const auto silentAmp = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_SILENT_AMP", "0").getFloatValue();
+        juce::Random random (11);
+        std::vector<int> sleepTypes { 0, 13, 9, 7, 2 };
+        if (auto v = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_SLEEPTYPES", ""); v.isNotEmpty())
+        {
+            sleepTypes.clear();
+            for (const auto& t : juce::StringArray::fromTokens (v, ",", ""))
+                sleepTypes.push_back (t.getIntValue());
+        }
+        for (const int type : sleepTypes)
         {
             quiet (p);
             if (type > 0) p.assignFxSlot (1, type);
@@ -177,20 +201,33 @@ int main()
             for (int b = 0; b < 100; ++b) // 1 s of signal
             {
                 for (int i = 0; i < blockSize; ++i) { auto x = 0.3f * std::sin (0.03f * (float) (b * blockSize + i)); buffer.setSample (0, i, x); buffer.setSample (1, i, x); }
+                midi.clear();
+                const auto t0 = std::chrono::steady_clock::now();
                 p.processBlock (buffer, midi);
+                if (std::getenv ("ILANA_BENCH_VERBOSE") && b % 20 == 0)
+                    std::cout << "  signal block " << b << ": " << 1e6 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count() << " us\n";
             }
             std::vector<double> perSecond;
             for (int sec = 0; sec < 6; ++sec)
             {
                 double total = 0;
+                std::vector<double> each;
                 const int blocks = (int) (sampleRate / blockSize);
                 for (int b = 0; b < blocks; ++b)
                 {
                     buffer.clear();
+                    midi.clear();
+                    if (silentAmp > 0.0f)
+                        for (int i = 0; i < blockSize; ++i) { const auto x = silentAmp * (random.nextFloat() * 2.0f - 1.0f); buffer.setSample (0, i, x); buffer.setSample (1, i, x); }
                     const auto t0 = std::chrono::steady_clock::now();
                     p.processBlock (buffer, midi);
-                    total += std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+                    const auto dt = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+                    total += dt;
+                    each.push_back (dt);
                 }
+                std::sort (each.begin(), each.end());
+                if (std::getenv ("ILANA_BENCH_VERBOSE"))
+                    std::cout << "  sec " << sec << " median " << 1e6 * each[each.size() / 2] << " us, max " << 1e6 * each.back() << " us, sum of top 5 " << 1e6 * (each[each.size() - 1] + each[each.size() - 2] + each[each.size() - 3] + each[each.size() - 4] + each[each.size() - 5]) << " us\n";
                 perSecond.push_back (100.0 * total);
             }
             juce::String line = names[type].paddedRight (' ', 12) + " silent input, % of core per second:";

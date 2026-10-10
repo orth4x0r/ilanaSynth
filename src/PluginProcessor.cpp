@@ -602,8 +602,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
         tapeShift[channel].prepare (sampleRate);
         shimmerShift[channel].prepare (sampleRate);
         smear[channel].prepare (sampleRate);
-        freeze[channel].prepare (sampleRate);
     }
+    freeze.prepare (sampleRate);
 
     haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
 
@@ -747,11 +747,11 @@ void IlanaSynthAudioProcessor::cutPatchTails()
         shimmerShift[channel].reset();
         octaverShift[channel].reset();
         smear[channel].reset();
-        freeze[channel].reset();
         feedbackState[channel] = 0.0f;
         delayDampState[channel] = 0.0f;
     }
 
+    freeze.reset();
     sympatheticStrings.reset();
     soundboard.reset();
     denseSoundboard.reset();
@@ -952,6 +952,10 @@ bool IlanaSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 
 void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
+    // Flush-to-zero and denormals-are-zero from the first instruction of the
+    // callback: hosts reset MXCSR between calls (see docs/ROUTING-CPU.md).
+    juce::ScopedNoDenormals noDenormals;
+
     const auto total = buffer.getNumSamples();
 
     if (total <= expectedBlockSize)

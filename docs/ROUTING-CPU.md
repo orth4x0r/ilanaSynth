@@ -26,13 +26,13 @@ Plumbing around a slot (measured, 512 block unless noted):
 - Series versus parallel (`fx_routing`) cost the same within noise: 4 x Drive 0.51 % series, 0.48 % parallel; 8 x Delay 1.0 % series, 1.85 % parallel (the parallel copy and mix-down, about 0.8 % extra at 8 branches).
 - Per-slot overhead (meters, ramps, level scans, the CPU timer): about 1.3 microseconds per slot per block at 512 (10 Utility slots = 0.13 % net), about 4 microseconds per slot per call at 64.
 - A slot with MIX 1.0 runs in place. MIX below 1, or SOLO, copies the block to a scratch buffer and blends: +0.04 to 0.1 %. A band split adds two filter pairs: +0.15 %.
-- **A slot with MIX 0.0 still runs the whole effect** (0.066 % against 0.061 % at mix 1.0 in the first run: no saving). Bypassed slots are skipped.
+- A slot whose MIX has settled at 0.0 is skipped like a bypassed one (since the FX CPU leaks change; before it ran the whole effect for no saving). Its memory is left as it was, as for a bypassed slot.
 - Whole-rack sleep: after 2 s of silence in and out. There is no per-effect or per-branch idle skip.
 - Block size: effects scale with samples, not with calls. The same 41 effects run as 8 chunks of 64 cost the same total microseconds as one chunk of 512 (table below), with one exception, Freeze. So rendering the FX graph in short chunks, which a short feedback loop needs, is almost free. What is not free is the engine's own fixed cost per processBlock: about 25 microseconds plus 0.12 microseconds per sample (no FX, one Live voice): block 32 = 4.5 % of a core, 64 = 2.5 %, 128 = 1.5 %, 256 = 1.0 %, 512 = 0.8 %, 1024 = 0.7 %. This is the host's choice, not the graph's.
 
-Run as 8 x 64 samples versus 1 x 512 (microseconds per 512 samples): Reverb 22.9 / 25.5, Chorus 14.6 / 12.1, Delay 15.9 / 12.7, Phaser 34.6 / 36.2, EQ 11.4 / 9.9, Vocoder 119 / 120, Airwindows 94 / 93, AW Tape 72 / 71. **Freeze 9.9 / 178.6**: something in it is per call or per block-size dependent, not per sample. Look at it before the patcher runs it in chunks.
+Run as 8 x 64 samples versus 1 x 512 (microseconds per 512 samples, **median per call**): Reverb 22.9 / 25.5, Chorus 14.6 / 12.1, Delay 15.9 / 12.7, Phaser 34.6 / 36.2, EQ 11.4 / 9.9, Vocoder 119 / 120, Airwindows 94 / 93, AW Tape 72 / 71. Freeze read 9.9 / 178.6, which looked like a per-call cost. **It was not (corrected 2026-10-10, see the FX CPU leaks section below):** Freeze does one FFT frame every 512 samples (its hop), so at 64 samples only every eighth call does the work and the median call is the cheap one. Its mean cost per 512 samples is the same at either block size. Any benchmark of an effect with a hop longer than the block must report the mean, not the median (the bench prints both now).
 
-Side finding (not FX): in the effect build, a Live oscillator fed digital silence costs about 5.8 % of a core, about seven times the cost with signal (0.8 %), and the rack never goes to sleep because of it. Reproduce with `ILANA_BENCH_ONLY=sleep`. Not investigated further; flagged for whoever touches Live input.
+**Silent Live input (corrected 2026-10-10).** The first version of this page said a Live oscillator fed digital silence cost about seven times what it does with signal and kept the rack awake. That was a bug in the benchmark, not in the engine: the sleep scenario passed the same `MidiBuffer` to every `processBlock` call, so the drone's single note-on was replayed on every block and retriggered the voice each time (any input level did it, loud noise too). With a fresh MIDI buffer per block, silence costs the same as signal (0.95 % against 0.98 % of a core) and the rack falls asleep about 2 s after the last tail. Hosts hand over a fresh buffer each call, so nothing shipped was affected.
 
 ## Measured: prototypes (`docs/routing-cpu/routing_proto.cpp`, standalone)
 
@@ -112,7 +112,7 @@ Read from `Voice::renderNextBlock` (not benchmarked here; HANDOFF has the voice 
 
 ## Recommended order of work
 
-1. **Before building:** fix or explain Freeze's per-call cost, and decide who owns the silent-input cost in the Live oscillator.
+1. **Before building:** done 2026-10-10: Freeze has no per-call cost (it is one FFT frame per hop) and is now about 40 % cheaper; the silent Live input cost was a benchmark bug.
 2. **A:** the compiled op list, pooled buffers, feedback ring, the silence detector, and the CPU readout, built and benchmarked on a fake graph of Utility nodes (target: 0.4 % for 16 nodes). No UI yet.
 3. **17:** per-instance state, then the compiled graph behind the existing slot list, then the patcher sub-tab. Re-run `ilanaFxCpuBench` on each step and paste the numbers into the PR.
 4. **16:** the compiled routing table in `Voice`, default table equals today's chain.
@@ -126,3 +126,14 @@ Read from `Voice::renderNextBlock` (not benchmarked here; HANDOFF has the voice 
 ## Limits of this study
 
 One machine, one input signal, default settings of every effect (some defaults are mild: Delay and Reverb at default MIX), no multi-voice patch under the rack, no Windows measurement, no real host. Hosts that run several instances at once or use fewer cores than this box change the thread numbers; the denormal and per-node overhead numbers should carry over. Where the box is noisy the table says 'about'.
+
+
+## FX CPU leaks (2026-10-10, branch `claude/fx-cpu-leaks-td00rw`)
+
+What the two suspected leaks turned out to be, and the cheap rules applied. Numbers: `ilanaFxCpuBench`, same box, interleaved before/after runs; run-to-run noise about 0.05-0.1 % of a core, so the block-level rows are indicative and the micro-benchmark rows are the ones to trust.
+
+- **Silent Live input:** not a leak (see above). `tools/FxCpuBench.cpp` now clears the MIDI buffer each block.
+- **Freeze:** not per call; the cost is the FFT work per hop, 4 FFTs of 2048 points per hop (forward and inverse, two channels), plus an `atan2`, a `sincos` and a double-precision `floor` for each of the 1025 bins in each channel. Now the left channel rides in the real part and the right in the imaginary part of one complex FFT (2 FFTs per hop), the phase is a 1e-5 rad polynomial `atan2`, the turn-wrapping is one conditional, the band edges are tabled and the rings use masks. Freeze alone, block 512, `ilanaFxCpuBench`: mean 2.92 % to 2.27 % of a core (net of the empty rack 1.90 % to 1.07 %); at block 64 mean 5.71 % to 4.29 % (the median call stays cheap, p99 is the FFT call). Direct timing of the old two-mono-freezers code against the new class on identical noise (stereo, one frame per 512-sample block, two runs): 156 / 217 us to 96 / 128 us live, 172 / 229 us to 104 / 139 us frozen, about 40 % less. The output differs from the old mono-pair code by float rounding only (largest sample difference 3.6e-5 on a 0.53 peak, about -83 dB).
+- **FTZ/DAZ:** `ScopedNoDenormals` is now the first line of `processBlock` (it was already in `processChunk`).
+- **MIX 0 skip:** `runFxSlot` returns before running the effect when the slot's blend was 0 last block and is 0 now (not solo, not banded). Meters and the CPU share still update.
+- **Checked:** 0 of 698 preset fingerprints changed; unit, FX, UI tests and pluginval at strictness 10 pass; the changed files compile with clang-cl against the MSVC library and Windows SDK. The MIX 0 skip is within the bench noise (a settled mix-0 slot now measures the same as a bypassed one; before it measured the same as mix 1.0).

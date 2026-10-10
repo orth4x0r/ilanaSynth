@@ -12,6 +12,7 @@
 #include "../dsp/SampleFactory.h"
 #include "../dsp/Voice.h"
 #include "IlanaLookAndFeel.h"
+#include "ParamControls.h"
 #include "AnimationUtils.h"
 #include "DisplayStyle.h"
 #include "TableBrowser.h"
@@ -1358,6 +1359,32 @@ private:
         g.fillRoundedRectangle (juce::Rectangle<float> (10.0f, 4.0f).withCentre ({ track.getX() + track.getWidth() * position, track.getCentreY() }), 2.0f);
     }
 
+    // The parameter with whatever modulates it right now (LFOs, envelopes,
+    // macros), as the voices hear it: the picture of the warp follows a
+    // modulated WARP amount (ilana, 2026-10-10: warp modulation didn't
+    // animate the oscillator display).
+    float readModulated (const juce::String& id) const
+    {
+        const auto plain = readPlain (id);
+
+        if (const auto config = modRingConfigFor (id); config.destination != 0)
+            if (const auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                const auto range = parameter->getNormalisableRange();
+                const auto offset = processorRef.getModDisplay (config.destination);
+                return range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, range.convertTo0to1 (plain) + offset));
+            }
+
+        return plain;
+    }
+
+    // Changes whenever a modulated warp amount moves enough to redraw.
+    juce::uint64 warpSignature() const
+    {
+        const auto stages = readWarp();
+        return IlanaAnim::phaseSignature (stages.amount1, 11) ^ IlanaAnim::phaseSignature (stages.amount2, 12);
+    }
+
     float readPlain (const juce::String& id) const
     {
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
@@ -1433,7 +1460,7 @@ private:
         if (! IlanaAnim::showing (*this))
             return;
 
-        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
+        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ warpSignature()))
             repaint();
     }
 
@@ -1559,9 +1586,9 @@ private:
         const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
         WarpStages stages;
         stages.mode1 = readChoice (prefix + "_warp");
-        stages.amount1 = readPlain (prefix + "_warp_amt");
+        stages.amount1 = readModulated (prefix + "_warp_amt");
         stages.mode2 = Warp::modeForStageTwoChoice (readChoice (prefix + "_warp2"));
-        stages.amount2 = readPlain (prefix + "_warp2_amt");
+        stages.amount2 = readModulated (prefix + "_warp2_amt");
 
         if (! Warp::isOscillatorWarp (stages.mode1)) stages.amount1 = 0.0f;
         if (! Warp::isOscillatorWarp (stages.mode2)) stages.amount2 = 0.0f;

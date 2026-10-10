@@ -721,7 +721,11 @@ private:
             return;
         // (Clear of the LFO graph's GRID menu and of EDIT OP ENV.)
         auto pill = graphArea.reduced (8).withHeight (20);
-        pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : kind == Kind::lfo ? graphArea.getRight() - 110 : pill.getRight());
+        pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : pill.getRight());
+        // An LFO's hint sits across the middle of its graph, where the whole
+        // sentence fits (A16-6: it was cut by the GRID menu's corner).
+        if (kind == Kind::lfo)
+            pill = pill.withY (graphArea.getCentreY() - 10);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
@@ -746,7 +750,7 @@ private:
             return;
         unusedNote = note;
         const auto alpha = inUse ? 1.0f : IlanaTheme::dimmedAlpha;
-        if (graph != nullptr && kind == Kind::envelope)
+        if (graph != nullptr && (kind == Kind::envelope || kind == Kind::lfo))
             graph->setAlpha (alpha);
         for (auto& control : controls)
             control->setAlpha (alpha);

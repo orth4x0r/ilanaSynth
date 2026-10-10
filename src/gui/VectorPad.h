@@ -85,7 +85,8 @@ public:
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, false));
             const auto shown = osc >= 0 && osc < OscillatorIds::count && processorRef.isOscillatorShown (osc);
-            g.drawText (shown ? "NOT A WAVETABLE" : "NOT ADDED", area, juce::Justification::centred);
+            // (One wording for a missing oscillator: "OSC 4: none".)
+            g.drawText (shown ? "NOT A WAVETABLE" : "OSC " + juce::String (osc + 1) + ": none", area, juce::Justification::centred);
             return;
         }
 
@@ -147,6 +148,38 @@ public:
         const auto live = processorRef.getVectorPosition();
         const auto weights = IlanaSynthAudioProcessor::vectorWeights (live.x, live.y);
         const juce::Point<float> corners[4] { area.getTopLeft(), area.getTopRight(), area.getBottomLeft(), area.getBottomRight() };
+
+        // Each quadrant is tinted in its corner's oscillator colour and holds
+        // that oscillator's cycle, faded, so the pad carries content at rest
+        // (A16-5, V15-6). The puck's weights brighten the quadrant it nears.
+        for (int c = 0; c < 4; ++c)
+        {
+            const auto osc = processorRef.getVectorCorner (c);
+            if (osc < 0 || osc >= OscillatorIds::count || ! processorRef.isOscillatorShown (osc))
+                continue;
+            const auto quadrant = juce::Rectangle<float> (area.getWidth() * 0.5f, area.getHeight() * 0.5f)
+                                      .withPosition (c % 2 == 0 ? area.getX() : area.getCentreX(), c < 2 ? area.getY() : area.getCentreY());
+            const auto tint = IlanaTheme::oscColour (osc);
+            juce::ColourGradient wash (tint.withAlpha (0.16f + 0.14f * weights[(size_t) c]), corners[c],
+                                       tint.withAlpha (0.04f), quadrant.getCentre(), true);
+            g.setGradientFill (wash);
+            g.fillRect (quadrant.reduced (1.0f));
+
+            std::array<float, 128> cycle {};
+            if (vectorCornerCycle (processorRef, osc, cycle))
+            {
+                const auto plot = quadrant.reduced (16.0f, 0.0f).withSizeKeepingCentre (quadrant.getWidth() - 32.0f, quadrant.getHeight() * 0.5f);
+                juce::Path wave;
+                for (int i = 0; i < (int) cycle.size(); ++i)
+                {
+                    const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (cycle.size() - 1);
+                    const auto y = plot.getCentreY() - juce::jlimit (-1.0f, 1.0f, cycle[(size_t) i]) * plot.getHeight() * 0.5f;
+                    if (i == 0) wave.startNewSubPath (x, y); else wave.lineTo (x, y);
+                }
+                g.setColour (tint.withAlpha (0.28f + 0.2f * weights[(size_t) c]));
+                g.strokePath (wave, juce::PathStrokeType (1.4f));
+            }
+        }
         for (int c = 0; c < 4; ++c)
         {
             // A corner whose oscillator is off (or not on the page) adds

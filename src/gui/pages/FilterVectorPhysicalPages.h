@@ -807,6 +807,13 @@ public:
             IlanaTheme::drawFitted (g, name, area, juce::Justification::centredLeft, 1);
         }
 
+        if (! hintArea.isEmpty() && physicalHint().isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, physicalHint(), hintArea, juce::Justification::centredLeft, 3);
+        }
+
         g.setColour (IlanaTheme::Ui::line.withAlpha (0.5f));
         for (const auto& line : separators)
             g.fillRect (line);
@@ -840,7 +847,7 @@ public:
             messageArea = rest.withTrimmedRight (12);
         }
 
-        constexpr int rowHeight = 74, gutter = 96, columnGap = 6;
+        constexpr int rowHeight = 76, rowPad = 3, gutter = 96, columnGap = 6; // (rowPad: a row's labels clear the row above's values, A16-8)
         auto inner = viewCard.withTrimmedTop (30).reduced (10, 8);
         auto grid = inner.removeFromBottom (4 * rowHeight);
         inner.removeFromBottom (8);
@@ -855,10 +862,11 @@ public:
 
         const auto columnWidth = (float) (grid.getWidth() - gutter - 9 * columnGap) / 9.0f;
         const auto columnX = [&] (int column) { return grid.getX() + gutter + columnGap + juce::roundToInt ((float) column * (columnWidth + (float) columnGap)); };
-        const auto rowY = [&] (int row) { return grid.getY() + row * rowHeight; };
+        const auto rowTop = [&] (int row) { return grid.getY() + row * rowHeight; };
+        const auto rowY = [&] (int row) { return rowTop (row) + rowPad; };
         const auto cell = [&] (int column, int row, int span = 1)
         {
-            return juce::Rectangle<int> (columnX (column), rowY (row), juce::roundToInt (columnWidth * (float) span + (float) (columnGap * (span - 1))), rowHeight);
+            return juce::Rectangle<int> (columnX (column), rowY (row), juce::roundToInt (columnWidth * (float) span + (float) (columnGap * (span - 1))), rowHeight - 2 * rowPad);
         };
         const auto place = [&] (juce::Component* item, int column, int row)
         {
@@ -875,7 +883,7 @@ public:
         const auto separator = [&] (int row, int toColumn)
         {
             if (row > 0)
-                separators.push_back (juce::Rectangle<int> (grid.getX(), rowY (row), columnX (toColumn) - columnGap - grid.getX(), 1));
+                separators.push_back (juce::Rectangle<int> (grid.getX(), rowTop (row), columnX (toColumn) - columnGap - grid.getX(), 1));
         };
 
         // STRING and EXCITER rows. The exciter's SLAP switch sits in its gutter.
@@ -910,8 +918,21 @@ public:
         const auto partialsFrom = juce::jmax (usedColumns, layoutRows.size() > 1 && layoutRows[1].second.size() > 0 ? 3 : 0);
         partials.setVisible (partialsFrom <= 8);
         if (partialsFrom <= 8)
-            partials.setBounds (cell (partialsFrom, 0, 9 - partialsFrom).withHeight (2 * rowHeight).reduced (0, 6));
+            partials.setBounds (cell (partialsFrom, 0, 9 - partialsFrom).withHeight (2 * rowHeight - 2 * rowPad));
         separator (1, partialsFrom <= 8 ? partialsFrom : 9);
+
+        // The EXCITER row's empty slots (a hammer has three controls, not
+        // seven) say what the exciter does instead of standing empty (A16-4).
+        hintArea = {};
+        if (layoutRows.size() > 1)
+        {
+            auto count = 0;
+            for (auto* item : layoutRows[1].second)
+                count += dynamic_cast<ToggleControl*> (item) != nullptr ? 0 : 1;
+            const auto to = partialsFrom <= 8 ? partialsFrom : 9;
+            if (to - count >= 2)
+                hintArea = cell (count, 1, to - count).reduced (10, 14);
+        }
 
         // BODY and SOUNDBOARD: name, switch and EDIT in the gutter.
         const auto gutterBlock = [&] (const juce::String& name, int row, ToggleControl& power, juce::TextButton& link)
@@ -931,7 +952,7 @@ public:
         const auto boardItems = std::vector<juce::Component*> { &boardModel, &boardMix, &boardTone, &boardSize, &boardStretch };
         for (size_t i = 0; i < boardItems.size(); ++i)
             place (boardItems[i], (int) i, 3);
-        response.setBounds (cell (5, 3, 4).reduced (0, 6));
+        response.setBounds (cell (5, 3, 4));
         partials.setOscillator (prefix(), colour());
         response.setOscillator (prefix(), IlanaTheme::accent());
     }
@@ -949,6 +970,25 @@ private:
     static constexpr int bodyLineHeight = 108, boxHeaderHeight = 24, stringTitleHeight = 28, linkWidth = 150;
 
     juce::String prefix() const { return OscillatorIds::prefixes[(size_t) chosen]; }
+
+    // One sentence on what the chosen exciter does, for the EXCITER row's free slots.
+    juce::String physicalHint() const
+    {
+        static const char* const hints[] {
+            "Burst: a short click of noise plucks the string. HARDNESS and PICK POS shape it.",
+            "Noise: a longer noise burst rubs the string. HARDNESS and PICK POS shape it.",
+            "Saw: a saw wave drives the string. HARDNESS and PICK POS shape it.",
+            "Pulse: a pulse wave drives the string. HARDNESS and PICK POS shape it.",
+            "Bow: a steady bow keeps the string sounding. BOW PRESS and BOW SPEED set the grip.",
+            "Bright Hammer: a hard felt strike. HAMMER sets how bright the upper partials are.",
+            "Osc In: another oscillator drives the string.",
+            "Tine: a struck tine and its pickup. DISTANCE and OFFSET set the pickup.",
+            "Reed: a struck reed and its pickup. DISTANCE and OFFSET set the pickup.",
+            "Piano Hammer: a felt strike at EXCITE POS. HAMMER sets how bright the upper partials are.",
+            "Feedback: the amp pushes sound back at the string. AMP GAIN and DISTANCE set the loop." };
+        const auto excite = juce::jlimit (0, 10, juce::roundToInt (readParam (prefix() + "_excite")));
+        return hints[excite];
+    }
 
     float readParam (const juce::String& id) const
     {
@@ -1161,7 +1201,7 @@ private:
     int chosen = 0, shownExcite = -1;
     float shownBody = -1.0f;
     bool pickedByHand = false, lastPhysical = false;
-    juce::Rectangle<int> messageArea, viewCard;
+    juce::Rectangle<int> messageArea, viewCard, hintArea;
     std::vector<juce::Rectangle<int>> separators;
 };
 // OSC's EDIT STRING ›: the PHYSICAL page, on that oscillator.

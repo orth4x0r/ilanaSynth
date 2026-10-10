@@ -1607,14 +1607,14 @@ void IlanaSynthAudioProcessorEditor::resized()
     // resize grip owns the corner: the meter keeps clear of it.
     auto strip = dockBounds.withTrimmedTop (1 + 6 + 22 + 6).withTrimmedBottom (6).reduced (14, 0);
     strip.removeFromRight (12); // (the meter ends 26 px from the edge: the resize grip's corner)
-    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 30));
+    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 36));
     strip.removeFromRight (8);
     masterKnob->setBounds (strip.removeFromRight (100));
     strip.removeFromRight (10);
 
     // The "+ MACRO" tile sits right after the last macro (review 11, S11-9).
     const auto plusWidth = shownMacros < (int) macroKnobs.size() ? macroPlusButton.getIdealWidth() + 4 : 0;
-    const auto macroWidth = juce::jlimit (72, 92, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
+    const auto macroWidth = juce::jlimit (84, 122, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());

@@ -706,6 +706,31 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                     + (warned != nullptr ? warned->getTooltip().upToFirstOccurrenceOf ("\n", false, false) : juce::String ("none")) + "')");
     }
 
+    // Review 16 (V15-17, V15-18): every visible macro tile has one shape and its whole
+    // name; the chip row's fold reads "N MORE" like the pools.
+    {
+        std::vector<StripKnob*> tiles;
+        findAll<StripKnob> (editor, tiles);
+        juce::Rectangle<int> first;
+        auto same = true, whole = true;
+        for (auto* tile : tiles)
+            if (tile->getMacroIndex() >= 0 && tile->isVisible())
+            {
+                if (first.isEmpty())
+                    first = tile->getLocalBounds();
+                same = same && tile->getWidth() == first.getWidth() && tile->getHeight() == first.getHeight();
+                const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f);
+                const auto room = tile->getWidth() - 40 - (tile->isEvolving() ? 16 : 0) - 2;
+                whole = whole && (float) juce::GlyphArrangement::getStringWidthInt (font, processor.getMacroName (tile->getMacroIndex()).toUpperCase()) <= (float) room + 0.5f;
+            }
+        expect (same, "every macro tile has the same size");
+        expect (whole, "a macro's name has room in its tile (no cut)");
+        std::vector<ModSourceGroupChip*> groups;
+        findAll<ModSourceGroupChip> (editor, groups);
+        for (auto* group : groups)
+            expect (group->getLabel().endsWith (" MORE"), "the chip row's fold reads 'N MORE' ('" + group->getLabel() + "')");
+    }
+
     editor.showPage ("MAIN");
     settle (200);
 }

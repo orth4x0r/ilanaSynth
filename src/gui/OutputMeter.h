@@ -41,7 +41,7 @@ public:
         IlanaTheme::paintWell (g, bounds, 8.0f);
         const auto inner = bounds.reduced (6.0f, 0.0f).withTrimmedRight (clipped ? 10.0f : 0.0f);
         const auto barHeight = 6.0f;
-        const auto barsTop = bounds.getCentreY() - barHeight - 2.0f;
+        const auto barsTop = bounds.getY() + 6.0f;
 
         if (clipped)
         {
@@ -56,6 +56,9 @@ public:
         {
             const auto bar = juce::Rectangle<float> (inner.getX(), barsTop + (float) channel * (barHeight + 4.0f),
                                                      inner.getWidth(), barHeight);
+            // The empty track, so the scale reads at rest (A16-7).
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRoundedRectangle (bar, 3.0f);
             const auto level = proportion (levels[(size_t) channel]);
             const auto filled = bar.withWidth (bar.getWidth() * level);
 
@@ -74,13 +77,18 @@ public:
             }
         }
 
-        // dB ticks across both bars, with the 0 and -12 marks named.
+        // dB ticks across both bars, named below (-24, -12, 0): the scale
+        // shows at rest too.
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         for (const auto db : { 0.0f, -12.0f, -24.0f })
         {
             const auto x = inner.getX() + inner.getWidth() * proportion (juce::Decibels::decibelsToGain (db));
-            g.setColour (juce::Colours::black.withAlpha (0.45f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, barsTop, 1.0f, barHeight * 2.0f + 4.0f));
+            g.setColour (juce::Colours::white.withAlpha (0.28f));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, barsTop, 1.0f, barHeight * 2.0f + 3.0f));
+            const auto name = db == 0.0f ? juce::String ("0") : juce::String ((int) db);
+            g.setColour (IlanaTheme::Ui::text3);
+            IlanaTheme::drawFitted (g, name, juce::Rectangle<float> (28.0f, 11.0f).withCentre ({ x, barsTop + barHeight * 2.0f + 3.0f + 7.0f }).getSmallestIntegerContainer(),
+                                    juce::Justification::centred, 1);
         }
     }
 

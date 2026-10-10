@@ -74,10 +74,56 @@ public:
         const auto bodyArea = area.removeFromBottom (compact ? juce::jlimit (10.0f, 18.0f, area.getHeight() * 0.2f)
                                                              : juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
         area.removeFromBottom (compact ? 4.0f : 8.0f);
+        // The page's picture keeps a footer for the string's ruler (A16-4).
+        const auto footer = compact ? juce::Rectangle<float>() : area.removeFromBottom (13.0f);
         const auto stringY = area.getCentreY() + area.getHeight() * 0.12f;
         const auto left = area.getX() + 12.0f, right = area.getRight() - 12.0f;
         const auto excite = (int) read ("_excite");
         const auto strike = excitePosition();
+
+        // The page's picture also carries the string's anatomy (A16-4): its
+        // first three standing modes ghosted behind it, a ruler along the
+        // foot with a tick every sixteenth of the length, and the strike
+        // point marked on the string and the ruler.
+        if (! compact)
+        {
+            for (int mode = 1; mode <= 3; ++mode)
+            {
+                juce::Path ghost;
+                for (int i = 0; i <= 120; ++i)
+                {
+                    const auto t = (float) i / 120.0f;
+                    const auto point = juce::Point<float> (left + (right - left) * t,
+                                                           stringY - std::sin (juce::MathConstants<float>::pi * (float) mode * t) * area.getHeight() * (0.26f - 0.05f * (float) mode));
+                    if (i == 0) ghost.startNewSubPath (point); else ghost.lineTo (point);
+                }
+                g.setColour (accent.withAlpha (0.16f));
+                g.strokePath (ghost, juce::PathStrokeType (1.0f));
+            }
+
+            const auto rulerY = footer.getY() + 2.0f;
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawHorizontalLine ((int) rulerY, left, right);
+            for (int tick = 0; tick <= 16; ++tick)
+                g.fillRect (left + (right - left) * (float) tick / 16.0f - 0.5f, rulerY, 1.0f, tick % 4 == 0 ? 4.0f : 2.0f);
+
+            const auto strikeX = left + (right - left) * strike;
+            juce::Path guide, guideLine;
+            guideLine.startNewSubPath (strikeX, stringY);
+            guideLine.lineTo (strikeX, rulerY);
+            const float guideDashes[] { 3.0f, 3.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (guide, guideLine, guideDashes, 2);
+            g.setColour (accent.withAlpha (0.55f));
+            g.fillPath (guide);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ strikeX, stringY }));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setColour (IlanaTheme::Ui::text2);
+            g.drawText ("STRIKE " + juce::String (juce::roundToInt (strike * 100.0f)) + "%",
+                        juce::Rectangle<float> (90.0f, 12.0f).withPosition (strikeX + 6.0f, rulerY + 1.0f).toNearestInt(), juce::Justification::centredLeft);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("NUT", juce::Rectangle<float> (40.0f, 12.0f).withPosition (left, rulerY + 1.0f).toNearestInt(), juce::Justification::centredLeft);
+            g.drawText ("BRIDGE", juce::Rectangle<float> (50.0f, 12.0f).withPosition (right - 50.0f, rulerY + 1.0f).toNearestInt(), juce::Justification::centredRight);
+        }
 
         // Nut and bridge.
         g.setColour (juce::Colours::white.withAlpha (0.5f));

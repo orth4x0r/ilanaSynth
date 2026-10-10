@@ -882,7 +882,10 @@ public:
         closeModCard();
 
         if (event.mods.isPopupMenu())
+        {
+            startPulse (IlanaTheme::accent());
             showModMenu();
+        }
     }
 
     juce::Slider& getSlider() { return slider; }
@@ -1191,9 +1194,9 @@ public:
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
-            const auto radius = outerRingRadius() + 2.5f;
+            const auto radius = haloRadius();
             const juce::Graphics::ScopedSaveState clip (g);
-            g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+            clipToHaloArea (g);
             g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
             g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), highlighted == pinned ? 2.0f : 1.5f);
         }
@@ -1205,9 +1208,9 @@ public:
         {
             if (isModulatable())
             {
-                const auto radius = outerRingRadius() + 2.5f;
+                const auto radius = haloRadius();
                 const juce::Graphics::ScopedSaveState clip (g);
-                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                clipToHaloArea (g);
                 g.setColour (modSourceColour (dragSource).withAlpha (0.5f));
                 g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 1.5f);
             }
@@ -1222,9 +1225,9 @@ public:
         {
             if (isModulatable() && dragSource != 0)
             {
-                const auto radius = outerRingRadius() + 2.5f;
+                const auto radius = haloRadius();
                 const juce::Graphics::ScopedSaveState clip (g);
-                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                clipToHaloArea (g);
                 g.setColour (modSourceColour (dragSource));
                 g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 2.5f);
             }
@@ -1243,6 +1246,7 @@ public:
         }
 
         paintRings (g, highlighted);
+        paintPulse (g);
     }
 
     // The knob's modulation rings (Vital and Serum 2 style): one concentric
@@ -1353,6 +1357,10 @@ public:
         // (Only an inline knob caps its dial: set below; a knob switched
         // back to stacked must not keep a small dial.)
         slider.getProperties().remove ("dialRadiusCap");
+        // A small dial's arc is a little wider than its box (the dial never
+        // draws under 28 px): it was cut flat at the top by the slider's
+        // own edge. It may draw into the knob's cell (ilana, 2026-10-10).
+        slider.setPaintingIsUnclipped (true);
 
         if (compact && inlineText)
         {
@@ -1487,8 +1495,11 @@ public:
         // this knob points at its routing (dot and card) instead of adding
         // a second one.
         if (! showExistingRouting (sourceIndex))
+        {
             processorRef->performEdit ("Add modulation",
                                        [this, sourceIndex] { processorRef->assignModSlot (sourceIndex, ringConfig.destination, 0.35f); });
+            startPulse (modSourceColour (sourceIndex));
+        }
 
         refreshRoutings();
         repaint();
@@ -1572,6 +1583,23 @@ private:
 
         base = juce::jmax (dial + 1.5f, juce::jmin (base, room - pitch * (float) (count - 1)));
         return base + (float) index * pitch;
+    }
+    // The halo and drop-target rings sit just outside the outer ring. They
+    // used to be clipped to the dial's box (1 px of height spare), which cut
+    // them flat at the top and bottom while a source was dragged; now they
+    // may use the whole cell, kept inside it (and under the name above).
+    float haloRadius() const
+    {
+        const auto wanted = outerRingRadius() + 2.5f;
+        const auto room = ringRoom() + 1.0f;
+        return juce::jmax (dialRadius() + 2.0f, juce::jmin (wanted, room));
+    }
+    void clipToHaloArea (juce::Graphics& g) const
+    {
+        g.reduceClipRegion (getLocalBounds());
+
+        if (const auto ink = getNameInkBounds(); ! ink.isEmpty())
+            g.excludeClipRegion (ink.expanded (2.0f, 0.5f).getSmallestIntegerContainer());
     }
     float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
 
@@ -2081,7 +2109,36 @@ private:
 
                                 processor.endEdit();
                                 safeThis->refreshRoutings();
+
+                                // A source taking the knob swells its ring.
+                                if (result >= 6100 || (result >= 6000) || (result > 0 && result < 1000))
+                                    safeThis->startPulse (modSourceColour (result >= 6100 ? (int) envelopeSource (result - 6100)
+                                                                           : result >= 6000 ? (int) Mod::lfoSourceFor (result - 6000)
+                                                                                            : result - 1));
                             });
+    }
+
+    // A ring that swells off the dial and fades (about 0.35 s): the
+    // right-click that opens the modulation menu, and a source taking the
+    // knob (ilana, 2026-10-10).
+    void startPulse (juce::Colour colour)
+    {
+        pulse = 1.0f;
+        pulseColour = colour;
+        repaint();
+    }
+
+    void paintPulse (juce::Graphics& g) const
+    {
+        if (pulse <= 0.0f || knobBounds.isEmpty())
+            return;
+
+        const auto eased = 1.0f - pulse * pulse;
+        const auto radius = juce::jmin (dialRadius() + 2.0f + eased * 9.0f, juce::jmax (dialRadius() + 2.0f, ringRoom() + 1.0f));
+        const juce::Graphics::ScopedSaveState state (g);
+        clipToHaloArea (g);
+        g.setColour (pulseColour.withAlpha (0.75f * pulse));
+        g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 1.0f + 1.6f * pulse);
     }
 
     void timerCallback() override
@@ -2089,6 +2146,12 @@ private:
         // Knobs on hidden pages skip the frame (hundreds of them).
         if (! IlanaAnim::showing (*this))
             return;
+
+        if (pulse > 0.0f)
+        {
+            pulse = juce::jmax (0.0f, pulse - frameSeconds() * 2.8f);
+            repaint();
+        }
 
         if (const auto dragged = modSourceBeingDragged (*this); dragged != dragSource)
         {
@@ -2249,6 +2312,8 @@ private:
     double lastSliderValue = 0.0;
     bool dragHover = false;
     int dragSource = 0; // the source being dragged anywhere (V8-10)
+    float pulse = 0.0f; // the right-click / assign ring, 1 to 0
+    juce::Colour pulseColour;
     bool hover = false;
     bool compact = false, inlineText = false;
     juce::Rectangle<int> inlineValueArea;

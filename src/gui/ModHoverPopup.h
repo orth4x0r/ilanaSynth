@@ -258,7 +258,7 @@ public:
             const auto name = sourceMode ? ModNames::destination (row.destination, processorRef) : ModNames::sourceUpper (row.source, &processorRef);
             IlanaTheme::drawFitted (g, name, line.removeFromLeft (nameWidth()), juce::Justification::centredLeft, 1);
 
-            const auto depthText = (row.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (row.depth * 100.0f)) + "%";
+            const auto depthText = (row.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (row.depth, row.bipolar)) + "%";
             g.setColour (IlanaTheme::Ui::text2.withAlpha (dim));
             g.drawText (row.bypass ? juce::String ("OFF") : depthText, line.removeFromRight (40), juce::Justification::centredRight);
             line.removeFromRight (6);
@@ -376,6 +376,8 @@ private:
         float depth = 0.0f;
         float live = 0.0f;
         bool bypass = false;
+        bool bipolar = false;
+        bool negative = false;
         juce::String idle;
     };
 
@@ -553,7 +555,9 @@ private:
             row.slot = i;
             row.source = (int) slot.source;
             row.destination = slot.destination;
-            row.depth = slot.depth;
+            row.depth = Mod::visualDepth (slot);
+            row.bipolar = Mod::isBipolarRoute (slot);
+            row.negative = slot.polarity == Mod::Polarity::Negative;
             row.bypass = slot.bypass;
             row.live = Mod::shape (slot, processorRef.getSourceDisplayValue ((int) slot.source)) * slot.depth;
 
@@ -635,7 +639,8 @@ private:
     void setDragDepth (float depth)
     {
         depth = juce::jlimit (-1.0f, 1.0f, depth);
-        dragParameter->setValueNotifyingHost (dragParameter->convertTo0to1 (depth));
+        const auto negative = juce::isPositiveAndBelow (dragRow, getNumRows()) && rows[(size_t) dragRow].negative;
+        dragParameter->setValueNotifyingHost (dragParameter->convertTo0to1 (negative ? -depth : depth));
 
         if (juce::isPositiveAndBelow (dragRow, getNumRows()))
             rows[(size_t) dragRow].depth = depth;

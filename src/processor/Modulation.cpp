@@ -349,7 +349,7 @@ Mod::Slot IlanaSynthAudioProcessor::readModSlot (int slotIndex) const
     slot.destination = juce::jlimit (0, Mod::getNumDestinations() - 1, (int) read (raw.dst));
     slot.depth = read (raw.amt);
     slot.curve = read (raw.curve);
-    slot.polarity = (Mod::Polarity) juce::jlimit (0, 2, (int) read (raw.polarity));
+    slot.polarity = (Mod::Polarity) juce::jlimit (0, 3, (int) read (raw.polarity));
     slot.aux = (Mod::Source) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) read (raw.aux));
     slot.bypass = read (raw.bypass) > 0.5f;
     slot.stereo = read (raw.stereo) > 0.5f;

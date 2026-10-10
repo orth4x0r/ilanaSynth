@@ -237,10 +237,9 @@ public:
         }
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
         g.setColour (IlanaTheme::Ui::text2);
-        const auto bipolar = slot.polarity == Mod::Polarity::Bipolar
-                             || (slot.polarity == Mod::Polarity::Natural && Mod::isBipolarSource (slot.source));
+        const auto bipolar = Mod::isBipolarRoute (slot);
         const juce::String lines[] {
-            "Amount " + juce::String (slot.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (slot.depth * 100.0f)) + "%,  "
+            "Amount " + juce::String (slot.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (slot.depth, bipolar)) + "%,  "
                 + (bipolar ? "bipolar (-1 to 1 across)" : "unipolar (0 to 1 across)"),
             "Left to right: the source's range.  Bottom to top: what it sends.",
             "Click to add a point, drag the middle dots to bend, double-click to remove.",

@@ -57,6 +57,27 @@ void checkTiming (bool condition, const juce::String& message)
     check (condition, message);
 }
 
+// Route polarity (2026-10-10): Negative is Unipolar turned over, and the
+// amount reads as the share of the range a route covers.
+void runPolarityTests()
+{
+    Mod::Slot slot;
+    slot.source = Mod::Source::Lfo1; // swings both ways
+    slot.destination = 1;
+    slot.depth = 0.5f;
+    const auto unipolar = [&slot] (Mod::Polarity polarity, float value) { slot.polarity = polarity; return Mod::shape (slot, value); };
+    check (std::abs (unipolar (Mod::Polarity::Unipolar, 1.0f) - 1.0f) < 1.0e-6f && std::abs (unipolar (Mod::Polarity::Unipolar, -1.0f)) < 1.0e-6f,
+           "Unipolar maps an LFO's -1..1 to 0..1");
+    check (std::abs (unipolar (Mod::Polarity::Negative, 1.0f) + 1.0f) < 1.0e-6f && std::abs (unipolar (Mod::Polarity::Negative, -1.0f)) < 1.0e-6f
+               && std::abs (unipolar (Mod::Polarity::Negative, 0.0f) + 0.5f) < 1.0e-6f,
+           "Negative maps an LFO's -1..1 to 0..-1");
+    slot.source = Mod::Source::AmpEnv; // rises 0..1
+    check (std::abs (unipolar (Mod::Polarity::Negative, 0.75f) + 0.75f) < 1.0e-6f, "Negative turns an envelope over");
+    check (Mod::visualDepth (slot) < 0.0f && Mod::storedDepth (slot, -0.4f) > 0.0f, "a Negative route reads as a negative depth");
+    check (Mod::shownPercent (0.5f, true) == 100 && Mod::shownPercent (0.5f, false) == 50 && std::abs (Mod::depthFromShownPercent (100.0f, true) - 0.5f) < 1.0e-6f,
+           "a bipolar 100% is half the stored depth: the whole range");
+}
+
 void runMipmapTests()
 {
     juce::dsp::FFT fft (11);
@@ -9854,6 +9875,7 @@ int main()
 
     std::cout << "ilanaSynth table tests" << std::endl;
 
+    timedRun ("runPolarityTests", [] { runPolarityTests(); });
     timedRun ("runMipmapTests", [] { runMipmapTests(); });
     timedRun ("runAliasTests", [] { runAliasTests(); });
     timedRun ("runLoaderTest", [] { runLoaderTest(); });

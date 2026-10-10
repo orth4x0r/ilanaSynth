@@ -552,6 +552,12 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     const auto voiceRate = baseSampleRate * (double) oversamplingFactor.load();
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
+    // A new stream (a buffer-size or rate change in the host): notes still
+    // held from the old one stop here, as the pedal and the arp's held keys
+    // above do. Voices that carried on across the change buzzed on the PC
+    // until their keys were let go and pressed again (ilana, 2026-10-10;
+    // not reproduced on Linux, where every output matched).
+    synth.allNotesOff (0, false);
     // MULTI-CORE: up to three more threads (the host runs its own too), with
     // buffers for a chunk at the highest oversampling.
     synth.prepareVoiceThreads (juce::jlimit (0, 3, juce::SystemStats::getNumCpus() - 1), expectedBlockSize * 4);
@@ -596,8 +602,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
         tapeShift[channel].prepare (sampleRate);
         shimmerShift[channel].prepare (sampleRate);
         smear[channel].prepare (sampleRate);
-        freeze[channel].prepare (sampleRate);
     }
+    freeze.prepare (sampleRate);
 
     haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
 
@@ -741,11 +747,11 @@ void IlanaSynthAudioProcessor::cutPatchTails()
         shimmerShift[channel].reset();
         octaverShift[channel].reset();
         smear[channel].reset();
-        freeze[channel].reset();
         feedbackState[channel] = 0.0f;
         delayDampState[channel] = 0.0f;
     }
 
+    freeze.reset();
     sympatheticStrings.reset();
     soundboard.reset();
     denseSoundboard.reset();
@@ -946,6 +952,10 @@ bool IlanaSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 
 void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
+    // Flush-to-zero and denormals-are-zero from the first instruction of the
+    // callback: hosts reset MXCSR between calls (see docs/ROUTING-CPU.md).
+    juce::ScopedNoDenormals noDenormals;
+
     const auto total = buffer.getNumSamples();
 
     if (total <= expectedBlockSize)

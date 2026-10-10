@@ -50,6 +50,7 @@ public:
                 TableBrowser::show (processorRef, id, colour, table->getComboBox());
             });
             strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "");
+            strip->warp->getComboBox().getProperties().set ("textPrefix", "WARP"); // the menu says what it is
             // An operator's envelope menu, in the warp menu's place (the OSC
             // tab's ENVELOPE).
             strip->ampEnv = std::make_unique<ComboControl> (p.apvts, prefix + "_amp_env", "");
@@ -1229,6 +1230,17 @@ private:
             }
 
             paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), roomy (card) ? 0 : oscHeaderMenus + 8); // off: the dimming says it (S8-12)
+
+            // A wavetable card says what else the OSC page holds (ilana: tell
+            // people to dive in): dim, in the header between title and EDIT.
+            if (roomy (card) && strip.shownOn && strip.mode->getComboBox().getSelectedItemIndex() == 0)
+            {
+                const auto room = juce::Rectangle<int> (card.getX() + 8 + titleWidth + 30, editLinkArea (card).getY(),
+                                                        editLinkArea (card).getX() - (card.getX() + 8 + titleWidth + 30) - 14, 16);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                g.drawText ("More on OSC: spectral warps, warp 2, scale, unison spread", room, juce::Justification::centredRight, true);
+            }
 
             // The title opens the oscillator's full page, and so does the
             // link beside the switch, worded like every other jump.

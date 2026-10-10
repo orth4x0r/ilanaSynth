@@ -255,7 +255,7 @@ public:
                 struct Shortcut { juce::StringArray keys; juce::String what; };
                 const auto cmd = commandKey();
                 const std::vector<Shortcut> shortcuts_ {
-                    { { cmd, "1-7" }, "tabs" }, { { cmd, "Shift", "1-3" }, "pages" }, { { cmd, "Z" }, "undo" },
+                    { { cmd, "1-8" }, "tabs" }, { { cmd, "Shift", "1-3" }, "pages" }, { { cmd, "Z" }, "undo" },
                     { { cmd, "Shift", "Z" }, "redo" }, { { cmd, "S" }, "save" }, { {}, "gear: settings" } };
                 const auto capFont = IlanaTheme::font (IlanaTheme::TextSize::label, true);
                 const auto wordFont = IlanaTheme::font (IlanaTheme::TextSize::body);

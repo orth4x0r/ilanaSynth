@@ -578,7 +578,7 @@ private:
     // V8-7: the staircase that climbed sideways read as a snake). Under
     // compactRadius the node's name takes the small font.
     static constexpr int minimumRadius = 16;
-    static constexpr float maximumRadius = 30.0f, compactRadius = 20.0f, stackGap = 20.0f;
+    static constexpr float maximumRadius = 30.0f, singleRowRadius = 44.0f, compactRadius = 20.0f, stackGap = 20.0f;
     static constexpr float captionWidth = 58.0f;
 
     struct Geometry
@@ -598,7 +598,8 @@ private:
         const auto byHeight = rows > 1.0f ? (area.getHeight() - stackGap * (rows - 1.0f)) / (2.0f * rows)
                                           : area.getHeight() * 0.5f - 4.0f;
         Geometry geo;
-        geo.radius = juce::jmax ((float) minimumRadius, juce::jmin (maximumRadius, byWidth, byHeight));
+        // (One row only, a 1- or 2-oscillator patch: the nodes grow into the canvas, N16 leftover.)
+        geo.radius = juce::jmax ((float) minimumRadius, juce::jmin (rows > 1.0f ? maximumRadius : singleRowRadius, byWidth, byHeight));
         // Rows share the height evenly, but never further apart than the
         // area allows, nor closer than an arrow's length.
         geo.rise = rows > 1.0f ? juce::jmin (juce::jmax (area.getHeight() / rows, geo.radius * 2.0f + stackGap),

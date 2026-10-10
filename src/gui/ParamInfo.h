@@ -685,7 +685,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Where the pick strikes the string. Changes the attack spectrum. Off at 0.";
 
     if (id.endsWith ("_string_slap"))
-        return "Adds a short noisy slap to the start of each pluck.";
+        return "A 10 ms noise click at each note start, like a pick slapping the string. Louder on hard hits.";
 
     if (id == "sub_level")
         return "Oscillator 3 level.";

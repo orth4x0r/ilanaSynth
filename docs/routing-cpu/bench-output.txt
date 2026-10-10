@@ -1,0 +1,174 @@
+engine, no FX, noise+tone input: 0.842812 % of a core (block 512 @ 48k)
+
+== one effect alone, default settings (net = minus the empty rack)
+Amp                                          median    0.980 %   p99    3.746 %   net    0.137 %   rms 0.362
+Drive                                        median    0.956 %   p99    1.596 %   net    0.113 %   rms 0.306
+Crush                                        median    0.915 %   p99    1.464 %   net    0.072 %   rms 0.124
+Comp                                         median    1.024 %   p99    1.563 %   net    0.181 %   rms 0.131
+Comb                                         median    1.001 %   p99    1.442 %   net    0.158 %   rms 0.275
+Phaser                                       median    1.105 %   p99    1.543 %   net    0.262 %   rms 0.096
+Chorus                                       median    0.907 %   p99    1.383 %   net    0.064 %   rms 0.102
+Haas                                         median    0.849 %   p99    1.271 %   net    0.006 %   rms 0.124
+Delay                                        median    0.915 %   p99    1.531 %   net    0.072 %   rms 0.061
+Stutter                                      median    0.816 %   p99    1.197 %   net   -0.027 %   rms 0.124
+Smear                                        median    1.017 %   p99    1.420 %   net    0.175 %   rms 0.074
+Freeze                                       median    2.399 %   p99    3.222 %   net    1.556 %   rms 0.124
+Reverb                                       median    1.134 %   p99    1.558 %   net    0.291 %   rms 0.183
+Flanger                                      median    1.032 %   p99    1.493 %   net    0.189 %   rms 0.046
+Dimension                                    median    0.991 %   p99    1.463 %   net    0.149 %   rms 0.091
+Trance Gate                                  median    0.854 %   p99    1.350 %   net    0.012 %   rms 0.124
+TapeStop                                     median    0.909 %   p99    1.371 %   net    0.067 %   rms 0.124
+Tilt                                         median    0.855 %   p99    1.264 %   net    0.012 %   rms 0.124
+Utility                                      median    0.818 %   p99    1.311 %   net   -0.025 %   rms 0.124
+OTT                                          median    1.115 %   p99    1.939 %   net    0.272 %   rms 0.225
+Limiter                                      median    1.239 %   p99    2.069 %   net    0.396 %   rms 0.124
+Widener                                      median    0.824 %   p99    1.155 %   net   -0.019 %   rms 0.124
+Tremolo                                      median    0.874 %   p99    1.256 %   net    0.032 %   rms 0.086
+FreqShift                                    median    0.845 %   p99    1.211 %   net    0.002 %   rms 0.124
+RingMod                                      median    0.857 %   p99    1.316 %   net    0.014 %   rms 0.070
+Octaver                                      median    1.004 %   p99    1.371 %   net    0.161 %   rms 0.080
+Vowel                                        median    0.907 %   p99    1.189 %   net    0.065 %   rms 0.060
+Feedback                                     median    0.884 %   p99    1.255 %   net    0.041 %   rms 0.093
+EQ                                           median    0.894 %   p99    1.216 %   net    0.051 %   rms 0.124
+Airwindows                                   median    1.709 %   p99    2.639 %   net    0.866 %   rms 0.200
+Vocoder                                      median    1.931 %   p99    2.701 %   net    1.088 %   rms 0.162
+AW Tape                                      median    1.456 %   p99    1.855 %   net    0.613 %   rms 0.109
+AW Saturation                                median    0.998 %   p99    1.397 %   net    0.155 %   rms 0.017
+AW Reverb                                    median    1.136 %   p99    1.813 %   net    0.294 %   rms 0.076
+AW Delay                                     median    1.305 %   p99    1.854 %   net    0.462 %   rms 0.121
+AW Modulation                                median    1.361 %   p99    1.832 %   net    0.518 %   rms 0.057
+AW Dynamics                                  median    0.996 %   p99    1.614 %   net    0.154 %   rms 0.124
+AW EQ                                        median    1.012 %   p99    1.553 %   net    0.169 %   rms 0.097
+AW Console                                   median    1.265 %   p99    1.867 %   net    0.422 %   rms 0.120
+AW Lo-Fi                                     median    1.254 %   p99    2.429 %   net    0.412 %   rms 0.124
+AW Stereo                                    median    0.962 %   p99    1.596 %   net    0.120 %   rms 0.186
+1 x Drive SERIES                             median    0.979 %   p99    1.423 %   net    0.136 %   rms 0.306
+1 x Drive PARALLEL                           median    0.954 %   p99    1.477 %   net    0.111 %   rms 0.306
+2 x Drive SERIES                             median    1.083 %   p99    1.692 %   net    0.240 %   rms 0.473
+2 x Drive PARALLEL                           median    1.073 %   p99    1.637 %   net    0.230 %   rms 0.306
+4 x Drive SERIES                             median    1.358 %   p99    1.876 %   net    0.515 %   rms 0.545
+4 x Drive PARALLEL                           median    1.323 %   p99    1.683 %   net    0.480 %   rms 0.306
+8 x Drive SERIES                             median    1.916 %   p99    2.544 %   net    1.074 %   rms 0.553
+8 x Drive PARALLEL                           median    1.876 %   p99    3.394 %   net    1.033 %   rms 0.306
+1 x Delay SERIES                             median    1.019 %   p99    1.446 %   net    0.177 %   rms 0.061
+1 x Delay PARALLEL                           median    1.023 %   p99    1.451 %   net    0.180 %   rms 0.061
+2 x Delay SERIES                             median    1.040 %   p99    2.226 %   net    0.197 %   rms 0.061
+2 x Delay PARALLEL                           median    1.061 %   p99    2.144 %   net    0.219 %   rms 0.082
+4 x Delay SERIES                             median    1.311 %   p99    2.281 %   net    0.469 %   rms 0.043
+4 x Delay PARALLEL                           median    1.312 %   p99    1.720 %   net    0.469 %   rms 0.075
+8 x Delay SERIES                             median    1.851 %   p99    2.676 %   net    1.009 %   rms 0.063
+8 x Delay PARALLEL                           median    2.690 %   p99    3.746 %   net    1.848 %   rms 0.094
+1 x Reverb SERIES                            median    1.133 %   p99    2.073 %   net    0.291 %   rms 0.183
+1 x Reverb PARALLEL                          median    1.025 %   p99    1.600 %   net    0.182 %   rms 0.183
+2 x Reverb SERIES                            median    1.222 %   p99    1.831 %   net    0.379 %   rms 0.352
+2 x Reverb PARALLEL                          median    1.223 %   p99    1.615 %   net    0.380 %   rms 0.189
+4 x Reverb SERIES                            median    1.772 %   p99    2.074 %   net    0.929 %   rms 8.119
+4 x Reverb PARALLEL                          median    1.681 %   p99    3.117 %   net    0.839 %   rms 0.194
+8 x Reverb SERIES                            median    2.976 %   p99    4.618 %   net    2.133 %   rms 8.096
+8 x Reverb PARALLEL                          median    2.526 %   p99    4.015 %   net    1.683 %   rms 0.185
+1 x Chorus SERIES                            median    1.366 %   p99    2.166 %   net    0.523 %   rms 0.102
+1 x Chorus PARALLEL                          median    0.917 %   p99    1.906 %   net    0.074 %   rms 0.102
+2 x Chorus SERIES                            median    1.080 %   p99    2.131 %   net    0.237 %   rms 0.073
+2 x Chorus PARALLEL                          median    1.017 %   p99    1.315 %   net    0.174 %   rms 0.086
+4 x Chorus SERIES                            median    1.319 %   p99    1.688 %   net    0.476 %   rms 0.066
+4 x Chorus PARALLEL                          median    1.303 %   p99    1.629 %   net    0.460 %   rms 0.085
+8 x Chorus SERIES                            median    1.701 %   p99    2.159 %   net    0.858 %   rms 0.049
+8 x Chorus PARALLEL                          median    1.689 %   p99    2.040 %   net    0.847 %   rms 0.085
+1 x EQ SERIES                                median    0.898 %   p99    1.212 %   net    0.055 %   rms 0.124
+1 x EQ PARALLEL                              median    0.899 %   p99    1.182 %   net    0.056 %   rms 0.124
+2 x EQ SERIES                                median    0.990 %   p99    1.301 %   net    0.147 %   rms 0.124
+2 x EQ PARALLEL                              median    1.006 %   p99    1.365 %   net    0.163 %   rms 0.124
+4 x EQ SERIES                                median    1.190 %   p99    1.468 %   net    0.347 %   rms 0.124
+4 x EQ PARALLEL                              median    1.196 %   p99    1.468 %   net    0.353 %   rms 0.124
+8 x EQ SERIES                                median    1.593 %   p99    1.896 %   net    0.750 %   rms 0.124
+8 x EQ PARALLEL                              median    1.584 %   p99    1.919 %   net    0.741 %   rms 0.124
+
+== slot plumbing around one Chorus (blend/solo/band copy the buffer)
+chorus mix 1.0 (in place)                    median    0.904 %   p99    1.226 %   net    0.061 %   rms 0.102
+chorus mix 0.5 (scratch copy + blend)        median    0.909 %   p99    1.198 %   net    0.066 %   rms 0.108
+chorus mix 0.0 (still runs?)                 median    0.908 %   p99    1.257 %   net    0.066 %   rms 0.124
+chorus bypassed                              median    0.797 %   p99    1.079 %   net   -0.046 %   rms 0.124
+chorus solo                                  median    0.912 %   p99    1.537 %   net    0.070 %   rms 0.102
+chorus band 2 (split filters)                median    1.073 %   p99    1.542 %   net    0.230 %   rms 0.112
+utility (cheapest real effect)               median    0.820 %   p99    1.170 %   net   -0.022 %   rms 0.124
+10 x utility series (per-slot overhead)      median    1.048 %   p99   13.062 %   net    0.205 %   rms 0.124
+
+== silence: does the rack stop working?
+Reverb       silent input, % of core per second: 6.420 7.062 6.980 6.120 6.136 5.701
+Delay        silent input, % of core per second: 6.189 5.900 6.048 5.814 6.168 6.064
+Chorus       silent input, % of core per second: 5.959 6.164 5.953 5.923 6.636 5.705
+Drive        silent input, % of core per second: 5.666 5.576 5.469 5.531 5.557 5.427
+engine, no FX, noise+tone input: 2.46015 % of a core (block 64 @ 48k)
+
+== one effect alone, default settings (net = minus the empty rack)
+Amp                                          median    2.641 %   p99    4.840 %   net    0.181 %   rms 0.363
+Drive                                        median    2.617 %   p99    5.284 %   net    0.157 %   rms 0.307
+Crush                                        median    2.508 %   p99    4.893 %   net    0.048 %   rms 0.124
+Comp                                         median    2.578 %   p99    5.179 %   net    0.117 %   rms 0.130
+Comb                                         median    2.544 %   p99    4.933 %   net    0.084 %   rms 0.276
+Phaser                                       median    2.784 %   p99    4.913 %   net    0.324 %   rms 0.096
+Chorus                                       median    2.597 %   p99    5.062 %   net    0.137 %   rms 0.103
+Haas                                         median    2.518 %   p99    4.728 %   net    0.058 %   rms 0.124
+Delay                                        median    2.609 %   p99    5.046 %   net    0.149 %   rms 0.061
+Stutter                                      median    2.482 %   p99    4.729 %   net    0.022 %   rms 0.124
+Smear                                        median    2.701 %   p99    5.408 %   net    0.241 %   rms 0.073
+Freeze                                       median    2.553 %   p99   18.542 %   net    0.093 %   rms 0.124
+Reverb                                       median    2.675 %   p99    4.850 %   net    0.215 %   rms 0.184
+Flanger                                      median    2.654 %   p99    4.862 %   net    0.194 %   rms 0.045
+Dimension                                    median    2.659 %   p99    5.319 %   net    0.199 %   rms 0.093
+Trance Gate                                  median    2.523 %   p99    4.712 %   net    0.063 %   rms 0.124
+TapeStop                                     median    2.518 %   p99    4.608 %   net    0.057 %   rms 0.124
+Tilt                                         median    2.518 %   p99   17.394 %   net    0.057 %   rms 0.124
+Utility                                      median    2.484 %   p99    4.751 %   net    0.023 %   rms 0.124
+OTT                                          median    2.707 %   p99    4.771 %   net    0.246 %   rms 0.225
+Limiter                                      median    2.516 %   p99    4.947 %   net    0.056 %   rms 0.124
+Widener                                      median    2.493 %   p99    4.591 %   net    0.033 %   rms 0.124
+Tremolo                                      median    2.545 %   p99    4.921 %   net    0.085 %   rms 0.087
+FreqShift                                    median    2.520 %   p99    5.501 %   net    0.060 %   rms 0.124
+RingMod                                      median    2.527 %   p99    4.787 %   net    0.067 %   rms 0.070
+Octaver                                      median    2.680 %   p99    4.857 %   net    0.220 %   rms 0.080
+Vowel                                        median    2.579 %   p99    4.701 %   net    0.119 %   rms 0.060
+Feedback                                     median    2.556 %   p99    5.039 %   net    0.096 %   rms 0.093
+EQ                                           median    2.567 %   p99    5.245 %   net    0.107 %   rms 0.124
+Airwindows                                   median    3.341 %   p99    5.566 %   net    0.881 %   rms 0.200
+Vocoder                                      median    3.579 %   p99    5.732 %   net    1.119 %   rms 0.162
+AW Tape                                      median    3.133 %   p99    5.621 %   net    0.673 %   rms 0.109
+AW Saturation                                median    2.672 %   p99    4.863 %   net    0.212 %   rms 0.017
+AW Reverb                                    median    2.803 %   p99    5.122 %   net    0.343 %   rms 0.076
+AW Delay                                     median    2.944 %   p99    5.646 %   net    0.483 %   rms 0.122
+AW Modulation                                median    3.029 %   p99    5.407 %   net    0.569 %   rms 0.057
+AW Dynamics                                  median    2.672 %   p99    4.745 %   net    0.212 %   rms 0.124
+AW EQ                                        median    2.687 %   p99    6.021 %   net    0.226 %   rms 0.098
+AW Console                                   median    2.853 %   p99    5.283 %   net    0.393 %   rms 0.120
+AW Lo-Fi                                     median    2.856 %   p99    5.068 %   net    0.396 %   rms 0.124
+AW Stereo                                    median    2.621 %   p99    4.710 %   net    0.161 %   rms 0.187
+
+== A. parallel branches: wall time per block (us), serial vs 3 workers + caller (4 cores)
+tasks    us/ea     serial   futex-wait         spin   (wake overhead = parallel - burn)
+2        5           10.0         30.9          6.2
+2        20          40.0         48.1         21.1
+2        50         100.0         76.2         51.0
+2        100        200.0        127.1        101.0
+2        300        600.0        327.0        301.2
+2        1000      2000.0       1025.3       1001.3
+4        5           20.0         34.1          6.1
+4        20          80.0         58.0         21.4
+4        50         200.0         93.0         51.2
+4        100        400.0        140.8        101.1
+4        300       1200.0        339.8        301.1
+4        1000      4000.0       1040.7       1001.3
+
+== B. denormals: 8-comb feedback tail, 20 s of audio
+FTZ/DAZ off: 76.4 ms   on: 4.6 ms   slowdown without: 16.43x
+FTZ off + 1e-18 alternating offset: 4.8 ms (1.04x of FTZ on)
+
+== C. buffer pooling and copies
+ 6 nodes: one buffer per node 6.0, liveness-pooled peak 3.8 (stereo 512 floats = 4 KB each)
+10 nodes: one buffer per node 10.0, liveness-pooled peak 5.1 (stereo 512 floats = 4 KB each)
+16 nodes: one buffer per node 16.0, liveness-pooled peak 6.7 (stereo 512 floats = 4 KB each)
+24 nodes: one buffer per node 24.0, liveness-pooled peak 8.7 (stereo 512 floats = 4 KB each)
+copy of one stereo block (2 x 1024 floats = 8 KB): 42 ns
+sum-with-gain of one stereo block (the parallel mixdown, per branch): 182 ns
+
+== D. silence detector cost
+peak scan of a stereo block (2 x 1024), SSE: 484 ns

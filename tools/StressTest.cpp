@@ -197,6 +197,79 @@ void check (const juce::String& what, const Result& r)
     ++failures;
     std::cout << "PROBLEM " << what << ": " << problems.joinIntoString ("; ") << std::endl;
 }
+
+// ILANA_STRESS_REPREP=1: the buffer-size change under held notes (ilana,
+// 2026-10-10: "it clicks and buzzes when changing the buffer size; stop the
+// notes and play again and it works"). Holds a chord, calls prepareToPlay
+// with another block size at 1.0 s; the held notes are cut there, so the
+// next second must be silent (offline it matched a run that never
+// re-prepared before the cut, so the buzz was not reproduced).
+int repreparePhase (const Preset& preset, int blockBefore, int blockAfter, int threads)
+{
+    struct Out { std::vector<float> left; };
+    const auto render = [&] (bool reprepare)
+    {
+        IlanaSynthAudioProcessor::forceVoiceThreads = threads;
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (juce::SystemStats::getEnvironmentVariable ("ILANA_STRESS_REALTIME", "").isEmpty());
+        processor.prepareToPlay (48000.0, blockBefore);
+        load (processor, preset);
+        if (const auto os = juce::SystemStats::getEnvironmentVariable ("ILANA_STRESS_OS", ""); os.isNotEmpty())
+        {
+            // 1: 2x, 2: 4x
+            processor.apvts.getParameter ("oversampling")->setValueNotifyingHost (1.0f);
+            processor.apvts.getParameter ("os_factor")->setValueNotifyingHost (os.getIntValue() == 2 ? 1.0f : 0.0f);
+        }
+        processor.releaseResources();
+        processor.prepareToPlay (48000.0, blockBefore);
+        Out out;
+        juce::AudioBuffer<float> buffer (2, juce::jmax (blockBefore, blockAfter));
+        auto block = blockBefore;
+        long done = 0;
+        const long total = 48000 * 3;
+        bool changed = false;
+
+        while (done < total)
+        {
+            if (reprepare && ! changed && done >= 48000)
+            {
+                changed = true;
+                block = blockAfter;
+                processor.releaseResources();
+                processor.prepareToPlay (48000.0, block);
+            }
+
+            juce::MidiBuffer midi;
+            if (done == 0)
+                for (auto note : { 48, 55, 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.8f), 0);
+            buffer.clear();
+            juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), 2, block);
+            processor.processBlock (view, midi);
+            for (int i = 0; i < block; ++i)
+                out.left.push_back (view.getSample (0, i));
+            done += block;
+        }
+        return out;
+    };
+    const auto base = render (false), changed = render (true);
+    const auto from = (size_t) 48000 + 4096, to = (size_t) 48000 * 2;
+    double rmsBase = 0.0, rmsChanged = 0.0, maxJump = 0.0, maxJumpBase = 0.0, rmsDiff = 0.0;
+    for (size_t i = from; i < to && i < base.left.size() && i < changed.left.size(); ++i)
+    {
+        rmsBase += base.left[i] * base.left[i];
+        rmsChanged += changed.left[i] * changed.left[i];
+        rmsDiff += (changed.left[i] - base.left[i]) * (double) (changed.left[i] - base.left[i]);
+        maxJump = juce::jmax (maxJump, (double) std::abs (changed.left[i] - changed.left[i - 1]));
+        maxJumpBase = juce::jmax (maxJumpBase, (double) std::abs (base.left[i] - base.left[i - 1]));
+    }
+    const auto ratio = std::sqrt (rmsChanged / juce::jmax (1.0e-12, rmsBase));
+    // Held notes stop at the change (prepareToPlay cuts them): the next second must be silent and finite.
+    const auto bad = rmsChanged > 1.0e-6 || ! std::isfinite (rmsChanged);
+    std::cout << (bad ? "PROBLEM " : "ok ") << preset.name << " " << blockBefore << "->" << blockAfter << " threads " << threads
+              << ": diff/rms " << std::sqrt (rmsDiff / juce::jmax (1.0e-12, rmsBase)) << ", rms ratio " << ratio << ", max jump " << maxJump << " (never re-prepared " << maxJumpBase << ")" << std::endl;
+    return bad ? 1 : 0;
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -205,6 +278,22 @@ int main (int argc, char** argv)
     // ILANA_AUDIO_DEBUG=1: the click / zipper / extreme-setting harness (tools/AudioDebug.h).
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_AUDIO_DEBUG", "").isNotEmpty())
         return audiodebug::run();
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_STRESS_REPREP", "").isNotEmpty())
+    {
+        IlanaSynthAudioProcessor probe;
+        const auto names = probe.getFactoryPresetNames();
+        auto bad = 0;
+        for (const auto* name : { "Init", "Grand Piano", "Neuro Wobble", "Supersaw Pad", "FM E-Piano", "Hammered Strings" })
+        {
+            const auto index = names.indexOf (name);
+            if (index < 0)
+                continue;
+            for (auto threads : { 0, 1 })
+                for (auto blocks : { std::pair<int, int> { 128, 1024 }, { 1024, 128 }, { 512, 64 } })
+                    bad += repreparePhase ({ name, index, {} }, blocks.first, blocks.second, threads);
+        }
+        return bad;
+    }
     // The same switches as ilanaFingerprint, to tell a new problem from an old one.
     Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
     Voice::disableSlowEnvelopes = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_SLOW_ENVELOPES", "").isNotEmpty();

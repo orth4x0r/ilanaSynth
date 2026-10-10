@@ -1364,11 +1364,29 @@ public:
         g.setColour (box.findColour (juce::ComboBox::arrowColourId).interpolatedWith (Ui::text, 0.6f * hover)
                         .withMultipliedAlpha (box.isEnabled() ? 1.0f : 0.5f));
         g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // A menu that says what it is: its name in the dim label colour before the value.
+        if (const auto prefix = box.getProperties()["textPrefix"].toString(); prefix.isNotEmpty() && comboPrefixWidth (box) > 0)
+        {
+            g.setColour (Ui::text3.withMultipliedAlpha (box.isEnabled() ? 1.0f : 0.5f));
+            g.setFont (font (TextSize::tiny, true).withKerningFactor (0.07f));
+            g.drawText (prefix, juce::Rectangle<int> (10, 0, comboPrefixWidth (box), height), juce::Justification::centredLeft, false);
+        }
+    }
+
+    static int comboPrefixWidth (const juce::ComboBox& box)
+    {
+        const auto prefix = box.getProperties()["textPrefix"].toString();
+        // (A menu too narrow for its name and a value drops the name: the 75 % zoom's.)
+        if (prefix.isEmpty() || box.getWidth() < 118)
+            return 0;
+        return juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.07f), prefix) + 4;
     }
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
     {
-        label.setBounds (4, 1, box.getWidth() - 23, box.getHeight() - 2); // (the sheet's 10 px of padding: 4 here, 6 the label's own)
+        const auto shift = comboPrefixWidth (box);
+        label.setBounds (4 + shift, 1, box.getWidth() - 23 - shift, box.getHeight() - 2); // (the sheet's 10 px of padding: 4 here, 6 the label's own)
         label.setFont (getComboBoxFont (box));
     }
 

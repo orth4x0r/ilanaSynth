@@ -670,7 +670,8 @@ enum class Polarity
 {
     Natural = 0,   // the source's own range (LFOs swing, envelopes rise)
     Unipolar,      // 0..1: only pushes the knob one way
-    Bipolar        // -1..1: swings either side of the knob
+    Bipolar,       // -1..1: swings either side of the knob
+    Negative       // 0..-1: only pushes the knob down (appended: 2026-10-10)
 };
 
 struct Slot
@@ -742,12 +743,33 @@ inline bool isVoiceSpectralSlot (const Slot& slot)
     return spectralOscFor (slot.destination) >= 0 && (slot.perVoiceLfo || isPerVoiceSource (slot.source) || isPerVoiceSource (slot.aux));
 }
 
+// How the interface reads a route's amount (2026-10-10). A bipolar route
+// swings `depth` either side of the knob, so it covers twice that of the
+// knob's whole range: the amount shown is the share of the range the swing
+// covers from end to end, so a bipolar 100 % sweeps the knob from its
+// minimum to its maximum (it used to take 50 % to do that). A one-way route
+// shows its depth as it is. Nothing stored or heard changes.
+inline bool isBipolarRoute (const Slot& slot)
+{
+    return slot.polarity == Polarity::Bipolar || (slot.polarity == Polarity::Natural && isBipolarSource (slot.source));
+}
+
+inline int shownPercent (float depth, bool bipolar) { return (int) std::lround (depth * (bipolar ? 200.0f : 100.0f)); }
+inline float depthFromShownPercent (float percent, bool bipolar) { return percent / (bipolar ? 200.0f : 100.0f); }
+
+// The depth as the rings and bars draw it: a Negative route points down, so
+// its stored (positive) depth reads as a negative one.
+inline float visualDepth (const Slot& slot) { return slot.polarity == Polarity::Negative ? -slot.depth : slot.depth; }
+inline float storedDepth (const Slot& slot, float visual) { return slot.polarity == Polarity::Negative ? -visual : visual; }
+
 // Shapes a raw source value by the slot's polarity and curve.
 inline float shape (const Slot& slot, float value)
 {
     const auto bipolarSource = isBipolarSource (slot.source);
+    const auto negative = slot.polarity == Polarity::Negative;
 
-    if (slot.polarity == Polarity::Unipolar && bipolarSource)
+    // Negative is Unipolar turned over: the same 0..1, then minus.
+    if ((slot.polarity == Polarity::Unipolar || negative) && bipolarSource)
         value = 0.5f * (value + 1.0f);
     else if (slot.polarity == Polarity::Bipolar && ! bipolarSource)
         value = 2.0f * value - 1.0f;
@@ -771,7 +793,7 @@ inline float shape (const Slot& slot, float value)
         value = bipolar ? y : 0.5f * (y + 1.0f);
     }
 
-    return value;
+    return negative ? -value : value;
 }
 
 // Aux ("via") sources scale a slot's amount, always as 0..1.

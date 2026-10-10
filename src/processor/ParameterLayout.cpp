@@ -499,7 +499,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_dst", name + " Dst", destinationNames, 0);
         addFloat (prefix + "_amt", name + " Amt", -1.0f, 1.0f, 0.0f);
         addFloat (prefix + "_curve", name + " Curve", -1.0f, 1.0f, 0.0f);
-        addChoice (prefix + "_pol", name + " Polarity", { "Auto", "Unipolar", "Bipolar" }, 0);
+        addChoice (prefix + "_pol", name + " Polarity", { "Auto", "Unipolar", "Bipolar", "Negative" }, 0);
         addChoice (prefix + "_aux", name + " Via", sourceNames, 0);
         addBool (prefix + "_byp", name + " Bypass", false);
     };

@@ -518,7 +518,7 @@ private:
 
         const auto dot = dots[(size_t) index];
         juce::PopupMenu menu;
-        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
         menu.addItem (1, "Bypass", true, dot.bypass);
         menu.addItem (2, "Remove");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
@@ -571,8 +571,8 @@ private:
         }
 
         const auto& dot = dots[(size_t) index];
-        setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (dot.depth * 100.0f))
-                    + "%" + (dot.bipolar ? "  (swings both ways)" : "") + (dot.bypass ? "  (bypassed)" : "")
+        setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (dot.depth, dot.bipolar))
+                    + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "") + (dot.bypass ? "  (bypassed)" : "")
                     + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
     }
 
@@ -804,7 +804,7 @@ public:
         dotStrip.onDepthChange = [this] (int slot, float depth)
         {
             if (processorRef != nullptr)
-                processorRef->setModSlotValue (slot, "amt", depth);
+                processorRef->setModSlotValue (slot, "amt", Mod::storedDepth (processorRef->readModSlot (slot), depth));
         };
         dotStrip.onZero = [this] (int slot)
         {
@@ -882,7 +882,10 @@ public:
         closeModCard();
 
         if (event.mods.isPopupMenu())
+        {
+            startPulse (IlanaTheme::accent());
             showModMenu();
+        }
     }
 
     juce::Slider& getSlider() { return slider; }
@@ -1191,9 +1194,9 @@ public:
 
         if (highlighted != 0 && routesFrom (highlighted))
         {
-            const auto radius = outerRingRadius() + 2.5f;
+            const auto radius = haloRadius();
             const juce::Graphics::ScopedSaveState clip (g);
-            g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+            clipToHaloArea (g);
             g.setColour (modSourceColour (highlighted).withAlpha (highlighted == pinned ? 0.95f : 0.75f));
             g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), highlighted == pinned ? 2.0f : 1.5f);
         }
@@ -1205,9 +1208,9 @@ public:
         {
             if (isModulatable())
             {
-                const auto radius = outerRingRadius() + 2.5f;
+                const auto radius = haloRadius();
                 const juce::Graphics::ScopedSaveState clip (g);
-                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                clipToHaloArea (g);
                 g.setColour (modSourceColour (dragSource).withAlpha (0.5f));
                 g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 1.5f);
             }
@@ -1222,9 +1225,9 @@ public:
         {
             if (isModulatable() && dragSource != 0)
             {
-                const auto radius = outerRingRadius() + 2.5f;
+                const auto radius = haloRadius();
                 const juce::Graphics::ScopedSaveState clip (g);
-                g.reduceClipRegion (rotaryArea().expanded (12.0f, 1.0f).toNearestInt());
+                clipToHaloArea (g);
                 g.setColour (modSourceColour (dragSource));
                 g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 2.5f);
             }
@@ -1243,6 +1246,7 @@ public:
         }
 
         paintRings (g, highlighted);
+        paintPulse (g);
     }
 
     // The knob's modulation rings (Vital and Serum 2 style): one concentric
@@ -1353,6 +1357,10 @@ public:
         // (Only an inline knob caps its dial: set below; a knob switched
         // back to stacked must not keep a small dial.)
         slider.getProperties().remove ("dialRadiusCap");
+        // A small dial's arc is a little wider than its box (the dial never
+        // draws under 28 px): it was cut flat at the top by the slider's
+        // own edge. It may draw into the knob's cell (ilana, 2026-10-10).
+        slider.setPaintingIsUnclipped (true);
 
         if (compact && inlineText)
         {
@@ -1487,8 +1495,11 @@ public:
         // this knob points at its routing (dot and card) instead of adding
         // a second one.
         if (! showExistingRouting (sourceIndex))
+        {
             processorRef->performEdit ("Add modulation",
                                        [this, sourceIndex] { processorRef->assignModSlot (sourceIndex, ringConfig.destination, 0.35f); });
+            startPulse (modSourceColour (sourceIndex));
+        }
 
         refreshRoutings();
         repaint();
@@ -1572,6 +1583,23 @@ private:
 
         base = juce::jmax (dial + 1.5f, juce::jmin (base, room - pitch * (float) (count - 1)));
         return base + (float) index * pitch;
+    }
+    // The halo and drop-target rings sit just outside the outer ring. They
+    // used to be clipped to the dial's box (1 px of height spare), which cut
+    // them flat at the top and bottom while a source was dragged; now they
+    // may use the whole cell, kept inside it (and under the name above).
+    float haloRadius() const
+    {
+        const auto wanted = outerRingRadius() + 2.5f;
+        const auto room = ringRoom() + 1.0f;
+        return juce::jmax (dialRadius() + 2.0f, juce::jmin (wanted, room));
+    }
+    void clipToHaloArea (juce::Graphics& g) const
+    {
+        g.reduceClipRegion (getLocalBounds());
+
+        if (const auto ink = getNameInkBounds(); ! ink.isEmpty())
+            g.excludeClipRegion (ink.expanded (2.0f, 0.5f).getSmallestIntegerContainer());
     }
     float outerRingRadius() const { return ringRadius (juce::jmax (0, numRings() - 1)) + 1.0f; }
 
@@ -1721,7 +1749,7 @@ private:
 
             const auto& dot = owner.routings[(size_t) ring];
             setTooltip (ModNames::source (dot.source, owner.processorRef) + "  " + (dot.depth >= 0.0f ? "+" : "")
-                        + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%" + (dot.bipolar ? "  (swings both ways)" : "")
+                        + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "")
                         + (dot.bypass ? "  (bypassed)" : "")
                         + "\nDrag the ring up or right to deepen it (Shift for fine), double-click to zero it, "
                           "right-click to bypass or remove it.");
@@ -1732,9 +1760,20 @@ private:
             const auto dot = owner.routings[(size_t) ring];
             juce::PopupMenu menu;
             menu.addSectionHeader (ModNames::source (dot.source, owner.processorRef) + "  ("
-                                   + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+                                   + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
             menu.addItem (1, "Bypass", true, dot.bypass);
             menu.addItem (2, "Remove");
+            menu.addSeparator();
+
+            if (owner.processorRef != nullptr)
+            {
+                const auto polarity = (int) owner.processorRef->readModSlot (dot.slot).polarity;
+                menu.addItem (10, "Type an amount...");
+                menu.addItem (11, "Polarity: positive (up)", true, polarity == 1);
+                menu.addItem (12, "Polarity: negative (down)", true, polarity == 3);
+                menu.addItem (13, "Polarity: bipolar (both sides)", true, polarity == 2);
+                menu.addItem (14, "Polarity: auto (the source's range)", true, polarity == 0);
+            }
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                                 [safeOwner = juce::Component::SafePointer<KnobControl> (&owner), dot] (int result)
                                 {
@@ -1745,6 +1784,10 @@ private:
                                         safeOwner->dotStrip.onBypass (dot.slot, ! dot.bypass);
                                     else if (result == 2 && safeOwner->dotStrip.onRemove != nullptr)
                                         safeOwner->dotStrip.onRemove (dot.slot);
+                                    else if (result == 10)
+                                        safeOwner->beginAmountEntry (dot.slot);
+                                    else if (result >= 11 && result <= 14)
+                                        safeOwner->setRoutePolarity (dot.slot, result == 11 ? 1 : result == 12 ? 3 : result == 13 ? 2 : 0);
                                 });
         }
 
@@ -1855,6 +1898,65 @@ private:
 
     // Re-reads which mod slots route into this knob. Cheap (raw parameter
     // reads), so it runs on the timer.
+    // Sets a route's polarity (one undo step), keeping what the ring shows.
+    void setRoutePolarity (int slot, int choice)
+    {
+        if (processorRef == nullptr)
+            return;
+
+        processorRef->performEdit ("Modulation polarity", [this, slot, choice] { processorRef->setModSlotValue (slot, "pol", (float) choice); });
+        refreshRoutings();
+    }
+
+    // Types an exact amount for a route: a small box over the knob; the
+    // number is the share of the knob's range the route covers (bipolar:
+    // 100 % is the whole range, either side of the value).
+    void beginAmountEntry (int slot)
+    {
+        if (processorRef == nullptr)
+            return;
+
+        const auto data = processorRef->readModSlot (slot);
+        const auto bipolar = Mod::isBipolarRoute (data);
+        amountEditor = std::make_unique<juce::TextEditor>();
+        auto& editor = *amountEditor;
+        editor.setMultiLine (false);
+        editor.setJustification (juce::Justification::centred);
+        editor.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        editor.setInputRestrictions (6, "-+0123456789.%");
+        editor.setText (juce::String (Mod::shownPercent (Mod::visualDepth (data), bipolar)) + "%", false);
+        editor.setBounds (juce::Rectangle<int> (64, 20).withCentre ({ getWidth() / 2, juce::jmin (getHeight() - 12, knobBounds.getBottom() - 8) }));
+        addAndMakeVisible (editor);
+        editor.selectAll();
+        editor.grabKeyboardFocus();
+        editor.onReturnKey = [this, slot, bipolar]
+        {
+            if (amountEditor != nullptr && processorRef != nullptr)
+            {
+                const auto typed = amountEditor->getText().retainCharacters ("-+0123456789.").getFloatValue();
+                const auto depth = juce::jlimit (-1.0f, 1.0f, Mod::depthFromShownPercent (typed, bipolar));
+                processorRef->performEdit ("Modulation amount", [this, slot, depth]
+                                           { processorRef->setModSlotValue (slot, "amt", Mod::storedDepth (processorRef->readModSlot (slot), depth)); });
+            }
+
+            closeAmountEntry();
+        };
+        editor.onEscapeKey = [this] { closeAmountEntry(); };
+        editor.onFocusLost = [this] { closeAmountEntry(); };
+    }
+
+    void closeAmountEntry()
+    {
+        if (amountEditor == nullptr)
+            return;
+
+        // (Removed after this call returns: it may be running inside the editor.)
+        std::shared_ptr<juce::TextEditor> doomed (std::move (amountEditor));
+        removeChildComponent (doomed.get());
+        refreshRoutings();
+        juce::MessageManager::callAsync ([doomed] {});
+    }
+
     void refreshRoutings()
     {
         if (processorRef == nullptr || ringConfig.destination == 0)
@@ -1871,9 +1973,8 @@ private:
             if (slot.destination != ringConfig.destination || slot.source == Mod::Source::None)
                 continue;
 
-            const auto bipolar = slot.polarity == Mod::Polarity::Bipolar
-                                 || (slot.polarity == Mod::Polarity::Natural && Mod::isBipolarSource (slot.source));
-            found.push_back ({ i, (int) slot.source, slot.depth, slot.bypass, bipolar });
+            const auto bipolar = Mod::isBipolarRoute (slot);
+            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -1967,7 +2068,7 @@ public:
 
                 for (const auto& dot : routings)
                     removeMenu.addItem (5000 + dot.slot, ModNames::source (dot.source, processorRef) + "  ("
-                                                             + juce::String (juce::roundToInt (dot.depth * 100.0f)) + "%)");
+                                                             + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
 
                 menu.addSubMenu ("Remove modulation", removeMenu);
                 menu.addItem (1000, "Clear all modulation to this knob");
@@ -2081,7 +2182,36 @@ private:
 
                                 processor.endEdit();
                                 safeThis->refreshRoutings();
+
+                                // A source taking the knob swells its ring.
+                                if (result >= 6100 || (result >= 6000) || (result > 0 && result < 1000))
+                                    safeThis->startPulse (modSourceColour (result >= 6100 ? (int) envelopeSource (result - 6100)
+                                                                           : result >= 6000 ? (int) Mod::lfoSourceFor (result - 6000)
+                                                                                            : result - 1));
                             });
+    }
+
+    // A ring that swells off the dial and fades (about 0.35 s): the
+    // right-click that opens the modulation menu, and a source taking the
+    // knob (ilana, 2026-10-10).
+    void startPulse (juce::Colour colour)
+    {
+        pulse = 1.0f;
+        pulseColour = colour;
+        repaint();
+    }
+
+    void paintPulse (juce::Graphics& g) const
+    {
+        if (pulse <= 0.0f || knobBounds.isEmpty())
+            return;
+
+        const auto eased = 1.0f - pulse * pulse;
+        const auto radius = juce::jmin (dialRadius() + 2.0f + eased * 9.0f, juce::jmax (dialRadius() + 2.0f, ringRoom() + 1.0f));
+        const juce::Graphics::ScopedSaveState state (g);
+        clipToHaloArea (g);
+        g.setColour (pulseColour.withAlpha (0.75f * pulse));
+        g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (dialCentre()), 1.0f + 1.6f * pulse);
     }
 
     void timerCallback() override
@@ -2089,6 +2219,12 @@ private:
         // Knobs on hidden pages skip the frame (hundreds of them).
         if (! IlanaAnim::showing (*this))
             return;
+
+        if (pulse > 0.0f)
+        {
+            pulse = juce::jmax (0.0f, pulse - frameSeconds() * 2.8f);
+            repaint();
+        }
 
         if (const auto dragged = modSourceBeingDragged (*this); dragged != dragSource)
         {
@@ -2172,8 +2308,11 @@ private:
         for (int i = 0; i < numRings(); ++i)
         {
             const auto slot = processorRef->readModSlot (routings[(size_t) i].slot);
-            liveValues[(size_t) i] = slot.bypass ? 0.0f
-                                                 : Mod::shape (slot, processorRef->getSourceDisplayValue ((int) slot.source)) * slot.depth;
+            // (Eased a little, so a source swinging both ways at audio rate
+            // reads as a stretch, not a flicker: N16 leftover.)
+            const auto target = slot.bypass ? 0.0f
+                                            : Mod::shape (slot, processorRef->getSourceDisplayValue ((int) slot.source)) * slot.depth;
+            liveValues[(size_t) i] = IlanaAnim::approach (liveValues[(size_t) i], target, 0.5f, frameTicks());
             modValue += 3.0f * liveValues[(size_t) i] * (float) (i + 2);
         }
 
@@ -2249,6 +2388,9 @@ private:
     double lastSliderValue = 0.0;
     bool dragHover = false;
     int dragSource = 0; // the source being dragged anywhere (V8-10)
+    float pulse = 0.0f; // the right-click / assign ring, 1 to 0
+    std::unique_ptr<juce::TextEditor> amountEditor;
+    juce::Colour pulseColour;
     bool hover = false;
     bool compact = false, inlineText = false;
     juce::Rectangle<int> inlineValueArea;
@@ -2573,7 +2715,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.07f));
-            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineSwitchWidth + 5),
+            IlanaTheme::drawFitted (g, button.getButtonText(), getLocalBounds().withTrimmedLeft (inlineDialColumn() + 3),
                                     juce::Justification::centredLeft, 1);
             return;
         }
@@ -2610,7 +2752,8 @@ public:
 
         if (inlineLabel)
         {
-            button.setBounds (area.removeFromLeft (inlineSwitchWidth).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
+            // (The switch centres on the dial column of the knobs beside it, its name on their names' line.)
+            button.setBounds (area.removeFromLeft (inlineDialColumn()).withSizeKeepingCentre (inlineSwitchWidth, juce::jmin (24, area.getHeight())));
             return;
         }
 
@@ -2636,6 +2779,7 @@ private:
     juce::Colour groupColour;
     juce::String groupText;
     static constexpr int inlineSwitchWidth = 34;
+    int inlineDialColumn() const { return juce::jmax (inlineSwitchWidth, juce::jmin (getHeight(), 40)); }
 
     void timerCallback() override
     {

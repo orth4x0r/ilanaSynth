@@ -966,8 +966,8 @@ int runUiTests()
         return processor.getUndoManager().getUndoDescriptions();
     };
     expect (findChild<juce::TabbedComponent> (*editor) != nullptr
-                && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 8 : 7),
-            "seven tabs");
+                && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 9 : 8),
+            "eight tabs");
 
     // An oscillator card's switch on the page shown (its tooltip names the
     // parameter), and a click on that card's title line: a card folded to
@@ -1019,17 +1019,17 @@ int runUiTests()
         return false;
     };
 
-    // Pages inside a tab: MATRIX is under MOD, and the scope opens over any page.
+    // Pages inside a tab: MATRIX is its own tab, and the scope opens over any page.
     pages->showPage ("MATRIX");
     settle (200);
     expect (pages->getCurrentPageId() == "MATRIX" && pages->getCurrentPage() != nullptr && visibleInTree (pages->getCurrentPage()),
-            "MATRIX opens inside MOD");
-    // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): MOD has two
-    // pages, and the old id opens ENV / LFO.
+            "MATRIX opens in its tab");
+    // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): the old id opens
+    // ENV / LFO.
     pages->showPage ("STEPS");
     settle (200);
     expect (pages->getCurrentPageId() == "ENV/LFO" && ! pages->getPageIds().contains ("STEPS"),
-            "MOD is ENV / LFO and MATRIX; the old STEPS id opens ENV / LFO");
+            "MOD is ENV / LFO; the old STEPS id opens ENV / LFO");
     {
         std::vector<juce::TextButton*> buttons;
         findAll<juce::TextButton> (*editor, buttons);
@@ -1049,7 +1049,7 @@ int runUiTests()
             if (sw->isVisible())
                 where << sw->getBounds().toString() << " z" << sw->getParentComponent()->getIndexOfChildComponent (sw)
                       << "/" << sw->getParentComponent()->getNumChildComponents() << " alpha " << sw->getAlpha();
-        expect (shownSwitchers == 1, "MOD shows its page switch (" + where + ")");
+        expect (shownSwitchers == 0, "MOD has one page, so no page switch shows (" + where + ")");
     }
     pages->setScopeOpen (true);
     settle (250);
@@ -1177,20 +1177,18 @@ int runUiTests()
                     "the hover line is gone when the mouse leaves, and never takes a click");
         }
 
+        // MATRIX is a tab of its own (2026-10-10): no switcher shows on MOD.
         pages->showPage ("ENV/LFO");
         settle (150);
         std::vector<SectionSwitcher*> switchers;
         findAll<SectionSwitcher> (*editor, switchers);
-        SectionSwitcher* shown = nullptr;
+        auto anySwitcher = false;
         for (auto* sw : switchers)
-            shown = visibleInTree (sw) ? sw : shown;
-        if (shown != nullptr && shown->onSelect != nullptr)
-        {
-            shown->setSelected (2, true);
-            shown->onSelect (2);
-            settle (200);
-        }
-        expect (shown != nullptr && pages->getCurrentPageId() == "MATRIX", "the MOD switch opens MATRIX");
+            anySwitcher = anySwitcher || visibleInTree (sw);
+        expect (! anySwitcher, "MOD has one page, so no page switch shows");
+        pages->showPage ("MATRIX");
+        settle (200);
+        expect (pages->getCurrentPageId() == "MATRIX", "MATRIX opens in its own tab");
     }
 
     // Matrix shows the preset's routing with the right destination text.

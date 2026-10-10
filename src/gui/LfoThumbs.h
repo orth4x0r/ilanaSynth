@@ -779,7 +779,7 @@ private:
     }
 
     mutable std::array<double, (size_t) IlanaSynthAudioProcessor::numLfos> simStamps {};
-    std::array<IlanaAnim::BlockSmoother, (size_t) IlanaSynthAudioProcessor::numLfos> phaseSmoothers;
+    std::array<IlanaAnim::PhaseTracker, (size_t) IlanaSynthAudioProcessor::numLfos> phaseSmoothers;
     mutable std::array<std::unique_ptr<LfoSimPreview>, (size_t) IlanaSynthAudioProcessor::numLfos> simPreviews;
 
     float shapeValue (int lfo, int shape, double phase) const
@@ -944,7 +944,7 @@ private:
             paintDot (g, plot, colour, 1.0, simPreviewOf (lfo).latestA());
         else
         {
-            const auto phase = (double) phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), true);
+            const auto phase = (double) phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), lfoRateHz (lfo));
             paintDot (g, plot, colour, phase, shapeValue (lfo, shape, phase));
         }
 
@@ -1034,7 +1034,7 @@ private:
     {
         juce::uint64 signature = 0;
         for (int lfo = 0; lfo < IlanaSynthAudioProcessor::numLfos; ++lfo)
-            signature ^= IlanaAnim::phaseSignature (phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), true), lfo);
+            signature ^= IlanaAnim::phaseSignature (phaseSmoothers[(size_t) lfo].get (processorRef.getLfoPhase (lfo), lfoRateHz (lfo)), lfo);
         for (int extra = 0; extra < (int) extras.size(); ++extra)
             if (extras[(size_t) extra].phase != nullptr)
                 signature ^= IlanaAnim::phaseSignature ((float) extras[(size_t) extra].phase(), 100 + extra);

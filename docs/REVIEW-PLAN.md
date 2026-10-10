@@ -301,7 +301,8 @@ Steps 16 to 26 are listed hardest to easiest, judged from the code each one touc
    drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
    nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
    which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test
-   that opens every selector on each page.
+   that opens every selector on each page. ilana (2026-10-10) sees the same failure on the OSC tab, not only PLAY, so it
+   is probably one shared menu problem rather than one control's bug; look for the shared cause first.
    **Rules when it starts:** no sound or preset change; the fix is in the UI only.
    Size: 5 of 11, medium, cause unknown. Touches the menu code across `src/gui` (271 combo-box and popup-menu references). First step: find which selectors fail to open and why.
 

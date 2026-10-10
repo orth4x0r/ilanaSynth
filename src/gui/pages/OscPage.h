@@ -524,13 +524,18 @@ private:
 // string's partials as bars (their levels from the strike point, DAMP and
 // STIFF). A picture only.
 class StringPartialsView : public juce::Component,
-                           public juce::SettableTooltipClient
+                           public juce::SettableTooltipClient,
+                           private IlanaAnim::FrameTimer
 {
 public:
     StringPartialsView (IlanaSynthAudioProcessor& p, int index)
         : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
     {
-        setTooltip ("The string's partials: where it is struck (EXCITE POS), DAMP and STIFF set how strong each is.");
+        setTooltip ("PARTIALS: the string's overtones, 1 to 16 from the left, as they sound.\n"
+                    "DAMP: fades the upper ones (more damp, fewer bars on the right).\n"
+                    "STIFF: pushes them sharp and uneven.\n"
+                    "POSITION: where the string is struck, which mutes the partials that have a node there.");
+        startPollingHz (30);
     }
 
     void setColour (juce::Colour newColour)
@@ -539,15 +544,11 @@ public:
         repaint();
     }
 
-    // Re-reads the settings; repaints when they changed.
+    // Re-reads the settings (the frame timer also does, so the bars glide).
     void update()
     {
-        const std::array<float, 3> now { read ("_string_damp"), read ("_string_stiffness"), read ("_string_excite_pos") };
-        if (now != shown)
-        {
-            shown = now;
-            repaint();
-        }
+        if (eased[0] < 0.0f)
+            follow (0.0f);
     }
 
     void paint (juce::Graphics& g) override
@@ -559,12 +560,24 @@ public:
         const auto tall = area.getHeight() >= 44.0f;
         const auto titleArea = tall ? area.removeFromTop (14.0f) : area.removeFromLeft (juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "PARTIALS") + 2.0f);
         IlanaTheme::drawFitted (g, "PARTIALS", titleArea, juce::Justification::centredLeft, 1);
+
+        // While a control moves, the view says which one and what it does to
+        // the bars (a tall view: beside the title).
+        if (tall && caption.isNotEmpty() && hold > 0.0f)
+        {
+            g.setColour (colour.withAlpha (juce::jlimit (0.0f, 1.0f, hold * 2.0f)));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText (caption, titleArea.withLeft (titleArea.getX() + juce::GlyphArrangement::getStringWidth (IlanaTheme::font (IlanaTheme::TextSize::tiny, true), "PARTIALS") + 8.0f)
+                                     .withRight (getLocalBounds().toFloat().getRight()).toNearestInt(),
+                        juce::Justification::centredLeft, true);
+        }
+
         if (! tall)
             area.removeFromLeft (8.0f);
         const auto plot = area.reduced (0.0f, 2.0f);
 
-        const auto damp = shown[0], stiff = shown[1];
-        const auto pos = juce::jlimit (0.05f, 0.5f, shown[2] > 0.001f ? shown[2] : 0.25f);
+        const auto damp = eased[0], stiff = eased[1];
+        const auto pos = juce::jlimit (0.05f, 0.5f, eased[2] > 0.001f ? eased[2] : 0.25f);
         constexpr int count = 16;
         const auto slot = plot.getWidth() / (float) count;
         for (int n = 1; n <= count; ++n)
@@ -574,7 +587,11 @@ public:
             const auto level = std::sqrt (juce::jlimit (0.02f, 1.0f, comb / std::pow ((float) n, 0.55f + 1.4f * damp) * (1.0f + 0.4f * stiff * (float) (n % 3))));
             const auto bar = juce::Rectangle<float> (juce::jmin (tall ? 7.0f : 4.0f, slot * 0.6f), plot.getHeight() * level)
                                  .withCentre ({ plot.getX() + slot * ((float) n - 0.5f), plot.getBottom() - plot.getHeight() * level * 0.5f });
-            g.setColour (colour.withAlpha (0.45f + 0.5f * level));
+            // The control being moved lights the bars it shapes: DAMP the
+            // upper half, STIFF every third, POSITION the ones it mutes.
+            const auto shaped = hold > 0.0f
+                                && ((moving == 0 && n > count / 2) || (moving == 1 && n % 3 != 0) || (moving == 2 && comb < 0.55f));
+            g.setColour ((shaped ? colour.brighter (0.35f) : colour).withAlpha (juce::jlimit (0.0f, 1.0f, 0.45f + 0.5f * level + (shaped ? 0.2f * juce::jmin (1.0f, hold * 2.0f) : 0.0f))));
             g.fillRoundedRectangle (bar, 2.0f);
         }
     }
@@ -586,10 +603,62 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
+    void timerCallback() override { follow (frameSeconds()); }
+
+    // Eases the shown settings to the real ones (a quick glide, so a knob
+    // drag reads as motion), and counts down how long the caption stays.
+    void follow (float seconds)
+    {
+        const std::array<float, 3> now { read ("_string_damp"), read ("_string_stiffness"), read ("_string_excite_pos") };
+        auto changed = false;
+
+        for (size_t i = 0; i < 3; ++i)
+        {
+            if (std::abs (now[i] - target[i]) > 0.0005f)
+            {
+                if (target[i] >= 0.0f)
+                {
+                    moving = (int) i;
+                    hold = 1.2f;
+                    static const char* const names[] { "DAMP fades the upper partials", "STIFF pushes them sharp",
+                                                       "POSITION mutes the partials with a node there" };
+                    caption = names[i];
+                }
+
+                target[i] = now[i];
+            }
+
+            if (eased[i] < 0.0f)
+                eased[i] = now[i];
+            else if (std::abs (eased[i] - target[i]) > 0.0005f)
+            {
+                eased[i] = seconds > 0.0f ? IlanaAnim::approach (eased[i], target[i], 0.35f, seconds * 60.0f) : target[i];
+                changed = true;
+            }
+            else
+                eased[i] = target[i];
+        }
+
+        if (hold > 0.0f)
+        {
+            hold = juce::jmax (0.0f, hold - seconds);
+            changed = true;
+        }
+
+        if (changed || target != lastTarget)
+        {
+            lastTarget = target;
+            repaint();
+        }
+    }
+
     IlanaSynthAudioProcessor& processorRef;
     juce::String prefix;
     juce::Colour colour = IlanaTheme::accent();
-    std::array<float, 3> shown { -1.0f, -1.0f, -1.0f };
+    std::array<float, 3> target { -1.0f, -1.0f, -1.0f }, eased { -1.0f, -1.0f, -1.0f }, lastTarget { -2.0f, -2.0f, -2.0f };
+    int moving = -1;
+    float hold = 0.0f;
+    juce::String caption;
 };
 
 // The right-hand cells of an oscillator's PITCH row: an oscillator in an FM
@@ -752,8 +821,8 @@ class OscPage : public juce::Component,
               uniMode (state, prefix + "_uni_mode", "UNI MODE"),
               warpAmt (state, prefix + "_warp_amt", "WARP AMT"),
               uniBlend (state, prefix + "_uni_blend", "BLEND"),
-              uniFrame (state, prefix + "_uni_frame", "FRM SPR"),
-              uniWarp (state, prefix + "_uni_warp", "WRP SPR"),
+              uniFrame (state, prefix + "_uni_frame", juce::String::fromUTF8 ("FRAME \xc2\xb1")),
+              uniWarp (state, prefix + "_uni_warp", juce::String::fromUTF8 ("WARP \xc2\xb1")),
               spectral (state, prefix + "_spectral", "SPECTRAL"),
               scale (state, prefix + "_scale", "SCALE"),
               scaleRoot (state, prefix + "_scale_root", "ROOT"),

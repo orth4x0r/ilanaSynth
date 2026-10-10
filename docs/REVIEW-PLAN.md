@@ -256,3 +256,185 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    2026-10-04 (branch `claude/project-thread-smvgfk`): every finding of reviews 5 and 6 fixed except the ones HANDOFF lists
    as not done on purpose, plus the 10 % type scale-up. Reviews 7-15 and their fixes followed (PR #13, merged); the passes are paused until the user says go
    (goal: one review at 9.5 against Vital or Serum 2; the last scored 9.1).
+   Status (2026-10-10): cycle 1 done. Cycle 2 (reviews 7-16) had its fixes merged, and review 16 scored 9.1 / 8.8 / 9.2 against the 9.5 goal. The passes are paused until ilana says go.
+Steps 16 to 45 run in the execution order below, not in ID order. ilana's 2026-10-10 approved reorder puts the routing work right after the quick fixes. Each number is the step's ID, which HANDOFF and the threads cite. Sub-step A is shared foundation work with no ID of its own; sub-step B is inside step 17.
+
+18. **Dropdown selectors sometimes show no options** (ilana, 2026-10-10: bug; decided, not started). Clicking some
+   drop-down selector boxes (OSC 1's wave, table and warp menus on PLAY are one example; screenshot in the thread) opens
+   nothing, but the arrow keys still change the value, so the control works and only the list fails to show. Fix: find
+   which selectors fail to open the list and why (the menu's click handling or its size on screen), and add a UI test
+   that opens every selector on each page. ilana (2026-10-10) sees the same failure on the OSC tab, not only PLAY, so it
+   is probably one shared menu problem rather than one control's bug; look for the shared cause first.
+   **Rules when it starts:** no sound or preset change; the fix is in the UI only.
+   Size: medium, cause unknown. Touches the menu code across `src/gui` (271 combo-box and popup-menu references). First step: find which selectors fail to open and why.
+   Order 1. Why here: the menus are shared, and every UI step after this uses them (the cable view in 16 and 17 included). The OSC, FILTER and FX menus can't be tested until they open.
+
+21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: decided, not started). The KEYBOARD toggle should
+   only add the keyboard below the synth, so the window grows and the layout above stays as it is. If it can't work that
+   way, the toggle is disabled or removed rather than changing the overall layout.
+   **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and
+   the positions of the existing panels with the keyboard on and off.
+   Size: large. Touches `src/PluginEditor.cpp` (the KEYBOARD button and window size) and the design scale (height / 720), which makes everything shrink when the keyboard adds height; decoupling the scale from the window height is the main work.
+   Order 2. Why here: the window scale comes from the window height. Changing it later would re-lay-out and re-snapshot every page, so it goes before any layout work.
+
+A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A node-and-cable model and the cable widget: drag from an output to an input, with the menus from 18. No audio change of its own.
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
+   Size: medium-large. Touches a new set of files under `src/gui` and a small model under `src/processor`.
+   Order 3. Why here: 16 and 17 both need it. Build it once and test it on the FX side first.
+
+17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided, not started; do not build yet). Her
+   words: patch FX from one output to the next, so complex parallel or feedback routes can be built, and allow more than
+   one instance of the same effect. This pairs with step 16's cable routing: the same cables could carry FX-to-FX links.
+   ilana's follow-up (2026-10-10): the patching works like FL Studio's Patcher, as its own sub-tab under FX, a node graph
+   of the effects with drag-cables from one output to another input.
+   Today the rack is a fixed list of slots, each slot one effect, with a series or parallel switch (`fx_routing`).
+   Open questions for when work starts: how a feedback loop is kept stable (delay per loop, a limit on its gain), and
+   whether an instance is a new slot or a copy of a slot's settings.
+   **Rules when it starts:** a patch that uses none of it renders as it does now (today's series or parallel chain is the
+   default), so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to
+   ilana for a look (a UI review after it) before the build is merged.
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
+   Size: very large. Touches `src/processor/Effects.cpp` (the fixed slot model, `fx_slotN_*` parameters and state), `src/gui/pages/FxPage.h` (a new node-graph sub-tab), and the parameter layout; several instances of one effect need parameter IDs that don't renumber. Shares the cable view with step 16.
+   Order 4. Why here: the FX chain is its own processor (`Effects.cpp`) and can ship without touching the voice core. Multi-instance first needs the fixed slot model turned into a list (sub-step B: the old slots become its first entries and keep their IDs, so old presets render the same and the fingerprint check stays at 0 changed). Then the patcher sub-tab uses shared foundation A.
+
+16. **Reroutable oscillators and patch cables** (ilana, 2026-10-10: decided, not started; do not build yet). Her words:
+   each oscillator can go to F1, to F2, only to WEST, or direct to the output, and all of them can run in parallel, in
+   any mix of those. WEST can sit before the filters. Routing is done by dragging virtual cables from an oscillator to a
+   filter (or WEST, or the output), and the filter order is changed the same way. This is the audio half of the older
+   future idea of a Bitwig Grid-style patch view (see the MODULATION note in HANDOFF.md). Open questions for when work
+   starts: whether the cable view replaces the current OSC and FILTER layout or sits beside it, and how the per-oscillator
+   route is stored (new parameters appended, never renumbered).
+   **Rules when it starts:** a patch that uses none of it renders as it does now (its default routing is today's chain),
+   so the fingerprint check stays at 0 changed; every new parameter and choice is appended; the design goes to ilana for
+   a look (a UI review after it) before the build is merged.
+   Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
+   Size: very large. Touches `src/dsp/Voice.cpp` (the fixed oscillator, F1, F2, WEST and output chain in `renderNextBlock`, 3,650 lines), `src/dsp/Voice.h`, the parameter layout, the OSC and FILTER pages, and a new cable view.
+   Order 5. Why here: it changes `Voice.cpp`, which every preset renders through. By then the shared widget and the fingerprint workflow have been proven on the FX side.
+
+**Checkpoint (after step 16): UI review pass.** Step 15's cycle runs here, once routing has landed, so it reviews FILTER and FX as they now are. ilana approved this at the reorder, so it runs automatically once step 16 lands.
+
+26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
+   response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).
+   Restyle it to match the rest of the interface.
+   **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.
+   Size: small-medium. Touches `src/gui/FilterDisplay.h` (776 lines, paint code only). The values and the parameter layout don't change.
+   Order 6. Why here: the filter graph's paint code sets the look that the new graph views (the cable view and the FX patcher) should copy, it comes after the routing steps and the UI review checkpoint, so it changes once, with the final layout. Dependency (ilana, 2026-10-10: "harmonize all displays"): apply the shared display drawing helper that the "Modulation UI fixes" thread is building (it unifies the envelope and LFO displays with the oscillator visualizers) to the filter display too.
+
+23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
+   lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the
+   pages and the clip editor.
+   **Rules when it starts:** UI only; no sound or preset change.
+   Size: small-medium. Touches `mouseWheelMove` in `src/gui/ClipEditor.h`, the only custom wheel handling; the other pages use JUCE's default scrolling. Tune the wheel delta and trackpad handling.
+   Order 7. Why here: small, and it changes the same wheel code that step 22 rewrites next.
+
+24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided, not started). The spray tool in
+   the clip editor does not place notes correctly. Find what it does wrong, fix it, and add a test that sprays notes
+   and checks where they land.
+   **Rules when it starts:** no sound or preset change.
+   Size: medium, needs reproduction. Spray is the generative note-spray stage (`src/dsp/Generative.h`, `src/PluginProcessor.cpp`) feeding the arpeggiator. The clip editor is separate (`src/ClipState.h`, `src/gui/ClipEditor.h`), so the clip interaction must be reproduced before fixing.
+   Order 8. Why here: fix the spray bug in the current clip editor first, so its behaviour can be checked before the gesture model changes.
+
+22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided, not started). A double-click places a
+   note, and a double-click then drag lengthens it. The current behaviour stays as a pencil mode for placing many notes
+   quickly, switched on and off from the editor.
+   **Rules when it starts:** the clip file format and playback do not change; the UI test covers both modes.
+   Size: medium-large. Touches `src/gui/ClipEditor.h` (1,840 lines): the mouse gestures and a pencil mode. The clip data and playback don't change.
+   Order 9. Why here: after the wheel (23) and spray (24) fixes, so the clip editor is changed once rather than three times.
+
+20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided, not started). Add a small icon
+   on the oscillator's waveform display (on PLAY and OSC) that opens the wavetable picker, so changing the table is
+   obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
+   left of the Wavetable, Basic and Off menus.
+   **Rules when it starts:** UI only; the picker and the dropdown set the same parameter.
+   Size: smallest. Touches `src/gui/WaveDisplay.h`: one icon in the display, and clicking it opens the existing table menu. The corner key that cycles WAVE, 3D and SPEC stays.
+   Order 10. Why here: a small change to the wavetable display, which is where the picker in 19 is reached from.
+
+19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided, not started). The current
+   library is thin. Source more wavetables, including unusual ones she has seen on Reddit. Before any file is added,
+   check its licence and permission for personal use, and write the source and licence into the content's notes
+   (`content/wavetables`). New tables are appended to the table list, so existing presets keep their table numbers.
+   **Rules when it starts:** no existing preset changes sound; the fingerprint check stays at 0 changed.
+   Size: data-heavy. Touches `content/wavetables` and `tools/build_content.py`, with new tables appended. The code change is small; sourcing and the licence checks take the time.
+   Order 11. Why here: the new tables are reached through the icon from 20. Content only and appended, so no existing preset changes.
+
+30. **Waveform zoom and audition** (ilana, 2026-10-10: decided, not started). Zoom into attacks and loop boundaries on the wave, enter a start and end in milliseconds or samples, and preview the selected range.
+   Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
+   Order 12. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.
+
+27. **Independent loop points** (ilana, 2026-10-10: decided, not started). Separate Loop Start and Loop End handles from the played Start and End, so the attack can play once and the sustain section repeats.
+   Size: medium. Today the loop wraps the played range (`src/dsp/SamplePlayer.h`, the loop branch around lines 145 to 151). Touches that, the parameter layout (new loop parameters, appended), the handles in `WaveDisplay.h`, and the SFZ and SF2 loop reads in `src/dsp/MultiSample.h`.
+   Order 13. Why here: slicing and the loop crossfade both build on loop bounds that are separate from the played range.
+
+28. **Loop crossfade and zero-crossing snap** (ilana, 2026-10-10: decided, not started). Blend the loop boundary to cut clicks, and optionally snap the markers to the nearest zero crossing. The existing Fade In and Fade Out stay as they are.
+   Size: medium. Touches the loop wrap in `src/dsp/SamplePlayer.h` and the snap in `src/gui/WaveDisplay.h`. Depends on step 27.
+   Order 14. Why here: a crossfade only makes sense once the loop is its own range (27).
+
+29. **Root-note control and pitch detection** (ilana, 2026-10-10: decided, not started). Set the original note of a plain sample instead of assuming C4, and offer a detected note that the user can adjust.
+   Size: medium. Today the root is the zone's or C4 (`rootNote` in `src/dsp/SamplePlayer.h`). Touches that, the OSC card's control on `src/gui/pages/OscPage.h`, and a new pitch detector in `src/dsp`.
+   Order 15. Why here: each sample (and later each slice) needs its own root, so it goes in before slicing adds per-slice tuning.
+
+31. **Portable sample presets** (ilana, 2026-10-10: decided, not started). Add Embed samples and Collect samples, plus a missing-file dialog with relinking and folder search. Include the SFZ dependencies.
+   Size: medium-large. Samples are saved by path and come back only if the file is still there (the features file, `/mnt/project-files/ilanasynth/sample-player/sample-player-features.md`). Touches the patch and preset save and load (`src/processor`, `src/Presets.h`) and the missing-file dialog. Changes the saved format, so old patches must still load.
+   Order 16. Why here: samples are saved by path today. Portable saving should exist before slicing and multisample resampling add more data to a patch.
+
+43. **Import feedback** (ilana, 2026-10-10: decided, not started). Explain decoding failures, and warn when a file is cut at 120 seconds.
+   Size: small. Touches the loader behind the OSC card's LOAD button and the drop on `src/gui/WaveDisplay.h`, plus the 120 s cut in `src/dsp/SampleFactory.h` and `src/dsp/MultiSample.h`.
+   Order 17. Why here: small, and the truncation warning should land before slices are cut from long files.
+
+44. **WAV export** (ilana, 2026-10-10: decided, not started). Save a resampled sound or a selected range as a WAV file.
+   Size: small. Touches the RESAMPLE path (`src/processor/Bounce.cpp`) and a save dialog in the OSC card. Slices reuse it once step 32 exists.
+   Order 18. Why here: small, and resampled sounds can be exported now.
+
+32. **Real slice mode** (ilana, 2026-10-10: decided, not started). Split a sample by transients, into equal divisions, or at manual markers, then trigger each slice from its own MIDI key. Per-slice reverse, tuning and level.
+   Size: large. The biggest sample feature here. Touches `src/dsp/SamplePlayer.h` (a slice table and note-to-slice mapping), `syncSamplePlayers` in `src/dsp/Voice.cpp`, the markers in `WaveDisplay.h`, and the parameter layout. Depends on steps 27, 29, 30 and 31.
+   Order 19. Why here: by now the zoom, loop points, root notes and portable saving it depends on exist.
+
+33. **Playback behaviour selector** (ilana, 2026-10-10: decided, not started). Gate, one-shot and sustain-loop modes. A sustain loop exits on note release and plays the remaining tail, and a one-shot keeps playing after key release.
+   Size: medium. Touches `src/dsp/SamplePlayer.h` and the release handling in `src/dsp/Voice.cpp`. The new modes are new choices (appended); existing patches keep their current behaviour by default.
+   Order 20. Why here: a playback mode applies to slices too, so it comes after slicing.
+
+34. **Ping-pong looping** (ilana, 2026-10-10: decided, not started). Alternate forward and backward playback inside the loop, for evolving pads and textures.
+   Size: small-medium. Touches the position advance at the loop end in `src/dsp/SamplePlayer.h`. A new choice (appended).
+   Order 21. Why here: a small change to the loop wrap, after loops and playback modes exist.
+
+35. **Start-position variation** (ilana, 2026-10-10: decided, not started). Randomise the starting offset for each note, with an amount control and an optional transient-safe range. Useful for unison.
+   Size: small-medium. Touches the start offset in `src/dsp/SamplePlayer.h` and needs its own random generator (appended, so existing random sequences don't shift).
+   Order 22. Why here: a per-note start offset applies to slices and unison, so it comes after slicing.
+
+39. **Playback quality modes** (ilana, 2026-10-10: decided, not started). Higher-quality interpolation and an anti-aliasing option for strong upward transposition, alongside the current linear mode.
+   Size: small-medium. Touches the interpolation in `src/dsp/SamplePlayer.h`. Linear stays the default, so existing presets don't change.
+   Order 23. Why here: independent. It sits after the playback features so the default stays linear until ilana decides.
+
+36. **Editable zone map** (ilana, 2026-10-10: decided, not started). Drag key and velocity boundaries, change root notes, add samples, and audition zones. Offer silence outside the mapped zones instead of always playing the nearest one.
+   Size: medium-large. Touches the zone choice in `src/dsp/MultiSample.h` (today the nearest zone plays when none covers the key), the zone boxes under the wave in `src/gui/WaveDisplay.h`, and a silence option.
+   Order 24. Why here: the zone map is the editing surface that multisample resampling (41) produces zones for.
+
+37. **Round-robin and velocity blending** (ilana, 2026-10-10: decided, not started). Alternate recordings of a repeated note, and optionally crossfade between velocity layers.
+   Size: medium. Touches the zone choice in `src/dsp/MultiSample.h` (an alternation counter per note) and the velocity crossfade in the sum. Depends on step 36.
+   Order 25. Why here: it uses the zone choice that step 36 edits.
+
+38. **SF2 preset browser** (ilana, 2026-10-10: decided, not started). Choose the bank and program inside a SoundFont, instead of loading only its first preset.
+   Size: medium. Today the reader takes the first preset only (`src/dsp/MultiSample.h`). Touches that and a picker in the OSC card.
+   Order 26. Why here: independent, but it changes the same zone loading as step 36, so it comes after.
+
+42. **Sample browser** (ilana, 2026-10-10: decided, not started). Favourites, recent files, folder navigation, and level-matched previews.
+   Size: medium. A new browser component for samples, plus the favourites and recent lists. Level matching uses the synth's existing level tools.
+   Order 27. Why here: a browser for samples. It comes after step 31 so favourites can store portable paths.
+
+45. **Granular controls** (ilana, 2026-10-10: decided, not started). Separate Grain Position from Sample Start, add scan speed and freeze, and expose grain stereo spread as a modulation destination.
+   Size: small-medium. Touches `src/dsp/GranularOsc.h`, the parameter layout (new parameters, appended), and the modulation destination list for grain stereo spread.
+   Order 28. Why here: separate from the core sample work, so it stays after it.
+
+40. **Tempo sync and time-stretch** (ilana, 2026-10-10: decided, not started). Set a source BPM or bar length, follow the host tempo, and change pitch independently of duration.
+   Size: very large. A new time-stretch engine, plus host tempo in the processor. Touches `src/dsp/SamplePlayer.h` and the processor's transport.
+   Order 29. Why here: the largest engine change in this group. It comes after the playback modes (33) and quality modes (39), which it builds on.
+
+41. **Multisample resampling** (ilana, 2026-10-10: decided, not started). Extend RESAMPLE to capture several notes and velocities automatically, then build zones from those renders, with note spacing, tail length and FX capture.
+   Size: large. Extends RESAMPLE (`src/processor/Bounce.cpp`) and writes zones through `src/dsp/MultiSample.h`. Depends on steps 36 and 31.
+   Order 30. Why here: it needs the zone map (36) to edit its zones and portable presets (31) to save them.
+
+25. **Better trance gate presets** (ilana, 2026-10-10: decided, not started). The current trance gate presets are not
+   good enough. Make new ones, judged by how they sound (ilana listens to them herself).
+   **Rules when it starts:** new presets are appended, so no existing preset changes sound.
+   Size: content only. Touches `src/PresetVoicing.h` and `src/PresetPackM10.h` (the Euclid Trance Gate and the new presets), with level tuning. Judged by ilana's ear.
+   Order 31, any time in parallel. Why here: content only and appended, so it can run whenever; it goes last so ilana judges the presets on the final engine.

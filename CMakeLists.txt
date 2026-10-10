@@ -461,6 +461,49 @@ if (MSVC)
     target_link_libraries(ilanaFxTest PRIVATE dbghelp)
 endif()
 
+# Dev tool: what the FX rack costs, per effect and per routing (tools/FxCpuBench.cpp; not shipped).
+juce_add_console_app(ilanaFxCpuBench PRODUCT_NAME "ilanaFxCpuBench")
+
+target_sources(ilanaFxCpuBench PRIVATE
+    tools/FxCpuBench.cpp
+    src/PluginProcessor.cpp
+    ${ILANA_PROCESSOR_SOURCES}
+    src/MtsEsp.cpp
+    src/PluginEditor.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/WavetableDoc.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
+)
+
+target_include_directories(ilanaFxCpuBench PRIVATE src)
+
+target_compile_definitions(ilanaFxCpuBench PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_FX=1
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JucePlugin_Name="ilanaSynth FX"
+)
+
+target_link_libraries(ilanaFxCpuBench
+    PRIVATE
+        ilanaFonts
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)
+
+if (MSVC)
+    target_compile_options(ilanaFxCpuBench PRIVATE /Zi)
+    target_link_options(ilanaFxCpuBench PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    target_link_libraries(ilanaFxCpuBench PRIVATE dbghelp)
+endif()
+
 add_test(NAME fx_tests COMMAND ilanaFxTest)
 
 foreach (tool ilanaSnapshot ilanaFingerprint ilanaStress ilanaPresetRender ilanaFxTest)

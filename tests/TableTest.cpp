@@ -1905,6 +1905,7 @@ void runParameterStressTest()
             }
 
             ranged->setValueNotifyingHost (ranged->getDefaultValue());
+            renderIsBounded(); // let the smoothed master/FX ramps settle before the next parameter
         }
     }
 

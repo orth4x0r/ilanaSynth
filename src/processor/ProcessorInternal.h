@@ -72,6 +72,7 @@ juce::String envelopePrefix (int env)
 }
 
 constexpr int numVoices = 32;
+constexpr int numSpareVoices = 8;
 
 juce::StringArray getSyncDivisionNames()
 {
@@ -148,6 +149,10 @@ void sanitiseBuffer (juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             const auto value = data[i];
+            if (! std::isfinite (value))
+                IlanaSynthAudioProcessor::sanitisedNonFinite.fetch_add (1, std::memory_order_relaxed);
+            else if (std::abs (value) > limit)
+                IlanaSynthAudioProcessor::sanitisedClamped.fetch_add (1, std::memory_order_relaxed);
             data[i] = std::isfinite (value) ? juce::jlimit (-limit, limit, value) : 0.0f;
         }
     }

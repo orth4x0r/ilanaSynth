@@ -4,7 +4,9 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <complex>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -35,6 +37,7 @@ public:
         inputWrite = 0;
         outputRead = 0;
         hopFill = 0;
+        lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
     void reset()
@@ -48,6 +51,7 @@ public:
         outputRead = 0;
         hopFill = 0;
         hasFrozenData = false;
+        lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
     // The held (or, while not holding, the live) spectrum as numBands
@@ -67,6 +71,11 @@ public:
         if (fft == nullptr)
             return;
 
+        // MIX eases across the block from the last one (no step at the block edge).
+        const auto mixFrom = std::isfinite (lastMix) ? lastMix : mix;
+        const auto mixStep = numSamples > 0 ? (mix - mixFrom) / (float) numSamples : 0.0f;
+        lastMix = mix;
+
         for (int i = 0; i < numSamples; ++i)
         {
             inputRing[(size_t) inputWrite] = data[i];
@@ -82,7 +91,8 @@ public:
                 processFrame (frozen);
             }
 
-            data[i] = data[i] * (1.0f - mix) + wet * mix;
+            const auto mixNow = mixFrom + mixStep * (float) i;
+            data[i] = data[i] * (1.0f - mixNow) + wet * mixNow;
         }
     }
 
@@ -157,5 +167,6 @@ private:
     int outputRead = 0;
     int hopFill = 0;
     bool hasFrozenData = false;
+    float lastMix = std::numeric_limits<float>::quiet_NaN(); // MIX of the last block (eased from)
     std::array<std::atomic<float>, numBands> bands {};
 };

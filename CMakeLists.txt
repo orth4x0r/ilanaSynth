@@ -51,6 +51,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Modulation.cpp
     src/processor/Effects.cpp
     src/processor/FxPatcher.cpp
+    src/processor/OscRouting.cpp
     src/processor/Sequencers.cpp
     src/processor/Presets.cpp
     src/processor/State.cpp

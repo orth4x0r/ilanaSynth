@@ -1169,5 +1169,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Off, as in every older patch.
     addBool ("fx_patcher", "FX Patcher", false);
 
+    // Roadmap step 16: reroutable oscillators. On, the FILTER tab's ROUTING
+    // cables decide where each source goes (F1, F2, WEST, OUT, any mix) and
+    // in which order the stages run (dsp/VoiceRouting.h); off, as in every
+    // older patch, the fixed chain (the _route menus, SERIAL / PARALLEL,
+    // WEST's position). Each cable_* holds one source's or stage's
+    // destinations as a mask; the defaults are today's default chain.
+    addBool ("route_cables", "Routing Cables", false);
+    {
+        juce::StringArray masks;
+        for (int mask = 0; mask < 16; ++mask)
+            masks.add (VoiceRouting::maskNames()[mask]);
+        const auto defaults = VoiceRouting::defaultPatch();
+        for (int source = 0; source < VoiceRouting::numSources; ++source)
+            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks, defaults.source[(size_t) source]);
+        for (int stage = 0; stage < VoiceRouting::numStages; ++stage)
+            addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + stage), VoiceRouting::cableParamName (VoiceRouting::numSources + stage),
+                       masks, defaults.stage[(size_t) stage]);
+    }
+
     return layout;
 }

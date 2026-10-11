@@ -63,6 +63,7 @@
 #include "gui/pages/FxWidgets.h"
 #include "gui/pages/FxPage.h"
 #include "gui/pages/FxPatcherPage.h"
+#include "gui/pages/OscRoutingPage.h"
 
 
 // The scope over the current page. Docked (the default, review 7) it fills
@@ -354,7 +355,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
-    addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
+    // The filters and, under the same tab, the oscillators' ROUTING cables
+    // (roadmap step 16).
+    auto* routingPage = new OscRoutingPage (p);
+    addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) }, { "ROUTING", "ROUTING", routingPage } });
+    routingPage->onShowPage = [this] (const juce::String& page) { showPage (page); };
+    FilterFlow::openRouting() = [this] { showPage ("ROUTING"); };
     auto* matrixPage = new MatrixPage (p);
     addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage } });
     // The matrix has its own tab (ilana, 2026-10-10).

@@ -33,6 +33,7 @@
 #include "dsp/AcousticKeys.h"
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
+#include "dsp/VoiceRouting.h"
 #include "dsp/airwindows/AirwindowsModule.h"
 #include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
@@ -600,6 +601,21 @@ public:
     // FxPatcher.cpp). Message thread unless noted; the editor wraps each
     // user action in performEdit, so the parameters and this data undo
     // together.
+    //==========================================================================
+    // Roadmap step 16: reroutable oscillators (OscRouting.cpp). The cables
+    // live in parameters (route_cables, cable_*), so presets, undo and chain
+    // files carry them like any other setting. Message thread; the caller
+    // wraps a user action in performEdit.
+    bool areRouteCablesOn() const;
+    // The cables as saved (the default chain until the first cable edit).
+    VoiceRouting::Patch getRoutePatch() const;
+    // The fixed chain (the _route menus, SERIAL / PARALLEL, WEST's
+    // position) as cables: what the page shows while the cables are off.
+    VoiceRouting::Patch getChainAsCables() const;
+    // Writes the cables and the switch (and switches WEST on when a cable
+    // now goes into it).
+    void setRouteCables (const VoiceRouting::Patch& patch, bool on);
+
     FxPatchData::Patch getFxPatch() const;
     void setFxPatch (const FxPatchData::Patch& patch);
     bool isFxPatcherOn() const;
@@ -1313,6 +1329,15 @@ private:
     void processEffectsFixed (juce::AudioBuffer<float>& buffer);
     void processEffectsPatched (juce::AudioBuffer<float>& buffer);
     ParamRef fxPatcherRef { "fx_patcher" };
+    // The ROUTING cables, compiled when they change (a few dozen
+    // operations, no allocation, so the audio thread does it: rule B1's
+    // "per patch, not per sample").
+    const VoiceRouting::Table& currentRoutingTable();
+    ParamRef routeCablesRef { "route_cables" };
+    std::array<ParamRef, VoiceRouting::numCableParams> cableRefs { "cable_osc1", "cable_osc2", "cable_osc3", "cable_osc4", "cable_osc5",
+                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west" };
+    VoiceRouting::Table routingTable;
+    std::uint64_t routingSignature = ~(std::uint64_t) 0;
     struct FxSlotTypeListener : juce::AudioProcessorParameter::Listener
     {
         explicit FxSlotTypeListener (IlanaSynthAudioProcessor& p) : processor (p) {}

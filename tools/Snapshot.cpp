@@ -141,6 +141,7 @@ void expect (bool condition, const juce::String& message)
 #include "GlobalUiTests.h"
 #include "DropdownUiTests.h"
 #include "PatchCableUiTests.h"
+#include "OscRoutingUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
@@ -994,6 +995,15 @@ int runUiTests()
     if (only == "PG")
     {
         runPatchCableTests (processor);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "OR")
+    {
+        runOscRoutingUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7024,6 +7034,8 @@ int runUiTests()
     runDropdownTests (processor, *pages);
     // Step A: the cable view.
     runPatchCableTests (processor);
+    // Step 16: the oscillators' ROUTING cables.
+    runOscRoutingUiTests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);
@@ -7580,6 +7592,11 @@ static int runHeldCpu (const juce::String& presetName)
         processor.loadPresetFromFile (juce::File (presetName));
     else
         processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (presetName));
+    // ILANA_HELD_CABLES=1: the preset's chain played by the ROUTING cables
+    // (roadmap step 16; the same sound, the cables' code path), before
+    // ILANA_LOOP_SET, so that can then change cable_* masks.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_HELD_CABLES", "").isNotEmpty())
+        processor.setRouteCables (processor.getChainAsCables(), true);
     for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_LOOP_SET", ""), ";", ""))
         if (auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false))))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
@@ -8544,6 +8561,59 @@ int main (int argc, char** argv)
             if (auto* view = findChild<PatchCableView> (*editor))
                 view->centreContent();
             shot ("loop-75");
+            top->setBounds (before);
+        }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_ROUTING: the FILTER tab's ROUTING page (roadmap step
+    // 16): a preset's chain as cables, a cabled patch (WEST before the
+    // filters, an oscillator split into Filter 1 and OUT, the sub straight
+    // out), one box selected, the FILTER page's strip while cables rule, and
+    // the page at 75 %; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_ROUTING", "").isNotEmpty())
+    {
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("routing-" + name + ".png"));
+        };
+        const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_ROUTING_PRESET", "Supersaw Anthem");
+        processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf (preset)));
+        settle (300);
+        pages->showPage ("ROUTING");
+        shot ("chain");
+
+        using namespace VoiceRouting;
+        auto patch = processor.getChainAsCables();
+        patch.source[0] = toF1 | toOut;
+        patch.source[1] = toWest;
+        patch.source[2] = toF2;
+        patch.source[subNoiseSource] = toOut;
+        patch.stage[west] = toF1;
+        patch.stage[f1] = toF2;
+        patch.stage[f2] = toOut;
+        processor.setRouteCables (patch, true);
+        shot ("cables");
+
+        if (auto* view = OscRoutingUi::findRoutingView (*editor))
+            if (const auto* node = OscRoutingUi::nodeNamed (view->getGraph(), "OSC 1"))
+            {
+                const auto centre = view->nodeBounds (*node).getCentre() * view->getZoom();
+                view->mouseDown (PatchCableUi::mouse (*view, centre, true));
+                view->mouseUp (PatchCableUi::mouse (*view, centre, false));
+            }
+        shot ("selected");
+
+        pages->showPage ("FILTER");
+        shot ("filter-page");
+
+        if (auto* top = editor->getTopLevelComponent())
+        {
+            const auto before = top->getBounds();
+            top->setSize (795, 540);
+            pages->showPage ("ROUTING");
+            shot ("75");
             top->setBounds (before);
         }
         return 0;

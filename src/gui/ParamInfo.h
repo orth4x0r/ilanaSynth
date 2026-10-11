@@ -1179,6 +1179,15 @@ inline juce::String describeParameter (const juce::String& id)
         return "PATCHER: the rack's effects as boxes you wire with cables, output to input. Parallel branches, "
                "loops (each with a 1.3 ms delay) and several of the same effect. Off: SERIES or PARALLEL.";
 
+    if (id == "route_cables")
+        return "ROUTING cables (FILTER tab): each oscillator goes where its cables go (Filter 1, Filter 2, WEST, "
+               "straight out, or several at once), and the cables between the filters and WEST set their order. "
+               "Off: the fixed chain (each oscillator's route, SERIAL / PARALLEL, WEST's position).";
+
+    if (id.startsWith ("cable_"))
+        return "Where this oscillator, filter or WEST sends its signal, as the FILTER tab's ROUTING page draws it. "
+               "Heard only while the ROUTING cables are on.";
+
     if (id.endsWith ("_bypass"))
         return "Bypasses this rack slot without losing its settings.";
 

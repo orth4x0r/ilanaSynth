@@ -43,6 +43,8 @@
 #include "TuningState.h"
 #include "ClipState.h"
 
+namespace PatchGraph { class Graph; class Runner; }
+
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
 {
@@ -584,6 +586,13 @@ public:
     void runFxSlot (int slot, juce::AudioBuffer<float>& buffer);
     bool isFxSlotActive (int index);
     void clearFxSlotMeters (int index);
+    // Roadmap step A: the rack as a patch graph (PatchGraphState.h,
+    // rackGraph) and the rack run through a compiled graph instead of the
+    // fixed loop. Not on the audio path yet: the tests and ilanaFxCpuBench
+    // use them to show a graph renders the fixed rack sample for sample and
+    // what it costs; step 17 switches the audio path over.
+    PatchGraph::Graph getFxRackGraph();
+    void processEffectsGraph (juce::AudioBuffer<float>& buffer, PatchGraph::Runner& runner);
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);

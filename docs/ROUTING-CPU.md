@@ -137,3 +137,18 @@ What the two suspected leaks turned out to be, and the cheap rules applied. Numb
 - **FTZ/DAZ:** `ScopedNoDenormals` is now the first line of `processBlock` (it was already in `processChunk`).
 - **MIX 0 skip:** `runFxSlot` returns before running the effect when the slot's blend was 0 last block and is 0 now (not solo, not banded). Meters and the CPU share still update.
 - **Checked:** 0 of 698 preset fingerprints changed; unit, FX, UI tests and pluginval at strictness 10 pass; the changed files compile with clang-cl against the MSVC library and Windows SDK. The MIX 0 skip is within the bench noise (a settled mix-0 slot now measures the same as a bypassed one; before it measured the same as mix 1.0).
+
+
+## Step A measured (2026-10-11, branch `claude/patch-graph-foundation-phkb1a`)
+
+`ILANA_BENCH_ONLY=graph ilanaFxCpuBench`, same box, 48 kHz. "per node" is the graph's time minus the same work done in a plain loop, divided by 16.
+
+| 16 gain nodes | block 512 | block 64 |
+|---|---|---|
+| series (in place, 1 buffer, 0 copies) | 0.010 us / node (0.06 with the per-node CPU readout) | 0.012 (0.067) |
+| parallel (3 pooled buffers) | 0.041 (0.100) | 0.025 (0.067) |
+| series with one loop (64-sample chunks) | 0.27 (0.87) | 0.033 (0.091) |
+
+Whole graph: 0.02 to 0.16 % of a core for 16 nodes (budget 0.4 %). The per-node readout reads the clock twice per node per chunk, so a looped graph at a big host block pays it eight times per block; still under the 3 us budget.
+
+The real rack through its migrated graph (`processEffectsGraph`) against the fixed loop, block 512, mean us per block: 10 x Utility series 39.7 / 40.1, parallel 44.6 / 45.1; 4 x Drive series 116.6 / 115.7; 8 x Delay parallel 174.2 / 176.8; Drive, Chorus, Delay, Reverb series 90.0 / 90.9, parallel 108.6 / 108.9. At block 64 the differences are 0.0 to 0.9 us. The whole engine against main (the overhead group and `ilanaSnapshot --heldcpu "Neuro Wobble"`, alternating runs) is unchanged within noise: 10.1 % against 10.1 %.

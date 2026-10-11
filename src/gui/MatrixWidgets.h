@@ -498,6 +498,9 @@ public:
     std::function<void()> onChange;
 
     int getChoice() const { return choice; }
+
+    // Sets the polarity (0 auto, 1 positive, 2 bipolar, 3 negative) as one undo step.
+    void setChoice (int wanted) { attachment.setValueAsCompleteGesture ((float) wanted); }
     bool isEffectivelyBipolar() const { return choice == 2 || (choice == 0 && autoBipolar); }
     bool isNegative() const { return choice == 3; }
 
@@ -513,7 +516,7 @@ public:
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f, 2.5f);
         IlanaTheme::paintWell (g, bounds, 5.0f);
         const auto lit = choice == 3 ? 1 : isEffectivelyBipolar() ? 2 : 0;
-        static const char* const names[] { "+", juce::CharPointer_UTF8 ("\xe2\x88\x92"), juce::CharPointer_UTF8 ("\xc2\xb1") };
+        const juce::String names[] { "+", juce::String::fromUTF8 ("\xe2\x88\x92"), juce::String::fromUTF8 ("\xc2\xb1") };
 
         for (int segment = 0; segment < 3; ++segment)
         {
@@ -693,6 +696,7 @@ public:
         };
         polarity.onChange = [this] { amount.updateText(); };
         amount.updateText();
+        amount.addMouseListener (this, true); // right-click: polarity and typed amount
         stereoAttachment = std::make_unique<juce::ButtonParameterAttachment> (*state.getParameter (id ("stereo")), stereo);
         bypassAttachment = std::make_unique<ReverseButtonAttachment> (*state.getParameter (id ("byp")), bypass);
     }
@@ -856,6 +860,32 @@ public:
         g.fillRoundedRectangle (bar, 2.5f);
         g.setColour (juce::Colours::white.withAlpha (idle ? 0.4f : 0.95f));
         g.fillRoundedRectangle (juce::Rectangle<float> (2.0f, bar.getHeight() + 6.0f).withCentre ({ liveX, bar.getCentreY() }), 1.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu() || ! (event.originalComponent == &amount || amount.isParentOf (event.originalComponent)))
+            return;
+
+        const auto current = polarity.getChoice();
+        juce::PopupMenu menu;
+        menu.addItem (1, "Polarity: positive (up)", true, current == 1);
+        menu.addItem (2, "Polarity: negative (down)", true, current == 3);
+        menu.addItem (3, "Polarity: bipolar (both sides)", true, current == 2);
+        menu.addItem (4, "Polarity: auto (the source's range)", true, current == 0);
+        menu.addSeparator();
+        menu.addItem (5, "Type an amount...");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&amount),
+                            [safe = juce::Component::SafePointer<MatrixRow> (this)] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+
+                                if (result == 5)
+                                    safe->amount.showTextBox();
+                                else
+                                    safe->polarity.setChoice (result == 1 ? 1 : result == 2 ? 3 : result == 3 ? 2 : 0);
+                            });
     }
 
     void mouseMove (const juce::MouseEvent& event) override { setNumberHover (isDuplicate() && numberBounds().contains (event.getPosition())); }

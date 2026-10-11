@@ -374,9 +374,15 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 scope = button;
         const auto switchBounds = boundsInEditor (shown);
         const auto scopeBounds = boundsInEditor (scope);
-        expect (shown != nullptr && scope != nullptr && switchBounds.getRight() + 60 < scopeBounds.getX() && switchBounds.getX() < editor.getWidth() / 2,
-                "PLAY's OVERVIEW / VECTOR switch follows the tabs, apart from SCOPE (" + switchBounds.toString() + ", SCOPE "
-                    + scopeBounds.toString() + ")");
+        auto tabsRight = 0;
+        if (auto* tabbed = findChild<juce::TabbedComponent> (editor))
+            if (auto* last = tabbed->getTabbedButtonBar().getTabButton (tabbed->getNumTabs() - 1))
+                tabsRight = boundsInEditor (last).getRight();
+        expect (shown != nullptr && scope != nullptr && switchBounds.getRight() + 60 < scopeBounds.getX()
+                    && switchBounds.getX() >= tabsRight && switchBounds.getX() <= tabsRight + 20
+                    && switchBounds.getWidth() >= shown->getIdealWidth(),
+                "PLAY's OVERVIEW / VECTOR switch follows the tabs, whole, apart from SCOPE (" + switchBounds.toString() + ", tabs end "
+                    + juce::String (tabsRight) + ", SCOPE " + scopeBounds.toString() + ")");
     }
 
     // S8-37, V8-30: the OUT meter keeps clear of the resize grip's corner.

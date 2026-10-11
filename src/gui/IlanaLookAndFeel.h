@@ -1052,7 +1052,7 @@ public:
 
     int getTabButtonBestWidth (juce::TabBarButton& button, int) override
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (tabFont()), button.getButtonText()) + 26;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (tabFont()), button.getButtonText()) + 22;
     }
 
     void drawTabButton (juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool isMouseDown) override

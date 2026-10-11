@@ -1041,8 +1041,8 @@ int runUiTests()
         return processor.getUndoManager().getUndoDescriptions();
     };
     expect (findChild<juce::TabbedComponent> (*editor) != nullptr
-                && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 9 : 8),
-            "eight tabs");
+                && findChild<juce::TabbedComponent> (*editor)->getNumTabs() == (IlanaSynthAudioProcessor::isEffectBuild ? 10 : 9),
+            "nine tabs");
 
     // An oscillator card's switch on the page shown (its tooltip names the
     // parameter), and a click on that card's title line: a card folded to

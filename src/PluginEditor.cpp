@@ -1898,12 +1898,23 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
     constexpr int readoutGap = 12;
     place (cpuArea, textWidth ("CPU 100%"), readoutGap);
     place (voicesArea, textWidth ("VOICES 32 / 32"), readoutGap);
-    place (bpmArea, textWidth ("BPM 120.0"), 0);
-    statusStartX = x;
 
     auto& tabBar = tabs.getTabbedButtonBar();
     auto* lastTab = tabBar.getNumTabs() > 0 ? tabBar.getTabButton (tabBar.getNumTabs() - 1) : nullptr;
     const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : bar.getX();
+
+    // BPM gives way when the current tab's page switch would not fit
+    // whole beside the tabs (nine tabs and PLAY's OVERVIEW / VECTOR).
+    auto switchWidth = 0;
+    for (auto* section : sections)
+        if (section == currentSection() && section->getNumPages() > 1)
+            switchWidth = section->switcher.getIdealWidth();
+    const auto bpmWidth = textWidth ("BPM 120.0");
+    const auto showBpm = switchWidth <= x - bpmWidth - 12 - (tabsRight + 12);
+    bpmArea.setVisible (showBpm);
+    if (showBpm)
+        place (bpmArea, bpmWidth, 0);
+    statusStartX = x;
     auto row = juce::Rectangle<int> (tabsRight + 12, bar.getY() + 3, juce::jmax (0, statusStartX - 12 - (tabsRight + 12)), tabBarHeight - 7);
 
     for (auto* section : sections)

@@ -407,7 +407,7 @@ private:
 // the bypass is drawn only while a source takes it, as a labelled lane over
 // the filters into the stage that really follows them; the SERIAL badge sits
 // over the gap between F1 and F2, clear of the wires.
-// Opens the FILTER tab's ROUTING page (set by the editor).
+// Opens the PATCH tab (set by the editor).
 namespace FilterFlow
 {
 inline std::function<void()>& openRouting()
@@ -471,7 +471,7 @@ public:
             IlanaTheme::drawFitted (g, "ROUTED BY CABLES", area.withHeight (juce::jmin (area.getHeight(), 22)), juce::Justification::centredLeft, 1);
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            IlanaTheme::drawFitted (g, "The ROUTING page decides where each oscillator goes. Click to open it.",
+            IlanaTheme::drawFitted (g, "The PATCH tab decides where each oscillator goes. Click to open it.",
                                     area.withTrimmedTop (juce::jmin (area.getHeight() / 2, 22)), juce::Justification::topLeft, 2);
             return;
         }

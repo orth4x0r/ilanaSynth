@@ -66,6 +66,13 @@ public:
     bool showInputNode = true;   // false: the fixed INPUT node is not drawn
     bool nodesRemovable = true;  // false: no Bypass / Remove, Delete leaves nodes alone
     bool cableLevels = true;     // false: a cable's menu has no Level
+    // Optional, per node or cable, for a view that mixes both kinds (the
+    // PATCH tab: the voice's fixed boxes beside the rack's effects).
+    std::function<bool (const PatchGraph::Node&)> removable, movable;
+    std::function<bool (const PatchGraph::Cable&)> hasLevel;
+    // Optional: drawn over the dot grid, under the cables (zoomed; graph
+    // positions are at getOrigin() + (x, y)).
+    std::function<void (juce::Graphics&)> paintBackdrop;
 
     // How menus open. The tests swap it for one that picks an item.
     std::function<void (juce::PopupMenu&, std::function<void (int)>)> openMenu = [this] (juce::PopupMenu& menu, std::function<void (int)> done)
@@ -95,16 +102,16 @@ public:
     }
     float getZoom() const { return zoom; }
 
-    // The largest zoom (from 1 to maxZoom) at which the graph, with a margin,
-    // fits the view; then centred.
-    void fitContent (float maxZoom = 1.5f)
+    // The largest zoom (from minZoom to maxZoom) at which the graph, with a
+    // margin, fits the view; then centred.
+    void fitContent (float maxZoom = 1.5f, float minZoom = 1.0f)
     {
         const auto content = contentBounds();
         if (content.isEmpty() || getWidth() <= 0 || getHeight() <= 0)
             return;
         const auto fit = juce::jmin ((float) getWidth() / (content.getWidth() + 160.0f),
                                      (float) getHeight() / (content.getHeight() + 220.0f));
-        zoom = juce::jlimit (1.0f, juce::jmax (1.0f, maxZoom), std::floor (fit * 10.0f) / 10.0f);
+        zoom = juce::jlimit (minZoom, juce::jmax (minZoom, maxZoom), std::floor (fit * 10.0f) / 10.0f);
         centreContent();
     }
 
@@ -143,6 +150,7 @@ public:
     }
 
     const PatchGraph::Graph& getGraph() const { return graph; }
+    juce::Point<float> getOrigin() const { return origin; }
     PatchGraph::NodeId getSelectedNode() const { return selectedNode; }
     int getSelectedCable() const { return selectedCable; }
 
@@ -159,6 +167,8 @@ public:
         for (auto y = startY; y < viewArea().getBottom(); y += 20.0f)
             for (auto x = startX; x < viewArea().getRight(); x += 20.0f)
                 g.fillRect (x - 0.5f, y - 0.5f, 1.5f, 1.5f);
+        if (paintBackdrop)
+            paintBackdrop (g);
 
         const auto feedback = graph.feedbackCables();
         const auto& cables = graph.cables();
@@ -219,7 +229,7 @@ public:
             selectedNode = node->id;
             selectedCable = -1;
             drag = {};
-            drag.kind = DragKind::node;
+            drag.kind = movable && ! movable (*node) ? DragKind::none : DragKind::node;
             drag.node = node->id;
             drag.grabOffset = position - juce::Point<float> (origin.x + node->x, origin.y + node->y);
             repaint();
@@ -299,7 +309,7 @@ public:
                 edited (Edit::cables);
                 return true;
             }
-            if (const auto* node = graph.find (selectedNode); node != nullptr && ! node->isFixed() && nodesRemovable)
+            if (const auto* node = graph.find (selectedNode); node != nullptr && canRemove (*node))
             {
                 removeNodeNow (*node);
                 return true;
@@ -358,6 +368,7 @@ private:
     enum class DragKind { none, node, cable, pan };
 
     bool isShown (const PatchGraph::Node& node) const { return showInputNode || ! node.isInput(); }
+    bool canRemove (const PatchGraph::Node& node) const { return ! node.isFixed() && nodesRemovable && (! removable || removable (node)); }
 
     struct Drag
     {
@@ -460,7 +471,7 @@ private:
             selectedNode = id;
             selectedCable = -1;
             repaint();
-            if (! node->isFixed() && nodesRemovable)
+            if (canRemove (*node))
             {
                 menu.addItem (bypassNode, "Bypass", true, node->bypassed);
                 menu.addItem (removeNode, "Remove");
@@ -509,7 +520,7 @@ private:
             // (A loop's cable stays under 100 %, or a loop through gain would grow.)
             const bool loop = graph.feedbackCables()[(size_t) c];
             const float levels[] = { 1.0f, 0.7f, 0.5f, 0.25f };
-            if (cableLevels)
+            if (cableLevels && (! hasLevel || hasLevel (cable)))
             {
                 juce::PopupMenu gains;
                 for (int i = loop ? 1 : 0; i < 4; ++i)

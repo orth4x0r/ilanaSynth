@@ -8525,7 +8525,7 @@ int main (int argc, char** argv)
         settle (100);
         for (const auto type : { 2, 9, 13, 7 })
             processor.addFxEffect (type);
-        pages->showPage ("PATCHER");
+        pages->showPage ("PATCH");
         shot ("rack");
 
         // Drive splits into two Delays (the second its own instance, a
@@ -8565,8 +8565,8 @@ int main (int argc, char** argv)
         shot ("loop");
         // Delay 2 selected: its row under the canvas.
         if (auto* view = findChild<PatchCableView> (*editor))
-            for (const auto& node : processor.getFxPatchGraph().nodes())
-                if (node.ref == 5)
+            for (const auto& node : view->getGraph().nodes())
+                if (node.ref == 5 && node.id < (1u << 20)) // (not a voice box: PatchPage::voiceId)
                 {
                     const auto centre = view->nodeBounds (node).getCentre() * view->getZoom();
                     view->mouseDown (PatchCableUi::mouse (*view, centre, true));
@@ -8581,7 +8581,7 @@ int main (int argc, char** argv)
         {
             const auto before = top->getBounds();
             top->setSize (795, 540);
-            pages->showPage ("PATCHER");
+            pages->showPage ("PATCH");
             settle (200);
             if (auto* view = findChild<PatchCableView> (*editor))
                 view->centreContent();
@@ -8606,7 +8606,7 @@ int main (int argc, char** argv)
         const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_ROUTING_PRESET", "Supersaw Anthem");
         processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf (preset)));
         settle (300);
-        pages->showPage ("ROUTING");
+        pages->showPage ("PATCH");
         shot ("chain");
 
         using namespace VoiceRouting;
@@ -8637,7 +8637,7 @@ int main (int argc, char** argv)
         {
             const auto before = top->getBounds();
             top->setSize (795, 540);
-            pages->showPage ("ROUTING");
+            pages->showPage ("PATCH");
             shot ("75");
             top->setBounds (before);
         }

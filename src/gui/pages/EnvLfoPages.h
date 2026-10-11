@@ -37,7 +37,7 @@ public:
         const auto parallel = read ("filters_parallel") > 0.5f;
         const auto westReplaces = read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1;
 
-        // Roadmap step 16: with the ROUTING cables on, the strip shows the
+        // Roadmap step 16: with the PATCH cables on, the strip shows the
         // order the cables run the stages in, and a click opens them.
         if (read ("route_cables") > 0.5f)
         {
@@ -109,7 +109,7 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
-    // SIGNAL FLOW while the ROUTING cables decide: the stages in the order
+    // SIGNAL FLOW while the PATCH cables decide: the stages in the order
     // they run, and where to change it.
     void paintCables (juce::Graphics& g, juce::Rectangle<float> bounds)
     {
@@ -152,7 +152,7 @@ private:
         }
         chip ("OUT", IlanaTheme::Ui::text);
 
-        const juce::String hint ("The ROUTING cables decide. Click to open them.");
+        const juce::String hint ("The PATCH cables decide. Click to open them.");
         const auto hintFont = IlanaTheme::font (IlanaTheme::TextSize::label);
         const auto room = (float) getWidth() - (float) balanceWidth - 8.0f - x;
         if (room > (float) juce::GlyphArrangement::getStringWidthInt (hintFont, hint) + 8.0f)
@@ -414,7 +414,7 @@ private:
         // card (or a menu from it is up); leaving lets it shrink back.
         const auto over = strip.isMouseOver (true) || (overlay.isVisible() && overlay.isMouseOver (true))
                           || juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0 && overlay.isVisible();
-        // (Not while the ROUTING cables decide: the strip opens them instead.)
+        // (Not while the PATCH cables decide: the strip opens them instead.)
         const auto want = (pinned || over || flowForcedOpen()) && readValue ("route_cables") < 0.5f;
         const auto target = want ? 1.0f : 0.0f;
         if (std::abs (openAmount - target) > 0.001f)

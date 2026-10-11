@@ -376,7 +376,7 @@ public:
         seriesButton.setTooltip ("Series\nEach effect feeds the next one, top to bottom.");
         parallelButton.setTooltip ("Parallel\nEvery effect hears the rack's input; their outputs are summed "
                                    "(averaged, so effects that leave the sound alone give it back unchanged).");
-        patcherButton.setTooltip ("Patcher\nThe effects as boxes wired with cables (the PATCHER tab): parallel branches, "
+        patcherButton.setTooltip ("Patcher\nThe effects as boxes wired with cables (the PATCH tab): parallel branches, "
                                   "loops and several of the same effect.");
         seriesButton.setDescription ("FX routing: series");
         parallelButton.setDescription ("FX routing: parallel");
@@ -785,6 +785,9 @@ public:
         addButton.setTooltip (free ? "Add an effect to the next empty slot: the library, every effect grouped by what it does"
                                    : "Every slot is in use: remove an effect to add another.");
     }
+
+    // Set by the editor: PATCHER shows the PATCH tab.
+    std::function<void()> onOpenPatch;
 
     // A compact instance card's EDIT / MAKE OWN (step 17), and the
     // patcher's double-click on a node.
@@ -1203,12 +1206,14 @@ private:
         });
     }
 
-    // PATCHER: the cables on the PATCHER tab decide the routing.
+    // PATCHER plays the cables and shows them on the PATCH tab.
     void setPatcher()
     {
-        if (processorRef.isFxPatcherOn())
-            return routingChanged (parallelRouting, true);
-        processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
+        if (! processorRef.isFxPatcherOn())
+            processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
+        routingChanged (parallelRouting, true);
+        if (onOpenPatch)
+            onOpenPatch();
     }
 
     void routingChanged (bool parallel, bool force = false)
@@ -1227,7 +1232,7 @@ private:
     juce::String routingHintText() const
     {
         if (patcherOn)
-            return "the PATCHER tab's cables decide the routing";
+            return "the PATCH tab's cables decide the routing";
         return parallelRouting ? "every effect hears the input, outputs are summed" : "each effect feeds the next one";
     }
 

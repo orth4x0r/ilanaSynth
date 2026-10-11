@@ -1185,7 +1185,7 @@ inline juce::String describeParameter (const juce::String& id)
                "Off: the fixed chain (each oscillator's route, SERIAL / PARALLEL, WEST's position).";
 
     if (id.startsWith ("cable_"))
-        return "Where this oscillator, filter or WEST sends its signal, as the FILTER tab's ROUTING page draws it. "
+        return "Where this oscillator, filter or WEST sends its signal, as the PATCH tab draws it. "
                "Heard only while the ROUTING cables are on.";
 
     if (id.endsWith ("_bypass"))

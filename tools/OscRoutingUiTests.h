@@ -1,8 +1,9 @@
-// Roadmap step 16: the FILTER tab's ROUTING page (gui/pages/OscRoutingPage.h)
-// driven with the mouse: it shows the fixed chain as cables, a cable drag
-// hands the routing to the cables (one undo step), a loop between the
-// filters is refused, CHAIN gives the routing back, and the boxes sit on the
-// grid without overlapping. Included by Snapshot.cpp after
+// Roadmap step 16: the voice's half of the PATCH tab (gui/pages/PatchPage.h)
+// driven with the mouse: it shows the fixed chain as cables into VOICES and
+// the rack after it, a cable drag hands the routing to the cables (one undo
+// step), a loop between the filters and a cable across VOICES are refused,
+// CHAIN gives the routing back, and the boxes sit on the grid without
+// overlapping. Included by Snapshot.cpp after
 // PatchCableUiTests.h; runs from runUiTests (ILANA_UITEST_ONLY=OR for just
 // these). ILANA_SNAPSHOT_ROUTING=1 writes pictures of the page instead.
 #pragma once
@@ -16,7 +17,7 @@ inline PatchCableView* findRoutingView (juce::Component& editor)
     std::vector<PatchCableView*> views;
     findAll<PatchCableView> (editor, views);
     for (auto* view : views)
-        if (view->getName() == "OSC ROUTING")
+        if (view->getName() == "PATCH")
             return view;
     return nullptr;
 }
@@ -49,25 +50,30 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
 
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
     settle (300);
-    editor.showPage ("ROUTING");
+    editor.showPage ("PATCH");
     settle (400);
 
     auto* view = findRoutingView (editor);
-    expect (view != nullptr && visibleInTree (view) && ! view->getBounds().isEmpty(), "FILTER > ROUTING shows the cable view");
+    expect (view != nullptr && visibleInTree (view) && ! view->getBounds().isEmpty(), "PATCH shows the cable view");
     if (view == nullptr)
         return;
 
-    // The chain as cables: every box inside the view, on the 10 px grid, none
-    // on another; no INPUT box (the oscillators are the inputs).
+    // The chain as cables into VOICES, then the rack: every box inside the
+    // view, on the 10 px grid, none on another.
     {
         const auto& graph = view->getGraph();
         expect (! processor.areRouteCablesOn(), "Init plays the fixed chain");
-        expect (hasCable (graph, "OSC 1", "FILTER 1") && hasCable (graph, "FILTER 1", "FILTER 2") && hasCable (graph, "FILTER 2", "OUT"),
-                "the page shows Init's chain: OSC 1 -> FILTER 1 -> FILTER 2 -> OUT");
+        expect (hasCable (graph, "OSC 1", "FILTER 1") && hasCable (graph, "FILTER 1", "FILTER 2") && hasCable (graph, "FILTER 2", "VOICES"),
+                "the page shows Init's chain: OSC 1 -> FILTER 1 -> FILTER 2 -> VOICES");
         expect (view->contentFits(), "every box fits the view");
-        expect (view->nodeAt (view->nodeBounds (*graph.find (PatchGraph::inputNodeId)).getCentre()) == nullptr
-                    || view->nodeAt (view->nodeBounds (*graph.find (PatchGraph::inputNodeId)).getCentre())->isInput() == false,
-                "the INPUT box is hidden");
+        const auto* voices = graph.find (PatchGraph::inputNodeId);
+        const auto* filter2 = nodeNamed (graph, "FILTER 2");
+        expect (voices != nullptr && filter2 != nullptr && voices->x > filter2->x, "VOICES sits after the filters");
+        auto effectsAfter = true;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+                effectsAfter = effectsAfter && voices != nullptr && node.x > voices->x;
+        expect (effectsAfter, "the effects sit after VOICES");
         juce::String overlapping, offGrid;
         for (const auto& a : graph.nodes())
         {
@@ -83,12 +89,12 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         expect (offGrid.isEmpty(), "every box is on the 10 px grid (" + offGrid + ")");
         auto sameColumn = true;
         for (const auto& node : graph.nodes())
-            if (! node.isFixed() && node.kind < 10)
+            if (node.id >= (1u << 20) && node.kind - 1000 < 10)
                 sameColumn = sameColumn && node.x == 0.0f;
         expect (sameColumn, "the oscillators line up in one column");
     }
 
-    // A cable from OSC 1 to OUT: the cables take over, OSC 1 now plays
+    // A cable from OSC 1 to VOICES: the cables take over, OSC 1 now plays
     // through Filter 1 and straight out, and one undo puts it all back.
     {
         processor.apvts.copyState();
@@ -99,7 +105,7 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         if (osc1 != nullptr)
         {
             PatchCableUi::dragFromTo (*view, onScreen (*view, { osc1->id, 0 }, false),
-                                      onScreen (*view, { PatchGraph::outputNodeId, 0 }, true));
+                                      onScreen (*view, { PatchGraph::inputNodeId, 0 }, true));
             settle (200);
             expect (processor.areRouteCablesOn(), "a cable edit switches the routing to CABLES");
             expect (processor.getRoutePatch().source[0] == (toF1 | toOut), "OSC 1 now goes to Filter 1 and OUT (mask "
@@ -124,6 +130,50 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
             settle (200);
             expect (processor.getRoutePatch() == before && processor.areRouteCablesOn() == wasOn, "a cable closing a loop is refused");
         }
+    }
+
+    // A cable may not skip VOICES: an oscillator straight into OUT (after
+    // the effects) is refused, and so is the voices' sum back into a filter.
+    {
+        const auto& graph = view->getGraph();
+        const auto* osc1 = nodeNamed (graph, "OSC 1");
+        const auto* f1 = nodeNamed (graph, "FILTER 1");
+        if (osc1 != nullptr && f1 != nullptr)
+        {
+            const auto routeBefore = processor.getRoutePatch();
+            const auto fxBefore = processor.getFxPatch();
+            const auto cablesBefore = graph.cables().size();
+            PatchCableUi::dragFromTo (*view, onScreen (*view, { osc1->id, 0 }, false), onScreen (*view, { PatchGraph::outputNodeId, 0 }, true));
+            settle (200);
+            PatchCableUi::dragFromTo (*view, onScreen (*view, { PatchGraph::inputNodeId, 0 }, false), onScreen (*view, { f1->id, 0 }, true));
+            settle (200);
+            expect (processor.getRoutePatch() == routeBefore && FxPatchData::samePatch (processor.getFxPatch(), fxBefore)
+                        && view->getGraph().cables().size() == cablesBefore,
+                    "a cable across VOICES is refused");
+        }
+    }
+
+    // The effects' half: a cable from VOICES straight to OUT (a dry path
+    // beside the rack) turns the FX PATCHER on, the voice's cables stay as
+    // they were, and one undo puts the rack back.
+    {
+        processor.addFxEffect (9); // Delay
+        settle (300);
+        processor.getUndoManager().clearUndoHistory();
+        const auto routeBefore = processor.getRoutePatch();
+        const auto cablesWereOn = processor.areRouteCablesOn();
+        expect (! processor.isFxPatcherOn(), "the rack plays in SERIES");
+        PatchCableUi::dragFromTo (*view, onScreen (*view, { PatchGraph::inputNodeId, 0 }, false),
+                                  onScreen (*view, { PatchGraph::outputNodeId, 0 }, true));
+        settle (200);
+        const auto fx = processor.getFxPatchGraph();
+        expect (processor.isFxPatcherOn() && fx.findCable ({ PatchGraph::inputNodeId, 0 }, { PatchGraph::outputNodeId, 0 }) >= 0,
+                "a cable from VOICES to OUT plays the FX PATCHER with it");
+        expect (processor.getRoutePatch() == routeBefore && processor.areRouteCablesOn() == cablesWereOn, "the voice's cables are untouched");
+        processor.apvts.copyState();
+        processor.getUndoManager().undo();
+        settle (200);
+        expect (! processor.isFxPatcherOn(), "one undo puts the rack back");
     }
 
     // WEST in front of the filters by cables, then CHAIN gives the routing back.

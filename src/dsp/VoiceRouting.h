@@ -4,7 +4,7 @@
 #include <cstdint>
 
 // Reroutable oscillators (roadmap step 16): where each oscillator goes inside
-// the voice, set by cables on the FILTER tab's ROUTING page.
+// the voice, set by cables on the PATCH tab.
 //
 //   Patch    what the cables say: for each source (OSC 1-6, the SUB + NOISE
 //            pair) and each stage (Filter 1, Filter 2, WEST) the set of

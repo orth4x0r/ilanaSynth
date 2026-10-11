@@ -150,7 +150,7 @@ public:
         const auto slot = node->ref - 1;
         juce::String detail = "Slot " + juce::String (slot + 1);
         if (processorRef.isFxInstance (slot) || ! processorRef.isFxSlotInFront (slot))
-            detail << (processorRef.isFxSlotInFront (slot) ? ", its own instance, on the controls" : ", its own instance");
+            detail << (processorRef.isFxSlotInFront (slot) ? ", own settings, open on its RACK card" : ", own settings");
         detail << ", " << juce::String (processorRef.getFxSlotCpu (slot) * 100.0f, 2) << " % CPU";
         g.setColour (Ui::text3);
         g.setFont (font (TextSize::label));

@@ -2095,7 +2095,11 @@ private:
                                         text.removeFromTop (20), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                IlanaTheme::drawFitted (g, own ? "EDIT puts its settings on the controls above; the card there keeps its own."
+                auto frontSlot = panel.slot;
+                for (int s = 0; s < IlanaSynthAudioProcessor::numFxSlots; ++s)
+                    if (s != panel.slot && getSlotType (s) == panel.type && processorRef.isFxSlotInFront (s))
+                        frontSlot = s;
+                IlanaTheme::drawFitted (g, own ? "EDIT shows its settings on slot " + juce::String (frontSlot + 1) + "'s full card; that card's own settings are kept."
                                                : "MAKE OWN gives it its own settings, so the two can differ.",
                                         text, juce::Justification::topLeft, 2);
             }

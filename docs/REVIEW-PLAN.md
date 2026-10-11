@@ -269,7 +269,7 @@ Steps 16 to 46 run in the execution order below, not in ID order. ilana's 2026-1
    Size: medium, cause unknown. Touches the menu code across `src/gui` (271 combo-box and popup-menu references). First step: find which selectors fail to open and why.
    Order 1. Why here: the menus are shared, and every UI step after this uses them (the cable view in 16 and 17 included). The OSC, FILTER and FX menus can't be tested until they open.
 
-21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: decided, not started). The KEYBOARD toggle should
+21. **KEYBOARD toggle must not shrink the synth** (ilana, 2026-10-10: done 2026-10-10, PR open; the window grows by a 32 px strip, the UI test checks sizes and positions). The KEYBOARD toggle should
    only add the keyboard below the synth, so the window grows and the layout above stays as it is. If it can't work that
    way, the toggle is disabled or removed rather than changing the overall layout.
    **Rules when it starts:** the layout of the other pages does not change; the UI test checks the window's size and

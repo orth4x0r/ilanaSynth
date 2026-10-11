@@ -180,6 +180,10 @@ private:
     static constexpr int infoLineHeight = 38;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
+    // The KEYBOARD strip sits below the 720 px design: showing it grows the
+    // window, so the pages above keep their size and layout.
+    static constexpr int keyboardHeight = 32;
+    int totalDesignHeight() const { return designHeight + (keyboardVisible ? keyboardHeight : 0); }
     static constexpr const char* appVersion = "1.3";
 
     IlanaSynthAudioProcessor& processorRef;

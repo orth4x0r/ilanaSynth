@@ -1141,13 +1141,38 @@ int runUiTests()
 
         if (keys != nullptr && keyboard != nullptr && tabsComponent != nullptr)
         {
-            const auto pageHeight = tabsComponent->getHeight();
+            // The keyboard only adds height below the synth: the window grows
+            // by the strip and every existing panel keeps its size and place.
+            const auto windowBefore = editor->getBounds();
+            const auto pageBounds = tabsComponent->getBounds();
+            std::vector<juce::Rectangle<int>> panelsBefore;
+            std::vector<juce::Component*> panels;
+            for (auto* b : buttons)
+            {
+                if (! b->isShowing())
+                    continue; // (the hidden dialogs centre in the window, so they would move)
+                panels.push_back (b);
+                panelsBefore.push_back (b->getScreenBounds() - editor->getScreenPosition());
+            }
+
             keys->triggerClick();
             settle (150);
-            expect (visibleInTree (keyboard) && tabsComponent->getHeight() < pageHeight, "KEYS shows the keyboard and the page shrinks");
+            expect (visibleInTree (keyboard), "KEYS shows the keyboard");
+            expect (editor->getWidth() == windowBefore.getWidth() && editor->getHeight() > windowBefore.getHeight(),
+                    "KEYS grows the window (" + juce::String (windowBefore.getHeight()) + " to " + juce::String (editor->getHeight()) + " px)");
+            expect (tabsComponent->getBounds() == pageBounds, "KEYS leaves the page area where it was and the same size");
+            auto panelsStay = true;
+            for (size_t i = 0; i < panels.size(); ++i)
+                panelsStay = panelsStay && (panels[i]->getScreenBounds() - editor->getScreenPosition()) == panelsBefore[i];
+            expect (panelsStay, "KEYS leaves the header and tab buttons where they were");
+            expect (keyboard->getScreenBounds().getY() >= tabsComponent->getScreenBounds().getBottom()
+                        && keyboard->getScreenBounds().getBottom() <= editor->getScreenBounds().getBottom(),
+                    "the keyboard sits below the pages inside the taller window");
+
             keys->triggerClick();
             settle (150);
-            expect (! visibleInTree (keyboard) && tabsComponent->getHeight() == pageHeight, "KEYS hides it again");
+            expect (! visibleInTree (keyboard) && editor->getBounds() == windowBefore && tabsComponent->getBounds() == pageBounds,
+                    "KEYS hides it again and the window returns to its size");
         }
 
         expect (compare != nullptr && compare->getWidth() <= 64, "the header's compare is a compact A|B");

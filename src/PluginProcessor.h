@@ -626,11 +626,19 @@ public:
     void makeFxInstance (int slotIndex);
     // Swaps two slots, with their instance data, engines and graph nodes.
     void swapFxSlots (int a, int b);
+    // One of an instance's own settings (a slot whose card isn't in front:
+    // the RACK shows it on the instance's own card). False: no such value.
+    bool getFxInstanceValue (int slotIndex, const juce::String& id, float& value) const;
+    void setFxInstanceValue (int slotIndex, const juce::String& id, float value);
     // The graph the patcher shows (a copy) and a change to it from the view.
     PatchGraph::Graph getFxPatchGraph() const;
     void setFxPatchGraph (const PatchGraph::Graph& graph);
-    // The patcher's loop delay in milliseconds (one render chunk).
+    // The patcher's shortest loop delay in milliseconds (one render chunk).
     float getFxLoopLatencyMs() const;
+    // The loop guard on the loop cable from -> to (node id, port): 1 while
+    // it isn't holding the loop, under 1 while the loop rings by itself and
+    // is held at 0 dB (PatchGraphRunner.h).
+    float getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const;
     // Tests: the rack's plan (what the audio thread runs) is current.
     bool isFxRackPlanCurrent();
     // Tests / tools: compile now what the audio thread would wait for.

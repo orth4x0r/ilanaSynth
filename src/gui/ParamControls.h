@@ -2413,6 +2413,7 @@ class ComboControl : public juce::Component,
 public:
     ComboControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
                   const juce::String& labelText)
+        : parameterId (parameterID)
     {
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
@@ -2442,6 +2443,7 @@ public:
 
     juce::ComboBox& getComboBox() { return combo; }
     juce::Label& getNameLabel() { return label; }
+    const juce::String& getParameterId() const { return parameterId; }
 
     // A family-coloured menu as the mockup draws the VECTOR corners: a tinted
     // outline and fill, the name in the family colour.
@@ -2645,6 +2647,7 @@ private:
     float hover = 0.0f;
     juce::Colour currentTint;
     bool compactLayout = false;
+    juce::String parameterId;
 };
 
 class ToggleControl : public juce::Component,
@@ -2734,6 +2737,7 @@ public:
     juce::String getGroupText() const { return groupText; }
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
+    const juce::String& getParameterId() const { return parameterId; }
 
     // (Every toggle is a switch now; kept for the call sites that ask.)
     void showAsSwitch()

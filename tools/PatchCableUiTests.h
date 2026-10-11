@@ -36,7 +36,7 @@ struct Harness
 {
     PatchGraph::Graph graph;
     PatchCableView view { graph };
-    int cableEdits = 0, nodeEdits = 0, layoutEdits = 0;
+    int cableEdits = 0, nodeEdits = 0, layoutEdits = 0, loopEdits = 0, gestures = 0;
 
     explicit Harness (PatchGraph::Graph g) : graph (std::move (g))
     {
@@ -45,8 +45,10 @@ struct Harness
         view.cpuOf = [] (PatchGraph::NodeId id) { return 0.002f * (float) (id % 7); };
         view.onEdited = [this] (PatchCableView::Edit edit)
         {
-            (edit == PatchCableView::Edit::cables ? cableEdits : edit == PatchCableView::Edit::nodes ? nodeEdits : layoutEdits)++;
+            (edit == PatchCableView::Edit::cables ? cableEdits : edit == PatchCableView::Edit::nodes ? nodeEdits
+                                                              : edit == PatchCableView::Edit::loop ? loopEdits : layoutEdits)++;
         };
+        view.onGesture = [this] (bool starting) { gestures += starting ? 1 : 0; };
     }
 };
 
@@ -159,8 +161,31 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         expect (loopIndex >= 0 && h.view.cableAt (loopPoint) == loopIndex, "cable view: the loop cable is found under the nodes");
         pick = 12; // 50 %
         h.view.mouseDown (mouse (h.view, loopPoint, true, true));
-        expect (items.contains ("Loop: 1.3 ms delay") && h.graph.cables()[(size_t) loopIndex].gain == 0.5f,
-                "cable view: a loop cable's menu shows its 1.3 ms delay and sets its level");
+        expect (items.contains ("Loop: 1.3 ms delay (set it below)") && h.graph.cables()[(size_t) loopIndex].gain == 0.5f,
+                "cable view: a loop cable's menu shows its 1.3 ms delay and sets its level (menu: " + items.joinIntoString (", ") + ")");
+
+        // The loop's tag (halfway along, where loopPoint is): dragging it up
+        // raises the level live, in one gesture, up to the 70 % top; the
+        // wheel nudges it by 1 %; its delay shows on the tag.
+        const auto tag = h.view.loopTagBounds (h.graph.cables()[(size_t) loopIndex]);
+        expect (tag.contains (loopPoint) && h.view.loopTagAt (loopPoint) == loopIndex, "cable view: the loop's tag sits halfway along it");
+        const auto edits = h.loopEdits;
+        h.view.mouseDown (mouse (h.view, tag.getCentre(), true));
+        h.view.mouseDrag (mouse (h.view, tag.getCentre().translated (0.0f, -20.0f), true));
+        const auto raised = h.graph.cables()[(size_t) loopIndex].gain;
+        h.view.mouseDrag (mouse (h.view, tag.getCentre().translated (0.0f, -400.0f), true));
+        h.view.mouseUp (mouse (h.view, tag.getCentre().translated (0.0f, -400.0f), false));
+        expect (std::abs (raised - 0.6f) < 1.0e-4f && h.graph.cables()[(size_t) loopIndex].gain == 0.7f && h.loopEdits == edits + 2 && h.gestures == 1
+                    && h.view.getSelectedCable() == loopIndex,
+                "cable view: dragging a loop's tag sets its level live, up to 70 %, in one gesture (" + juce::String (raised) + ", "
+                    + juce::String (h.loopEdits - edits) + " edits, " + juce::String (h.gestures) + " gestures)");
+        juce::MouseWheelDetails wheel {};
+        wheel.deltaY = -0.1f;
+        h.view.mouseWheelMove (mouse (h.view, tag.getCentre(), false), wheel);
+        expect (std::abs (h.graph.cables()[(size_t) loopIndex].gain - 0.69f) < 1.0e-4f && h.gestures == 2, "cable view: the wheel on a loop's tag nudges its level by 1 %");
+        h.graph.setCableDelay (loopIndex, 250.0f);
+        expect (h.view.loopDelayText (h.graph.cables()[(size_t) loopIndex]) == "250 ms" && h.view.loopDelayText ({}) == "1.3 ms",
+                "cable view: a loop's tag shows its delay (the shortest when unset)");
 
         // Node menu: bypass, then Delete removes the selected node.
         const auto phaser = h.view.nodeBounds (*h.graph.find (5)).getCentre();

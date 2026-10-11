@@ -33,6 +33,17 @@ public:
         startPollingHz (30);
     }
 
+    // Where the effect's settings are read: an instance's own (its card's
+    // shadow parameters, FxInstanceControls.h), or null for the parameters.
+    void setValueSource (juce::AudioProcessorValueTreeState* source)
+    {
+        if (source == valueSource)
+            return;
+        valueSource = source;
+        lastSignature = 0;
+        repaint();
+    }
+
     // Which FX type the card holds (types as in the fx_slotN choice).
     void setType (int newType, juce::Colour newColour)
     {
@@ -111,18 +122,17 @@ private:
     Kind kind = Kind::none;
     juce::Colour colour { IlanaTheme::accent() };
     juce::uint64 lastSignature = 0;
+    juce::AudioProcessorValueTreeState* valueSource = nullptr;
     std::array<float, 3> meterGr {}; // smoothed gain reduction (dB, <= 0), or OTT band gains
     bool metersMoving = false;
 
-    float param (const char* id) const
-    {
-        if (const auto* value = processorRef.apvts.getRawParameterValue (id))
-            return value->load();
-        return 0.0f;
-    }
+    float param (const char* id) const { return param (juce::String (id)); }
 
     float param (const juce::String& id) const
     {
+        if (valueSource != nullptr)
+            if (const auto* value = valueSource->getRawParameterValue (id))
+                return value->load();
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();
         return 0.0f;

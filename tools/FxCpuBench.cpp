@@ -4,7 +4,9 @@
 // (block time / block duration). Used for docs/ROUTING-CPU.md.
 //
 //   ilanaFxCpuBench                 every scenario
-//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep   one group
+//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep|graph   one group
+//                                   (graph: the patch graph of roadmap step A,
+//                                   its own overhead and the rack run through it)
 //   ILANA_BENCH_TYPELIST=12,13   effect types the types group measures
 //   ILANA_BENCH_SLEEPTYPES=0,13  effect types the sleep group tests
 //   ILANA_BENCH_BLOCKS=n            timed blocks per measurement (default 600)
@@ -19,6 +21,7 @@
 #include <vector>
 
 #include "PluginProcessor.h"
+#include "processor/PatchGraphRunner.h"
 
 namespace
 {
@@ -87,6 +90,55 @@ Result measure (IlanaSynthAudioProcessor& p, bool silentInput = false, int warm 
     std::sort (times.begin(), times.end());
     const auto blockSeconds = blockSize / sampleRate;
     return { 100.0 * times[times.size() / 2] / blockSeconds, 100.0 * times[(size_t) (times.size() * 0.99)] / blockSeconds, std::sqrt (sumSq / (timedBlocks * blockSize)), 100.0 * total / (double) times.size() / blockSeconds };
+}
+
+// Two ways of doing the same work, timed block by block in turn (so drift
+// on the box hits both alike). Microseconds per block: median and mean.
+struct Pair { double medianA, meanA, medianB, meanB; };
+
+template <typename A, typename B>
+Pair timeInTurn (A&& a, B&& b, juce::AudioBuffer<float>& buffer, int warm = 200)
+{
+    std::vector<double> ta, tb;
+    double phase = 0.0;
+    const auto fill = [&]
+    {
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            const auto x = 0.3f * (float) std::sin (phase);
+            phase += 0.0287;
+            buffer.setSample (0, i, x);
+            buffer.setSample (1, i, x);
+        }
+    };
+    for (int block = 0; block < warm + timedBlocks; ++block)
+    {
+        fill();
+        auto t0 = std::chrono::steady_clock::now();
+        a (buffer);
+        auto t1 = std::chrono::steady_clock::now();
+        fill();
+        auto t2 = std::chrono::steady_clock::now();
+        b (buffer);
+        auto t3 = std::chrono::steady_clock::now();
+        if (block >= warm)
+        {
+            ta.push_back (1.0e6 * std::chrono::duration<double> (t1 - t0).count());
+            tb.push_back (1.0e6 * std::chrono::duration<double> (t3 - t2).count());
+        }
+    }
+    const auto stats = [] (std::vector<double>& t, double& median, double& mean)
+    {
+        mean = 0.0;
+        for (const auto v : t) mean += v;
+        mean /= (double) t.size();
+        std::sort (t.begin(), t.end());
+        median = t[t.size() / 2];
+    };
+    Pair pair {};
+    stats (ta, pair.medianA, pair.meanA);
+    stats (tb, pair.medianB, pair.meanB);
+    return pair;
 }
 
 void row (const juce::String& name, Result r, double base)
@@ -169,6 +221,113 @@ int main()
         plain(); setParam (p, "fx_slot1_band", 2.0f); row ("chorus band 2 (split filters)", measure (p), base);
         quiet (p); p.assignFxSlot (1, 19); row ("utility (cheapest real effect)", measure (p), base);
         quiet (p); for (int s = 1; s <= 10; ++s) p.assignFxSlot (s, 19); row ("10 x utility series (per-slot overhead)", measure (p), base);
+    }
+
+    if (want ("graph"))
+    {
+        const auto core = 1.0e6 * blockSize / sampleRate; // microseconds in one block = 100 % of a core
+        const auto percent = [core] (double us) { return juce::String (100.0 * us / core, 3) + " %"; };
+
+        // 1. The graph's own cost: 16 nodes that each do Utility's work (a
+        //    gain), against the same 16 gains in a plain loop.
+        std::cout << "\n== patch graph overhead: 16 gain nodes against a plain loop of 16 gains (us per block of " << blockSize << ")\n";
+        const auto gainNode = [] (const PatchGraph::CompiledNode&, PatchGraph::NodeBuffers& io, int n)
+        {
+            for (int c = 0; c < io.out[0]->getNumChannels(); ++c)
+                juce::FloatVectorOperations::multiply (io.out[0]->getWritePointer (c), 0.999f, n);
+        };
+        for (const auto* shape : { "series", "parallel", "series + loop" })
+        {
+            PatchGraph::Graph graph;
+            std::vector<PatchGraph::NodeId> ids;
+            for (int n = 0; n < 16; ++n)
+                ids.push_back (graph.addNode (19, 1, 1));
+            const juce::String name (shape);
+            if (name == "parallel")
+            {
+                for (const auto id : ids)
+                {
+                    graph.connect ({ PatchGraph::inputNodeId, 0 }, { id, 0 });
+                    graph.connect ({ id, 0 }, { PatchGraph::outputNodeId, 0 }, 1.0f / 16.0f);
+                }
+            }
+            else
+            {
+                auto previous = PatchGraph::inputNodeId;
+                for (const auto id : ids)
+                {
+                    graph.connect ({ previous, 0 }, { id, 0 });
+                    previous = id;
+                }
+                graph.connect ({ previous, 0 }, { PatchGraph::outputNodeId, 0 });
+                if (name.contains ("loop"))
+                    graph.connect ({ ids.back(), 0 }, { ids.front(), 0 }, 0.5f);
+            }
+            const auto plan = PatchGraph::compile (graph);
+            for (const auto measureCpu : { false, true })
+            {
+                PatchGraph::Runner runner;
+                runner.setSettings ({ measureCpu, false });
+                runner.prepare (sampleRate, blockSize, 2);
+                runner.publish (plan);
+                juce::AudioBuffer<float> buffer (2, blockSize), scratch (2, blockSize);
+                const auto parallel = name == "parallel";
+                const auto pair = timeInTurn ([&] (juce::AudioBuffer<float>& b) { runner.process (b, gainNode); },
+                                              [&] (juce::AudioBuffer<float>& b)
+                                              {
+                                                  // The same work by hand: in place, or copy, gain and sum.
+                                                  if (! parallel)
+                                                  {
+                                                      for (int n = 0; n < 16; ++n)
+                                                          for (int c = 0; c < 2; ++c)
+                                                              juce::FloatVectorOperations::multiply (b.getWritePointer (c), 0.999f, blockSize);
+                                                      return;
+                                                  }
+                                                  for (int n = 0; n < 16; ++n)
+                                                      for (int c = 0; c < 2; ++c)
+                                                      {
+                                                          juce::FloatVectorOperations::copyWithMultiply (scratch.getWritePointer (c), b.getReadPointer (c), 0.999f, blockSize);
+                                                          juce::FloatVectorOperations::addWithMultiply (b.getWritePointer (c), scratch.getReadPointer (c), 1.0f / 16.0f, blockSize);
+                                                      }
+                                              },
+                                              buffer);
+                std::cout << ("16 nodes " + name + (measureCpu ? ", per-node CPU readout on" : ", readout off")).paddedRight (' ', 52).toStdString()
+                          << " graph " << juce::String (pair.meanA, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanA).toStdString()
+                          << ")   plain " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString()
+                          << " us   per node " << juce::String ((pair.meanA - pair.meanB) / 16.0, 3).toStdString() << " us"
+                          << "   [" << plan.numBuffers << " buffers, " << plan.copyCount() << " copies, chunk " << (plan.chunkSize > 0 ? plan.chunkSize : blockSize) << "]"
+                          << std::endl;
+            }
+        }
+
+        // 2. The real rack: the fixed loop (processEffects) against the same
+        //    rack run through its migrated graph (processEffectsGraph).
+        std::cout << "\n== the rack, fixed loop against its migrated graph (us per block, mean; same processor, blocks in turn)\n";
+        struct Rack { const char* name; std::vector<int> types; bool parallel; };
+        const std::vector<Rack> racks { { "10 x Utility series", { 19, 19, 19, 19, 19, 19, 19, 19, 19, 19 }, false },
+                                        { "10 x Utility parallel", { 19, 19, 19, 19, 19, 19, 19, 19, 19, 19 }, true },
+                                        { "4 x Drive series", { 2, 2, 2, 2 }, false },
+                                        { "8 x Delay parallel", { 9, 9, 9, 9, 9, 9, 9, 9 }, true },
+                                        { "Drive, Chorus, Delay, Reverb series", { 2, 7, 9, 13 }, false },
+                                        { "Drive, Chorus, Delay, Reverb parallel", { 2, 7, 9, 13 }, true } };
+        for (const auto& rack : racks)
+        {
+            quiet (p);
+            for (size_t s = 0; s < rack.types.size(); ++s)
+                p.assignFxSlot ((int) s + 1, rack.types[s]);
+            setParam (p, "fx_routing", rack.parallel ? 1.0f : 0.0f);
+            p.prepareToPlay (sampleRate, blockSize);
+            PatchGraph::Runner runner;
+            runner.prepare (sampleRate, blockSize, 2);
+            runner.publish (PatchGraph::compile (p.getFxRackGraph()));
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            const auto pair = timeInTurn ([&] (juce::AudioBuffer<float>& b) { p.processEffects (b); },
+                                          [&] (juce::AudioBuffer<float>& b) { p.processEffectsGraph (b, runner); }, buffer);
+            std::cout << juce::String (rack.name).paddedRight (' ', 40).toStdString()
+                      << " fixed " << juce::String (pair.meanA, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanA).toStdString()
+                      << ")   graph " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanB).toStdString()
+                      << ")   difference " << juce::String (pair.meanB - pair.meanA, 2).toStdString() << " us" << std::endl;
+        }
     }
 
     if (want ("silentblocks"))

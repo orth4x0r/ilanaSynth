@@ -1,4 +1,6 @@
 #include "ProcessorInternal.h"
+#include "PatchGraphRunner.h"
+#include "PatchGraphState.h"
 
 // The rack's routing (fx_routing): SERIES, each effect feeds the next one
 // (as every patch before it was added); PARALLEL, each effect hears the
@@ -2066,4 +2068,41 @@ void IlanaSynthAudioProcessor::copyFxChainToOtherBank()
         chainB = captureFxChain();
         chainA = chainB;
     }
+}
+
+// Roadmap step A: the rack as a graph. Each slot with an effect is a node
+// (ref = its slot number), wired as SERIES or PARALLEL wires it today.
+PatchGraph::Graph IlanaSynthAudioProcessor::getFxRackGraph()
+{
+    std::vector<PatchGraph::RackSlot> slots;
+    for (int index = 0; index < numFxSlots; ++index)
+    {
+        const auto& ids = fxSlotIds[(size_t) index];
+        PatchGraph::RackSlot slot;
+        slot.type = (int) getParam (ids.type);
+        slot.bypassed = getParam (ids.bypass) > 0.5f;
+        slot.solo = getParam (ids.solo) > 0.5f;
+        if (auto* parameter = apvts.getParameter ("fx_slot" + juce::String (index + 1)))
+            slot.label = parameter->getCurrentValueAsText().toUpperCase().toStdString();
+        slots.push_back (std::move (slot));
+    }
+    return PatchGraph::rackGraph (slots, getParam (fxRoutingRef) > 0.5f);
+}
+
+// The rack through a compiled graph: every node runs its slot exactly as the
+// fixed loop does (MIX, band, solo, meters, CPU share), so a graph from
+// getFxRackGraph renders what processEffects renders.
+void IlanaSynthAudioProcessor::processEffectsGraph (juce::AudioBuffer<float>& buffer, PatchGraph::Runner& runner)
+{
+    for (int index = 0; index < numFxSlots; ++index)
+        if (! isFxSlotActive (index))
+            clearFxSlotMeters (index);
+
+    runner.process (buffer, [this] (const PatchGraph::CompiledNode& node, PatchGraph::NodeBuffers& io, int)
+    {
+        if (node.ref >= 1 && node.ref <= numFxSlots && io.numOutputs > 0)
+            runFxSlot (node.ref, *io.out[0]);
+    });
+
+    sanitiseBuffer (buffer);
 }

@@ -46,6 +46,9 @@
 #include "Dx7Banks.h"
 #include "gui/LfoSimView.h"
 #include "gui/LogoComponent.h"
+#include "gui/PatchCableView.h"
+#include "gui/FxLibrary.h"
+#include "processor/PatchGraphState.h"
 #include "gui/LfoDisplay.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/SequencerEditors.h"
@@ -137,6 +140,7 @@ void expect (bool condition, const juce::String& message)
 #include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
 #include "DropdownUiTests.h"
+#include "PatchCableUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
@@ -981,6 +985,15 @@ int runUiTests()
     if (only == "R6")
     {
         runGlobalReview8Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "PG")
+    {
+        runPatchCableTests (processor);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7000,6 +7013,8 @@ int runUiTests()
     runGlobalReview8Tests (processor, *pages);
     // Step 18: every drop-down select opens its list, click after click.
     runDropdownTests (processor, *pages);
+    // Step A: the cable view.
+    runPatchCableTests (processor);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);
@@ -8750,6 +8765,13 @@ int main (int argc, char** argv)
 
     // ILANA_SNAPSHOT_REMAP: the matrix with a drawn remap on the first row,
     // its editor open, then stop.
+    // ILANA_SNAPSHOT_GRAPH: the cable view of roadmap step A, then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_GRAPH", "").isNotEmpty())
+    {
+        snapshotPatchCableView (processor, outDir);
+        return 0;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_REMAP", "").isNotEmpty())
     {
         pages->showPage ("MATRIX");

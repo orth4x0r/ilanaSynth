@@ -38,6 +38,7 @@
 #include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
+#include "gui/FxInstanceControls.h"
 #include "gui/OutputView.h"
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
@@ -382,7 +383,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         fxPage->editInstance (slot);
     };
     FilterFlow::openRouting() = [this] { showPage ("PATCH"); };
-    fxPage->onOpenPatch = [this] { showPage ("PATCH"); };
+    fxPage->onShowPatcher = [this] { showPage ("PATCH"); };
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
     if (IlanaSynthAudioProcessor::isEffectBuild)
         addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });

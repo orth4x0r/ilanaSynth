@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -67,7 +68,13 @@ struct Cable
     Port from; // an output port
     Port to;   // an input port
     float gain = 1.0f;
+    // A cable that closes a loop: how long the loop waits, in ms. Below the
+    // render chunk (0, the default) it is the chunk, the shortest a loop
+    // can be; the runner keeps up to maxLoopDelayMs. Other cables ignore it.
+    float delayMs = 0.0f;
 };
+
+inline constexpr float maxLoopDelayMs = 1000.0f;
 
 enum class ConnectResult
 {
@@ -236,6 +243,15 @@ public:
         return true;
     }
 
+    bool setCableDelay (int index, float ms)
+    {
+        if (index < 0 || index >= (int) cableList.size())
+            return false;
+        cableList[(size_t) index].delayMs = std::isfinite (ms) ? std::clamp (ms, 0.0f, maxLoopDelayMs) : 0.0f;
+        ++revisionCount;
+        return true;
+    }
+
     bool setBypassed (NodeId id, bool bypassed)
     {
         auto* node = find (id);
@@ -397,6 +413,7 @@ struct FeedbackLoop
 {
     int cable = -1;        // index in graph.cables()
     Port from, to;
+    float delayMs = 0.0f;  // the cable's (the runner holds it to the chunk at least)
 };
 
 struct Plan
@@ -619,7 +636,7 @@ inline Plan compile (const Graph& graph, const CompileOptions& options = {})
         read.dst = (std::int16_t) buffer;
         read.ring = (std::int16_t) plan.loops.size();
         plan.ops.push_back (read);
-        plan.loops.push_back ({ (int) c, cables[c].from, cables[c].to });
+        plan.loops.push_back ({ (int) c, cables[c].from, cables[c].to, cables[c].delayMs });
         ringBuffer.push_back (buffer);
     }
     // (ringBuffer is indexed by feedback cable in cable order; map cable -> slot)

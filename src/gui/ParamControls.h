@@ -2527,7 +2527,6 @@ public:
 
 
 private:
-    juce::String parameterId;
     void timerCallback() override
     {
         if (! IlanaAnim::showing (*this))
@@ -2648,6 +2647,7 @@ private:
     float hover = 0.0f;
     juce::Colour currentTint;
     bool compactLayout = false;
+    juce::String parameterId;
 };
 
 class ToggleControl : public juce::Component,
@@ -2687,7 +2687,6 @@ public:
     }
 
     juce::TextButton& getButton() { return button; }
-    const juce::String& getParameterId() const { return parameterId; }
 
     // The switch in an owner's colour (an oscillator's) instead of the accent.
     void setSwitchColour (juce::Colour colour)
@@ -2738,6 +2737,7 @@ public:
     juce::String getGroupText() const { return groupText; }
 
     bool isSwitch() const { return button.getProperties().contains ("switch"); }
+    const juce::String& getParameterId() const { return parameterId; }
 
     // (Every toggle is a switch now; kept for the call sites that ask.)
     void showAsSwitch()

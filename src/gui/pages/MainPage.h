@@ -56,6 +56,10 @@ public:
             strip->ampEnv = std::make_unique<ComboControl> (p.apvts, prefix + "_amp_env", "");
             strip->ampEnv->setTooltip ("ENVELOPE\nWhich envelope plays this operator: the Operator EG or one of the voice's envelopes.");
             strip->ampEnv->getComboBox().setTooltip (strip->ampEnv->getTooltip());
+            strip->spectral = std::make_unique<ComboControl> (p.apvts, prefix + "_spectral", "SPECTRAL");
+            strip->warp2 = std::make_unique<ComboControl> (p.apvts, prefix + "_warp2", "WARP 2");
+            strip->scale = std::make_unique<ComboControl> (p.apvts, prefix + "_scale", "SCALE");
+            strip->scaleRoot = std::make_unique<ComboControl> (p.apvts, prefix + "_scale_root", "ROOT");
             const auto knob = [&] (const juce::String& suffix, const juce::String& label, const juce::String& fullId = {})
             {
                 const auto id = fullId.isNotEmpty() ? fullId : prefix + suffix;
@@ -81,6 +85,19 @@ public:
             strip->unisonKnob = knob ("_unison", "UNISON");
             strip->detuneKnob = knob ("_detune", "DETUNE");
             strip->panKnob = knob ("_pan", "PAN");
+            // The second row, in the OSC tab's order: each menu then its amount.
+            {
+                const auto amount = [&] (const juce::String& suffix, const juce::String& choiceSuffix)
+                {
+                    auto* amountKnob = knob (suffix, "AMT");
+                    // (An amount whose stage is Off keeps its place and shows a faded dash, as on OSC.)
+                    dynamic_cast<KnobControl*> (amountKnob)->setDashWhen ([&p, id = prefix + choiceSuffix]
+                                                                          { return p.apvts.getRawParameterValue (id)->load() < 0.5f; });
+                    return amountKnob;
+                };
+                strip->secondRow = { strip->spectral.get(), amount ("_spectral_amt", "_spectral"), strip->warp2.get(), amount ("_warp2_amt", "_warp2"),
+                                     strip->scale.get(), strip->scaleRoot.get(), knob ("_spread", "SPREAD") };
+            }
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
             strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
@@ -95,6 +112,15 @@ public:
             strip->operatorFeedbackKnob = knob ("", "FEEDBACK", FmDiagram::routeId (osc, osc));
 
             // The slots by role, the same on every strip (review 12, I12-10).
+            for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->spectral.get(), "SPECTRAL\nA spectral warp: bends the table's harmonics. Off leaves it as it is." },
+                                              { strip->warp2.get(), "WARP 2\nA second warp mode, applied after WARP." },
+                                              { strip->scale.get(), "SCALE\nSnaps this oscillator's pitch to a scale. Off leaves it free." },
+                                              { strip->scaleRoot.get(), "ROOT\nThe note the scale is built on." } })
+            {
+                combo->setTooltip (tip);
+                combo->getComboBox().setTooltip (tip);
+            }
+
             for (const auto& [combo, tip] : { std::pair<ComboControl*, const char*> { strip->mode.get(), "ENGINE\nWhat this oscillator plays: a wavetable, a string, a sample, grains, the live input or an FM / DX7 operator." },
                                               { strip->table.get(), "SOURCE\nThe wavetable (or sample) this oscillator plays." },
                                               { strip->excite.get(), "SOURCE\nWhat excites the string: a hammer, a bow, a pluck..." },
@@ -105,6 +131,8 @@ public:
             }
 
             addAll (oscColumn, *strip->on, *strip->mode, *strip->table, *strip->warp, *strip->ampEnv);
+            for (auto* menu : { strip->spectral.get(), strip->warp2.get(), strip->scale.get(), strip->scaleRoot.get() })
+                oscColumn.addChildComponent (*menu);
             oscColumn.addChildComponent (*strip->excite);
 
             strips.push_back (std::move (strip));
@@ -363,7 +391,22 @@ public:
         const auto openOscillators = shown - folded;
         const auto flexible = openOscillators; // the open strips (the SUB and NOISE cards keep their compact height)
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
-        const auto wanted = openOscillators * oscHeightDesign + subHeightDesign;
+        // A wavetable card with room for it also carries the second row of
+        // settings (SPECTRAL, WARP 2, SCALE, SPREAD): only while every open card
+        // can have its own, so a column of three open oscillators keeps the
+        // one-row cards (and their "More on OSC" hint) rather than scroll.
+        const auto hasRowTwo = [this] (int osc)
+        {
+            const auto& strip = *strips[(size_t) osc];
+            return shownStrips[(size_t) osc] && strip.shownOn && juce::jmax (0, strip.shownMode) == 0 && ! strip.fm;
+        };
+        auto rowTwoCards = 0;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            rowTwoCards += hasRowTwo (osc) ? 1 : 0;
+        const auto rowTwoExtra = secondRowHeight + secondRowGap;
+        const auto wantedOne = openOscillators * oscHeightDesign + subHeightDesign;
+        const auto rowTwoFits = flexible > 0 && rowTwoCards > 0 && free >= wantedOne + rowTwoCards * rowTwoExtra;
+        const auto wanted = wantedOne + (rowTwoFits ? rowTwoCards * rowTwoExtra : 0);
         auto oscHeight = oscHeightDesign;
         if (flexible > 0 && wanted > free)
         {
@@ -382,6 +425,10 @@ public:
             extra = juce::jlimit (0, maxGrowth, extra);
             oscHeight += extra;
         }
+        const auto cardHeightOf = [&] (int osc)
+        {
+            return isFolded (osc) ? foldedHeight : oscHeight + (rowTwoFits && hasRowTwo (osc) ? rowTwoExtra : 0);
+        };
         auto columnHeight = 0;
         std::vector<int> cardTops;
         const auto addCard = [&] (int height)
@@ -392,7 +439,7 @@ public:
         };
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc])
-                addCard (isFolded (osc) ? foldedHeight : oscHeight);
+                addCard (cardHeightOf (osc));
         if (addRow > 0)
             addCard (addRowHeight);
         addCard (subHeightDesign);
@@ -425,7 +472,7 @@ public:
 
             if (shownStrips[(size_t) osc])
             {
-                oscCards[(size_t) osc] = column.removeFromTop (isFolded (osc) ? foldedHeight : oscHeight);
+                oscCards[(size_t) osc] = column.removeFromTop (cardHeightOf (osc));
                 column.removeFromTop (slotGap);
             }
 
@@ -521,6 +568,10 @@ private:
     {
         std::unique_ptr<ToggleControl> on;
         std::unique_ptr<ComboControl> mode, excite, table, warp, ampEnv;
+        // The wavetable card's second row (the OSC tab's other shaping
+        // settings): SPECTRAL, WARP 2, SCALE and ROOT menus, their amounts, SPREAD.
+        std::unique_ptr<ComboControl> spectral, warp2, scale, scaleRoot;
+        std::array<juce::Component*, 7> secondRow {};
         juce::Component *warpKnob = nullptr, *detuneKnob = nullptr, *unisonKnob = nullptr, *panKnob = nullptr;
         std::vector<std::pair<juce::String, std::unique_ptr<KnobControl>>> allKnobs;
         // The first column by TUNING (semitones, ratio, fixed Hz); the other
@@ -748,6 +799,8 @@ private:
             for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
                                    (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) strip.ampEnv.get(), (juce::Component*) &wave (index) })
                 control->setVisible (false);
+            for (auto* item : strip.secondRow)
+                item->setVisible (false);
             strip.on->setVisible (true);
             return;
         }
@@ -764,6 +817,14 @@ private:
                 controls.push_back (item);
             }
 
+        // The second row: a wavetable card tall enough for it (not an FM operator's).
+        const auto secondRow = shown && hasSecondRow (oscCards[(size_t) index]) && mode == 0 && ! strip.fm;
+        for (auto* item : strip.secondRow)
+        {
+            item->setVisible (secondRow);
+            if (secondRow)
+                controls.push_back (item);
+        }
         strip.table->setVisible (shown && mode == 0);
         // (WARP is a Wavetable's: an FM / DX7 strip keeps to the operator's controls.)
         strip.warp->setVisible (shown && mode == 0 && ! strip.fm && roomy (oscCards[(size_t) index]));
@@ -958,6 +1019,9 @@ private:
     // in a row over the knobs; a low one (four or more, a small window)
     // carries its menus in the header line (see stripColumns).
     static bool roomy (juce::Rectangle<int> card) { return card.getHeight() >= roomyHeight; }
+    // A card with the height for the second row of settings (a wavetable's;
+    // the caller checks the engine).
+    static bool hasSecondRow (juce::Rectangle<int> card) { return card.getHeight() >= oscHeightTwoRows; }
     static int dialSize (juce::Rectangle<int> card)
     {
         return roomy (card) ? 38 : IlanaTheme::KnobSize::minimum;
@@ -973,7 +1037,7 @@ private:
     // line) and the knobs.
     struct StripColumns
     {
-        juce::Rectangle<int> picture, menus, knobs;
+        juce::Rectangle<int> picture, menus, knobs, second;
     };
 
     // Every open card is the design's (mockup "play"): a header line (tag,
@@ -1008,6 +1072,12 @@ private:
         if (roomy (card))
         {
             auto inner = card.withTrimmedTop (cardHeaderHeight).reduced (cardPadX, cardPadY);
+            // A tall card's second row spans the card under the picture and the first row.
+            if (hasSecondRow (card))
+            {
+                columns.second = inner.removeFromBottom (secondRowHeight);
+                inner.removeFromBottom (secondRowGap);
+            }
             columns.picture = inner.removeFromLeft (stripPictureWidth);
             inner.removeFromLeft (10);
             columns.menus = inner.removeFromTop (stripMenuHeight);
@@ -1108,6 +1178,9 @@ private:
             if (entry.second->getMaxDial() != dial)
                 entry.second->setSizeRole (dial);
         }
+
+        if (! columns.second.isEmpty())
+            layoutRow (columns.second, std::vector<juce::Component*> (strip.secondRow.begin(), strip.secondRow.end()), true);
 
         if (! inlineRow)
         {
@@ -1356,9 +1429,10 @@ private:
 
             paintTitle (card, name, tint, strip.shownOn, strip.shownOn ? strip.role : juce::String(), roomy (card) ? 0 : oscHeaderMenus + 8); // off: the dimming says it (S8-12)
 
-            // A wavetable card says what else the OSC page holds (ilana: tell
-            // people to dive in): dim, in the header between title and EDIT.
-            if (roomy (card) && strip.shownOn && strip.mode->getComboBox().getSelectedItemIndex() == 0)
+            // A one-row wavetable card says what else the OSC page holds (ilana:
+            // tell people to dive in): dim, in the header between title and
+            // EDIT. A card with the second row shows those settings itself.
+            if (roomy (card) && ! hasSecondRow (card) && strip.shownOn && strip.mode->getComboBox().getSelectedItemIndex() == 0)
             {
                 const auto room = juce::Rectangle<int> (card.getX() + 8 + titleWidth + 30, editLinkArea (card).getY(),
                                                         editLinkArea (card).getX() - (card.getX() + 8 + titleWidth + 30) - 14, 16);
@@ -1443,6 +1517,8 @@ private:
     // "+ ADD OSC" row.
     // The design's one spacing grid and fixed heights (mockup panelsA.js, play).
     static constexpr int pageGutter = 14, cardGap = 10, slotGap = cardGap, cardHeaderHeight = 30, cardPadX = 10, cardPadY = 8;
+    // The second row: its height and the gap above it; a card with it is 146 + both.
+    static constexpr int secondRowHeight = 64, secondRowGap = 8, oscHeightTwoRows = 146 + secondRowHeight + secondRowGap;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 114, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;

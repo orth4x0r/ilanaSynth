@@ -195,3 +195,10 @@ Whole engine, `ilanaSnapshot --heldcpu` (12 held notes, multi-core on), 4 altern
 | Supersaw Anthem | 11.1 (10.3-11.7) | 10.9 (9.7-12.5) | 11.4 (9.6-14.1) | 11.3 (9.1-14.3) |
 
 All within the run-to-run noise of this box (about 2 points). A split patch costs the extra filter it runs and a bus add per chunk, nothing else.
+
+## Step 17 follow-up: loop guard, loop level and delay (2026-10-11)
+
+ilana's patch (Reverb into Smear and EQ, Smear into EQ, EQ back to Reverb at 50 %) ran away: two branches meet, so the loop gain was over 1, and it sat at the ring's old +-8 clamp (+24 dB) for good. Rule A2 now reads: a loop's ring passes the **loop guard** (a limiter at 0 dBFS, instant attack, 200 ms release, gain set every 16 samples and glided, then clipped), and a graph with a loop passes the **output guard** (the same on its output). Each loop cable has its own delay (one 64-sample chunk to 1 s; rings are sized for 1 s and taken over by the next plan when the cable is the same, so editing doesn't cut the loop) and its level (0-70 %, new ones 20 %).
+
+Cost (`ILANA_BENCH_ONLY=graph` and `patcher`, alternating runs of main `44db408` and this branch, 48 kHz, block 512): under the ceiling a guard is one vectorised peak pass per chunk (16 gain nodes in series with a loop: 6.3 / 6.5 us on main, 5.4 / 8.2 us here, noise). Drive, Chorus, Delay, Reverb with a Reverb to Drive loop at 50 % (it rings, so both guards work): PATCHER on minus off 20.8 / 19.2 / 24.5 us on main, 24.2 / 21.7 / 19.6 us here. Unchanged within noise.
+

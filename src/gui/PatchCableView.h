@@ -20,9 +20,13 @@
 //   right-click                  a cable: remove, its gain, its loop delay;
 //                                a node: bypass, remove, the owner's items;
 //                                empty space: the owner's add menu
+//   drag (or scroll) a loop's    its level (ilana 2026-10-11: every loop
+//   tag up and down              gets a level she can reach on the cable)
 //
-// A cable that closes a loop is drawn dashed with its delay ("1.3 ms"): the
-// compiler gives every such cable one render chunk of delay.
+// A cable that closes a loop is drawn dashed and runs under the boxes, with
+// a tag halfway along that shows its level and delay ("20% | 1.3 ms"). The
+// tag turns the accent colour while the runner's loop guard is holding the
+// loop at 0 dB (it rings by itself: turn its level down).
 class PatchCableView : public juce::Component
 {
 public:
@@ -30,7 +34,8 @@ public:
     {
         cables,  // a cable was made, moved, removed or re-weighted: recompile
         nodes,   // a node was added, removed or bypassed: recompile
-        layout   // a node moved: save, nothing to recompile
+        layout,  // a node moved: save, nothing to recompile
+        loop     // a loop's level, while its tag is dragged (inside onGesture)
     };
 
     // Design sizes, on the 10 px grid.
@@ -73,6 +78,13 @@ public:
     // Optional: drawn over the dot grid, under the cables (zoomed; graph
     // positions are at getOrigin() + (x, y)).
     std::function<void (juce::Graphics&)> paintBackdrop;
+    // Optional: the loop guard's gain on a loop cable (under 1: ringing).
+    std::function<float (const PatchGraph::Cable&)> loopGuardOf;
+    // A drag on a loop's tag: true at its start, false at its end; the Edit::loop
+    // edits come between (the owner makes them one undo step).
+    std::function<void (bool)> onGesture;
+    // The highest level a loop cable takes (the owner's limit).
+    float maxLoopLevel = 0.7f;
 
     // How menus open. The tests swap it for one that picks an item.
     std::function<void (juce::PopupMenu&, std::function<void (int)>)> openMenu = [this] (juce::PopupMenu& menu, std::function<void (int)> done)
@@ -124,7 +136,8 @@ public:
 
     void graphChanged()
     {
-        selectedCable = -1;
+        // (A cable stays selected while it is still there.)
+        selectedCable = selectedCable >= 0 ? graph.findCable (selectedFrom, selectedTo) : -1;
         if (graph.find (selectedNode) == nullptr)
             selectedNode = 0;
         repaint();
@@ -153,6 +166,42 @@ public:
     juce::Point<float> getOrigin() const { return origin; }
     PatchGraph::NodeId getSelectedNode() const { return selectedNode; }
     int getSelectedCable() const { return selectedCable; }
+
+    void selectCable (int index)
+    {
+        selectedCable = juce::isPositiveAndBelow (index, (int) graph.cables().size()) ? index : -1;
+        if (selectedCable >= 0)
+        {
+            selectedFrom = graph.cables()[(size_t) selectedCable].from;
+            selectedTo = graph.cables()[(size_t) selectedCable].to;
+            selectedNode = 0;
+        }
+        repaint();
+    }
+
+    // A loop's delay as its tag shows it (the chunk at the least).
+    juce::String loopDelayText (const PatchGraph::Cable& cable) const
+    {
+        const auto ms = juce::jmax (loopLatencyMs, cable.delayMs);
+        return ms < 10.0f ? juce::String (ms, 1) + " ms" : ms < 1000.0f ? juce::String (juce::roundToInt (ms)) + " ms" : juce::String (ms / 1000.0f, 2) + " s";
+    }
+
+    // The tag halfway along a loop cable (its level and delay).
+    juce::Rectangle<float> loopTagBounds (const PatchGraph::Cable& cable) const
+    {
+        const auto path = cablePath (portPosition (cable.from, false), portPosition (cable.to, true), true);
+        return juce::Rectangle<float> (0.0f, 0.0f, 100.0f, 20.0f).withCentre (path.getPointAlongPath (path.getLength() * 0.5f));
+    }
+
+    // The loop cable whose tag is at a position, or -1.
+    int loopTagAt (juce::Point<float> position) const
+    {
+        const auto feedback = graph.feedbackCables();
+        for (size_t c = 0; c < graph.cables().size(); ++c)
+            if (feedback[c] && loopTagBounds (graph.cables()[c]).contains (position))
+                return (int) c;
+        return -1;
+    }
 
     //==========================================================================
     void paint (juce::Graphics& g) override
@@ -224,6 +273,17 @@ public:
             return;
         }
 
+        if (const auto tag = loopTagAt (position); tag >= 0 && nodeAt (position) == nullptr)
+        {
+            selectCable (tag);
+            drag = {};
+            drag.kind = DragKind::loopLevel;
+            drag.pickedCable = tag;
+            drag.pickedGain = graph.cables()[(size_t) tag].gain;
+            drag.mouse = position;
+            return;
+        }
+
         if (const auto* node = nodeAt (position))
         {
             selectedNode = node->id;
@@ -236,7 +296,7 @@ public:
             return;
         }
 
-        selectedCable = cableAt (position);
+        selectCable (cableAt (position));
         selectedNode = 0;
         if (selectedCable < 0)
         {
@@ -268,6 +328,13 @@ public:
             drag.mouse = e.position / zoom;
             repaint();
         }
+        else if (drag.kind == DragKind::loopLevel)
+        {
+            // 200 px from nothing to full; finer with a modifier, like the knobs.
+            const auto scale = e.mods.isShiftDown() || e.mods.isCommandDown() ? 0.001f : 0.005f;
+            const auto level = juce::jlimit (0.0f, maxLoopLevel, drag.pickedGain + (drag.mouse.y - e.position.y / zoom) * scale);
+            setLoopLevel (drag.pickedCable, std::round (level * 100.0f) / 100.0f);
+        }
         else if (drag.kind == DragKind::pan)
         {
             const auto target = e.position / zoom - drag.grabOffset;
@@ -278,6 +345,14 @@ public:
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (drag.kind == DragKind::loopLevel)
+        {
+            if (drag.moved && onGesture)
+                onGesture (false);
+            drag = {};
+            repaint();
+            return;
+        }
         if (drag.kind == DragKind::node && drag.moved && onEdited)
             onEdited (Edit::layout);
 
@@ -288,9 +363,31 @@ public:
         repaint();
     }
 
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        const auto tag = loopTagAt (e.position / zoom);
+        if (tag < 0 || nodeAt (e.position / zoom) != nullptr)
+            return juce::Component::mouseWheelMove (e, wheel);
+        selectCable (tag);
+        const auto step = (wheel.deltaY != 0.0f ? wheel.deltaY : wheel.deltaX) > 0.0f ? 0.01f : -0.01f;
+        const auto level = juce::jlimit (0.0f, maxLoopLevel, std::round ((graph.cables()[(size_t) tag].gain + step) * 100.0f) / 100.0f);
+        if (onGesture)
+            onGesture (true);
+        drag.moved = true;
+        setLoopLevel (tag, level);
+        if (onGesture)
+            onGesture (false);
+        drag = {};
+    }
+
     void mouseMove (const juce::MouseEvent& e) override
     {
         const auto position = e.position / zoom;
+        if (loopTagAt (position) >= 0 && nodeAt (position) == nullptr)
+        {
+            setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+            return;
+        }
         const auto overPort = portAt (position, false).node != 0 || portAt (position, true).node != 0;
         setMouseCursor (overPort ? juce::MouseCursor::CrosshairCursor
                                  : nodeAt (position) != nullptr ? juce::MouseCursor::DraggingHandCursor
@@ -346,11 +443,12 @@ public:
     int cableAt (juce::Point<float> position) const
     {
         const auto& cables = graph.cables();
+        const auto feedback = graph.feedbackCables();
         auto best = -1;
         auto bestDistance = 6.0f;
         for (size_t c = 0; c < cables.size(); ++c)
         {
-            const auto path = cablePath (portPosition (cables[c].from, false), portPosition (cables[c].to, true));
+            const auto path = cablePath (portPosition (cables[c].from, false), portPosition (cables[c].to, true), feedback[c]);
             juce::Point<float> nearest;
             const auto along = path.getNearestPoint (position, nearest);
             juce::ignoreUnused (along);
@@ -365,7 +463,7 @@ public:
     }
 
 private:
-    enum class DragKind { none, node, cable, pan };
+    enum class DragKind { none, node, cable, pan, loopLevel };
 
     bool isShown (const PatchGraph::Node& node) const { return showInputNode || ! node.isInput(); }
     bool canRemove (const PatchGraph::Node& node) const { return ! node.isFixed() && nodesRemovable && (! removable || removable (node)); }
@@ -379,6 +477,7 @@ private:
         PatchGraph::Port from;
         int pickedCable = -1; // a cable lifted off an input port, or -1 for a new one
         float pickedGain = 1.0f;
+        float pickedDelay = 0.0f;
         juce::Point<float> mouse;
     };
 
@@ -390,6 +489,18 @@ private:
             return onRemove (node);
         if (graph.removeNode (id))
             edited (Edit::nodes);
+    }
+
+    // A loop's level from its tag: live, inside one gesture.
+    void setLoopLevel (int index, float level)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) graph.cables().size()) || graph.cables()[(size_t) index].gain == level)
+            return;
+        if (! drag.moved && onGesture)
+            onGesture (true);
+        drag.moved = true;
+        graph.setCableGain (index, level);
+        edited (Edit::loop);
     }
 
     void edited (Edit edit)
@@ -413,6 +524,7 @@ private:
         drag.from = from;
         drag.pickedCable = picked;
         drag.pickedGain = picked >= 0 ? graph.cables()[(size_t) picked].gain : 1.0f;
+        drag.pickedDelay = picked >= 0 ? graph.cables()[(size_t) picked].delayMs : 0.0f;
         drag.mouse = position;
         selectedCable = -1;
         repaint();
@@ -453,7 +565,8 @@ private:
         }
         if (to.node != 0 && graph.connect (drag.from, to, drag.pickedGain) == PatchGraph::ConnectResult::ok)
         {
-            selectedCable = graph.findCable (drag.from, to);
+            graph.setCableDelay (graph.findCable (drag.from, to), drag.pickedDelay);
+            selectCable (graph.findCable (drag.from, to));
             changed = true;
         }
         if (changed)
@@ -511,12 +624,10 @@ private:
 
         if (const auto c = cableAt (position); c >= 0)
         {
-            selectedCable = c;
-            selectedNode = 0;
-            repaint();
+            selectCable (c);
             const auto cable = graph.cables()[(size_t) c];
             if (graph.feedbackCables()[(size_t) c])
-                menu.addItem (-1, "Loop: " + juce::String (loopLatencyMs, 1) + " ms delay", false);
+                menu.addItem (-1, "Loop: " + loopDelayText (cable) + " delay (set it below)", false);
             // (A loop's cable stays under 100 %, or a loop through gain would grow.)
             const bool loop = graph.feedbackCables()[(size_t) c];
             const float levels[] = { 1.0f, 0.7f, 0.5f, 0.25f };
@@ -557,7 +668,7 @@ private:
         }
     }
 
-    juce::Path cablePath (juce::Point<float> from, juce::Point<float> to) const
+    juce::Path cablePath (juce::Point<float> from, juce::Point<float> to, bool loop = false) const
     {
         juce::Path path;
         path.startNewSubPath (from);
@@ -584,6 +695,14 @@ private:
                 round.cubicTo ({ to.x - 40.0f, lane }, to.translated (-40.0f, 0.0f), to);
                 return round;
             }
+        }
+        else if (! loop && std::abs (to.y - from.y) >= nodeHeight)
+        {
+            // A cable to a box that sits a little to the left, above or
+            // below: one S-bend between them (under every box it ran around
+            // the whole patch and read as a loop: ilana's Smear to EQ).
+            const auto pull = 60.0f - dx * 0.5f;
+            path.cubicTo (from.translated (pull, 0.0f), to.translated (-pull, 0.0f), to);
         }
         else
         {
@@ -620,7 +739,7 @@ private:
         using namespace IlanaTheme;
         const auto from = portPosition (cable.from, false);
         const auto to = portPosition (cable.to, true);
-        const auto path = cablePath (from, to);
+        const auto path = cablePath (from, to, loop);
         const auto* source = graph.find (cable.from.node);
         auto colour = source != nullptr ? colourFor (*source) : Ui::text2;
         colour = colour.withAlpha (selected ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));
@@ -634,14 +753,22 @@ private:
             g.setColour (colour);
             g.fillPath (dashed);
 
-            const auto middle = path.getPointAlongPath (path.getLength() * 0.5f);
-            const auto text = juce::String (loopLatencyMs, 1) + " ms";
-            g.setFont (font (TextSize::tiny, true));
-            const auto box = juce::Rectangle<float> (0.0f, 0.0f, 50.0f, 18.0f).withCentre (middle);
+            // The tag: level | delay; the accent while the guard holds the loop.
+            const auto ringing = loopGuardOf && loopGuardOf (cable) < 0.98f;
+            const auto box = loopTagBounds (cable);
             g.setColour (Ui::raised);
-            g.fillRoundedRectangle (box, 9.0f);
-            g.setColour (colour);
-            g.drawText (text, box, juce::Justification::centred, false);
+            g.fillRoundedRectangle (box, 10.0f);
+            g.setColour (ringing ? accent() : selected ? colour : Ui::line);
+            g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, ringing || selected ? 1.5f : 1.0f);
+            auto halves = box.reduced (6.0f, 0.0f);
+            const auto left = halves.removeFromLeft (halves.getWidth() * 0.42f);
+            g.setFont (font (TextSize::tiny, true, true));
+            g.setColour (ringing ? accent() : Ui::text);
+            g.drawText (juce::String (juce::roundToInt (cable.gain * 100.0f)) + "%", left, juce::Justification::centred, false);
+            g.setColour (Ui::line);
+            g.fillRect (left.getRight(), box.getY() + 5.0f, 1.0f, box.getHeight() - 10.0f);
+            g.setColour (Ui::text2);
+            g.drawText (loopDelayText (cable), halves, juce::Justification::centred, false);
         }
         else
         {
@@ -748,6 +875,7 @@ private:
     juce::Point<float> origin { 20.0f, 20.0f };
     PatchGraph::NodeId selectedNode = 0;
     int selectedCable = -1;
+    PatchGraph::Port selectedFrom, selectedTo; // the selected cable's ends (it survives a refresh)
     float loopLatencyMs = 1.3f;
     Drag drag;
 

@@ -11,6 +11,92 @@
 
 namespace
 {
+// The selected loop cable's LEVEL and DELAY knobs (ilana 2026-10-11): the
+// usual KnobControl on two parameters of their own, written into the cable.
+class LoopKnobs : private juce::AudioProcessorParameter::Listener
+{
+public:
+    explicit LoopKnobs (float shortestMs)
+    {
+        juce::AudioProcessorValueTreeState::ParameterLayout layout;
+        layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "loop_level", 1 }, "Loop Level",
+                                                                 juce::NormalisableRange<float> (0.0f, 70.0f, 1.0f), 20.0f,
+                                                                 juce::AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                                     [] (float value, int) { return juce::String (juce::roundToInt (value)) + " %"; })));
+        layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "loop_delay", 1 }, "Loop Delay",
+                                                                 juce::NormalisableRange<float> (1.0f, PatchGraph::maxLoopDelayMs, 0.0f, 0.3f), 1.0f,
+                                                                 juce::AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                                     [shortestMs] (float value, int)
+                                                                     {
+                                                                         const auto ms = juce::jmax (shortestMs, value);
+                                                                         return ms < 10.0f ? juce::String (ms, 1) + " ms" : ms < 1000.0f ? juce::String (juce::roundToInt (ms)) + " ms"
+                                                                                                                                        : juce::String (ms / 1000.0f, 2) + " s";
+                                                                     })));
+        state = std::make_unique<juce::AudioProcessorValueTreeState> (holder, nullptr, "Loop", std::move (layout));
+        level = std::make_unique<KnobControl> (*state, "loop_level", "LEVEL", IlanaTheme::accent(), false);
+        delay = std::make_unique<KnobControl> (*state, "loop_delay", "DELAY", IlanaTheme::accent(), false);
+        level->setTooltip ("LEVEL: how much of the loop comes back each time round. Turn it down if the loop rings by itself.  Not modulatable.");
+        delay->setTooltip ("DELAY: how long the loop takes to come round, from the shortest (one render chunk) to 1 s.  Not modulatable.");
+        for (auto* knob : { level.get(), delay.get() })
+            knob->setInlineKnob (true);
+        for (const auto* id : { "loop_level", "loop_delay" })
+            state->getParameter (id)->addListener (this);
+    }
+
+    ~LoopKnobs() override
+    {
+        // (The knobs hold attachments to the parameters: they go first.)
+        level.reset();
+        delay.reset();
+        for (const auto* id : { "loop_level", "loop_delay" })
+            state->getParameter (id)->removeListener (this);
+    }
+
+    // The cable's values onto the knobs (not heard back as an edit).
+    void show (const PatchGraph::Cable& cable)
+    {
+        const juce::ScopedValueSetter<bool> quiet (syncing, true);
+        set ("loop_level", cable.gain * 100.0f);
+        set ("loop_delay", juce::jmax (1.0f, cable.delayMs));
+    }
+
+    std::function<void (float level, float delayMs)> onChange; // a turn (inside onGesture, or one step)
+    std::function<void (bool)> onGesture;
+
+    std::unique_ptr<KnobControl> level, delay;
+
+private:
+    void set (const char* id, float value)
+    {
+        auto* parameter = state->getParameter (id);
+        const auto normalised = parameter->convertTo0to1 (value);
+        if (std::abs (parameter->getValue() - normalised) > 1.0e-6f)
+            parameter->setValueNotifyingHost (normalised);
+    }
+
+    float get (const char* id) const
+    {
+        const auto* parameter = state->getParameter (id);
+        return parameter->convertFrom0to1 (parameter->getValue());
+    }
+
+    void parameterValueChanged (int, float) override
+    {
+        if (! syncing && onChange)
+            onChange (get ("loop_level") / 100.0f, get ("loop_delay"));
+    }
+
+    void parameterGestureChanged (int, bool starting) override
+    {
+        if (onGesture)
+            onGesture (starting);
+    }
+
+    FxInstance::ShadowProcessor holder;
+    std::unique_ptr<juce::AudioProcessorValueTreeState> state;
+    bool syncing = false;
+};
+
 // An effect's mini window on the PATCH tab (ilana, 2026-10-11: "open mini
 // windowed versions of effects inside the patcher"): its picture and its
 // card's controls, built here as copies on the same parameters (the RACK
@@ -37,22 +123,34 @@ public:
             addAndMakeVisible (display);
         }
 
+        // A copy of an effect whose settings aren't the ones in front (its
+        // own, kept in the FX patch): the controls work on a shadow of them,
+        // as its card on the RACK page does (FxInstanceControls.h).
+        if (! p.isFxSlotInFront (slot))
+        {
+            std::vector<juce::String> ids;
+            for (const auto& entry : p.getFxPatch().slots[(size_t) slot].values)
+                ids.push_back (entry.first);
+            shadow = std::make_unique<FxInstance::Shadow> (p, slot, type, ids);
+            display.setValueSource (&shadow->getState());
+        }
+        auto& state = shadow != nullptr ? shadow->getState() : p.apvts;
         for (auto* item : rack.windowControls (type))
         {
             std::unique_ptr<juce::Component> copy;
-            if (auto* knob = dynamic_cast<KnobControl*> (item))
+            if (auto* knob = dynamic_cast<KnobControl*> (item); knob != nullptr && state.getParameter (knob->getParameterId()) != nullptr)
             {
-                auto made = std::make_unique<KnobControl> (p.apvts, knob->getParameterId(), knob->getLabelText(), colour, false);
+                auto made = std::make_unique<KnobControl> (state, knob->getParameterId(), knob->getLabelText(), colour, false);
                 made->setInlineKnob (true);
                 copy = std::move (made);
             }
-            else if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+            else if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && state.getParameter (toggle->getParameterId()) != nullptr)
             {
-                copy = std::make_unique<ToggleControl> (p.apvts, toggle->getParameterId(), toggle->getButton().getButtonText());
+                copy = std::make_unique<ToggleControl> (state, toggle->getParameterId(), toggle->getButton().getButtonText());
             }
-            else if (auto* combo = dynamic_cast<ComboControl*> (item))
+            else if (auto* combo = dynamic_cast<ComboControl*> (item); combo != nullptr && state.getParameter (combo->getParameterId()) != nullptr)
             {
-                copy = std::make_unique<ComboControl> (p.apvts, combo->getParameterId(), combo->getLabelText());
+                copy = std::make_unique<ComboControl> (state, combo->getParameterId(), combo->getLabelText());
             }
             if (copy != nullptr)
             {
@@ -77,8 +175,25 @@ public:
         setSize (width, height);
     }
 
+    ~FxMiniWindow() override
+    {
+        // (The controls hold attachments to the shadow's parameters: they go first.)
+        display.setValueSource (nullptr);
+        controls.clear();
+    }
+
     const int slot, type;
     std::function<void (FxMiniWindow&)> onClose, onMoved;
+
+    // Whether its controls are on a copy's own settings (or on the front ones).
+    bool isOwnSettings() const { return shadow != nullptr; }
+
+    // Changes made elsewhere (its RACK card, undo) onto a copy's controls.
+    void refresh()
+    {
+        if (shadow != nullptr)
+            shadow->refresh();
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -161,6 +276,7 @@ private:
     juce::Colour colour;
     SlotSwitch power;
     FxDisplay display;
+    std::unique_ptr<FxInstance::Shadow> shadow;
     juce::TextButton closeButton { juce::String::fromUTF8 ("\xc3\x97") };
     std::vector<std::unique_ptr<juce::Component>> controls;
     int columns = 1, rows = 1;
@@ -261,7 +377,31 @@ public:
         view.nodeMenu = [this] (juce::PopupMenu& menu, const PatchGraph::Node& node) { addNodeItems (menu, node); };
         view.addMenu = [this] (juce::PopupMenu& menu, juce::Point<float> at) { addEffectItems (menu, at); };
         view.paintBackdrop = [this] (juce::Graphics& g) { paintVoiceBand (g); };
+        view.loopGuardOf = [this] (const PatchGraph::Cable& cable)
+        {
+            return processorRef.isFxPatcherOn() ? processorRef.getFxLoopGuard (cable.from.node, cable.from.port, cable.to.node, cable.to.port) : 1.0f;
+        };
+        view.onGesture = [this] (bool starting) { loopGesture (starting, "Loop level"); };
         addAndMakeVisible (view);
+
+        // The selected loop's own row: LEVEL and DELAY, and remove.
+        loopKnobs = std::make_unique<LoopKnobs> (shortestLoopMs());
+        loopKnobs->onGesture = [this] (bool starting) { loopGesture (starting, "Loop settings"); };
+        loopKnobs->onChange = [this] (float level, float delayMs) { setLoop (level, delayMs); };
+        addChildComponent (*loopKnobs->level);
+        addChildComponent (*loopKnobs->delay);
+        removeCableButton.setTooltip ("Take this loop cable out");
+        removeCableButton.onClick = [this]
+        {
+            if (const auto* cable = selectedLoop())
+            {
+                shown.disconnect (cable->from, cable->to);
+                commit (PatchCableView::Edit::cables);
+            }
+        };
+        removeCableButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        removeCableButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
+        addChildComponent (removeCableButton);
 
         // The selected box's own row. A voice box: its ON switch and where to
         // edit it. An effect: its switch, solo, band and MIX, and what to do
@@ -289,6 +429,12 @@ public:
 
         refresh (true);
         startTimerHz (15);
+    }
+
+    ~PatchPage() override
+    {
+        if (loopGestureOpen)
+            processorRef.endEdit();
     }
 
     // Set by the editor: show a page ("OSC", "FILTER"), or an effect's card
@@ -511,7 +657,7 @@ private:
             return "The chain and rack as cables. Change one to play the cables.";
         const auto loops = processorRef.getFxLoopLatencyMs();
         if (loops > 0.0f)
-            return "Drag an output to an input. Each loop adds " + juce::String (loops, 1) + " ms.";
+            return "Drag an output to an input. Drag a loop's tag for its level; click it for DELAY.";
         return "Drag an output to an input. More cables play in parallel.";
     }
 
@@ -590,6 +736,26 @@ private:
             return;
         paintCard (g, inspector.toFloat(), 8.0f, Ui::line);
         auto text = inspectorText;
+        if (const auto* loop = selectedLoop())
+        {
+            // A loop: where it runs, and whether the guard is holding it.
+            const auto* from = shown.find (loop->from.node);
+            const auto* to = shown.find (loop->to.node);
+            const auto colour = from != nullptr ? colourOf (*from) : Ui::text2;
+            auto title = text.removeFromTop (text.getHeight() / 2);
+            paintTag (g, { (float) title.getX() + 4.0f, (float) title.getBottom() - 10.0f }, colour);
+            g.setColour (Ui::text);
+            g.setFont (font (TextSize::large, true));
+            const auto name = [] (const PatchGraph::Node* box) { return box != nullptr ? juce::String (box->label) : juce::String ("?"); };
+            drawFitted (g, "LOOP  " + name (from) + " > " + name (to), title.withTrimmedLeft (16), juce::Justification::bottomLeft, 1, TextSize::minPassive);
+            const auto ringing = view.loopGuardOf && view.loopGuardOf (*loop) < 0.98f;
+            g.setColour (ringing ? accent() : Ui::text3);
+            g.setFont (font (TextSize::label));
+            g.drawText (ringing ? "Ringing by itself: held at 0 dB. Turn LEVEL down to tame it."
+                                : "Feeds " + name (from) + " back into " + name (to) + ".",
+                        text.withTrimmedTop (4).withTrimmedLeft (16), juce::Justification::topLeft, true);
+            return;
+        }
         const auto* node = shown.find (view.getSelectedNode());
         const auto label = [&g] (const char* name, juce::Rectangle<int> area)
         {
@@ -615,7 +781,7 @@ private:
             g.drawText (line, text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft, true);
             g.setColour (Ui::text3);
             g.setFont (font (TextSize::label));
-            g.drawText ("Click a box to set it here; double-click it to open it. Right-click the canvas to add an effect where you clicked.",
+            g.drawText ("Click a box to set it here, or a loop's tag for its LEVEL and DELAY; double-click a box to open it. Right-click the canvas to add an effect.",
                         text.withTrimmedTop (4), juce::Justification::topLeft, true);
 
             // At the right: how the patch is wired and what its effects cost.
@@ -624,10 +790,19 @@ private:
             for (const auto& box : fxShown.nodes())
                 if (! box.isFixed() && juce::isPositiveAndBelow (box.ref - 1, IlanaSynthAudioProcessor::numFxSlots))
                     cpu += processorRef.getFxSlotCpu (box.ref - 1);
-            const auto loopMs = processorRef.getFxLoopLatencyMs();
+            const auto loops = shown.feedbackCables();
+            auto loopCount = 0, ringing = 0;
+            for (size_t c = 0; c < loops.size(); ++c)
+                if (loops[c])
+                {
+                    ++loopCount;
+                    ringing += view.loopGuardOf && view.loopGuardOf (shown.cables()[c]) < 0.98f ? 1 : 0;
+                }
+            const auto guard = loopCount == 0 ? juce::String ("no loops") : ringing == 0 ? juce::String ("idle")
+                                                                                         : juce::String ("holding ") + juce::String (ringing) + (ringing == 1 ? " loop" : " loops");
             std::vector<std::pair<juce::String, juce::String>> cells {
                 { "EFFECTS CPU", juce::String (cpu * 100.0f, 2) + " %" },
-                { "LOOP DELAY", loopMs > 0.0f ? juce::String (loopMs, 1) + " ms" : juce::String ("none") }
+                { "LOOP GUARD", guard }
             };
             if (hasVoice)
                 cells.push_back ({ "SPLIT SOURCES", juce::String (splitSources()) });
@@ -698,6 +873,22 @@ private:
         auto row = inspector.reduced (20, 10);
         inspectorText = row.removeFromLeft (juce::jmin (inspectedVoice >= 0 ? 420 : 300, row.getWidth() / 3));
         onArea = powerArea = soloArea = bandArea = {};
+        const auto loop = selectedLoop() != nullptr;
+        for (juce::Component* item : { (juce::Component*) loopKnobs->level.get(), (juce::Component*) loopKnobs->delay.get(),
+                                       (juce::Component*) &removeCableButton })
+            item->setVisible (loop);
+        if (loop)
+        {
+            // Name and detail, LEVEL, DELAY (the MIX knob's size), REMOVE CABLE at the right.
+            inspectorText = row.removeFromLeft (juce::jmin (300, row.getWidth() / 3));
+            auto actions = row.removeFromRight (340);
+            removeCableButton.setBounds (actions.removeFromRight (130).withSizeKeepingCentre (130, 28));
+            row.removeFromLeft (20);
+            loopKnobs->level->setBounds (row.removeFromLeft (120).withSizeKeepingCentre (116, 44));
+            row.removeFromLeft (20);
+            loopKnobs->delay->setBounds (row.removeFromLeft (120).withSizeKeepingCentre (116, 44));
+            return;
+        }
         if (inspectedVoice < 0 && inspectedSlot < 0)
         {
             inspectorText = inspector.reduced (20, 10);
@@ -831,7 +1022,10 @@ private:
         {
             const auto* from = graph.find (cable.from.node);
             if (from != nullptr && ! isVoice (*from))
+            {
                 fx.connect (cable.from, cable.to, cable.gain);
+                fx.setCableDelay (fx.findCable (cable.from, cable.to), cable.delayMs);
+            }
         }
         for (const auto& node : graph.nodes())
             if (! isVoice (node) && ! node.isInput())
@@ -846,7 +1040,7 @@ private:
         for (const auto& cable : a.cables())
         {
             const auto index = b.findCable (cable.from, cable.to);
-            if (index < 0 || b.cables()[(size_t) index].gain != cable.gain)
+            if (index < 0 || b.cables()[(size_t) index].gain != cable.gain || b.cables()[(size_t) index].delayMs != cable.delayMs)
                 return false;
         }
         return true;
@@ -858,6 +1052,17 @@ private:
     void commit (PatchCableView::Edit edit)
     {
         const auto fx = fxGraphOf (shown);
+        if (edit == PatchCableView::Edit::loop && loopGestureOpen)
+        {
+            // (Live while a loop's tag or knob turns; the gesture is one undo step.)
+            if (! processorRef.isFxPatcherOn())
+                processorRef.setFxPatcherOn (true);
+            processorRef.setFxPatchGraph (fx);
+            fxShown = fx;
+            nameEffects (fxShown);
+            view.repaint();
+            return;
+        }
         if (edit == PatchCableView::Edit::layout)
         {
             processorRef.performEdit ("Move effect", [this, fx] { processorRef.setFxPatchGraph (fx); });
@@ -873,7 +1078,7 @@ private:
         const auto fxChanged = ! sameCables (fx, fxShown);
         if (! voiceChanged && ! fxChanged)
             return refresh (true);
-        processorRef.performEdit ("Patch cables", [this, fx, voice, voiceChanged, fxChanged]
+        processorRef.performEdit (edit == PatchCableView::Edit::loop ? "Loop settings" : "Patch cables", [this, fx, voice, voiceChanged, fxChanged]
         {
             if (voiceChanged)
                 processorRef.setRouteCables (voice, true);
@@ -885,6 +1090,46 @@ private:
             }
         });
         refresh (true);
+    }
+
+    // The loop cable the view has selected, or null.
+    const PatchGraph::Cable* selectedLoop() const
+    {
+        const auto index = view.getSelectedCable();
+        if (! juce::isPositiveAndBelow (index, (int) shown.cables().size()) || ! shown.feedbackCables()[(size_t) index])
+            return nullptr;
+        return &shown.cables()[(size_t) index];
+    }
+
+    float shortestLoopMs() const
+    {
+        return juce::jmax (0.1f, (float) (64000.0 / juce::jmax (1.0, processorRef.getSampleRate() > 0 ? processorRef.getSampleRate() : 48000.0)));
+    }
+
+    void loopGesture (bool starting, const juce::String& name)
+    {
+        if (starting && ! loopGestureOpen)
+        {
+            loopGestureOpen = true;
+            processorRef.beginEdit (name);
+        }
+        else if (! starting && loopGestureOpen)
+        {
+            loopGestureOpen = false;
+            processorRef.endEdit();
+            refresh (true);
+        }
+    }
+
+    // A turn of the selected loop's LEVEL or DELAY knob.
+    void setLoop (float level, float delayMs)
+    {
+        const auto index = view.getSelectedCable();
+        if (selectedLoop() == nullptr)
+            return;
+        shown.setCableGain (index, juce::jlimit (0.0f, view.maxLoopLevel, level));
+        shown.setCableDelay (index, delayMs <= shortestLoopMs() ? 0.0f : delayMs);
+        commit (PatchCableView::Edit::loop);
     }
 
     void setVoiceCables (bool on)
@@ -980,8 +1225,8 @@ private:
     }
 
     //==========================================================================
-    // Mini windows: at most four, one per effect type (copies of an effect
-    // share the parameters its controls show; the RACK focuses one at a time).
+    // Mini windows: at most four, one per box (a copy of an effect with its
+    // own settings gets controls on those, not on the front ones).
     static constexpr size_t maxWindows = 4;
 
     void openWindow (int slot)
@@ -1000,13 +1245,13 @@ private:
             }
         const auto type = node->kind;
         const auto label = juce::String (node->label);
-        for (auto& window : windows)
-            if (window->type == type)
-                closeWindow (window.get());
-        if (windows.size() >= maxWindows)
-            closeWindow (windows.front().get());
-        if (! processorRef.isFxSlotInFront (slot))
-            processorRef.performEdit ("Edit " + label, [this, slot] { processorRef.focusFxInstance (slot); });
+        if (std::count_if (windows.begin(), windows.end(), [] (const auto& w) { return w->isVisible(); }) >= (std::ptrdiff_t) maxWindows)
+            for (auto& window : windows)
+                if (window->isVisible())
+                {
+                    closeWindow (window.get());
+                    break;
+                }
 
         auto window = std::make_unique<FxMiniWindow> (processorRef, rack, slot, type, label);
         window->onClose = [this] (FxMiniWindow& closing) { closeWindow (&closing); };
@@ -1064,9 +1309,17 @@ private:
     // A window whose slot changed effect or was emptied closes.
     void checkWindows()
     {
+        // (So does one whose settings moved to or from the front: its
+        // controls would be on the wrong ones.)
         for (auto& window : windows)
-            if (window->isVisible() && juce::roundToInt (read ("fx_slot" + juce::String (window->slot + 1))) != window->type)
-                closeWindow (window.get());
+            if (window->isVisible())
+            {
+                if (juce::roundToInt (read ("fx_slot" + juce::String (window->slot + 1))) != window->type
+                    || window->isOwnSettings() == processorRef.isFxSlotInFront (window->slot))
+                    closeWindow (window.get());
+                else
+                    window->refresh();
+            }
     }
 
     void openSelected()
@@ -1226,12 +1479,15 @@ private:
         if (auto* output = graph.find (PatchGraph::outputNodeId))
             output->label = "OUT";
         for (const auto& cable : fxShown.cables())
+        {
             graph.connect (cable.from, cable.to, cable.gain);
+            graph.setCableDelay (graph.findCable (cable.from, cable.to), cable.delayMs);
+        }
         if (hasVoice)
             connectVoice (graph, patch, sources);
 
         shown = graph;
-        view.setLoopLatencyMs (juce::jmax (0.1f, (float) (64000.0 / juce::jmax (1.0, processorRef.getSampleRate() > 0 ? processorRef.getSampleRate() : 48000.0))));
+        view.setLoopLatencyMs (shortestLoopMs());
         view.graphChanged();
         // A new box or one outside the view: the patch is fitted again.
         if ((int) shown.nodes().size() != shownNodes || ! view.contentFits())
@@ -1371,6 +1627,11 @@ private:
         refresh (state != lastState);
         lastState = state;
         inspect (shown.find (view.getSelectedNode()));
+        const auto* loop = selectedLoop();
+        if (loop != nullptr && ! loopGestureOpen)
+            loopKnobs->show (*loop);
+        if ((loop != nullptr) != loopKnobs->level->isVisible())
+            layoutInspector();
         checkWindows();
         if (juce::Time::getMillisecondCounter() >= refusedUntil && refusedUntil != 0)
         {
@@ -1406,6 +1667,10 @@ private:
     std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
     std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
     juce::TextButton editButton { "EDIT SETTINGS" }, duplicateButton { "DUPLICATE" }, removeButton { "REMOVE" };
+
+    std::unique_ptr<LoopKnobs> loopKnobs;
+    juce::TextButton removeCableButton { "REMOVE CABLE" };
+    bool loopGestureOpen = false;
 
     std::vector<std::unique_ptr<FxMiniWindow>> windows;
     juce::String lastSignature, lastState, refusal;

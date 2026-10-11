@@ -259,6 +259,7 @@ inline float compareWithReference (const Graph& graph, int blockSize, int blocks
     }
 
     Runner runner;
+    runner.setSettings ({ true, false, false }); // (no guards: the reference is linear but for the ring's clamp)
     runner.prepare (48000.0, blockSize, 2);
     runner.publish (plan);
     FakeNodes fake;
@@ -523,7 +524,7 @@ void runPatchGraphTests (bool everyPreset = true)
                     peak = juce::jmax (peak, std::abs (buffer.getSample (c, i)));
                 }
         }
-        check (finite && peak <= 0.5f + 4.0f * 8.0f, "runner: a loop at gain 4 stays finite (peak " + juce::String (peak) + ")");
+        check (finite && peak <= 1.0f, "runner: a loop at gain 4 stays finite and the guards hold it at 0 dB (peak " + juce::String (peak) + ")");
     }
 
     // The silence skip: a node whose input has been silent for longer than

@@ -472,7 +472,7 @@ public:
         const auto detune = read ("_detune");
         const auto active = read ("_unison") > 1.5f;
 
-        if (voiceCount != voices || ! juce::approximatelyEqual (detune, spread) || active != isActive)
+        if (voiceCount != voices || std::abs (detune - spread) > 0.002f * juce::jmax (1.0f, std::abs (detune)) || active != isActive)
         {
             voices = voiceCount;
             spread = detune;
@@ -506,10 +506,22 @@ public:
     }
 
 private:
+    // The parameter with what modulates it right now, as the voices hear it
+    // (DETUNE moved by an LFO or envelope spreads the bars).
     float read (const char* suffix) const
     {
-        const auto* value = processorRef.apvts.getRawParameterValue (prefix + suffix);
-        return value != nullptr ? value->load() : 0.0f;
+        const auto id = prefix + suffix;
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        const auto plain = value != nullptr ? value->load() : 0.0f;
+
+        if (const auto config = modRingConfigFor (id); config.destination != 0)
+            if (const auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                const auto range = parameter->getNormalisableRange();
+                return range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, range.convertTo0to1 (plain) + processorRef.getModDisplay (config.destination)));
+            }
+
+        return plain;
     }
 
     IlanaSynthAudioProcessor& processorRef;

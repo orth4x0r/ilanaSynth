@@ -42,6 +42,7 @@
 #include "dsp/WavetableDoc.h"
 #include "TuningState.h"
 #include "ClipState.h"
+#include "processor/FxPatch.h"
 
 namespace PatchGraph { class Graph; class Runner; }
 
@@ -81,13 +82,13 @@ public:
     {
         return modDisplayValues[(size_t) destination].load() * depth;
     }
-    float getCompGainReduction() const { return compGainReduction.load(); }
+    float getCompGainReduction() const;
     // Display only (the FX cards' meters): the limiter's deepest gain in the
     // last block, and OTT's LOW / MID / HIGH gains at the block's end.
-    float getLimiterGainReduction() const { return limiterGainReduction.load(); }
-    float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
+    float getLimiterGainReduction() const;
+    float getOttBandGain (int band) const;
     // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
-    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { freeze.getBands (out); }
+    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const;
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // What a slot did to the signal in the last blocks: its input and output
     // levels (RMS, linear, smoothed), both 0 while the slot is empty or
@@ -99,7 +100,7 @@ public:
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
-    void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
+    void preloadAirwindows (int algorithm);
     void preloadAirwindowsCategory (int category, int choice);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
@@ -161,7 +162,7 @@ public:
     // M8.3: the loudest voice's WEST gate conductance, for the card.
     float getWestGateLevel() const { return westGateDisplay.load(); }
     // The vocoder's band levels as it last ran (FX display; 0 while idle).
-    float getVocoderBandLevel (int band) const { return juce::isPositiveAndBelow (band, (int) vocoderBandDisplay.size()) ? vocoderBandDisplay[(size_t) band].load() : 0.0f; }
+    float getVocoderBandLevel (int band) const;
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
@@ -593,6 +594,47 @@ public:
     // what it costs; step 17 switches the audio path over.
     PatchGraph::Graph getFxRackGraph();
     void processEffectsGraph (juce::AudioBuffer<float>& buffer, PatchGraph::Runner& runner);
+
+    //==========================================================================
+    // Roadmap step 17: the FX patcher and effect instances (FxPatch.h,
+    // FxPatcher.cpp). Message thread unless noted; the editor wraps each
+    // user action in performEdit, so the parameters and this data undo
+    // together.
+    FxPatchData::Patch getFxPatch() const;
+    void setFxPatch (const FxPatchData::Patch& patch);
+    bool isFxPatcherOn() const;
+    // On: the slots become the patcher graph's nodes; the first time, the
+    // graph is the rack as it is (so turning it on changes nothing heard).
+    void setFxPatcherOn (bool on);
+    // A new effect in the first empty slot, wired in after the last one (on
+    // the graph, in front of OUTPUT). A type the rack already has becomes a
+    // new instance of it: a copy of its settings, on its own engine, with its
+    // card in front. Returns the slot index, or -1 when every slot is in use.
+    int addFxEffect (int type);
+    // Takes a slot's effect out (its node too, the cables around it joined up).
+    void removeFxEffect (int slotIndex);
+    // Puts this instance's settings on its type's controls (the one in front
+    // before keeps its settings as its own copy).
+    void focusFxInstance (int slotIndex);
+    // Whether this slot has its own engine and settings.
+    bool isFxInstance (int slotIndex) const;
+    // Whether this slot's card holds its type's controls (false: another
+    // instance's card is in front and this one plays its own copy).
+    bool isFxSlotInFront (int slotIndex) const;
+    // A duplicate that shared its type's settings (older patches) gets its
+    // own engine and its own copy of the settings.
+    void makeFxInstance (int slotIndex);
+    // Swaps two slots, with their instance data, engines and graph nodes.
+    void swapFxSlots (int a, int b);
+    // The graph the patcher shows (a copy) and a change to it from the view.
+    PatchGraph::Graph getFxPatchGraph() const;
+    void setFxPatchGraph (const PatchGraph::Graph& graph);
+    // The patcher's loop delay in milliseconds (one render chunk).
+    float getFxLoopLatencyMs() const;
+    // Tests: the rack's plan (what the audio thread runs) is current.
+    bool isFxRackPlanCurrent();
+    // Tests / tools: compile now what the audio thread would wait for.
+    void compileFxPlansNow();
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
@@ -655,6 +697,7 @@ private:
     // straight line.
     struct PatchData
     {
+        std::shared_ptr<const FxPatchData::Patch> fx;
         std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> draws {};
         std::array<LfoCurve, (size_t) numLfos> curves;
         std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
@@ -691,6 +734,7 @@ private:
         const char* id = nullptr;
         std::uint32_t hash = 0;
         const std::atomic<float>* value = nullptr;
+        int index = -1;        // in paramCacheIds (an FX instance's own values are kept by it)
         int destination = -1;
         bool discrete = false; // a choice, int or bool: read back rounded
         float fallback = 0.0f; // the default, read in place of a non-finite value
@@ -728,41 +772,11 @@ private:
     float getRawParam (const ParamRef& ref) const;
     const ParamCacheEntry* findParam (const char* id) const;
     float readParam (const ParamCacheEntry& entry) const;
+    // The calling thread's FX instance values (see readParam); returns the old ones.
+    static const float* swapFxParamValues (const float* values) noexcept;
     const Wavetable* getTableForChoice (int choiceIndex) const;
     void renderLfos (int numSamples, const juce::MidiBuffer& midiMessages);
     float staticSourceValue (int sourceIndex) const;
-    void processAmp (juce::AudioBuffer<float>& buffer);
-    void processDrive (juce::AudioBuffer<float>& buffer);
-    void processCrush (juce::AudioBuffer<float>& buffer);
-    void processCompressor (juce::AudioBuffer<float>& buffer);
-    void processComb (juce::AudioBuffer<float>& buffer);
-    void processPhaser (juce::AudioBuffer<float>& buffer);
-    void processChorus (juce::AudioBuffer<float>& buffer);
-    void processHaas (juce::AudioBuffer<float>& buffer);
-    void processDelay (juce::AudioBuffer<float>& buffer);
-    void processStutter (juce::AudioBuffer<float>& buffer);
-    void processSmear (juce::AudioBuffer<float>& buffer);
-    void processFreeze (juce::AudioBuffer<float>& buffer);
-    void processReverb (juce::AudioBuffer<float>& buffer);
-    void processFlanger (juce::AudioBuffer<float>& buffer);
-    void processDimension (juce::AudioBuffer<float>& buffer);
-    void processGate (juce::AudioBuffer<float>& buffer);
-    void processTapeStop (juce::AudioBuffer<float>& buffer);
-    void processTilt (juce::AudioBuffer<float>& buffer);
-    void processUtility (juce::AudioBuffer<float>& buffer);
-    void processAirwindows (juce::AudioBuffer<float>& buffer);
-    void processVocoder (juce::AudioBuffer<float>& buffer);
-    void processOtt (juce::AudioBuffer<float>& buffer);
-    void processLimiter (juce::AudioBuffer<float>& buffer);
-    void processWidener (juce::AudioBuffer<float>& buffer);
-    void processTremolo (juce::AudioBuffer<float>& buffer);
-    void processFreqShift (juce::AudioBuffer<float>& buffer);
-    void processRingMod (juce::AudioBuffer<float>& buffer);
-    void processOctaver (juce::AudioBuffer<float>& buffer);
-    void processVowel (juce::AudioBuffer<float>& buffer);
-    void processFeedback (juce::AudioBuffer<float>& buffer);
-    void processEq (juce::AudioBuffer<float>& buffer);
-    void processSlot (int type, juce::AudioBuffer<float>& buffer);
     juce::String captureFxChain();
     juce::ValueTree buildFullState();
     void applyFullState (const juce::ValueTree& state);
@@ -818,16 +832,6 @@ private:
     double euclidExciterPhase = 0.0;
     long long euclidExciterLastStep = -1;
 
-    int crushCounter = 0;
-    float crushHold[2] { 0.0f, 0.0f };
-    float delayDampState[2] { 0.0f, 0.0f };
-
-    juce::AudioBuffer<float> stutterBuffer;
-    int stutterLength = 0;
-    int stutterWrite = 0;
-    int stutterRead = 0;
-    bool stutterRecording = false;
-    bool stutterWasOn = false;
 
     std::vector<std::shared_ptr<Wavetable>> userTables;
     std::array<std::shared_ptr<Wavetable>, (size_t) (numUserSlots * 3)> retiredTables;
@@ -858,16 +862,9 @@ private:
     ParamRef fxRoutingRef { "fx_routing" };
     ParamRef multiCoreRef { "multi_core" };
     ParamRef sustainVoicesRef { "sustain_voices" };
-    // The Airwindows module (FX type 30): only the chosen algorithm runs.
-    airwindows::Module airwindowsModule;
-    ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
-    std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
-        ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
-    std::vector<float> airwindowsMonoRight;
     // The Airwindows category modules (FX types 32-41), one engine each;
     // their refs: algo, p1..p5, mix.
     static constexpr int numAwCategories = 10;
-    std::array<airwindows::Module, numAwCategories> awCategoryModules;
     static std::array<std::array<ParamRef, 7>, numAwCategories> makeAwCategoryRefs()
     {
         std::array<std::array<ParamRef, 7>, numAwCategories> refs;
@@ -881,15 +878,6 @@ private:
         }
         return refs;
     }
-    std::array<std::array<ParamRef, 7>, numAwCategories> awCategoryRefs = makeAwCategoryRefs();
-    void processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category);
-    // The vocoder (FX type 31).
-    Vocoder vocoder;
-    std::vector<float> vocoderModulator;
-    ParamRef vocSourceRef { "fx_voc_source" }, vocBandsRef { "fx_voc_bands" }, vocWidthRef { "fx_voc_width" },
-        vocAttackRef { "fx_voc_attack" }, vocReleaseRef { "fx_voc_release" }, vocFormantRef { "fx_voc_formant" },
-        vocUnvoicedRef { "fx_voc_unvoiced" }, vocRateRef { "fx_voc_rate" }, vocLevelRef { "fx_voc_level" },
-        vocMixRef { "fx_voc_mix" };
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains
@@ -1029,7 +1017,6 @@ private:
     // M8.1: the simulated shapes, SMOOTH, output B and the triggers.
     std::array<LfoSim, (size_t) numLfos> lfoSims;
     std::atomic<float> westGateDisplay { 0.0f };
-    std::array<std::atomic<float>, 24> vocoderBandDisplay {};
     // M8.5
     void updateEvolveAndVector (int numSamples);
     MacroEvolve evolve, vectorDrift;
@@ -1186,9 +1173,6 @@ private:
     HostRunLoopKeepAlive hostRunLoopKeepAlive;
    #endif
 
-    juce::dsp::Chorus<float> chorus;
-    juce::dsp::Phaser<float> phaser;
-    juce::dsp::Convolution convolution;
     juce::dsp::Oversampling<float> oversampler2x { 2, 1,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
     juce::dsp::Oversampling<float> oversampler4x { 2, 2,
@@ -1197,15 +1181,6 @@ private:
     int wantedOversamplingFactor() const;
     juce::dsp::Oversampling<float>& activeOversampler() { return oversamplingFactor.load() == 4 ? oversampler4x : oversampler2x; }
     juce::MidiBuffer scaledMidiBuffer;
-    std::atomic<bool> reverbIrLoaded { false };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 96000 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> combLine { 96000 };
-    juce::Reverb reverb;
-
-    GranularPitchShift tapeShift[2];
-    GranularPitchShift shimmerShift[2];
-    GranularSmear smear[2];
-    SpectralFreeze freeze; // both channels in one FFT pair
     Mseg mseg;
     SympatheticStrings sympatheticStrings;
     bool sympatheticWasOn = false;
@@ -1219,38 +1194,14 @@ private:
     std::array<bool, 128> pedalHeldNotes {};
     void processAcousticKeys (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi);
 
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> haasLine { 4800 };
-    float compEnvelope[2] { 0.0f, 0.0f };
-    float ampLowState[2] { 0.0f, 0.0f };
-    float ampHighState[2] { 0.0f, 0.0f };
-
-    double wowPhase = 0.0;
     double clockShPhase = 0.0;
     float clockShValue = 0.0f;
 
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> flangerLine { 4800 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> dimLine { 9600 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> springComb { 4800 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> feedbackLine { 9600 };
-    float feedbackState[2] {};
-    double stutterPosition = 0.0;
-    float stutterRate = 1.0f;
     std::array<std::atomic<float>, numFxSlots> fxSlotCpu {};
     std::array<std::atomic<float>, numFxSlots> fxSlotIn {}, fxSlotOut {};
     juce::String chainA, chainB;
     bool chainBValid = false;
     bool showingChainA = true;
-    double flangerPhase = 0.0;
-    double dimPhase = 0.0;
-    double tremoloPhase = 0.0;
-    double shifterPhase = 0.0;
-    double ringPhase = 0.0;
-    double gatePhase = 0.0;
-    float gateEnvelope = 1.0f;
-    juce::uint16 gateRandomMask = 0xFFFF;
-    int gateCycleCount = 8;
-    int gateLastStep = -1;
-    std::atomic<int> gateDisplayStep { -1 };
     std::atomic<int> engineDisplayStep { -1 };
     std::atomic<int> euclidDisplayStep { -1 };
     std::atomic<double> hostPpq { 0.0 };
@@ -1262,7 +1213,7 @@ private:
 public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).
     static float gatePatternLevel (int pattern, int step);
-    int getGateDisplayStep() const { return gateDisplayStep.load(); }
+    int getGateDisplayStep() const;
 
     // The note engine's current step number (arp, probability sequencer or
     // Euclid), or -1 while no key is held. For the Generative card's playhead.
@@ -1278,13 +1229,6 @@ public:
     int pickArpNoteForTest (int mode, int octaves) { return selectArpNote (mode, octaves); }
 
 private:
-    float tapeStopRate = 1.0f;
-    juce::AudioBuffer<float> tapeStopBuffer;
-    int tapeStopWrite = 0;
-    double tapeStopRead = 0.0;
-    float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
-    float tiltLowState[2] {};
-    float tiltHighState[2] {};
     // Knobs read once a block (an effect's MIX, a slot's blend, MASTER) are
     // eased across the block from where the last block ended, so a knob move
     // or a host's automation step is a ramp, not a step at the block edge. A
@@ -1312,30 +1256,71 @@ private:
         DriveAmount, FoldAmount, DelayTimeL, DelayTimeR, AmpDrive, AmpLevel, CompMakeup, HaasDelay, TiltLow, TiltHigh,
         UtilGain, LimitCeiling, Count
     };
-    std::array<BlockRamp, (size_t) FxRamp::Count> fxRamps;
     std::array<BlockRamp, (size_t) numFxSlots> slotBlendRamps;
     BlockRamp masterRamp;
     void resetBlockRamps() noexcept
     {
-        for (auto& ramp : fxRamps)
-            ramp.reset();
+        resetFxEngineRamps();
         for (auto& ramp : slotBlendRamps)
             ramp.reset();
         masterRamp.reset();
     }
 
-    float ottLowState[2][2] {};
-    float ottHighState[2][2] {};
-    float ottEnvelope[2][3] {};
-    float limiterEnvelope[2] {};
-    float shifterAllpass[2] {};
-    float shifterDelay[2] {};
-    float gatedReverbEnvelope = 0.0f;
-    float duckEnvelope = 0.0f;
-    GranularPitchShift octaverShift[2];
-    Biquad eqBands[2][3];
-    Svf vowelFilters[2][3];
     juce::AudioBuffer<float> fxScratch;
+    // Roadmap step 17: the effects' memory lives in engines (FxEngine.h).
+    // fxMain is the rack's shared one (one set per effect type, as always);
+    // a slot that is its own instance of an effect runs on its own engine.
+    class FxEngine;
+    std::unique_ptr<FxEngine> fxMain;
+    std::array<std::atomic<FxEngine*>, (size_t) numFxSlots> slotEngines {}; // null: the shared engine
+    FxEngine& engineForSlot (int slotIndex) const;
+    void resetFxEngineRamps() noexcept;
+    void prepareFxEngines (double sampleRate, int samplesPerBlock);
+    void resetFxEngines();
+    // The engine an effect type's card shows (its meters and pictures).
+    const FxEngine& displayEngine (int type) const;
+    int fxEngineBlockSize = 512;
+
+    // Roadmap step 17: the FX patch (FxPatcher.cpp).
+    std::shared_ptr<const FxPatchData::Patch> fxPatch = std::make_shared<FxPatchData::Patch>(); // under stateLock off the message thread
+    std::array<std::unique_ptr<FxEngine>, (size_t) numFxSlots> ownedEngines;
+    std::array<std::unique_ptr<std::vector<float>>, (size_t) numFxSlots> ownedValues;
+    std::array<std::atomic<const float*>, (size_t) numFxSlots> slotValues {};
+    struct RetiredFx
+    {
+        juce::uint32 when = 0;
+        std::unique_ptr<FxEngine> engine;
+        std::unique_ptr<std::vector<float>> values;
+    };
+    std::vector<RetiredFx> retiredFx;
+    juce::CriticalSection fxEditLock; // the patch's edits (message thread, or a host's state load)
+    void publishFxPatch (FxPatchData::Patch patch);
+    juce::String fxSlotLabel (int slotIndex) const;
+    void retireFx (std::unique_ptr<FxEngine> engine, std::unique_ptr<std::vector<float>> values);
+    void freeRetiredFx (bool all);
+    void applyFxPatchRuntime();
+    void reconcileFxPatch();
+    std::vector<std::pair<juce::String, float>> snapshotFxParams (int type) const;
+    void writeFxParams (const std::vector<std::pair<juce::String, float>>& values);
+    const std::vector<juce::String>& fxParamIds (int type) const;
+    mutable std::array<std::vector<juce::String>, (size_t) numFxTypes + 1> fxParamIdCache;
+    std::unique_ptr<PatchGraph::Runner> fxRackRunner, fxPatchRunner;
+    juce::SpinLock fxCompileLock; // the rack runner's publish: message thread or an offline render
+    std::atomic<bool> fxRackCompileWanted { false }, fxReconcileWanted { false };
+    std::uint64_t fxRackSignature();
+    void compileFxRackPlan (std::uint64_t signature);
+    void compileFxPatchPlan();
+    void processEffectsFixed (juce::AudioBuffer<float>& buffer);
+    void processEffectsPatched (juce::AudioBuffer<float>& buffer);
+    ParamRef fxPatcherRef { "fx_patcher" };
+    struct FxSlotTypeListener : juce::AudioProcessorParameter::Listener
+    {
+        explicit FxSlotTypeListener (IlanaSynthAudioProcessor& p) : processor (p) {}
+        void parameterValueChanged (int, float) override;
+        void parameterGestureChanged (int, bool) override {}
+        IlanaSynthAudioProcessor& processor;
+    };
+    FxSlotTypeListener fxSlotTypeListener { *this };
     // FX splitters: a slot set to a band processes only that part of the
     // signal (Linkwitz-Riley crossovers, or mid/side) and the rest passes
     // around it, so an untouched band sums back exactly.
@@ -1354,15 +1339,8 @@ private:
     // PARALLEL routing: the rack's input, and one branch's copy of it.
     juce::AudioBuffer<float> fxParallelIn, fxBranch;
     void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend, float blendFrom);
-    juce::AudioBuffer<float> reverbScratch;
-    // KEEP DRY's wet copy, and how long its wet is still added after MIX
-    // reaches 0 (review 7); reverbWetOnly while that copy is processed.
-    juce::AudioBuffer<float> reverbDryScratch;
-    int reverbKeepDryHold = 0;
-    bool reverbWetOnly = false;
-    std::atomic<float> compGainReduction { 1.0f };
-    std::atomic<float> limiterGainReduction { 1.0f };
-    std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessor)
 };
+
+#include "processor/FxEngine.h"

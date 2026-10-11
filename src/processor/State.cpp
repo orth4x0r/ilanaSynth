@@ -98,6 +98,12 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     tuningState.saveTo (state);
     clipState.saveTo (state);
 
+    // The FX patcher's part (roadmap step 17): only when there is one, so a
+    // patch that uses none saves as it always did.
+    state.removeChild (state.getChildWithName (FxPatchData::patchTag), nullptr);
+    if (const auto fx = getFxPatch(); ! fx.isDefault())
+        state.appendChild (FxPatchData::toValueTree (fx), nullptr);
+
     // (The old DX7 mode's "Dx7" child is never written: a DX7 voice is
     // ordinary parameters now.)
     state.removeChild (state.getChildWithName ("Dx7"), nullptr);
@@ -592,6 +598,10 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
     tuningState.loadFrom (state); // no Tuning child: 12-TET
     clipState.loadFrom (state);   // no Clips child: no clips
+    // No FxPatch child: no instances, no patcher graph. Applied after the
+    // parameters (below), which it is checked against.
+    const auto fxPatchLoaded = FxPatchData::fromValueTree (state.getChildWithName (FxPatchData::patchTag));
+    state.removeChild (state.getChildWithName (FxPatchData::patchTag), nullptr);
     {
         // Pre-mask M3b states saved a count of revealed envelopes.
         auto envMask = (int) state.getProperty ("envRevealMask", defaultRevealMask);
@@ -988,6 +998,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     }
 
     apvts.replaceState (state);
+    setFxPatch (fxPatchLoaded);
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
     moveLegacyMsegToLfo();
     updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
@@ -1089,6 +1100,10 @@ IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData()
         data.remaps[(size_t) slot] = getModRemap (slot);
 
     data.clips = clipState.getAll();
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        data.fx = fxPatch;
+    }
     return data;
 }
 
@@ -1127,6 +1142,9 @@ bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchDat
     if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
         return false;
 
+    if (a.fx != b.fx && (a.fx == nullptr || b.fx == nullptr || ! FxPatchData::samePatch (*a.fx, *b.fx)))
+        return false;
+
     for (size_t i = 0; i < a.curves.size(); ++i)
         if (! sameCurve (a.curves[i], b.curves[i]))
             return false;
@@ -1159,6 +1177,9 @@ void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const Pa
         clipState.setAll (data.clips);
         clipsEdited();
     }
+
+    if (data.fx != nullptr && (reference.fx == nullptr || ! FxPatchData::samePatch (*data.fx, *reference.fx)))
+        setFxPatch (*data.fx);
 }
 
 // One gesture's change to the data: undo puts back what it was before,
@@ -1259,6 +1280,12 @@ juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
             const auto count = clip.notes.size();
             add (&count, sizeof (count));
         }
+    }
+
+    if (data.fx != nullptr && ! data.fx->isDefault())
+    {
+        const auto text = FxPatchData::toValueTree (*data.fx).toXmlString();
+        add (text.toRawUTF8(), text.getNumBytesAsUTF8());
     }
 
     hashedDataEpoch = epoch;

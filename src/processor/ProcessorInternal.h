@@ -18,6 +18,11 @@
 #include "../dsp/TableFactory.h"
 #include "../dsp/FmAlgorithms.h"
 #include "../dsp/Voice.h"
+#include "PatchGraphRunner.h"
+#include "PatchGraphState.h"
+
+// The FX patcher's silence skip: how long an effect type sounds on (FxPatcher.cpp).
+int fxTailSamples (const PatchGraph::CompiledNode& node, double sampleRate);
 
 #include <cmath>
 #include <memory>

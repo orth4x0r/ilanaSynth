@@ -80,7 +80,10 @@ public:
         maxBlock = juce::jmax (1, maxBlockSize);
         channels = juce::jmax (1, numChannels);
         if (lastPlan != nullptr)
-            publish (*lastPlan);
+        {
+            const auto plan = *lastPlan; // (publish replaces lastPlan)
+            publish (plan);
+        }
     }
 
     void setSettings (Settings newSettings) { settings = newSettings; }
@@ -130,6 +133,14 @@ public:
     }
 
     float totalCpu() const { return graphCpu.load (std::memory_order_relaxed); }
+
+    // Audio thread: takes up a newly published program, then the plan that
+    // process() will run, or null before the first one.
+    const Plan* activePlan()
+    {
+        adoptPending();
+        return active != nullptr ? &active->plan : nullptr;
+    }
 
     // Audio thread. Leaves the graph's output in `buffer`. With no program
     // yet the buffer passes through untouched.

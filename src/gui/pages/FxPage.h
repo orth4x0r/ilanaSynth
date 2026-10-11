@@ -376,9 +376,12 @@ public:
         seriesButton.setTooltip ("Series\nEach effect feeds the next one, top to bottom.");
         parallelButton.setTooltip ("Parallel\nEvery effect hears the rack's input; their outputs are summed "
                                    "(averaged, so effects that leave the sound alone give it back unchanged).");
+        patcherButton.setTooltip ("Patcher\nThe effects as boxes wired with cables (the PATCHER tab): parallel branches, "
+                                  "loops and several of the same effect.");
         seriesButton.setDescription ("FX routing: series");
         parallelButton.setDescription ("FX routing: parallel");
-        for (auto* button : { &seriesButton, &parallelButton })
+        patcherButton.setDescription ("FX routing: patcher");
+        for (auto* button : { &seriesButton, &parallelButton, &patcherButton })
         {
             IlanaTheme::makePill (*button, IlanaTheme::accent());
             button->setRadioGroupId (0x5e71a1);
@@ -386,11 +389,22 @@ public:
         }
         seriesButton.onClick = [this] { setRouting (false); };
         parallelButton.onClick = [this] { setRouting (true); };
+        patcherButton.onClick = [this] { setPatcher(); };
         if (auto* routing = p.apvts.getParameter ("fx_routing"))
         {
             routingAttachment = std::make_unique<juce::ParameterAttachment> (
                 *routing, [this] (float value) { routingChanged (value > 0.5f); }, nullptr);
             routingAttachment->sendInitialUpdate();
+        }
+        if (auto* patcher = p.apvts.getParameter ("fx_patcher"))
+        {
+            patcherAttachment = std::make_unique<juce::ParameterAttachment> (
+                *patcher, [this] (float value)
+                {
+                    patcherOn = value > 0.5f;
+                    routingChanged (parallelRouting, true);
+                }, nullptr);
+            patcherAttachment->sendInitialUpdate();
         }
         addChildComponent (copyChainButton); // (its action is in the CHAIN menu)
         tapGrid.setVisible (false);
@@ -478,9 +492,12 @@ public:
             header.chip.onClick = [&header] { if (header.model.onSwitch != nullptr) header.model.onSwitch(); };
             stackContent.addChildComponent (header.chip);
 
-            header.remove.setTooltip ("Take this duplicate out of the rack (the first card keeps the settings)");
+            header.remove.setTooltip ("Take this instance out of the rack (the others keep their settings)");
             header.remove.onClick = [this, slot] { removeSlot (slot); };
             stackContent.addChildComponent (header.remove);
+            header.edit.onClick = [this, slot] { editInstance (slot); };
+            IlanaTheme::makePill (header.edit, IlanaTheme::accent());
+            stackContent.addChildComponent (header.edit);
 
             displays[(size_t) slot] = std::make_unique<FxDisplay> (p);
             stackContent.addChildComponent (*displays[(size_t) slot]);
@@ -629,9 +646,10 @@ public:
         chainAButton.setBounds (chainSeg.withTrimmedLeft (3).removeFromLeft (64).reduced (0, 2));
         chainBButton.setBounds (chainSeg.withTrimmedLeft (3 + 66).removeFromLeft (64).reduced (0, 2));
         toolbar.removeFromLeft (10);
-        routingSeg = toolbar.removeFromLeft (152);
+        routingSeg = toolbar.removeFromLeft (232);
         seriesButton.setBounds (routingSeg.withTrimmedLeft (3).removeFromLeft (66).reduced (0, 2));
         parallelButton.setBounds (routingSeg.withTrimmedLeft (3 + 68).removeFromLeft (78).reduced (0, 2));
+        patcherButton.setBounds (routingSeg.withTrimmedLeft (3 + 68 + 80).removeFromLeft (78).reduced (0, 2));
         toolbar.removeFromLeft (10);
         diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
         toolbar.removeFromRight (6);
@@ -768,6 +786,38 @@ public:
                                    : "Every slot is in use: remove an effect to add another.");
     }
 
+    // A compact instance card's EDIT / MAKE OWN (step 17), and the
+    // patcher's double-click on a node.
+    void editInstance (int slot)
+    {
+        const auto own = ! processorRef.isFxSlotInFront (slot);
+        if (! own && ! processorRef.isFxInstance (slot) && slotHoldingType (getSlotType (slot), slot) < 0)
+        {
+            showSlot (slot);
+            return;
+        }
+        processorRef.performEdit ((own ? "Edit " : "Make own ") + getSlotName (getSlotType (slot)), [this, slot, own]
+        {
+            if (own)
+                processorRef.focusFxInstance (slot);
+            else
+                processorRef.makeFxInstance (slot);
+        });
+        showSlot (slot);
+    }
+
+    void showSlot (int slot)
+    {
+        updateVisibility();
+        select (slot);
+        scrollToSlot (slot);
+        dropSlot = slot;
+        dropFlash = 1.0f;
+    }
+
+    // The library as a call-out by another page's button (the patcher's + ADD).
+    void openLibrary (juce::Component& target) { showLibrary (target, target.getLocalBounds()); }
+
 private:
     int getSlotType (int slot) const
     {
@@ -836,21 +886,26 @@ private:
         if (replacingSlot >= 0 && getSlotType (replacingSlot) == type)
             return;
 
-        if (const auto holder = slotHoldingType (type); holder >= 0)
-        {
-            select (holder);
-            scrollToSlot (holder);
-            dropSlot = holder;
-            dropFlash = 1.0f;
-            return;
-        }
-
-        const auto slot = replacingSlot >= 0 ? replacingSlot : firstEmptySlot();
+        // One the rack holds already: another instance of it, with its own
+        // engine and a copy of the settings shown now (roadmap step 17).
+        auto slot = replacingSlot >= 0 ? replacingSlot : firstEmptySlot();
         if (slot < 0)
             return;
 
-        processorRef.performEdit ((replacingSlot >= 0 ? "Change effect to " : "Add ") + getSlotName (type),
-                                  [this, slot, type] { processorRef.assignFxSlot (slot + 1, type); });
+        processorRef.performEdit ((replacingSlot >= 0 ? "Change effect to " : "Add ") + getSlotName (type), [this, &slot, type, replacingSlot]
+        {
+            if (replacingSlot < 0)
+            {
+                slot = processorRef.addFxEffect (type);
+                return;
+            }
+            const auto held = slotHoldingType (type, replacingSlot) >= 0;
+            processorRef.assignFxSlot (replacingSlot + 1, type);
+            if (held)
+                processorRef.makeFxInstance (replacingSlot);
+        });
+        if (slot < 0)
+            return;
         selectedSlot = slot;
         updateVisibility();
         scrollToSlot (slot);
@@ -871,11 +926,7 @@ private:
                 break;
             }
 
-        processorRef.performEdit ("Remove " + getSlotName (getSlotType (slot)), [this, slot]
-        {
-            if (auto* parameter = processorRef.apvts.getParameter ("fx_slot" + juce::String (slot + 1)))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.0f));
-        });
+        processorRef.performEdit ("Remove " + getSlotName (getSlotType (slot)), [this, slot] { processorRef.removeFxEffect (slot); });
         updateVisibility();
     }
 
@@ -1064,22 +1115,7 @@ private:
 
     // A slot is its module plus its bypass, solo, blend and band; they move
     // together so a moved slot keeps how it was set up.
-    void swapSlots (int a, int b)
-    {
-        for (const auto* suffix : { "", "_bypass", "_solo", "_mix", "_band" })
-        {
-            auto* first = processorRef.apvts.getParameter ("fx_slot" + juce::String (a + 1) + suffix);
-            auto* second = processorRef.apvts.getParameter ("fx_slot" + juce::String (b + 1) + suffix);
-
-            if (first != nullptr && second != nullptr)
-            {
-                const auto firstValue = first->getValue();
-                const auto secondValue = second->getValue();
-                first->setValueNotifyingHost (secondValue);
-                second->setValueNotifyingHost (firstValue);
-            }
-        }
-    }
+    void swapSlots (int a, int b) { processorRef.swapFxSlots (a, b); }
 
     // Moves a slot to another's place, the slots between shifting over by
     // one (as one undo step).
@@ -1154,18 +1190,34 @@ private:
     // (a click, undo, a patch or chain load) sets the switch and the rail.
     void setRouting (bool parallel)
     {
-        if (routingAttachment == nullptr || parallel == parallelRouting)
+        const auto patcher = processorRef.isFxPatcherOn();
+        if (routingAttachment == nullptr || (parallel == parallelRouting && ! patcher))
             return routingChanged (parallelRouting);
 
-        processorRef.performEdit (parallel ? "FX routing: parallel" : "FX routing: series",
-                                  [this, parallel] { routingAttachment->setValueAsCompleteGesture (parallel ? 1.0f : 0.0f); });
+        processorRef.performEdit (parallel ? "FX routing: parallel" : "FX routing: series", [this, parallel, patcher]
+        {
+            if (patcher)
+                processorRef.setFxPatcherOn (false);
+            if (parallel != parallelRouting)
+                routingAttachment->setValueAsCompleteGesture (parallel ? 1.0f : 0.0f);
+        });
     }
 
-    void routingChanged (bool parallel)
+    // PATCHER: the cables on the PATCHER tab decide the routing.
+    void setPatcher()
     {
-        seriesButton.setToggleState (! parallel, juce::dontSendNotification);
-        parallelButton.setToggleState (parallel, juce::dontSendNotification);
-        if (parallel == parallelRouting)
+        if (processorRef.isFxPatcherOn())
+            return routingChanged (parallelRouting, true);
+        processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
+    }
+
+    void routingChanged (bool parallel, bool force = false)
+    {
+        const auto patcher = patcherOn;
+        seriesButton.setToggleState (! parallel && ! patcher, juce::dontSendNotification);
+        parallelButton.setToggleState (parallel && ! patcher, juce::dontSendNotification);
+        patcherButton.setToggleState (patcher, juce::dontSendNotification);
+        if (parallel == parallelRouting && ! force)
             return;
         parallelRouting = parallel;
         repaint();
@@ -1174,6 +1226,8 @@ private:
 
     juce::String routingHintText() const
     {
+        if (patcherOn)
+            return "the PATCHER tab's cables decide the routing";
         return parallelRouting ? "every effect hears the input, outputs are summed" : "each effect feeds the next one";
     }
 
@@ -1422,7 +1476,7 @@ private:
             slotSwitch->setVisible (false);
         for (auto& header : cardHeaders)
             for (juce::Component* item : { (juce::Component*) &header.type, (juce::Component*) &header.solo, (juce::Component*) &header.band,
-                                           (juce::Component*) &header.remove, (juce::Component*) &header.chip,
+                                           (juce::Component*) &header.remove, (juce::Component*) &header.edit, (juce::Component*) &header.chip,
                                            (juce::Component*) header.mix.get() })
                 item->setVisible (false);
         for (auto& display : displays)
@@ -1432,7 +1486,14 @@ private:
 
         // The cards in chain order.
         std::vector<StackPanel> cards;
-        std::array<bool, 64> placed {};
+        // A type's controls go on the card in front (step 17: the instance
+        // being edited, else the first); its other cards are compact.
+        std::array<int, 64> front {};
+        front.fill (-1);
+        for (int slot = IlanaSynthAudioProcessor::numFxSlots - 1; slot >= 0; --slot)
+            if (const auto type = getSlotType (slot); type > 0 && type < 64)
+                if (front[(size_t) type] < 0 || processorRef.isFxSlotInFront (slot))
+                    front[(size_t) type] = slot;
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
@@ -1444,8 +1505,7 @@ private:
             StackPanel panel;
             panel.slot = slot;
             panel.type = type;
-            panel.duplicate = placed[(size_t) type];
-            placed[(size_t) type] = true;
+            panel.duplicate = front[(size_t) type] != slot;
             cards.push_back (panel);
         }
 
@@ -1661,6 +1721,15 @@ private:
             auto& remove = header.remove;
             remove.setBounds (juce::Rectangle<int> (bounds.getRight() - 12 - 84, bounds.getCentreY() - 12, 84, 24));
             remove.setVisible (true);
+            // An instance: EDIT brings its settings onto the controls; a
+            // duplicate that shares them (an older patch): MAKE OWN.
+            auto& edit = header.edit;
+            const auto own = ! processorRef.isFxSlotInFront (slot);
+            edit.setButtonText (own ? "EDIT" : "MAKE OWN");
+            edit.setTooltip (own ? "Edit this instance: its settings go onto the effect's controls (the card now there keeps its own)"
+                                 : "Give this copy its own settings and engine, so it can sound different from the first");
+            edit.setBounds (remove.getBounds().translated (-(own ? 70 : 100), 0).withWidth (own ? 60 : 90));
+            edit.setVisible (true);
             panel.well = {};
             stackPanels.push_back (panel);
             return;
@@ -2016,15 +2085,18 @@ private:
 
             if (panel.duplicate)
             {
-                auto text = panel.bounds.withTrimmedLeft (leftWidth + 20).withTrimmedRight (110).reduced (4, 6);
+                const auto own = ! processorRef.isFxSlotInFront (panel.slot);
+                auto text = panel.bounds.withTrimmedLeft (leftWidth + 20).withTrimmedRight (own ? 180 : 210).reduced (4, 6);
                 const auto first = slotHoldingType (panel.type, panel.slot);
                 g.setColour (IlanaTheme::Ui::text);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                IlanaTheme::drawFitted (g, "Duplicate " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
+                IlanaTheme::drawFitted (g, own ? getSlotName (panel.type) + " instance: its own settings and sound."
+                                               : "Copy of " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
                                         text.removeFromTop (20), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                IlanaTheme::drawFitted (g, "The rack keeps one set of settings per effect. Remove this slot, or keep it to run the same sound twice.",
+                IlanaTheme::drawFitted (g, own ? "EDIT puts its settings on the controls above; the card there keeps its own."
+                                               : "MAKE OWN gives it its own settings, so the two can differ.",
                                         text, juce::Justification::topLeft, 2);
             }
 
@@ -2277,8 +2349,10 @@ private:
 
             // (BLEND shows once it is below 100 % on a card with its own MIX.)
             const auto* blend = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (slot + 1) + "_mix");
-            signature << type << ":" << getSlotBand (slot) << (blend != nullptr && blend->load() < 0.995f ? "b" : "") << ",";
+            signature << type << ":" << getSlotBand (slot) << (blend != nullptr && blend->load() < 0.995f ? "b" : "")
+                      << (processorRef.isFxSlotInFront (slot) ? "" : "v") << (processorRef.isFxInstance (slot) ? "o" : "") << ",";
         }
+        signature += processorRef.isFxPatcherOn() ? ",P" : ",-";
 
         signature += juce::String (airwindowsAlgorithm()); // its knobs differ
         for (int c = 0; c < (int) awCategories.size(); ++c)
@@ -2367,6 +2441,7 @@ private:
         BlendSlider blend;
         std::unique_ptr<KnobControl> mix;
         juce::TextButton remove { "REMOVE" };
+        juce::TextButton edit { "EDIT" };
         FxModelSwitch model;
         FxEngineChip chip;
         std::unique_ptr<juce::ButtonParameterAttachment> soloAttachment;
@@ -2497,9 +2572,9 @@ private:
     juce::TextButton loadIrButton { "LOAD IR" };
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };
-    juce::TextButton seriesButton { "SERIES" }, parallelButton { "PARALLEL" };
-    std::unique_ptr<juce::ParameterAttachment> routingAttachment;
-    bool parallelRouting = false;
+    juce::TextButton seriesButton { "SERIES" }, parallelButton { "PARALLEL" }, patcherButton { "PATCHER" };
+    std::unique_ptr<juce::ParameterAttachment> routingAttachment, patcherAttachment;
+    bool parallelRouting = false, patcherOn = false;
     juce::TextButton copyChainButton { "COPY TO 2" };
     juce::TextButton addButton { "+ ADD" };
     DashedAddButton addTile { "+  ADD EFFECT", "+  ADD EFFECT" };

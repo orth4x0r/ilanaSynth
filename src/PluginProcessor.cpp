@@ -100,6 +100,13 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 #endif
       apvts (*this, &undoManager, "PARAMS", createParameterLayout())
 {
+    fxMain = std::make_unique<FxEngine> (*this);
+    fxRackRunner = std::make_unique<PatchGraph::Runner>();
+    fxRackRunner->setSettings ({ false, false }); // the slots time themselves; the rack sleeps as a whole
+    fxPatchRunner = std::make_unique<PatchGraph::Runner>();
+    fxPatchRunner->setSettings ({ false, true });
+    fxPatchRunner->setTailFunction (fxTailSamples);
+
 #if ILANA_FINGERPRINT_BUILD
     arpRandom.setSeed (31415);
     lfoRandom.setSeed (27182);
@@ -118,6 +125,9 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
     for (auto* parameter : getParameters())
         parameter->addListener (&paramEpochListener);
+    for (int slot = 1; slot <= numFxSlots; ++slot)
+        if (auto* parameter = apvts.getParameter ("fx_slot" + juce::String (slot)))
+            parameter->addListener (&fxSlotTypeListener);
 
     arpHeldNotes.ensureStorageAllocated (128);
     clipHeld.ensureStorageAllocated (128);
@@ -391,6 +401,7 @@ void IlanaSynthAudioProcessor::buildParamCache()
     for (const auto& id : paramCacheIds)
     {
         ParamCacheEntry entry;
+        entry.index = (int) (&id - paramCacheIds.data());
         entry.id = id.toRawUTF8();
         entry.hash = hashParamId (entry.id);
         entry.value = apvts.getRawParameterValue (id);
@@ -446,18 +457,41 @@ const IlanaSynthAudioProcessor::ParamCacheEntry* IlanaSynthAudioProcessor::findP
 // thread's: another thread (the editor, a preset load) reads the plain
 // value, rather than racing on offsets the audio thread rewrites each block
 // (a preset load chose its macros' directions from them).
-static thread_local bool readingOnAudioThread = false;
+//
+// fxValues (roadmap step 17): while an FX slot that is its own instance runs,
+// its effect's parameters read the instance's own values (a table indexed by
+// ParamCacheEntry::index, NaN where the parameter isn't the effect's). Per
+// thread, so the editor reading the same parameter meanwhile sees the
+// parameter itself.
+namespace
+{
+struct AudioThreadParams
+{
+    bool reading = false;
+    const float* fxValues = nullptr;
+};
+thread_local AudioThreadParams audioThreadParams;
+} // namespace
+
+const float* IlanaSynthAudioProcessor::swapFxParamValues (const float* values) noexcept
+{
+    return std::exchange (audioThreadParams.fxValues, values);
+}
 
 float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
 {
+    auto& thread = audioThreadParams;
     auto result = entry.value->load();
+    if (thread.fxValues != nullptr && entry.index >= 0)
+        if (const auto own = thread.fxValues[entry.index]; own == own)
+            result = own;
     // A host (or a damaged state) can set NaN, which parameters don't clamp.
     if (! std::isfinite (result))
         result = entry.fallback;
     if (entry.discrete)
         result = std::round (result);
 
-    if (readingOnAudioThread && anyParamModulation && entry.destination >= 0)
+    if (thread.reading && anyParamModulation && entry.destination >= 0)
     {
         const auto offset = paramDestinationOffsets[(size_t) entry.destination];
 
@@ -492,6 +526,8 @@ float IlanaSynthAudioProcessor::getRawParam (const ParamRef& ref) const
     }
 
     auto value = entry->value->load();
+    if (const auto* own = audioThreadParams.fxValues; own != nullptr && entry->index >= 0 && own[entry->index] == own[entry->index])
+        value = own[entry->index];
     if (! std::isfinite (value))
         value = entry->fallback;
     return entry->discrete ? std::round (value) : value;
@@ -595,129 +631,20 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     fxAsleep = false;
     fxSilentSamples = 0;
 
-    stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
-
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        tapeShift[channel].prepare (sampleRate);
-        shimmerShift[channel].prepare (sampleRate);
-        smear[channel].prepare (sampleRate);
-    }
-    freeze.prepare (sampleRate);
-
-    haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
-
-    tapeStopBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
-    tapeStopWrite = 0;
-    tapeStopRead = 0.0;
-    tapeStopRate = 1.0f;
-    tapeStopLagFade = 1.0f;
-
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        octaverShift[channel].prepare (sampleRate);
-
-        for (auto& band : eqBands[channel])
-            band.reset();
-
-        for (int band = 0; band < 3; ++band)
-        {
-            vowelFilters[channel][band].setSampleRate (sampleRate);
-            vowelFilters[channel][band].setMode (Svf::Mode::BandPass);
-            vowelFilters[channel][band].reset();
-        }
-    }
-
-    flangerPhase = 0.0;
-    dimPhase = 0.0;
-    tremoloPhase = 0.0;
-    shifterPhase = 0.0;
-    ringPhase = 0.0;
-    gatePhase = 0.0;
-    gateEnvelope = 1.0f;
-    gatedReverbEnvelope = 0.0f;
-    reverbKeepDryHold = 0;
-    duckEnvelope = 0.0f;
-
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        tiltLowState[channel] = 0.0f;
-        tiltHighState[channel] = 0.0f;
-        limiterEnvelope[channel] = 0.0f;
-        shifterAllpass[channel] = 0.0f;
-        shifterDelay[channel] = 0.0f;
-
-        for (int band = 0; band < 3; ++band)
-            ottEnvelope[channel][band] = 0.0f;
-    }
-
-    compEnvelope[0] = 0.0f;
-    compEnvelope[1] = 0.0f;
-    ampLowState[0] = 0.0f;
-    ampLowState[1] = 0.0f;
-    ampHighState[0] = 0.0f;
-    ampHighState[1] = 0.0f;
-
     mseg.prepare (voiceRate);
     mseg.reset();
-    wowPhase = 0.0;
     clockShPhase = 0.0;
     clockShValue = 0.0f;
 
-    crushCounter = 0;
-    delayDampState[0] = 0.0f;
-    delayDampState[1] = 0.0f;
-
-    const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
-
-    haasLine.prepare (spec);
-    haasLine.reset();
-
-    feedbackLine.setMaximumDelayInSamples ((int) (sampleRate * 0.12));
-    feedbackLine.prepare (spec);
-    feedbackLine.reset();
-    feedbackState[0] = 0.0f;
-    feedbackState[1] = 0.0f;
-    stutterPosition = 0.0;
-    stutterRate = 1.0f;
-
-    flangerLine.setMaximumDelayInSamples ((int) (sampleRate * 0.05));
-    flangerLine.prepare (spec);
-    flangerLine.reset();
-
-    dimLine.setMaximumDelayInSamples ((int) (sampleRate * 0.15));
-    dimLine.prepare (spec);
-    dimLine.reset();
-
-    springComb.setMaximumDelayInSamples ((int) (sampleRate * 0.05));
-    springComb.prepare (spec);
-    springComb.reset();
-
-    chorus.prepare (spec);
-    chorus.reset();
-
-    phaser.prepare (spec);
-    phaser.reset();
-
-    convolution.prepare (spec);
-    convolution.reset();
-
-    delayLine.setMaximumDelayInSamples ((int) (sampleRate * 2.0));
-    delayLine.prepare (spec);
-    delayLine.reset();
-
-    combLine.setMaximumDelayInSamples ((int) (sampleRate * 0.15));
-    combLine.prepare (spec);
-    combLine.reset();
-
-    reverb.setSampleRate (sampleRate);
-    reverb.reset();
-    reverbDryScratch.setSize (2, samplesPerBlock, false, false, true);
-    airwindowsModule.prepare (sampleRate, samplesPerBlock);
-    for (auto& module : awCategoryModules)
-        module.prepare (sampleRate, samplesPerBlock);
-    vocoder.prepare (sampleRate);
-    vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
+    // The effects' memory: the shared engine and every slot's own instance.
+    prepareFxEngines (sampleRate, samplesPerBlock);
+    {
+        const juce::ScopedLock edit (fxEditLock);
+        fxRackRunner->prepare (sampleRate, expectedBlockSize, 2);
+        fxPatchRunner->prepare (sampleRate, expectedBlockSize, 2);
+        compileFxPlansNow();
+        freeRetiredFx (true);
+    }
     chunkMidi.ensureSize (4096);
     updateLatency();
 }
@@ -741,77 +668,16 @@ void IlanaSynthAudioProcessor::cutPatchTails()
     resetBlockRamps();
 
     for (int channel = 0; channel < 2; ++channel)
-    {
         declick[channel] = lastOutput[channel];
-        tapeShift[channel].reset();
-        shimmerShift[channel].reset();
-        octaverShift[channel].reset();
-        smear[channel].reset();
-        feedbackState[channel] = 0.0f;
-        delayDampState[channel] = 0.0f;
-    }
 
-    freeze.reset();
+    resetFxEngines();
     sympatheticStrings.reset();
     soundboard.reset();
     denseSoundboard.reset();
     pedalResonance.reset();
     mechanicalNoise.reset();
-    stutterBuffer.clear();
-    tapeStopBuffer.clear();
-    haasLine.reset();
-    feedbackLine.reset();
-    flangerLine.reset();
-    dimLine.reset();
-    springComb.reset();
-    chorus.reset();
-    phaser.reset();
-    convolution.reset();
-    delayLine.reset();
-    combLine.reset();
-    reverb.reset();
-    airwindowsModule.reset();
-    for (auto& module : awCategoryModules)
-        module.reset();
-    vocoder.reset();
-
-    // The effects' own LFOs and followers restart too (a Dimension or flanger
-    // phase left by the last patch otherwise changes how this one starts).
-    flangerPhase = 0.0;
-    dimPhase = 0.0;
-    tremoloPhase = 0.0;
-    shifterPhase = 0.0;
-    ringPhase = 0.0;
-    gatePhase = 0.0;
-    gateEnvelope = 1.0f;
-    gatedReverbEnvelope = 0.0f;
-    reverbKeepDryHold = 0;
-    duckEnvelope = 0.0f;
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        limiterEnvelope[channel] = 0.0f;
-        for (int band = 0; band < 3; ++band)
-            ottEnvelope[channel][band] = 0.0f;
-    }
-    compEnvelope[0] = compEnvelope[1] = 0.0f;
-
-    // The effects' filters and followers that the lists above leave out
-    // (OTT, tilt, EQ, vowel, frequency shifter, amp, band splitters, crush):
-    // their state otherwise rings into the next patch.
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        for (int band = 0; band < 2; ++band)
-            ottLowState[channel][band] = ottHighState[channel][band] = 0.0f;
-        tiltLowState[channel] = tiltHighState[channel] = 0.0f;
-        shifterAllpass[channel] = shifterDelay[channel] = 0.0f;
-        ampLowState[channel] = ampHighState[channel] = 0.0f;
-        crushHold[channel] = 0.0f;
-        for (auto& band : eqBands[channel])
-            band.reset();
-        for (auto& filter : vowelFilters[channel])
-            filter.reset();
-    }
-    crushCounter = 0;
+    // (The band splitters' filters; the effects' own memory is in
+    // resetFxEngines above.)
     for (auto& split : fxSplit)
     {
         for (auto& stage : split.lowA)
@@ -1089,9 +955,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     const auto startTicks = juce::Time::getHighResolutionTicks();
     struct AudioThreadReads
     {
-        bool previous = readingOnAudioThread;
-        AudioThreadReads() { readingOnAudioThread = true; }
-        ~AudioThreadReads() { readingOnAudioThread = previous; }
+        bool previous = audioThreadParams.reading;
+        AudioThreadReads() { audioThreadParams.reading = true; }
+        ~AudioThreadReads() { audioThreadParams.reading = previous; }
     } audioThreadReads;
 
     juce::ScopedNoDenormals noDenormals;

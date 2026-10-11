@@ -1000,6 +1000,15 @@ int runUiTests()
         return uiFailures == 0 ? 0 : 1;
     }
 
+    if (only == "FF")
+    {
+        runFilterFxTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
     if (only == "DD")
     {
         runDropdownTests (processor, *pages);
@@ -8450,6 +8459,93 @@ int main (int argc, char** argv)
 
         clear();
         shot ("empty");
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_PATCHER: the FX tab's PATCHER (roadmap step 17): a rack
+    // shown as cables, then a patch with a parallel split, two instances of
+    // one effect and a loop, the RACK page with those instances, and the
+    // patcher at 75 %; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PATCHER", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("patcher-" + name + ".png"));
+        };
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        for (const auto type : { 2, 9, 13, 7 })
+            processor.addFxEffect (type);
+        pages->showPage ("PATCHER");
+        shot ("rack");
+
+        // Drive splits into two Delays (the second its own instance, a
+        // shorter echo), both into Chorus then Reverb; Reverb feeds Drive back.
+        processor.addFxEffect (9);
+        setParam ("fx_delay_time", 0.12f);
+        setParam ("fx_delay_feedback", 0.2f);
+        processor.setFxPatcherOn (true);
+        settle (200);
+        auto graph = processor.getFxPatchGraph();
+        std::map<int, PatchGraph::NodeId> nodeOf;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed())
+                nodeOf[node.ref] = node.id;
+        for (const auto& cable : std::vector<PatchGraph::Cable> (graph.cables()))
+            graph.disconnect (cable.from, cable.to);
+        const auto place = [&] (PatchGraph::NodeId id, float x, float y) { graph.moveNode (id, x, y); };
+        place (PatchGraph::inputNodeId, 0.0f, 80.0f);
+        place (nodeOf[1], 140.0f, 80.0f);   // Drive
+        place (nodeOf[2], 330.0f, 20.0f);   // Delay 1
+        place (nodeOf[5], 330.0f, 140.0f);  // Delay 2
+        place (nodeOf[4], 520.0f, 80.0f);   // Chorus
+        place (nodeOf[3], 710.0f, 80.0f);   // Reverb
+        place (PatchGraph::outputNodeId, 900.0f, 80.0f);
+        const auto wire = [&] (PatchGraph::NodeId from, PatchGraph::NodeId to, float gain = 1.0f) { graph.connect ({ from, 0 }, { to, 0 }, gain); };
+        wire (PatchGraph::inputNodeId, nodeOf[1]);
+        wire (nodeOf[1], nodeOf[2]);
+        wire (nodeOf[1], nodeOf[5], 0.7f);
+        wire (nodeOf[2], nodeOf[4]);
+        wire (nodeOf[5], nodeOf[4]);
+        wire (nodeOf[4], nodeOf[3]);
+        wire (nodeOf[3], PatchGraph::outputNodeId);
+        wire (nodeOf[3], nodeOf[1], 0.25f);
+        processor.setFxPatchGraph (graph);
+        if (auto* view = findChild<PatchCableView> (*editor))
+            view->centreContent();
+        shot ("loop");
+        // Delay 2 selected: its row under the canvas.
+        if (auto* view = findChild<PatchCableView> (*editor))
+            for (const auto& node : processor.getFxPatchGraph().nodes())
+                if (node.ref == 5)
+                {
+                    const auto centre = view->nodeBounds (node).getCentre() * view->getZoom();
+                    view->mouseDown (PatchCableUi::mouse (*view, centre, true));
+                    view->mouseUp (PatchCableUi::mouse (*view, centre, false));
+                }
+        shot ("selected");
+
+        pages->showPage ("FX");
+        shot ("rack-instances");
+
+        if (auto* top = editor->getTopLevelComponent())
+        {
+            const auto before = top->getBounds();
+            top->setSize (795, 540);
+            pages->showPage ("PATCHER");
+            settle (200);
+            if (auto* view = findChild<PatchCableView> (*editor))
+                view->centreContent();
+            shot ("loop-75");
+            top->setBounds (before);
+        }
         return 0;
     }
 

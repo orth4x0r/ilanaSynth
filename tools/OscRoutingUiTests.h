@@ -176,6 +176,54 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         expect (! processor.isFxPatcherOn(), "one undo puts the rack back");
     }
 
+    // Mini windows: a double-click on an effect opens its window with its
+    // controls; its x closes it.
+    {
+        processor.addFxEffect (9); // Delay
+        settle (300);
+        const auto& graph = view->getGraph();
+        const PatchGraph::Node* delay = nullptr;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20) && node.kind == 9)
+                delay = &node;
+        expect (delay != nullptr, "the Delay has a box");
+        if (delay != nullptr)
+        {
+            const auto centre = view->nodeBounds (*delay).getCentre() * view->getZoom();
+            view->mouseDoubleClick (PatchCableUi::mouse (*view, centre, false));
+            settle (200);
+            std::vector<juce::Component*> windows;
+            findAll<juce::Component> (editor, windows);
+            juce::Component* window = nullptr;
+            for (auto* component : windows)
+                if (component->getName().startsWith ("FX WINDOW") && visibleInTree (component))
+                    window = component;
+            expect (window != nullptr, "a double-click opens the effect's window");
+            if (window != nullptr)
+            {
+                std::vector<KnobControl*> knobs;
+                findAll<KnobControl> (*window, knobs);
+                auto timeKnob = false;
+                for (auto* knob : knobs)
+                    timeKnob = timeKnob || knob->getParameterId() == "fx_delay_time";
+                expect (timeKnob, "the window has the Delay's TIME knob");
+                expect (view->getBounds().contains (window->getBounds()), "the window sits inside the canvas");
+                std::vector<juce::TextButton*> buttons;
+                findAll<juce::TextButton> (*window, buttons);
+                for (auto* button : buttons)
+                    if (button->getTooltip() == "Close this window")
+                        button->triggerClick();
+                settle (300);
+                auto open = false;
+                windows.clear();
+                findAll<juce::Component> (editor, windows);
+                for (auto* component : windows)
+                    open = open || (component->getName().startsWith ("FX WINDOW") && visibleInTree (component));
+                expect (! open, "its x closes it");
+            }
+        }
+    }
+
     // WEST in front of the filters by cables, then CHAIN gives the routing back.
     {
         Patch westFirst = defaultPatch();

@@ -821,6 +821,18 @@ public:
     // The library as a call-out by another page's button (the patcher's + ADD).
     void openLibrary (juce::Component& target) { showLibrary (target, target.getLocalBounds()); }
 
+    // The PATCH tab's mini windows build their own copies of a module's
+    // controls from these: the ones its card lays out (without its on
+    // switch), and the name its slot MIX goes by (empty: the card shows none).
+    std::vector<juce::Component*> windowControls (int type) const { return rowItems (type); }
+    juce::String windowMixName (int slot, int type) const
+    {
+        StackPanel panel;
+        panel.slot = slot;
+        panel.type = type;
+        return showsSlotMix (panel) ? juce::String (hasOwnMix (type) ? "BLEND" : "MIX") : juce::String();
+    }
+
 private:
     int getSlotType (int slot) const
     {

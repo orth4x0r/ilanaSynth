@@ -11,6 +11,167 @@
 
 namespace
 {
+// An effect's mini window on the PATCH tab (ilana, 2026-10-11: "open mini
+// windowed versions of effects inside the patcher"): its picture and its
+// card's controls, built here as copies on the same parameters (the RACK
+// page keeps its own), so it can be edited without leaving the cables.
+// Dragged by its title, closed with x; the page keeps it inside the canvas.
+class FxMiniWindow : public juce::Component
+{
+public:
+    FxMiniWindow (IlanaSynthAudioProcessor& p, FxPage& rack, int slotIndex, int fxType, const juce::String& title)
+        : slot (slotIndex), type (fxType), name (title), colour (fxColour (fxType)), power (p, slotIndex), display (p)
+    {
+        setName ("FX WINDOW " + title); // (the UI test finds it by name)
+        constrainer.owner = this;
+        power.setBare (true);
+        addAndMakeVisible (power);
+        closeButton.setTooltip ("Close this window");
+        closeButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        closeButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
+        closeButton.onClick = [this] { if (onClose) onClose (*this); };
+        addAndMakeVisible (closeButton);
+        if (FxDisplay::hasDisplay (type))
+        {
+            display.setType (type, colour);
+            addAndMakeVisible (display);
+        }
+
+        for (auto* item : rack.windowControls (type))
+        {
+            std::unique_ptr<juce::Component> copy;
+            if (auto* knob = dynamic_cast<KnobControl*> (item))
+            {
+                auto made = std::make_unique<KnobControl> (p.apvts, knob->getParameterId(), knob->getLabelText(), colour, false);
+                made->setInlineKnob (true);
+                copy = std::move (made);
+            }
+            else if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+            {
+                copy = std::make_unique<ToggleControl> (p.apvts, toggle->getParameterId(), toggle->getButton().getButtonText());
+            }
+            else if (auto* combo = dynamic_cast<ComboControl*> (item))
+            {
+                copy = std::make_unique<ComboControl> (p.apvts, combo->getParameterId(), combo->getLabelText());
+            }
+            if (copy != nullptr)
+            {
+                addAndMakeVisible (*copy);
+                controls.push_back (std::move (copy));
+            }
+        }
+        if (const auto mixName = rack.windowMixName (slot, type); mixName.isNotEmpty())
+        {
+            auto mix = std::make_unique<KnobControl> (p.apvts, "fx_slot" + juce::String (slot + 1) + "_mix", mixName, colour, false);
+            mix->setInlineKnob (true);
+            addAndMakeVisible (*mix);
+            controls.push_back (std::move (mix));
+        }
+
+        const auto count = (int) controls.size();
+        // (At most three across: a window is a small thing beside its box.)
+        columns = juce::jlimit (1, 3, count == 4 ? 2 : count);
+        rows = juce::jmax (1, (count + columns - 1) / columns);
+        const auto width = juce::jmax (300, columns * cellWidth + (columns - 1) * gap + 2 * pad);
+        const auto height = titleHeight + (display.isVisible() ? displayHeight + gap : 0) + rows * cellHeight + (rows - 1) * gap + pad;
+        setSize (width, height);
+    }
+
+    const int slot, type;
+    std::function<void (FxMiniWindow&)> onClose, onMoved;
+
+    void paint (juce::Graphics& g) override
+    {
+        using namespace IlanaTheme;
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (bounds.translated (0.0f, 3.0f).reduced (2.0f), 10.0f);
+        paintCard (g, bounds.reduced (1.0f), 10.0f, colour.withAlpha (0.55f));
+        auto title = getLocalBounds().removeFromTop (titleHeight).reduced (pad, 0);
+        paintTag (g, { (float) title.getX() + 4.0f, (float) title.getCentreY() }, colour);
+        g.setColour (Ui::text);
+        g.setFont (font (TextSize::body, true));
+        g.drawText (name, title.withTrimmedLeft (16).withTrimmedRight (100), juce::Justification::centredLeft, true);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        auto title = area.removeFromTop (titleHeight).reduced (pad, 0);
+        closeButton.setBounds (title.removeFromRight (28).withSizeKeepingCentre (28, 28));
+        title.removeFromRight (10);
+        power.setBounds (title.removeFromRight (40).withSizeKeepingCentre (40, 20));
+        area = area.withTrimmedLeft (pad).withTrimmedRight (pad).withTrimmedBottom (pad);
+        if (display.isVisible())
+        {
+            display.setBounds (area.removeFromTop (displayHeight));
+            area.removeFromTop (gap);
+        }
+        for (size_t k = 0; k < controls.size(); ++k)
+        {
+            const auto column = (int) k % columns, row = (int) k / columns;
+            controls[k]->setBounds (area.getX() + column * (cellWidth + gap), area.getY() + row * (cellHeight + gap), cellWidth, cellHeight);
+        }
+    }
+
+    // Dragged by its title bar.
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        toFront (false);
+        dragging = e.y < titleHeight;
+        if (dragging)
+            dragger.startDraggingComponent (this, e);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (dragging)
+            dragger.dragComponent (this, e, &constrainer);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragging && onMoved)
+            onMoved (*this);
+        dragging = false;
+    }
+
+    // Keeps it inside this area of its parent (the canvas).
+    void setLimits (juce::Rectangle<int> area)
+    {
+        limits = area;
+        constrainer.setMinimumOnscreenAmounts (getHeight(), getWidth(), getHeight(), getWidth());
+        setBounds (getBounds().constrainedWithin (limits));
+    }
+
+private:
+    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, cellWidth = 116, cellHeight = 44;
+
+    struct Constrainer : juce::ComponentBoundsConstrainer
+    {
+        FxMiniWindow* owner = nullptr;
+        void checkBounds (juce::Rectangle<int>& bounds, const juce::Rectangle<int>&, const juce::Rectangle<int>&, bool, bool, bool, bool) override
+        {
+            if (owner != nullptr && ! owner->limits.isEmpty())
+                bounds = bounds.constrainedWithin (owner->limits);
+        }
+    };
+
+    juce::String name;
+    juce::Colour colour;
+    SlotSwitch power;
+    FxDisplay display;
+    juce::TextButton closeButton { juce::String::fromUTF8 ("\xc3\x97") };
+    std::vector<std::unique_ptr<juce::Component>> controls;
+    int columns = 1, rows = 1;
+    juce::ComponentDragger dragger;
+    Constrainer constrainer;
+    juce::Rectangle<int> limits;
+    bool dragging = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FxMiniWindow)
+};
+
 class PatchPage : public juce::Component,
                   private juce::Timer
 {
@@ -199,10 +360,13 @@ public:
         view.setBounds (area);
         fit();
         layoutInspector();
+        for (auto& window : windows)
+            window->setLimits (view.getBounds());
     }
 
     // Tests: the graph the view shows, and the voice's cables as a patch.
     const PatchGraph::Graph& getShownGraph() const { return shown; }
+    int getNumWindows() const { return (int) windows.size(); }
     PatchCableView& getView() { return view; }
 
     static bool isVoice (const PatchGraph::Node& node) { return node.id >= voiceId; }
@@ -617,8 +781,8 @@ private:
             for (juce::Component* item : { (juce::Component*) &soloButton, (juce::Component*) &band, (juce::Component*) &editButton,
                                            (juce::Component*) &duplicateButton, (juce::Component*) &removeButton })
                 item->setVisible (true);
-            editButton.setButtonText ("EDIT SETTINGS");
-            editButton.setTooltip ("Open this effect's card on the RACK tab, with its settings on the controls");
+            editButton.setButtonText ("OPEN WINDOW");
+            editButton.setTooltip ("Open this effect's controls in a small window over the cables (double-click its box does too)");
         }
         layoutInspector();
         repaint (inspector);
@@ -809,10 +973,100 @@ private:
             if (onShowPage)
                 onShowPage (localKind (node) >= stageKind ? "FILTER" : "OSC");
         }
-        else if (const auto slot = slotOf (&node); slot >= 0 && onOpenSlot)
+        else if (const auto slot = slotOf (&node); slot >= 0)
         {
-            onOpenSlot (slot);
+            openWindow (slot);
         }
+    }
+
+    //==========================================================================
+    // Mini windows: at most four, one per effect type (copies of an effect
+    // share the parameters its controls show; the RACK focuses one at a time).
+    static constexpr size_t maxWindows = 4;
+
+    void openWindow (int slot)
+    {
+        const PatchGraph::Node* node = nullptr;
+        for (const auto& box : shown.nodes())
+            if (slotOf (&box) == slot)
+                node = &box;
+        if (node == nullptr)
+            return;
+        for (auto& window : windows)
+            if (window->slot == slot)
+            {
+                window->toFront (false);
+                return;
+            }
+        const auto type = node->kind;
+        const auto label = juce::String (node->label);
+        for (auto& window : windows)
+            if (window->type == type)
+                closeWindow (window.get());
+        if (windows.size() >= maxWindows)
+            closeWindow (windows.front().get());
+        if (! processorRef.isFxSlotInFront (slot))
+            processorRef.performEdit ("Edit " + label, [this, slot] { processorRef.focusFxInstance (slot); });
+
+        auto window = std::make_unique<FxMiniWindow> (processorRef, rack, slot, type, label);
+        window->onClose = [this] (FxMiniWindow& closing) { closeWindow (&closing); };
+        // Beside the box where it fits the canvas and covers no other
+        // window: right of it, left, below, above; else right of it.
+        const auto box = (view.nodeBounds (*node) * view.getZoom()).toNearestInt() + view.getPosition();
+        const auto size = window->getLocalBounds();
+        const juce::Rectangle<int> places[] = {
+            size.withPosition (box.getRight() + 20, box.getY()),
+            size.withPosition (box.getX() - 20 - size.getWidth(), box.getY()),
+            size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getBottom() + 20),
+            size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getY() - 20 - size.getHeight())
+        };
+        // (None clear: the one covering the least of the others.)
+        auto place = places[0];
+        auto least = std::numeric_limits<int>::max();
+        for (const auto& candidate : places)
+        {
+            const auto inside = candidate.constrainedWithin (view.getBounds());
+            auto covered = 0;
+            for (const auto& other : windows)
+                if (other->isVisible())
+                {
+                    const auto overlap = other->getBounds().getIntersection (inside);
+                    covered += overlap.getWidth() * overlap.getHeight();
+                }
+            covered += view.getBounds().contains (candidate) ? 0 : 1; // (a place that fits as it is wins a tie)
+            if (covered < least)
+            {
+                least = covered;
+                place = inside;
+            }
+        }
+        window->setBounds (place);
+        addAndMakeVisible (*window);
+        window->setLimits (view.getBounds());
+        windows.push_back (std::move (window));
+    }
+
+    // (Deferred: a window closes from its own button's click.)
+    void closeWindow (FxMiniWindow* window)
+    {
+        if (window == nullptr)
+            return;
+        window->setVisible (false);
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PatchPage> (this), window]
+        {
+            if (safe == nullptr)
+                return;
+            auto& list = safe->windows;
+            list.erase (std::remove_if (list.begin(), list.end(), [window] (const auto& w) { return w.get() == window; }), list.end());
+        });
+    }
+
+    // A window whose slot changed effect or was emptied closes.
+    void checkWindows()
+    {
+        for (auto& window : windows)
+            if (window->isVisible() && juce::roundToInt (read ("fx_slot" + juce::String (window->slot + 1))) != window->type)
+                closeWindow (window.get());
     }
 
     void openSelected()
@@ -840,7 +1094,8 @@ private:
         const auto slot = slotOf (&node);
         if (slot < 0)
             return;
-        menu.addItem ("Edit settings", [this, node] { open (node); });
+        menu.addItem ("Open its window", [this, slot] { openWindow (slot); });
+        menu.addItem ("Edit on the RACK page", [this, slot] { if (onOpenSlot) onOpenSlot (slot); });
         menu.addItem ("Duplicate (its own settings)", [this, slot] { duplicateEffect (slot); });
     }
 
@@ -1116,6 +1371,7 @@ private:
         refresh (state != lastState);
         lastState = state;
         inspect (shown.find (view.getSelectedNode()));
+        checkWindows();
         if (juce::Time::getMillisecondCounter() >= refusedUntil && refusedUntil != 0)
         {
             refusedUntil = 0;
@@ -1151,6 +1407,7 @@ private:
     std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
     juce::TextButton editButton { "EDIT SETTINGS" }, duplicateButton { "DUPLICATE" }, removeButton { "REMOVE" };
 
+    std::vector<std::unique_ptr<FxMiniWindow>> windows;
     juce::String lastSignature, lastState, refusal;
     juce::uint32 refusedUntil = 0;
     int shownNodes = -1;

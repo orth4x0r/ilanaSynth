@@ -8574,6 +8574,18 @@ int main (int argc, char** argv)
                 }
         shot ("selected");
 
+        // Mini windows: Delay 2's and Reverb's, opened by double-clicks.
+        if (auto* view = findChild<PatchCableView> (*editor))
+            for (const auto ref : { 5, 3 })
+                for (const auto& node : view->getGraph().nodes())
+                    if (node.ref == ref && node.id < (1u << 20))
+                    {
+                        const auto centre = view->nodeBounds (node).getCentre() * view->getZoom();
+                        view->mouseDoubleClick (PatchCableUi::mouse (*view, centre, false));
+                        break;
+                    }
+        shot ("windows");
+
         pages->showPage ("FX");
         shot ("rack-instances");
 

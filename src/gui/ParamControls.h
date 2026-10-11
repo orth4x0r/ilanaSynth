@@ -2413,6 +2413,7 @@ class ComboControl : public juce::Component,
 public:
     ComboControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
                   const juce::String& labelText)
+        : parameterId (parameterID)
     {
         label.setText (labelText, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centredLeft);
@@ -2442,6 +2443,7 @@ public:
 
     juce::ComboBox& getComboBox() { return combo; }
     juce::Label& getNameLabel() { return label; }
+    const juce::String& getParameterId() const { return parameterId; }
 
     // A family-coloured menu as the mockup draws the VECTOR corners: a tinted
     // outline and fill, the name in the family colour.
@@ -2525,6 +2527,7 @@ public:
 
 
 private:
+    juce::String parameterId;
     void timerCallback() override
     {
         if (! IlanaAnim::showing (*this))
@@ -2684,6 +2687,7 @@ public:
     }
 
     juce::TextButton& getButton() { return button; }
+    const juce::String& getParameterId() const { return parameterId; }
 
     // The switch in an owner's colour (an oscillator's) instead of the accent.
     void setSwitchColour (juce::Colour colour)

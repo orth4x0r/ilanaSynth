@@ -52,6 +52,10 @@ public:
     std::function<float (PatchGraph::NodeId)> cpuOf;                 // 0..1 of a core, or < 0 for none
     std::function<void (juce::PopupMenu&, juce::Point<float>)> addMenu; // empty space, at a graph position
     std::function<void (juce::PopupMenu&, const PatchGraph::Node&)> nodeMenu;
+    // Optional: the owner bypasses or removes a node itself (the FX patcher's
+    // nodes are rack slots, whose bypass and effect are parameters); unset,
+    // the view edits the graph. onOpen: a node double-clicked.
+    std::function<void (const PatchGraph::Node&)> onBypass, onRemove, onOpen;
 
     // How menus open. The tests swap it for one that picks an item.
     std::function<void (juce::PopupMenu&, std::function<void (int)>)> openMenu = [this] (juce::PopupMenu& menu, std::function<void (int)> done)
@@ -67,9 +71,38 @@ public:
         auto content = contentBounds();
         if (content.isEmpty())
             return;
-        origin = getLocalBounds().toFloat().getCentre() - content.getCentre();
+        origin = viewArea().getCentre() - content.getCentre();
         origin = { std::round (origin.x / grid) * grid, std::round (origin.y / grid) * grid };
         repaint();
+    }
+
+    // Zoom: the whole view drawn larger (1 = design size). Positions in the
+    // hit tests and geometry below are in unzoomed view coordinates.
+    void setZoom (float newZoom)
+    {
+        zoom = juce::jlimit (0.5f, 3.0f, newZoom);
+        repaint();
+    }
+    float getZoom() const { return zoom; }
+
+    // The largest zoom (from 1 to maxZoom) at which the graph, with a margin,
+    // fits the view; then centred.
+    void fitContent (float maxZoom = 1.5f)
+    {
+        const auto content = contentBounds();
+        if (content.isEmpty() || getWidth() <= 0 || getHeight() <= 0)
+            return;
+        const auto fit = juce::jmin ((float) getWidth() / (content.getWidth() + 160.0f),
+                                     (float) getHeight() / (content.getHeight() + 220.0f));
+        zoom = juce::jlimit (1.0f, juce::jmax (1.0f, maxZoom), std::floor (fit * 10.0f) / 10.0f);
+        centreContent();
+    }
+
+    // Whether every node is inside the view (else the owner may refit).
+    bool contentFits() const
+    {
+        const auto content = contentBounds();
+        return content.isEmpty() || viewArea().contains (content.translated (origin.x, origin.y));
     }
 
     void graphChanged()
@@ -107,12 +140,13 @@ public:
     {
         using namespace IlanaTheme;
         paintWell (g, getLocalBounds().toFloat(), 8.0f);
+        g.addTransform (juce::AffineTransform::scale (zoom));
 
         // A quiet dot grid every 20 px, so the 10 px snapping has something to sit on.
         g.setColour (Ui::line2);
         const auto startX = std::fmod (origin.x, 20.0f), startY = std::fmod (origin.y, 20.0f);
-        for (auto y = startY; y < (float) getHeight(); y += 20.0f)
-            for (auto x = startX; x < (float) getWidth(); x += 20.0f)
+        for (auto y = startY; y < viewArea().getBottom(); y += 20.0f)
+            for (auto x = startX; x < viewArea().getRight(); x += 20.0f)
                 g.fillRect (x - 0.5f, y - 0.5f, 1.5f, 1.5f);
 
         const auto feedback = graph.feedbackCables();
@@ -141,7 +175,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         grabKeyboardFocus();
-        const auto position = e.position;
+        const auto position = e.position / zoom;
 
         if (e.mods.isPopupMenu())
         {
@@ -182,21 +216,40 @@ public:
 
         selectedCable = cableAt (position);
         selectedNode = 0;
+        if (selectedCable < 0)
+        {
+            // Empty space: drag to look around a big patch.
+            drag = {};
+            drag.kind = DragKind::pan;
+            drag.grabOffset = position - origin;
+        }
         repaint();
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        if (const auto* node = nodeAt (e.position / zoom); node != nullptr && ! node->isFixed() && onOpen)
+            onOpen (*node);
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (drag.kind == DragKind::node)
         {
-            const auto target = e.position - drag.grabOffset - origin;
+            const auto target = e.position / zoom - drag.grabOffset - origin;
             graph.moveNode (drag.node, std::round (target.x / grid) * grid, std::round (target.y / grid) * grid);
             drag.moved = true;
             repaint();
         }
         else if (drag.kind == DragKind::cable)
         {
-            drag.mouse = e.position;
+            drag.mouse = e.position / zoom;
+            repaint();
+        }
+        else if (drag.kind == DragKind::pan)
+        {
+            const auto target = e.position / zoom - drag.grabOffset;
+            origin = { std::round (target.x / grid) * grid, std::round (target.y / grid) * grid };
             repaint();
         }
     }
@@ -207,7 +260,7 @@ public:
             onEdited (Edit::layout);
 
         if (drag.kind == DragKind::cable)
-            finishCableDrag (portAt (e.position, true));
+            finishCableDrag (portAt (e.position / zoom, true));
 
         drag = {};
         repaint();
@@ -215,9 +268,10 @@ public:
 
     void mouseMove (const juce::MouseEvent& e) override
     {
-        const auto overPort = portAt (e.position, false).node != 0 || portAt (e.position, true).node != 0;
+        const auto position = e.position / zoom;
+        const auto overPort = portAt (position, false).node != 0 || portAt (position, true).node != 0;
         setMouseCursor (overPort ? juce::MouseCursor::CrosshairCursor
-                                 : nodeAt (e.position) != nullptr ? juce::MouseCursor::DraggingHandCursor
+                                 : nodeAt (position) != nullptr ? juce::MouseCursor::DraggingHandCursor
                                                                   : juce::MouseCursor::NormalCursor);
     }
 
@@ -233,10 +287,9 @@ public:
                 edited (Edit::cables);
                 return true;
             }
-            if (selectedNode != 0 && graph.removeNode (selectedNode))
+            if (const auto* node = graph.find (selectedNode); node != nullptr && ! node->isFixed())
             {
-                selectedNode = 0;
-                edited (Edit::nodes);
+                removeNodeNow (*node);
                 return true;
             }
         }
@@ -288,7 +341,7 @@ public:
     }
 
 private:
-    enum class DragKind { none, node, cable };
+    enum class DragKind { none, node, cable, pan };
 
     struct Drag
     {
@@ -301,6 +354,16 @@ private:
         float pickedGain = 1.0f;
         juce::Point<float> mouse;
     };
+
+    void removeNodeNow (const PatchGraph::Node& node)
+    {
+        const auto id = node.id;
+        selectedNode = 0;
+        if (onRemove)
+            return onRemove (node);
+        if (graph.removeNode (id))
+            edited (Edit::nodes);
+    }
 
     void edited (Edit edit)
     {
@@ -384,13 +447,14 @@ private:
                     return;
                 if (result == bypassNode)
                 {
+                    if (onBypass)
+                        return onBypass (*target);
                     graph.setBypassed (id, ! target->bypassed);
                     edited (Edit::nodes);
                 }
-                else if (result == removeNode && graph.removeNode (id))
+                else if (result == removeNode)
                 {
-                    selectedNode = 0;
-                    edited (Edit::nodes);
+                    removeNodeNow (*target);
                 }
             });
             return;
@@ -405,8 +469,10 @@ private:
             if (graph.feedbackCables()[(size_t) c])
                 menu.addItem (-1, "Loop: " + juce::String (loopLatencyMs, 1) + " ms delay", false);
             juce::PopupMenu gains;
+            // (A loop's cable stays under 100 %, or a loop through gain would grow.)
+            const bool loop = graph.feedbackCables()[(size_t) c];
             const float levels[] = { 1.0f, 0.7f, 0.5f, 0.25f };
-            for (int i = 0; i < 4; ++i)
+            for (int i = loop ? 1 : 0; i < 4; ++i)
                 gains.addItem (gainBase + i, juce::String (juce::roundToInt (levels[i] * 100.0f)) + " %", true, cable.gain == levels[i]);
             menu.addSubMenu ("Level", gains);
             menu.addSeparator();
@@ -584,7 +650,11 @@ private:
         return area;
     }
 
+    // The view's area in unzoomed coordinates.
+    juce::Rectangle<float> viewArea() const { return getLocalBounds().toFloat() / zoom; }
+
     PatchGraph::Graph& graph;
+    float zoom = 1.0f;
     juce::Point<float> origin { 20.0f, 20.0f };
     PatchGraph::NodeId selectedNode = 0;
     int selectedCable = -1;

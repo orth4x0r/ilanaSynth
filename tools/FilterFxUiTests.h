@@ -549,13 +549,19 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     expect (replaced && slotType (1) == 32,
                             "FX: picking CHORUS from TAPE's picker puts a chorus in slot 1 (reverb stays in 2), closes it, and undo brings TAPE back");
 
-                    // An effect another slot holds isn't taken from it.
+                    // An effect another slot holds becomes a second instance
+                    // with its own settings (step 17); undo brings TAPE back.
                     openFromTitle (1);
                     if (auto* again = findPicker())
                         if (auto* reverb = again->findButton (13))
                             reverb->triggerClick();
                     settle (400);
-                    expect (slotType (1) == 32 && slotType (2) == 13, "FX: picking an effect another slot holds leaves both slots as they were");
+                    const auto second = slotType (1) == 13 && slotType (2) == 13
+                                        && (processor.isFxInstance (0) || processor.isFxInstance (1));
+                    processor.getUndoManager().undo();
+                    settle (300);
+                    expect (second && slotType (1) == 32 && slotType (2) == 13,
+                            "FX: picking an effect another slot holds adds a second instance of it, and undo brings the old effect back");
                     closePicker();
 
                     // REMOVE EFFECT empties the slot.

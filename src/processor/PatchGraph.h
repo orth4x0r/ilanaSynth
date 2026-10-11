@@ -409,6 +409,7 @@ struct Plan
     bool ok = true;
     std::string error;
     std::uint64_t revision = 0;      // the graph's revision it came from
+    std::uint64_t tag = 0;           // the owner's: what the plan was made for (the FX rack's slot signature)
 
     bool hasFeedback() const { return ! loops.empty(); }
 

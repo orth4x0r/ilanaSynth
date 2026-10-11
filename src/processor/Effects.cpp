@@ -2,10 +2,47 @@
 #include "PatchGraphRunner.h"
 #include "PatchGraphState.h"
 
-// The rack's routing (fx_routing): SERIES, each effect feeds the next one
-// (as every patch before it was added); PARALLEL, each effect hears the
-// rack's input and their outputs are averaged.
+// The rack. PATCHER on: the slots as the nodes of the patcher's graph
+// (processEffectsPatched). Otherwise the rack's routing (fx_routing): SERIES,
+// each effect feeds the next one (as every patch before it was added);
+// PARALLEL, each effect hears the rack's input and their outputs are averaged.
+//
+// Roadmap step 17: SERIES and PARALLEL run through the rack's compiled graph
+// (getFxRackGraph), which renders exactly what the fixed loop renders
+// (ILANA_GRAPH_TEST). The plan is made on the message thread for the slots as
+// they are; for the moment after a slot is added, removed, bypassed or
+// soloed, until the new plan is in, the fixed loop runs instead (the same
+// sound). Offline the plan is made here, at once.
 void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
+{
+    if (getParam (fxPatcherRef) > 0.5f)
+        return processEffectsPatched (buffer);
+
+    const auto signature = fxRackSignature();
+    const auto* plan = fxRackRunner->activePlan();
+
+    if (plan == nullptr || plan->tag != signature)
+    {
+        if (isNonRealtime())
+        {
+            compileFxRackPlan (signature);
+            plan = fxRackRunner->activePlan();
+        }
+        else if (! fxRackCompileWanted.exchange (true))
+        {
+            triggerAsyncUpdate();
+        }
+    }
+
+    if (plan != nullptr && plan->tag == signature)
+        return processEffectsGraph (buffer, *fxRackRunner);
+
+    processEffectsFixed (buffer);
+}
+
+// The fixed loop (the rack before step 17, and its stand-in while a new plan
+// is on its way).
+void IlanaSynthAudioProcessor::processEffectsFixed (juce::AudioBuffer<float>& buffer)
 {
     if (getParam (fxRoutingRef) > 0.5f)
         return processEffectsParallel (buffer);
@@ -142,6 +179,15 @@ void IlanaSynthAudioProcessor::processEffectsParallel (juce::AudioBuffer<float>&
 // level meters and the CPU share.
 void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& buffer)
 {
+    // A slot that is its own instance reads its own copy of its effect's
+    // settings (while its card isn't the one in front) and runs on its own
+    // engine (engineForSlot).
+    struct OwnValues
+    {
+        const float* previous;
+        ~OwnValues() { swapFxParamValues (previous); }
+    } ownValues { swapFxParamValues (slotValues[(size_t) (slot - 1)].load (std::memory_order_acquire)) };
+
     {
         const auto& ids = fxSlotIds[(size_t) (slot - 1)];
         const auto type = (int) getParam (ids.type);
@@ -191,7 +237,7 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
             for (int channel = 0; channel < numChannels; ++channel)
                 fxScratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
 
-            processSlot (type, fxScratch);
+            engineForSlot (slot - 1).processSlot (type, fxScratch);
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
@@ -213,7 +259,7 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         }
         else
         {
-            processSlot (type, buffer);
+            engineForSlot (slot - 1).processSlot (type, buffer);
         }
 
         sanitiseBuffer (buffer);
@@ -342,7 +388,7 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     // The slot on its band, with its blend and solo as on the full signal.
     fxScratch.copyFrom (0, 0, fxBand, 0, 0, numSamples);
     fxScratch.copyFrom (1, 0, fxBand, 1, 0, numSamples);
-    processSlot (type, fxScratch);
+    engineForSlot (slot).processSlot (type, fxScratch);
     const auto wet = solo ? 1.0f : blend, dry = solo ? 0.0f : 1.0f - blend;
     const auto wetFrom = solo ? 1.0f : blendFrom, dryFrom = solo ? 0.0f : 1.0f - blendFrom;
     const auto wetStep = numSamples > 0 ? (wet - wetFrom) / (float) numSamples : 0.0f;
@@ -378,7 +424,7 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     }
 }
 
-void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processSlot (int type, juce::AudioBuffer<float>& buffer)
 {
     switch (type)
     {
@@ -420,7 +466,7 @@ void IlanaSynthAudioProcessor::processSlot (int type, juce::AudioBuffer<float>& 
     }
 }
 
-void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processDrive (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -469,7 +515,7 @@ void IlanaSynthAudioProcessor::processDrive (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processCrush (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processCrush (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -508,7 +554,7 @@ void IlanaSynthAudioProcessor::processCrush (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processComb (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processComb (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -541,7 +587,7 @@ void IlanaSynthAudioProcessor::processComb (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processPhaser (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processPhaser (juce::AudioBuffer<float>& buffer)
 {
     if (getParam ("fx_phaser_on") > 0.5f)
     {
@@ -558,7 +604,7 @@ void IlanaSynthAudioProcessor::processPhaser (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processChorus (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processChorus (juce::AudioBuffer<float>& buffer)
 {
     if (getParam ("fx_chorus_on") > 0.5f)
     {
@@ -575,7 +621,7 @@ void IlanaSynthAudioProcessor::processChorus (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processDelay (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -741,7 +787,7 @@ void IlanaSynthAudioProcessor::processDelay (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processStutter (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processStutter (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -817,7 +863,7 @@ void IlanaSynthAudioProcessor::processStutter (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processSmear (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processSmear (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -849,7 +895,7 @@ void IlanaSynthAudioProcessor::processSmear (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processFreeze (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processFreeze (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -862,7 +908,7 @@ void IlanaSynthAudioProcessor::processFreeze (juce::AudioBuffer<float>& buffer)
 
 }
 
-void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processReverb (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -1033,7 +1079,7 @@ void IlanaSynthAudioProcessor::processReverb (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processAmp (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processAmp (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = juce::jmin (2, buffer.getNumChannels());
@@ -1076,7 +1122,7 @@ void IlanaSynthAudioProcessor::processAmp (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processCompressor (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = juce::jmin (2, buffer.getNumChannels());
@@ -1119,7 +1165,7 @@ void IlanaSynthAudioProcessor::processCompressor (juce::AudioBuffer<float>& buff
     compGainReduction.store (deepestGain);
 }
 
-void IlanaSynthAudioProcessor::processHaas (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processHaas (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = juce::jmin (2, buffer.getNumChannels());
@@ -1146,7 +1192,7 @@ void IlanaSynthAudioProcessor::processHaas (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processFlanger (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processFlanger (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1178,7 +1224,7 @@ void IlanaSynthAudioProcessor::processFlanger (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processDimension (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processDimension (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1221,7 +1267,7 @@ float IlanaSynthAudioProcessor::gatePatternLevel (int pattern, int step)
 // Trance gate. DIV is the length of one step; STEPS the pattern length; the
 // pattern is one of the built-ins or Custom (16 drawable step levels).
 // Locked to the host's beat position while it plays.
-void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processGate (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -1300,7 +1346,7 @@ void IlanaSynthAudioProcessor::processGate (juce::AudioBuffer<float>& buffer)
         euclidDisplayStep.store (gateLastStep);
 }
 
-void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processTapeStop (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1367,7 +1413,7 @@ void IlanaSynthAudioProcessor::processTapeStop (juce::AudioBuffer<float>& buffer
     }
 }
 
-void IlanaSynthAudioProcessor::processTilt (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processTilt (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1406,7 +1452,7 @@ EqSettings IlanaSynthAudioProcessor::getEqSettings() const
     return settings;
 }
 
-void IlanaSynthAudioProcessor::processEq (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processEq (juce::AudioBuffer<float>& buffer)
 {
     Biquad::Coefficients coefficients[3];
     getEqSettings().makeCoefficients (currentSampleRate, coefficients);
@@ -1430,7 +1476,7 @@ void IlanaSynthAudioProcessor::processEq (juce::AudioBuffer<float>& buffer)
 
 // Vocoder (type 31): the buffer is the carrier; the modulator is the audio
 // input (mono sum) or, without one, the module's own TALK.
-void IlanaSynthAudioProcessor::processVocoder (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processVocoder (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     Vocoder::Settings settings;
@@ -1473,7 +1519,7 @@ void IlanaSynthAudioProcessor::processVocoder (juce::AudioBuffer<float>& buffer)
 }
 
 // Airwindows (type 30): the chosen algorithm, its knobs, the module's mix.
-void IlanaSynthAudioProcessor::processAirwindows (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processAirwindows (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
 
@@ -1501,7 +1547,7 @@ void IlanaSynthAudioProcessor::processAirwindows (juce::AudioBuffer<float>& buff
 }
 
 // An Airwindows category module (types 32-41): its chosen effect, as above.
-void IlanaSynthAudioProcessor::processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category)
+void IlanaSynthAudioProcessor::FxEngine::processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category)
 {
     const auto numSamples = buffer.getNumSamples();
     if (numSamples <= 0 || buffer.getNumChannels() == 0)
@@ -1530,7 +1576,7 @@ void IlanaSynthAudioProcessor::processAirwindowsCategory (juce::AudioBuffer<floa
                                                   getParam (refs[6]));
 }
 
-void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choice)
+void IlanaSynthAudioProcessor::FxEngine::preloadAirwindowsCategory (int category, int choice)
 {
     if (category < 0 || category >= numAwCategories)
         return;
@@ -1538,7 +1584,7 @@ void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choi
     awCategoryModules[(size_t) category].preload (info.algorithms[(size_t) juce::jlimit (0, (int) info.algorithms.size() - 1, choice)]);
 }
 
-void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processUtility (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1570,7 +1616,7 @@ void IlanaSynthAudioProcessor::processUtility (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processOtt (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1618,7 +1664,7 @@ void IlanaSynthAudioProcessor::processOtt (juce::AudioBuffer<float>& buffer)
         ottBandGain[(size_t) band].store (bandGains[band]);
 }
 
-void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processLimiter (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1652,7 +1698,7 @@ void IlanaSynthAudioProcessor::processLimiter (juce::AudioBuffer<float>& buffer)
     limiterGainReduction.store (deepestGain);
 }
 
-void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processWidener (juce::AudioBuffer<float>& buffer)
 {
     if (buffer.getNumChannels() < 2)
         return;
@@ -1676,7 +1722,7 @@ void IlanaSynthAudioProcessor::processWidener (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processTremolo (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processTremolo (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -1700,7 +1746,7 @@ void IlanaSynthAudioProcessor::processTremolo (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processFreqShift (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processFreqShift (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1738,7 +1784,7 @@ void IlanaSynthAudioProcessor::processFreqShift (juce::AudioBuffer<float>& buffe
     }
 }
 
-void IlanaSynthAudioProcessor::processRingMod (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processRingMod (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
@@ -1764,7 +1810,7 @@ void IlanaSynthAudioProcessor::processRingMod (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processOctaver (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processOctaver (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1785,7 +1831,7 @@ void IlanaSynthAudioProcessor::processOctaver (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processVowel (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processVowel (juce::AudioBuffer<float>& buffer)
 {
     static const float formant1[5] { 800.0f, 400.0f, 350.0f, 450.0f, 325.0f };
     static const float formant2[5] { 1150.0f, 1600.0f, 1700.0f, 800.0f, 700.0f };
@@ -1826,7 +1872,7 @@ void IlanaSynthAudioProcessor::processVowel (juce::AudioBuffer<float>& buffer)
     }
 }
 
-void IlanaSynthAudioProcessor::processFeedback (juce::AudioBuffer<float>& buffer)
+void IlanaSynthAudioProcessor::FxEngine::processFeedback (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = buffer.getNumSamples();
     const auto channels = juce::jmin (2, buffer.getNumChannels());
@@ -1884,9 +1930,9 @@ void IlanaSynthAudioProcessor::assignFxSlot (int slot, int type)
 
     // Airwindows: its algorithm is made here, off the audio thread.
     if (type == 30)
-        airwindowsModule.preload ((int) getParam (awAlgoRef));
+        preloadAirwindows ((int) getParam ("fx_aw_algo"));
     if (const auto category = airwindows::categoryForFxType (type); category >= 0)
-        preloadAirwindowsCategory (category, (int) getParam (awCategoryRefs[(size_t) category][0]));
+        preloadAirwindowsCategory (category, (int) getParam (makeAwCategoryRefs()[(size_t) category][0]));
 }
 
 void IlanaSynthAudioProcessor::randomizeFxChain()
@@ -1946,10 +1992,13 @@ bool IlanaSynthAudioProcessor::saveFxChainToFile (const juce::File& file)
         }
     }
 
+    if (const auto fx = getFxPatch(); ! fx.isDefault())
+        xml.addChildElement (FxPatchData::toValueTree (fx).createXml().release());
+
     return xml.writeTo (file);
 }
 
-void IlanaSynthAudioProcessor::loadReverbIr (const juce::File& file)
+void IlanaSynthAudioProcessor::FxEngine::loadReverbIr (const juce::File& file)
 {
     if (! file.existsAsFile())
         return;
@@ -1986,6 +2035,9 @@ bool IlanaSynthAudioProcessor::loadFxChainFromFile (const juce::File& file)
                 parameter->convertTo0to1 ((float) element->getDoubleAttribute ("v")));
     }
 
+    // Its instances and patcher graph (none in a chain saved before step 17).
+    const auto* fx = xml->getChildByName (FxPatchData::patchTag.toString());
+    setFxPatch (fx != nullptr ? FxPatchData::fromValueTree (juce::ValueTree::fromXml (*fx)) : FxPatchData::Patch {});
     return true;
 }
 
@@ -2005,6 +2057,13 @@ juce::String IlanaSynthAudioProcessor::captureFxChain()
             state += id + "=" + juce::String (value->load(), 6) + ";";
     }
 
+    // The instances and the patcher graph ride along (step 17).
+    if (const auto fx = getFxPatch(); ! fx.isDefault())
+    {
+        const auto text = FxPatchData::toValueTree (fx).toXmlString (juce::XmlElement::TextFormat().singleLine());
+        state += "fxpatch=" + juce::Base64::toBase64 (text) + ";";
+    }
+
     return state;
 }
 
@@ -2017,17 +2076,29 @@ void IlanaSynthAudioProcessor::applyFxChain (const juce::String& state)
         if (auto* routing = apvts.getParameter ("fx_routing"))
             routing->setValueNotifyingHost (routing->getDefaultValue());
 
+    FxPatchData::Patch fx;
     for (const auto& token : tokens)
     {
         const auto id = token.upToFirstOccurrenceOf ("=", false, false);
-        const auto value = token.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
+        const auto text = token.fromFirstOccurrenceOf ("=", false, false);
 
         if (id.isEmpty())
             continue;
 
+        if (id == "fxpatch")
+        {
+            juce::MemoryOutputStream decoded;
+            if (juce::Base64::convertFromBase64 (decoded, text))
+                if (const auto xml = juce::parseXML (decoded.toString()))
+                    fx = FxPatchData::fromValueTree (juce::ValueTree::fromXml (*xml));
+            continue;
+        }
+
         if (auto* parameter = apvts.getParameter (id))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (text.getFloatValue()));
     }
+    // After the slots are set (a chain from before step 17: no instances).
+    setFxPatch (fx);
 }
 
 void IlanaSynthAudioProcessor::switchFxChain()
@@ -2105,4 +2176,273 @@ void IlanaSynthAudioProcessor::processEffectsGraph (juce::AudioBuffer<float>& bu
     });
 
     sanitiseBuffer (buffer);
+}
+
+//==============================================================================
+// Roadmap step 17: the effects' memory in engines (FxEngine.h).
+
+// The effects' part of prepareToPlay (as it was there, line for line).
+void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samplesPerBlock, int expectedBlockSize)
+{
+    stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        tapeShift[channel].prepare (sampleRate);
+        shimmerShift[channel].prepare (sampleRate);
+        smear[channel].prepare (sampleRate);
+    }
+    freeze.prepare (sampleRate);
+
+    haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
+
+    tapeStopBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
+    tapeStopWrite = 0;
+    tapeStopRead = 0.0;
+    tapeStopRate = 1.0f;
+    tapeStopLagFade = 1.0f;
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        octaverShift[channel].prepare (sampleRate);
+
+        for (auto& band : eqBands[channel])
+            band.reset();
+
+        for (int band = 0; band < 3; ++band)
+        {
+            vowelFilters[channel][band].setSampleRate (sampleRate);
+            vowelFilters[channel][band].setMode (Svf::Mode::BandPass);
+            vowelFilters[channel][band].reset();
+        }
+    }
+
+    flangerPhase = 0.0;
+    dimPhase = 0.0;
+    tremoloPhase = 0.0;
+    shifterPhase = 0.0;
+    ringPhase = 0.0;
+    gatePhase = 0.0;
+    gateEnvelope = 1.0f;
+    gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
+    duckEnvelope = 0.0f;
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        tiltLowState[channel] = 0.0f;
+        tiltHighState[channel] = 0.0f;
+        limiterEnvelope[channel] = 0.0f;
+        shifterAllpass[channel] = 0.0f;
+        shifterDelay[channel] = 0.0f;
+
+        for (int band = 0; band < 3; ++band)
+            ottEnvelope[channel][band] = 0.0f;
+    }
+
+    compEnvelope[0] = 0.0f;
+    compEnvelope[1] = 0.0f;
+    ampLowState[0] = 0.0f;
+    ampLowState[1] = 0.0f;
+    ampHighState[0] = 0.0f;
+    ampHighState[1] = 0.0f;
+
+    wowPhase = 0.0;
+
+    crushCounter = 0;
+    delayDampState[0] = 0.0f;
+    delayDampState[1] = 0.0f;
+
+    const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
+
+    haasLine.prepare (spec);
+    haasLine.reset();
+
+    feedbackLine.setMaximumDelayInSamples ((int) (sampleRate * 0.12));
+    feedbackLine.prepare (spec);
+    feedbackLine.reset();
+    feedbackState[0] = 0.0f;
+    feedbackState[1] = 0.0f;
+    stutterPosition = 0.0;
+    stutterRate = 1.0f;
+
+    flangerLine.setMaximumDelayInSamples ((int) (sampleRate * 0.05));
+    flangerLine.prepare (spec);
+    flangerLine.reset();
+
+    dimLine.setMaximumDelayInSamples ((int) (sampleRate * 0.15));
+    dimLine.prepare (spec);
+    dimLine.reset();
+
+    springComb.setMaximumDelayInSamples ((int) (sampleRate * 0.05));
+    springComb.prepare (spec);
+    springComb.reset();
+
+    chorus.prepare (spec);
+    chorus.reset();
+
+    phaser.prepare (spec);
+    phaser.reset();
+
+    convolution.prepare (spec);
+    convolution.reset();
+
+    delayLine.setMaximumDelayInSamples ((int) (sampleRate * 2.0));
+    delayLine.prepare (spec);
+    delayLine.reset();
+
+    combLine.setMaximumDelayInSamples ((int) (sampleRate * 0.15));
+    combLine.prepare (spec);
+    combLine.reset();
+
+    reverb.setSampleRate (sampleRate);
+    reverb.reset();
+    reverbDryScratch.setSize (2, samplesPerBlock, false, false, true);
+    airwindowsModule.prepare (sampleRate, samplesPerBlock);
+    for (auto& module : awCategoryModules)
+        module.prepare (sampleRate, samplesPerBlock);
+    vocoder.prepare (sampleRate);
+    vocoderModulator.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
+}
+
+// The effects' part of a patch change (cutPatchTails), on the audio thread
+// and without allocating.
+void IlanaSynthAudioProcessor::FxEngine::reset()
+{
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        tapeShift[channel].reset();
+        shimmerShift[channel].reset();
+        octaverShift[channel].reset();
+        smear[channel].reset();
+        feedbackState[channel] = 0.0f;
+        delayDampState[channel] = 0.0f;
+    }
+
+    freeze.reset();
+    stutterBuffer.clear();
+    tapeStopBuffer.clear();
+    haasLine.reset();
+    feedbackLine.reset();
+    flangerLine.reset();
+    dimLine.reset();
+    springComb.reset();
+    chorus.reset();
+    phaser.reset();
+    convolution.reset();
+    delayLine.reset();
+    combLine.reset();
+    reverb.reset();
+    airwindowsModule.reset();
+    for (auto& module : awCategoryModules)
+        module.reset();
+    vocoder.reset();
+
+    // The effects' own LFOs and followers restart too (a Dimension or flanger
+    // phase left by the last patch otherwise changes how this one starts).
+    flangerPhase = 0.0;
+    dimPhase = 0.0;
+    tremoloPhase = 0.0;
+    shifterPhase = 0.0;
+    ringPhase = 0.0;
+    gatePhase = 0.0;
+    gateEnvelope = 1.0f;
+    gatedReverbEnvelope = 0.0f;
+    reverbKeepDryHold = 0;
+    duckEnvelope = 0.0f;
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        limiterEnvelope[channel] = 0.0f;
+        for (int band = 0; band < 3; ++band)
+            ottEnvelope[channel][band] = 0.0f;
+    }
+    compEnvelope[0] = compEnvelope[1] = 0.0f;
+
+    // The effects' filters and followers that the lists above leave out
+    // (OTT, tilt, EQ, vowel, frequency shifter, amp, crush): their state
+    // otherwise rings into the next patch.
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        for (int band = 0; band < 2; ++band)
+            ottLowState[channel][band] = ottHighState[channel][band] = 0.0f;
+        tiltLowState[channel] = tiltHighState[channel] = 0.0f;
+        shifterAllpass[channel] = shifterDelay[channel] = 0.0f;
+        ampLowState[channel] = ampHighState[channel] = 0.0f;
+        crushHold[channel] = 0.0f;
+        for (auto& band : eqBands[channel])
+            band.reset();
+        for (auto& filter : vowelFilters[channel])
+            filter.reset();
+    }
+    crushCounter = 0;
+}
+
+IlanaSynthAudioProcessor::FxEngine& IlanaSynthAudioProcessor::engineForSlot (int slotIndex) const
+{
+    if (juce::isPositiveAndBelow (slotIndex, numFxSlots))
+        if (auto* own = slotEngines[(size_t) slotIndex].load (std::memory_order_acquire))
+            return *own;
+    return *fxMain;
+}
+
+void IlanaSynthAudioProcessor::resetFxEngineRamps() noexcept
+{
+    fxMain->resetRamps();
+    for (auto& engine : slotEngines)
+        if (auto* own = engine.load (std::memory_order_acquire))
+            own->resetRamps();
+}
+
+void IlanaSynthAudioProcessor::prepareFxEngines (double sampleRate, int samplesPerBlock)
+{
+    fxMain->prepare (sampleRate, samplesPerBlock, expectedBlockSize);
+    for (auto& engine : slotEngines)
+        if (auto* own = engine.load (std::memory_order_acquire))
+            own->prepare (sampleRate, samplesPerBlock, expectedBlockSize);
+    fxEngineBlockSize = samplesPerBlock;
+}
+
+void IlanaSynthAudioProcessor::resetFxEngines()
+{
+    fxPatchRunner->reset(); // the patcher's loops start empty
+    fxMain->reset();
+    for (auto& engine : slotEngines)
+        if (auto* own = engine.load (std::memory_order_acquire))
+            own->reset();
+}
+
+// The card displays read the engine the card stands for: the slot its
+// controls are showing (displayEngineFor), else the shared one.
+float IlanaSynthAudioProcessor::getCompGainReduction() const { return displayEngine (4).compGainReduction.load(); }
+float IlanaSynthAudioProcessor::getLimiterGainReduction() const { return displayEngine (21).limiterGainReduction.load(); }
+float IlanaSynthAudioProcessor::getOttBandGain (int band) const { return displayEngine (20).ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
+void IlanaSynthAudioProcessor::getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const { displayEngine (12).freeze.getBands (out); }
+int IlanaSynthAudioProcessor::getGateDisplayStep() const { return displayEngine (16).gateDisplayStep.load(); }
+
+float IlanaSynthAudioProcessor::getVocoderBandLevel (int band) const
+{
+    const auto& engine = displayEngine (31);
+    return juce::isPositiveAndBelow (band, (int) engine.vocoderBandDisplay.size()) ? engine.vocoderBandDisplay[(size_t) band].load() : 0.0f;
+}
+
+void IlanaSynthAudioProcessor::preloadAirwindows (int algorithm)
+{
+    fxMain->preloadAirwindows (algorithm);
+    for (auto& engine : slotEngines)
+        if (auto* own = engine.load (std::memory_order_acquire))
+            own->preloadAirwindows (algorithm);
+}
+
+void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choice)
+{
+    fxMain->preloadAirwindowsCategory (category, choice);
+    for (auto& engine : slotEngines)
+        if (auto* own = engine.load (std::memory_order_acquire))
+            own->preloadAirwindowsCategory (category, choice);
+}
+
+// An impulse response goes to the reverb the REVERB card is showing.
+void IlanaSynthAudioProcessor::loadReverbIr (const juce::File& file)
+{
+    const_cast<FxEngine&> (displayEngine (13)).loadReverbIr (file);
 }

@@ -1175,6 +1175,10 @@ inline juce::String describeParameter (const juce::String& id)
                "the rack's input and their outputs are averaged (so effects that leave the sound alone give it back "
                "unchanged); a soloed effect is heard alone.";
 
+    if (id == "fx_patcher")
+        return "PATCHER: the rack's effects as boxes you wire with cables, output to input. Parallel branches, "
+               "loops (each with a 1.3 ms delay) and several of the same effect. Off: SERIES or PARALLEL.";
+
     if (id.endsWith ("_bypass"))
         return "Bypasses this rack slot without losing its settings.";
 

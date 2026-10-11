@@ -42,6 +42,7 @@
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
 #include "gui/SubTabBar.h"
+#include "gui/PatchCableView.h"
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
 #include "gui/XtraDisplays.h"
@@ -61,6 +62,7 @@
 #include "gui/FxInfoText.h"
 #include "gui/pages/FxWidgets.h"
 #include "gui/pages/FxPage.h"
+#include "gui/pages/FxPatcherPage.h"
 
 
 // The scope over the current page. Docked (the default, review 7) it fills
@@ -366,7 +368,15 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* fmPage = new FmPage (p);
     addSection ("FM", { { "FM", "FM", fmPage } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
-    addSection ("FX", { { "FX", "FX", new FxPage (p) } });
+    // The rack and, under the same tab, its PATCHER (roadmap step 17).
+    auto* fxPage = new FxPage (p);
+    auto* fxPatcherPage = new FxPatcherPage (p, *fxPage);
+    addSection ("FX", { { "FX", "RACK", fxPage }, { "PATCHER", "PATCHER", fxPatcherPage } });
+    fxPatcherPage->onOpenSlot = [this, fxPage] (int slot)
+    {
+        showPage ("FX");
+        fxPage->editInstance (slot);
+    };
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
     if (IlanaSynthAudioProcessor::isEffectBuild)
         addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });

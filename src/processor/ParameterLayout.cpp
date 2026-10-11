@@ -1164,5 +1164,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("noise_type", "Noise Type", { "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
     addFloat ("sub_colour", "Sub Colour", 0.0f, 1.0f, 0.0f);
 
+    // Roadmap step 17: the FX PATCHER. On, the rack's slots run as the nodes
+    // of the patcher's cable graph (FxPatch.h) instead of SERIES / PARALLEL.
+    // Off, as in every older patch.
+    addBool ("fx_patcher", "FX Patcher", false);
+
     return layout;
 }

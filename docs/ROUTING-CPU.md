@@ -152,3 +152,33 @@ What the two suspected leaks turned out to be, and the cheap rules applied. Numb
 Whole graph: 0.02 to 0.16 % of a core for 16 nodes (budget 0.4 %). The per-node readout reads the clock twice per node per chunk, so a looped graph at a big host block pays it eight times per block; still under the 3 us budget.
 
 The real rack through its migrated graph (`processEffectsGraph`) against the fixed loop, block 512, mean us per block: 10 x Utility series 39.7 / 40.1, parallel 44.6 / 45.1; 4 x Drive series 116.6 / 115.7; 8 x Delay parallel 174.2 / 176.8; Drive, Chorus, Delay, Reverb series 90.0 / 90.9, parallel 108.6 / 108.9. At block 64 the differences are 0.0 to 0.9 us. The whole engine against main (the overhead group and `ilanaSnapshot --heldcpu "Neuro Wobble"`, alternating runs) is unchanged within noise: 10.1 % against 10.1 %.
+
+## Step 17 measured (2026-10-11, branch `claude/fx-patcher-zhhz79`)
+
+Same box, 48 kHz, block 512, but the box was slower and noisier than for step A (the same `--heldcpu` run reads 15-18 % today against 10.1 % then), so every figure is a mean of alternating runs of the step A build (`871d8a3`) and this one.
+
+What changed on the audio path: SERIES and PARALLEL now run through the rack's compiled graph (`fxRackRunner`); each slot looks up its engine and value table (`engineForSlot`, `slotValues`); PATCHER runs its own plan (`fxPatchRunner`) with the silence skip on and per-type tails (`fxTailSamples`). A patch that uses none of it renders sample for sample as before (0 of 698 fingerprints, `ILANA_GRAPH_TEST`).
+
+| `ILANA_BENCH_ONLY=graph`, rack via `processEffects`, mean us per block (5 runs each) | before | after |
+|---|---|---|
+| 10 x Utility series | 47.3 (45.9-48.6) | 53.3 (47.0-61.7) |
+| 10 x Utility parallel | 54.8 (51.4-63.9) | 60.1 (51.2-68.5) |
+| 4 x Drive series | 150.8 | 145.0 |
+| 8 x Delay parallel | 257.2 (251.8-266.6) | 353.8 (289.5-452.3) |
+| Drive, Chorus, Delay, Reverb series | 157.0 | 164.5 |
+| Drive, Chorus, Delay, Reverb parallel | 164.8 | 192.6 (157.5-251.9) |
+
+The 16-node graph overhead is unchanged (0.03 to 0.96 us per node). About 0.5 us per slot of bookkeeping is new (the Utility rows), under the 3 us budget. **8 x Delay parallel is the open item:** it is consistently slower and its spread is wide, but callgrind counts the same instructions per Delay call before and after (`processDelay` against its delay line, the same mix to 0.02 %) and the same simulated cache misses, so the cause is where the engine's memory now sits (the effect state moved from the processor into a separate `FxEngine` allocation), not extra work. Single Delays in series (`ILANA_BENCH_ONLY=series`) and the whole engine show no change. Re-measure on the Windows PC before deciding whether to pin the engine's layout.
+
+Whole engine, `ilanaSnapshot --heldcpu "Neuro Wobble"`, 4 alternating runs: before 15.8 % (14.7-17.9), after 16.1 % (14.5-16.7). Unchanged within noise.
+
+The patcher itself (`ILANA_BENCH_ONLY=patcher`, the same processor, PATCHER off and on in turn, 3 runs):
+
+| Drive, Chorus, Delay, Reverb | PATCHER on minus off |
+|---|---|
+| same series wiring | -0.7 to +3.6 us |
+| series plus a Reverb -> Drive loop at 50 % (64-sample chunks) | +21.8 to +22.6 us (14 %) |
+
+The loop's cost is eight chunks instead of one for the four effects in it: about 0.7 us per node per extra call (budget 6 us), and 14 % more than the same effects in one pass (budget 25 %). Loop cables are capped at 70 % and start at 50 %, so a loop can't grow without bound (a 0.7 loop through four effects peaks at 6.9 in the test, then decays).
+
+Rules followed: A1 (plans compiled on the message thread; a slot change runs the old fixed loop for the block until the new plan is in, offline it compiles at once), A2 (loops only through a 64-sample delay, shown on the cable and in the inspector), A3 (pooled buffers, no `setSize` on the audio path), A4 (an instance owns an `FxEngine`, made off the audio thread; freed engines are deleted on the message thread at least a second later), A5 (PATCHER skips a node whose input is silent and tail is spent; effects that can sound on their own are never skipped), A6/A7 (from step A), A9 (the loop ring flushes denormals), A11 (CPU per node on the node and in the inspector, total in the inspector), A14 (fingerprints 0 changed).

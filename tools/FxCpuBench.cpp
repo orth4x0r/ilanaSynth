@@ -4,11 +4,12 @@
 // (block time / block duration). Used for docs/ROUTING-CPU.md.
 //
 //   ilanaFxCpuBench                 every scenario
-//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep|graph   one group
+//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep|graph|patcher   one group
 //                                   (graph: the patch graph of roadmap step A,
 //                                   its own overhead and the rack run through it)
 //   ILANA_BENCH_TYPELIST=12,13   effect types the types group measures
 //   ILANA_BENCH_SLEEPTYPES=0,13  effect types the sleep group tests
+//   ILANA_BENCH_RACK=Delay          only the graph group's racks whose name has this
 //   ILANA_BENCH_BLOCKS=n            timed blocks per measurement (default 600)
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -310,8 +311,11 @@ int main()
                                         { "8 x Delay parallel", { 9, 9, 9, 9, 9, 9, 9, 9 }, true },
                                         { "Drive, Chorus, Delay, Reverb series", { 2, 7, 9, 13 }, false },
                                         { "Drive, Chorus, Delay, Reverb parallel", { 2, 7, 9, 13 }, true } };
+        const auto rackFilter = juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH_RACK", ""); // one rack by name
         for (const auto& rack : racks)
         {
+            if (rackFilter.isNotEmpty() && ! juce::String (rack.name).containsIgnoreCase (rackFilter))
+                continue;
             quiet (p);
             for (size_t s = 0; s < rack.types.size(); ++s)
                 p.assignFxSlot ((int) s + 1, rack.types[s]);
@@ -326,6 +330,48 @@ int main()
             std::cout << juce::String (rack.name).paddedRight (' ', 40).toStdString()
                       << " fixed " << juce::String (pair.meanA, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanA).toStdString()
                       << ")   graph " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanB).toStdString()
+                      << ")   difference " << juce::String (pair.meanB - pair.meanA, 2).toStdString() << " us" << std::endl;
+        }
+    }
+
+    if (want ("patcher"))
+    {
+        const auto core = 1.0e6 * blockSize / sampleRate;
+        const auto percent = [core] (double us) { return juce::String (100.0 * us / core, 3) + " %"; };
+        // 3. Roadmap step 17: the same four effects with PATCHER off (the
+        //    rack's own graph) against PATCHER on with the same series wiring,
+        //    then with a Reverb -> Drive loop cable at 50 % (64-sample chunks).
+        std::cout << "\n== the FX patcher: Drive, Chorus, Delay, Reverb (us per block, mean; same processor, blocks in turn)\n";
+        for (const auto loop : { false, true })
+        {
+            quiet (p);
+            const std::vector<int> types { 2, 7, 9, 13 };
+            for (size_t s = 0; s < types.size(); ++s)
+                p.assignFxSlot ((int) s + 1, types[s]);
+            setParam (p, "fx_routing", 0.0f);
+            p.prepareToPlay (sampleRate, blockSize);
+            p.setFxPatcherOn (true);
+            auto graph = p.getFxPatchGraph();
+            if (loop)
+            {
+                PatchGraph::NodeId drive = 0, reverb = 0;
+                for (const auto& node : graph.nodes())
+                {
+                    if (node.ref == 1) drive = node.id;
+                    if (node.ref == 4) reverb = node.id;
+                }
+                graph.connect ({ reverb, 0 }, { drive, 0 }, 0.5f);
+            }
+            if (loop)
+                p.setFxPatchGraph (graph);
+            p.compileFxPlansNow();
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            const auto pair = timeInTurn ([&] (juce::AudioBuffer<float>& b) { setParam (p, "fx_patcher", 0.0f); p.processEffects (b); },
+                                          [&] (juce::AudioBuffer<float>& b) { setParam (p, "fx_patcher", 1.0f); p.processEffects (b); }, buffer);
+            setParam (p, "fx_patcher", 0.0f);
+            std::cout << juce::String (loop ? "patcher, series + Reverb -> Drive loop" : "patcher, same series wiring").paddedRight (' ', 40).toStdString()
+                      << " rack " << juce::String (pair.meanA, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanA).toStdString()
+                      << ")   patcher " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanB).toStdString()
                       << ")   difference " << juce::String (pair.meanB - pair.meanA, 2).toStdString() << " us" << std::endl;
         }
     }

@@ -332,6 +332,14 @@ void IlanaSynthAudioProcessor::loadPresetByIndex (int index)
 
 void IlanaSynthAudioProcessor::handleAsyncUpdate()
 {
+    // Roadmap step 17: the FX patch follows the slots; the rack's plan
+    // follows its routing, bypasses and solos (asked for by the audio thread).
+    if (fxReconcileWanted.exchange (false))
+        reconcileFxPatch();
+    if (fxRackCompileWanted.exchange (false))
+        compileFxRackPlan (fxRackSignature());
+    freeRetiredFx (false);
+
     {
         std::shared_ptr<SampleData> audio;
         auto ready = false;
@@ -871,6 +879,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     if (clipState.hasAny())
         clipState.reset();
+
+    setFxPatch ({}); // no effect instances, no patcher graph
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
         for (int i = 0; i < lfoDrawSteps; ++i)

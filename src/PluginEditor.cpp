@@ -308,7 +308,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // KEYS and ? sit at the right of the tab row, beside SCOPE (the status
     // line they shared is now only a hover line over the chips).
     keysButton.setClickingTogglesState (true);
-    keysButton.setTooltip ("Keyboard\nShow or hide the on-screen keyboard.  Hiding it gives the pages more room.");
+    keysButton.setTooltip ("Keyboard\nShow or hide the on-screen keyboard.  It sits below the synth and makes the window taller.");
     keysButton.onClick = [this] { setKeyboardVisible (keysButton.getToggleState()); };
     helpButton.setTooltip ("Welcome tour\nThe one-minute tour: the essentials, the shortcuts and what's new.");
     helpButton.onClick = [this]
@@ -967,17 +967,18 @@ void IlanaSynthAudioProcessorEditor::applyUiZoom (float newZoom)
 
     applyAspectAndLimits();
     setSize (juce::roundToInt ((float) currentDesignWidth() * uiZoom),
-             juce::roundToInt ((float) designHeight * uiZoom));
+             juce::roundToInt ((float) totalDesignHeight() * uiZoom));
 }
 
 void IlanaSynthAudioProcessorEditor::applyAspectAndLimits()
 {
     const auto width = currentDesignWidth();
-    setResizeLimits (juce::roundToInt ((float) width * 0.75f), juce::roundToInt ((float) designHeight * 0.75f),
-                     width * 2, designHeight * 2);
+    const auto height = totalDesignHeight();
+    setResizeLimits (juce::roundToInt ((float) width * 0.75f), juce::roundToInt ((float) height * 0.75f),
+                     width * 2, height * 2);
 
     if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio ((double) width / (double) designHeight);
+        boundsConstrainer->setFixedAspectRatio ((double) width / (double) height);
 }
 
 void IlanaSynthAudioProcessorEditor::applyDisplayScale()
@@ -1017,17 +1018,17 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
     // ourselves for the real display DPI: the host then creates a matching
     // window and the UI renders at native resolution instead of being
     // bitmap-stretched.
-    if (getHeight() > designHeight + 20)
+    if (getHeight() > totalDesignHeight() + 20)
         return;
 
     setResizeLimits (juce::roundToInt ((float) currentDesignWidth() * 0.75f * scale), juce::roundToInt (540.0f * scale),
                      juce::roundToInt ((float) currentDesignWidth() * 1.5f * scale), juce::roundToInt (1080.0f * scale));
 
     if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio ((double) currentDesignWidth() / (double) designHeight);
+        boundsConstrainer->setFixedAspectRatio ((double) currentDesignWidth() / (double) totalDesignHeight());
 
     setSize (juce::roundToInt ((float) currentDesignWidth() * scale),
-             juce::roundToInt ((float) designHeight * scale));
+             juce::roundToInt ((float) totalDesignHeight() * scale));
    #endif
 }
 
@@ -1563,7 +1564,7 @@ void IlanaSynthAudioProcessorEditor::updateTuningIndicator()
 
 void IlanaSynthAudioProcessorEditor::resized()
 {
-    const auto scale = (float) getHeight() / (float) designHeight;
+    const auto scale = (float) getHeight() / (float) totalDesignHeight();
     IlanaTheme::uiScaleRef() = scale * hostScaleFactor();
 
     // A corner drag changes the zoom; remember it (saved on the timer so a
@@ -1574,7 +1575,7 @@ void IlanaSynthAudioProcessorEditor::resized()
         zoomNeedsSaving = true;
     }
 
-    content.setBounds (0, 0, designWidth, designHeight);
+    content.setBounds (0, 0, designWidth, totalDesignHeight());
     content.setTransform (juce::AffineTransform::scale (scale));
 
     auto area = content.getLocalBounds();
@@ -1625,7 +1626,7 @@ void IlanaSynthAudioProcessorEditor::resized()
         keyboard->setVisible (keyboardVisible);
 
         if (keyboardVisible)
-            keyboard->setBounds (area.removeFromBottom (32).reduced (14, 2));
+            keyboard->setBounds (area.removeFromBottom (keyboardHeight).reduced (14, 2));
     }
 
     dockBounds = area.removeFromBottom (dockHeight);
@@ -1924,6 +1925,15 @@ void IlanaSynthAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
     {
         settings->setValue ("showKeyboard", shouldBeVisible);
         settings->saveIfNeeded();
+    }
+
+    // The window grows (or shrinks back) by the strip at the current zoom;
+    // the design above is untouched.
+    if (getHeight() > 0)
+    {
+        const auto zoom = (float) getHeight() / (float) (designHeight + (shouldBeVisible ? 0 : keyboardHeight));
+        applyAspectAndLimits();
+        setSize (getWidth(), juce::roundToInt ((float) totalDesignHeight() * zoom));
     }
 
     resized();

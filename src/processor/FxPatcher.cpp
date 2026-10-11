@@ -725,3 +725,37 @@ const IlanaSynthAudioProcessor::FxEngine& IlanaSynthAudioProcessor::displayEngin
             return engineForSlot (s);
     return *fxMain;
 }
+
+bool IlanaSynthAudioProcessor::getFxInstanceValue (int slotIndex, const juce::String& id, float& value) const
+{
+    if (! juce::isPositiveAndBelow (slotIndex, numSlots))
+        return false;
+    const auto patch = getFxPatch();
+    for (const auto& [key, stored] : patch.slots[(size_t) slotIndex].values)
+        if (key == id)
+        {
+            value = stored;
+            return true;
+        }
+    return false;
+}
+
+void IlanaSynthAudioProcessor::setFxInstanceValue (int slotIndex, const juce::String& id, float value)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    if (! juce::isPositiveAndBelow (slotIndex, numSlots))
+        return;
+    auto patch = getFxPatch();
+    auto& slot = patch.slots[(size_t) slotIndex];
+    if (! slot.hasValues)
+        return;
+    for (auto& [key, stored] : slot.values)
+        if (key == id)
+        {
+            if (stored == value)
+                return;
+            stored = value;
+            publishFxPatch (std::move (patch));
+            return;
+        }
+}

@@ -626,6 +626,10 @@ public:
     void makeFxInstance (int slotIndex);
     // Swaps two slots, with their instance data, engines and graph nodes.
     void swapFxSlots (int a, int b);
+    // One of an instance's own settings (a slot whose card isn't in front:
+    // the RACK shows it on the instance's own card). False: no such value.
+    bool getFxInstanceValue (int slotIndex, const juce::String& id, float& value) const;
+    void setFxInstanceValue (int slotIndex, const juce::String& id, float value);
     // The graph the patcher shows (a copy) and a change to it from the view.
     PatchGraph::Graph getFxPatchGraph() const;
     void setFxPatchGraph (const PatchGraph::Graph& graph);

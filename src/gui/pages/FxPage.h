@@ -545,7 +545,13 @@ public:
             return paintOutput (g);
         }
 
-        if (parallelRouting)
+        if (patcherOn)
+        {
+            const auto faint = IlanaTheme::Ui::text3.withAlpha (0.5f);
+            paintRailLine (g, railX, (float) inColumn.getCentreY() + 11.0f, (float) stackView.getY() + 1.0f, faint, true);
+            paintRailLine (g, railX, (float) stackView.getBottom() - 1.0f, (float) outColumn.getCentreY() - 11.0f, faint, true);
+        }
+        else if (parallelRouting)
         {
             const auto inX = (float) inColumn.getX() + (float) parallelInBusX;
             const auto outX = (float) outColumn.getX() + (float) parallelOutBusX;
@@ -786,12 +792,16 @@ public:
                                    : "Every slot is in use: remove an effect to add another.");
     }
 
-    // A compact instance card's EDIT / MAKE OWN (step 17), and the
-    // patcher's double-click on a node.
+    // Choosing PATCHER routing opens the PATCHER tab (the editor sets it).
+    std::function<void()> onShowPatcher;
+
+    // A shared copy's MAKE OWN (older patches), and the patcher's EDIT
+    // SETTINGS and double-click on a node: the slot's card.
     void editInstance (int slot)
     {
         const auto own = ! processorRef.isFxSlotInFront (slot);
-        if (! own && ! processorRef.isFxInstance (slot) && slotHoldingType (getSlotType (slot), slot) < 0)
+        // (An instance's card has its own controls; an effect's only copy is its card.)
+        if (own || (! processorRef.isFxInstance (slot) && slotHoldingType (getSlotType (slot), slot) < 0))
         {
             showSlot (slot);
             return;
@@ -1203,12 +1213,16 @@ private:
         });
     }
 
-    // PATCHER: the cables on the PATCHER tab decide the routing.
+    // PATCHER: the cables on the PATCHER tab decide the routing, and the
+    // tab opens on them (one choice: the routing and where it is edited).
     void setPatcher()
     {
         if (processorRef.isFxPatcherOn())
-            return routingChanged (parallelRouting, true);
-        processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
+            routingChanged (parallelRouting, true);
+        else
+            processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
+        if (onShowPatcher != nullptr)
+            onShowPatcher();
     }
 
     void routingChanged (bool parallel, bool force = false)
@@ -1288,11 +1302,92 @@ private:
     {
         int slot = 0, type = 0;
         bool duplicate = false;
+        bool instance = false;       // an instance whose card isn't in front: its own controls (instanceCards)
         juce::Rectangle<int> bounds;
         juce::Rectangle<int> well;   // the picture slot of a row with no display: a sentence on what the effect does
         juce::Rectangle<int> handle; // the left block: where a drag reorders the chain
         juce::Rectangle<int> number; // the slot's number badge
     };
+
+    // A slot with its own settings whose card isn't the one in front.
+    bool isOwnCard (int slot) const { return ! processorRef.isFxSlotInFront (slot); }
+
+    void syncInstanceCards (const std::vector<StackPanel>& cards)
+    {
+        const auto patch = processorRef.getFxPatch();
+        std::array<bool, IlanaSynthAudioProcessor::numFxSlots> wanted {};
+        for (const auto& panel : cards)
+            if (panel.instance)
+            {
+                wanted[(size_t) panel.slot] = true;
+                auto& card = instanceCards[(size_t) panel.slot];
+                if (card.shadow == nullptr || card.shadow->getType() != panel.type)
+                    buildInstanceCard (panel.slot, panel.type, patch);
+            }
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        {
+            auto& card = instanceCards[(size_t) slot];
+            if (! wanted[(size_t) slot] && card.shadow != nullptr)
+            {
+                if (displays[(size_t) slot] != nullptr)
+                    displays[(size_t) slot]->setValueSource (nullptr);
+                card = {};
+                continue;
+            }
+            card.visible = wanted[(size_t) slot];
+            // (An Airwindows module shows the knobs its algorithm uses, as on the type's card.)
+            for (size_t i = 0; i < card.group.size(); ++i)
+            {
+                card.group[i]->setVisible (card.visible && card.originals[i]->isVisible());
+                if (auto* knob = dynamic_cast<KnobControl*> (card.group[i]))
+                    if (auto* original = dynamic_cast<KnobControl*> (card.originals[i]); original != nullptr && knob->getLabelText() != original->getLabelText())
+                        knob->setLabelText (original->getLabelText());
+            }
+        }
+    }
+
+    void buildInstanceCard (int slot, int type, const FxPatchData::Patch& patch)
+    {
+        auto& card = instanceCards[(size_t) slot];
+        card = {};
+        std::vector<juce::String> ids;
+        for (const auto& entry : patch.slots[(size_t) slot].values)
+            ids.push_back (entry.first);
+        card.shadow = std::make_unique<FxInstance::Shadow> (processorRef, slot, type, ids);
+        auto& state = card.shadow->getState();
+
+        for (auto* item : slotGroups[(size_t) type])
+        {
+            std::unique_ptr<juce::Component> copy;
+            if (auto* knob = dynamic_cast<KnobControl*> (item); knob != nullptr && state.getParameter (knob->getParameterId()) != nullptr)
+            {
+                auto made = std::make_unique<KnobControl> (state, knob->getParameterId(), knob->getLabelText());
+                made->setIdentityColour (fxColour (type));
+                made->setInlineKnob (true);
+                copy = std::move (made);
+            }
+            else if (auto* combo = dynamic_cast<ComboControl*> (item); combo != nullptr && state.getParameter (combo->getParameterId()) != nullptr)
+            {
+                auto made = std::make_unique<ComboControl> (state, combo->getParameterId(), combo->getLabelText());
+                made->setCompactLayout (true);
+                copy = std::move (made);
+            }
+            else if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && state.getParameter (toggle->getParameterId()) != nullptr)
+            {
+                auto made = std::make_unique<ToggleControl> (state, toggle->getParameterId(), toggle->getButton().getButtonText());
+                made->setInlineLabel (true);
+                copy = std::move (made);
+            }
+            if (copy == nullptr)
+                continue;
+            stackContent.addChildComponent (*copy);
+            card.group.push_back (copy.get());
+            card.originals.push_back (item);
+            card.controls.push_back (std::move (copy));
+        }
+    }
+
 
     // Banded slots next to each other, drawn as one bracketed group: a
     // LOW / MID / HIGH split with its crossovers, or a MID / SIDE one.
@@ -1326,10 +1421,24 @@ private:
     // left block; an Airwindows knob the algorithm doesn't use is skipped).
     std::vector<juce::Component*> rowItems (int type, ToggleControl** power = nullptr) const
     {
+        return rowItems (slotGroups[(size_t) type], type, power);
+    }
+
+    // The controls a card shows: its type's, or an instance's own.
+    const std::vector<juce::Component*>& groupFor (const StackPanel& panel) const
+    {
+        if (panel.instance)
+            if (const auto& card = instanceCards[(size_t) panel.slot]; card.shadow != nullptr)
+                return card.group;
+        return slotGroups[(size_t) panel.type];
+    }
+
+    std::vector<juce::Component*> rowItems (const std::vector<juce::Component*>& group, int type, ToggleControl** power) const
+    {
         std::vector<juce::Component*> items;
         ToggleControl* found = nullptr;
 
-        for (auto* item : slotGroups[(size_t) type])
+        for (auto* item : group)
         {
             auto* toggle = dynamic_cast<ToggleControl*> (item);
 
@@ -1360,7 +1469,7 @@ private:
     // old patch that set the slot's dry / wet beside the effect's MIX.
     std::vector<juce::Component*> cardItems (const StackPanel& panel, ToggleControl** power = nullptr) const
     {
-        auto items = rowItems (panel.type, power);
+        auto items = rowItems (groupFor (panel), panel.type, power);
         if (showsSlotMix (panel))
         {
             auto& knob = *cardHeaders[(size_t) panel.slot].mix;
@@ -1380,14 +1489,14 @@ private:
         auto items = cardItems (panel, power);
         if (showsBand (panel.slot))
             items.insert (items.begin(), &cardHeaders[(size_t) panel.slot].band);
-        if (panel.type == 13 && ! panel.duplicate)
+        if (panel.type == 13 && ! panel.duplicate && ! panel.instance)
             items.push_back (&loadIrButton);
         return items;
     }
 
     int gridCount (const StackPanel& panel) const
     {
-        return (int) cardItems (panel).size() + (showsBand (panel.slot) ? 1 : 0) + (panel.type == 13 && ! panel.duplicate ? 1 : 0);
+        return (int) cardItems (panel).size() + (showsBand (panel.slot) ? 1 : 0) + (panel.type == 13 && ! panel.duplicate && ! panel.instance ? 1 : 0);
     }
 
     static bool hasCardDisplay (int type) { return type == 29 || type == 16 || FxDisplay::hasDisplay (type); }
@@ -1451,7 +1560,7 @@ private:
             return duplicateHeight;
 
         const auto rows = rowsFor (gridCount (panel));
-        return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * cellHeight) + (panel.type == 9 && tapsEnabled() ? tapGridHeight : 0);
+        return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * cellHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
     }
 
     // The least a row compresses to when the rack is long: a single line of
@@ -1462,8 +1571,11 @@ private:
             return duplicateHeight;
 
         const auto rows = rowsFor (gridCount (panel));
-        return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * 40) + (panel.type == 9 && tapsEnabled() ? tapGridHeight : 0);
+        return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * 40) + (hasTapGrid (panel) ? tapGridHeight : 0);
     }
+
+    // The delay's tap grid edits the type's parameters: on the card in front.
+    bool hasTapGrid (const StackPanel& panel) const { return panel.type == 9 && ! panel.instance && tapsEnabled(); }
 
     bool isStretchy (const StackPanel& panel) const { return ! panel.duplicate && rowsFor (gridCount (panel)) == 1; }
 
@@ -1505,9 +1617,11 @@ private:
             StackPanel panel;
             panel.slot = slot;
             panel.type = type;
-            panel.duplicate = front[(size_t) type] != slot;
+            panel.instance = front[(size_t) type] != slot && isOwnCard (slot);
+            panel.duplicate = front[(size_t) type] != slot && ! panel.instance;
             cards.push_back (panel);
         }
+        syncInstanceCards (cards);
 
         // A run of cards with the same kind of band: plain, or one split group.
         struct Run { size_t from, to; int kind; };
@@ -1756,7 +1870,7 @@ private:
         }
 
         // The delay's tap grid under the row while TAPS is on.
-        if (type == 9 && tapsEnabled())
+        if (hasTapGrid (panel))
             tapGrid.setBounds (inner.removeFromBottom (tapGridHeight - 4).withTrimmedBottom (2).withTrimmedTop (2));
 
         // The knobs in their cells at the right, the picture taking the rest.
@@ -1772,13 +1886,16 @@ private:
         if (hasCardPicture (type))
         {
             const auto displayArea = inner;
-            if (type == 29)
+            // (The EQ curve and the gate's pattern edit the type's own
+            // parameters: an instance's card shows its sentence there.)
+            if (type == 29 && ! panel.instance)
                 eqCurve.setBounds (displayArea);
-            else if (type == 16)
+            else if (type == 16 && ! panel.instance)
                 gateGrid->setBounds (displayArea);
             else if (FxDisplay::hasDisplay (type))
             {
                 auto& display = *displays[(size_t) slot];
+                display.setValueSource (panel.instance ? &instanceCards[(size_t) slot].shadow->getState() : nullptr);
                 display.setType (type, fxColour (type));
                 display.setBounds (displayArea);
                 display.setVisible (true);
@@ -1907,6 +2024,8 @@ private:
     // and a dashed node and BYPASS for a slot that is off.
     void paintRail (juce::Graphics& g)
     {
+        if (patcherOn)
+            return paintPatcherRail (g);
         if (parallelRouting)
             return paintParallelRail (g);
 
@@ -1926,6 +2045,16 @@ private:
             paintRailNode (g, x, centre, colour, off);
             paintRailChip (g, panel, x);
         }
+    }
+
+    // PATCHER: the cables decide what feeds what, so the rail draws no chain:
+    // each effect's node alone, on a faint dashed line.
+    void paintPatcherRail (juce::Graphics& g)
+    {
+        const auto x = (float) railWidth * 0.5f;
+        paintRailLine (g, x, 0.0f, (float) stackContent.getHeight(), IlanaTheme::Ui::text3.withAlpha (0.5f), true);
+        for (const auto& panel : stackPanels)
+            paintRailNode (g, x, (float) panel.bounds.getCentreY(), fxColour (panel.type), isModuleOff (panel.slot));
     }
 
     // A slot's node on the rail: filled in its colour, hollow while it is off.
@@ -2338,6 +2467,15 @@ private:
             chainBButton.setToggleState (! showingA, juce::dontSendNotification);
         }
 
+        // Instance cards follow their settings changed elsewhere (undo, a preset).
+        if (std::any_of (instanceCards.begin(), instanceCards.end(), [] (const InstanceCard& card) { return card.shadow != nullptr; }))
+        {
+            const auto patch = processorRef.getFxPatch();
+            for (auto& card : instanceCards)
+                if (card.shadow != nullptr)
+                    card.shadow->refresh (patch);
+        }
+
         juce::String signature;
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
@@ -2455,6 +2593,19 @@ private:
     std::array<CardHeader, IlanaSynthAudioProcessor::numFxSlots> cardHeaders;
     std::array<std::unique_ptr<FxDisplay>, IlanaSynthAudioProcessor::numFxSlots> displays;
 
+    // An instance whose card isn't in front gets controls of its own, the
+    // same classes as the type's, on a shadow of its settings
+    // (FxInstanceControls.h), so its card looks and works like any other.
+    struct InstanceCard
+    {
+        std::unique_ptr<FxInstance::Shadow> shadow;
+        std::vector<std::unique_ptr<juce::Component>> controls;
+        std::vector<juce::Component*> group; // as slotGroups[type], in its order
+        std::vector<juce::Component*> originals; // the type's control each one copies
+        bool visible = false;
+    };
+    std::array<InstanceCard, IlanaSynthAudioProcessor::numFxSlots> instanceCards;
+
     // The module's own on parameter, where it has one.
     static const char* enableParamFor (int type)
     {
@@ -2480,8 +2631,14 @@ private:
             return true;
 
         if (const auto* id = enableParamFor (getSlotType (slot)))
+        {
+            // An instance's own card: its own switch.
+            if (const auto& card = instanceCards[(size_t) slot]; card.shadow != nullptr && card.visible)
+                if (const auto* value = card.shadow->getState().getRawParameterValue (id))
+                    return value->load() < 0.5f;
             if (const auto* value = processorRef.apvts.getRawParameterValue (id))
                 return value->load() < 0.5f;
+        }
 
         return false;
     }
@@ -2507,8 +2664,8 @@ private:
                 for (juce::Component* part : { (juce::Component*) displays[(size_t) panel.slot].get(), (juce::Component*) &eqCurve,
                                                (juce::Component*) gateGrid.get(), (juce::Component*) &tapGrid, (juce::Component*) &header.chip })
                 {
-                    const auto isOwn = (part == &eqCurve && panel.type != 29) || (part == gateGrid.get() && panel.type != 16)
-                                       || (part == &tapGrid && panel.type != 9);
+                    const auto isOwn = (part == &eqCurve && (panel.type != 29 || panel.instance)) || (part == gateGrid.get() && (panel.type != 16 || panel.instance))
+                                       || (part == &tapGrid && (panel.type != 9 || panel.instance));
                     if (! isOwn && part->getAlpha() != alpha)
                     {
                         part->setAlpha (alpha);
@@ -2518,9 +2675,10 @@ private:
             }
 
             ToggleControl* power = nullptr;
-            rowItems (panel.type, &power);
+            const auto& group = groupFor (panel);
+            rowItems (group, panel.type, &power);
 
-            for (auto* item : slotGroups[(size_t) panel.type])
+            for (auto* item : group)
             {
                 auto* toggle = dynamic_cast<ToggleControl*> (item);
                 const auto isPower = toggle != nullptr && toggle == power;

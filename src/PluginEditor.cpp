@@ -38,6 +38,7 @@
 #include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
+#include "gui/FxInstanceControls.h"
 #include "gui/OutputView.h"
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
@@ -372,6 +373,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* fxPage = new FxPage (p);
     auto* fxPatcherPage = new FxPatcherPage (p, *fxPage);
     addSection ("FX", { { "FX", "RACK", fxPage }, { "PATCHER", "PATCHER", fxPatcherPage } });
+    fxPage->onShowPatcher = [this] { showPage ("PATCHER"); };
     fxPatcherPage->onOpenSlot = [this, fxPage] (int slot)
     {
         showPage ("FX");

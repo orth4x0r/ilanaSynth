@@ -44,8 +44,13 @@ constexpr auto numSlots = IlanaSynthAudioProcessor::numFxSlots;
 
 bool fxNodeInPlace (int) { return true; }
 
-constexpr float maxLoopGain = 0.7f;  // a loop through effects that add gain still dies away
-constexpr float newLoopGain = 0.5f;
+// A loop cable's level: from 0 to maxLoopGain, set on the cable's LEVEL
+// knob. A new one starts low (20 %, -14 dB): a loop through a Reverb and a branch
+// that joins it again easily has a gain over 1 at 50 %, which ran away
+// (ilana's Reverb, Smear and EQ patch, 2026-10-11). The runner's loop guard
+// keeps even a runaway one bounded (PatchGraphRunner.h).
+constexpr float maxLoopGain = 0.7f;
+constexpr float newLoopGain = 0.2f;
 
 // A cable that closes a loop is held to maxLoopGain; one just drawn starts at
 // newLoopGain (`before`: the graph as it was, to tell new cables from old).
@@ -80,8 +85,9 @@ void removeNodeBridged (PatchGraph::Graph& graph, PatchGraph::NodeId id)
     graph.removeNode (id);
     for (const auto& in : into)
         for (const auto& out : outOf)
-            if (graph.findCable (in.from, out.to) < 0)
-                graph.connect (in.from, out.to, in.gain * out.gain);
+            if (graph.findCable (in.from, out.to) < 0
+                && graph.connect (in.from, out.to, in.gain * out.gain) == PatchGraph::ConnectResult::ok)
+                graph.setCableDelay (graph.findCable (in.from, out.to), juce::jmax (in.delayMs, out.delayMs));
 }
 } // namespace
 
@@ -419,6 +425,11 @@ float IlanaSynthAudioProcessor::getFxLoopLatencyMs() const
     if (std::find (loops.begin(), loops.end(), true) == loops.end())
         return 0.0f;
     return (float) (1000.0 * (double) PatchGraph::CompileOptions().feedbackChunk / juce::jmax (1.0, currentSampleRate));
+}
+
+float IlanaSynthAudioProcessor::getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const
+{
+    return fxPatchRunner != nullptr ? fxPatchRunner->loopGuard ({ fromNode, fromPort }, { toNode, toPort }) : 1.0f;
 }
 
 //==============================================================================

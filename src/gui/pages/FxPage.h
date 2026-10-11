@@ -1835,14 +1835,12 @@ private:
             auto& remove = header.remove;
             remove.setBounds (juce::Rectangle<int> (bounds.getRight() - 12 - 84, bounds.getCentreY() - 12, 84, 24));
             remove.setVisible (true);
-            // An instance: EDIT brings its settings onto the controls; a
-            // duplicate that shares them (an older patch): MAKE OWN.
+            // A duplicate that shares the first's settings (an older patch):
+            // MAKE OWN. (An instance with its own settings has a full card.)
             auto& edit = header.edit;
-            const auto own = ! processorRef.isFxSlotInFront (slot);
-            edit.setButtonText (own ? "EDIT" : "MAKE OWN");
-            edit.setTooltip (own ? "Edit this instance: its settings go onto the effect's controls (the card now there keeps its own)"
-                                 : "Give this copy its own settings and engine, so it can sound different from the first");
-            edit.setBounds (remove.getBounds().translated (-(own ? 70 : 100), 0).withWidth (own ? 60 : 90));
+            edit.setButtonText ("MAKE OWN");
+            edit.setTooltip ("Give this copy its own settings and engine, so it can sound different from the first");
+            edit.setBounds (remove.getBounds().translated (-100, 0).withWidth (90));
             edit.setVisible (true);
             panel.well = {};
             stackPanels.push_back (panel);
@@ -2214,22 +2212,15 @@ private:
 
             if (panel.duplicate)
             {
-                const auto own = ! processorRef.isFxSlotInFront (panel.slot);
-                auto text = panel.bounds.withTrimmedLeft (leftWidth + 20).withTrimmedRight (own ? 180 : 210).reduced (4, 6);
+                auto text = panel.bounds.withTrimmedLeft (leftWidth + 20).withTrimmedRight (210).reduced (4, 6);
                 const auto first = slotHoldingType (panel.type, panel.slot);
                 g.setColour (IlanaTheme::Ui::text);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                IlanaTheme::drawFitted (g, own ? getSlotName (panel.type) + " instance: its own settings and sound."
-                                               : "Copy of " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
+                IlanaTheme::drawFitted (g, "Copy of " + getSlotName (panel.type) + ": it shares slot " + juce::String (first + 1) + "'s settings.",
                                         text.removeFromTop (20), juce::Justification::centredLeft);
                 g.setColour (IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                auto frontSlot = panel.slot;
-                for (int s = 0; s < IlanaSynthAudioProcessor::numFxSlots; ++s)
-                    if (s != panel.slot && getSlotType (s) == panel.type && processorRef.isFxSlotInFront (s))
-                        frontSlot = s;
-                IlanaTheme::drawFitted (g, own ? "EDIT shows its settings on slot " + juce::String (frontSlot + 1) + "'s full card; that card's own settings are kept."
-                                               : "MAKE OWN gives it its own settings, so the two can differ.",
+                IlanaTheme::drawFitted (g, "MAKE OWN gives it its own settings, so the two can differ.",
                                         text, juce::Justification::topLeft, 2);
             }
 

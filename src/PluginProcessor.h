@@ -633,8 +633,12 @@ public:
     // The graph the patcher shows (a copy) and a change to it from the view.
     PatchGraph::Graph getFxPatchGraph() const;
     void setFxPatchGraph (const PatchGraph::Graph& graph);
-    // The patcher's loop delay in milliseconds (one render chunk).
+    // The patcher's shortest loop delay in milliseconds (one render chunk).
     float getFxLoopLatencyMs() const;
+    // The loop guard on the loop cable from -> to (node id, port): 1 while
+    // it isn't holding the loop, under 1 while the loop rings by itself and
+    // is held at 0 dB (PatchGraphRunner.h).
+    float getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const;
     // Tests: the rack's plan (what the audio thread runs) is current.
     bool isFxRackPlanCurrent();
     // Tests / tools: compile now what the audio thread would wait for.

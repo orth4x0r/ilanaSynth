@@ -586,5 +586,122 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                 "the all-in-one Airwindows card shows its algorithm's picture");
         loadFx ({});
     }
+
+    // Step 17 follow-ups (ilana's PC test, 2026-10-11).
+    {
+        loadNamed ("Init");
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        processor.addFxEffect (9);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_delay_sync", 0.0f);
+        setParam ("fx_delay_time", 300.0f);
+        const auto second = processor.addFxEffect (9); // a copy of these settings
+        setParam ("fx_delay_time", 120.0f);           // (the new one is in front)
+        editor.showPage ("FX");
+        settle (500);
+
+        // Every instance gets a full card: its own TIME knob, showing its
+        // own value, and a turn of it writes that instance only (one undo step).
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        std::vector<KnobControl*> times;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "fx_delay_time" && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                times.push_back (knob);
+        const auto other = second == 0 ? 1 : 0;
+        float before = 0.0f;
+        processor.getFxInstanceValue (other, "fx_delay_time", before);
+        KnobControl* instanceKnob = nullptr;
+        for (auto* knob : times)
+            if (std::abs (knob->getSlider().getValue() - (double) before) < 0.5)
+                instanceKnob = knob;
+        expect (times.size() == 2 && instanceKnob != nullptr && std::abs (before - 300.0f) < 0.5f,
+                "FX: both Delay instances show a full card with their own TIME (" + juce::String ((int) times.size()) + " knobs, the other at "
+                    + juce::String (before) + " ms)");
+        if (instanceKnob != nullptr)
+        {
+            auto& slider = instanceKnob->getSlider();
+            slider.startedDragging();
+            slider.setValue (450.0, juce::sendNotificationSync);
+            slider.stoppedDragging();
+            settle (200);
+            float after = 0.0f;
+            processor.getFxInstanceValue (other, "fx_delay_time", after);
+            const auto front = processor.apvts.getParameter ("fx_delay_time");
+            const auto frontValue = front->convertFrom0to1 (front->getValue());
+            processor.getUndoManager().undo();
+            settle (300);
+            float undone = 0.0f;
+            processor.getFxInstanceValue (other, "fx_delay_time", undone);
+            expect (std::abs (after - 450.0f) < 0.5f && std::abs (frontValue - 120.0f) < 0.5f && std::abs (undone - 300.0f) < 0.5f
+                        && std::abs (instanceKnob->getSlider().getValue() - 300.0) < 0.5,
+                    "FX: turning an instance card's knob sets that instance only, and undo puts it back (" + juce::String (after) + ", front "
+                        + juce::String (frontValue) + ", undone " + juce::String (undone) + ")");
+        }
+
+        // Picking PATCHER in the routing row goes straight to the cables.
+        juce::Button* routingPatcher = nullptr;
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == "PATCHER" && button->getRadioGroupId() != 0 && visibleInTree (button))
+                    routingPatcher = button;
+        }
+        if (routingPatcher != nullptr)
+            routingPatcher->triggerClick();
+        settle (400);
+        auto* view = findChild<PatchCableView> (editor);
+        expect (routingPatcher != nullptr && processor.isFxPatcherOn() && view != nullptr && visibleInTree (view),
+                "FX: picking PATCHER routing on RACK turns it on and opens the cable view");
+
+        // A loop cable selected: LEVEL and DELAY knobs under the canvas set it.
+        if (view != nullptr)
+        {
+            auto graph = processor.getFxPatchGraph();
+            PatchGraph::NodeId a = 0, b = 0;
+            for (const auto& node : graph.nodes())
+                if (! node.isFixed())
+                    (a == 0 ? a : b) = node.id;
+            graph.connect ({ b, 0 }, { a, 0 });
+            processor.setFxPatchGraph (graph);
+            settle (300);
+            const auto loop = processor.getFxPatchGraph().findCable ({ b, 0 }, { a, 0 });
+            view->selectCable (loop);
+            settle (300);
+            KnobControl* level = nullptr;
+            KnobControl* delay = nullptr;
+            std::vector<KnobControl*> all;
+            findAll<KnobControl> (editor, all);
+            for (auto* knob : all)
+                if (visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    (knob->getParameterId() == "loop_level" ? level : knob->getParameterId() == "loop_delay" ? delay : knob) = knob;
+            const auto startLevel = level != nullptr ? level->getSlider().getValue() : -1.0;
+            if (level != nullptr && delay != nullptr)
+            {
+                level->getSlider().startedDragging();
+                level->getSlider().setValue (45.0, juce::sendNotificationSync);
+                level->getSlider().stoppedDragging();
+                delay->getSlider().startedDragging();
+                delay->getSlider().setValue (250.0, juce::sendNotificationSync);
+                delay->getSlider().stoppedDragging();
+                settle (300);
+            }
+            const auto set = processor.getFxPatchGraph().cables();
+            const auto index = processor.getFxPatchGraph().findCable ({ b, 0 }, { a, 0 });
+            expect (level != nullptr && delay != nullptr && std::abs (startLevel - 20.0) < 0.5 && index >= 0
+                        && std::abs (set[(size_t) index].gain - 0.45f) < 1.0e-3f && std::abs (set[(size_t) index].delayMs - 250.0f) < 0.5f,
+                    "FX: a selected loop shows LEVEL (new at 20 %) and DELAY knobs that set the cable (" + juce::String (startLevel) + ")");
+            processor.getUndoManager().undo();
+            settle (300);
+            const auto back = processor.getFxPatchGraph();
+            const auto backIndex = back.findCable ({ b, 0 }, { a, 0 });
+            expect (backIndex >= 0 && std::abs (back.cables()[(size_t) backIndex].delayMs) < 0.5f && std::abs (back.cables()[(size_t) backIndex].gain - 0.45f) < 1.0e-3f,
+                    "FX: undo takes back one loop knob turn");
+        }
+        editor.showPage ("FX");
+    }
     loadNamed ("Init");
 }

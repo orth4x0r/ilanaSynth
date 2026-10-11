@@ -24,11 +24,24 @@
 //   An in-place node finds its one buffer in both in[0] and out[0].
 //
 // A graph with a feedback cable renders in chunks of plan.chunkSize samples;
-// a cable that closes a loop gives back what it was given one chunk ago
-// (a ring per loop, read before written). The ring flushes values under
-// 1e-20 to zero and clamps at +-8, so a runaway loop can't fill the output
-// with infinities and a decaying loop doesn't sink into denormals even when
-// the host has reset the CPU's flush-to-zero mode.
+// a cable that closes a loop gives back what it was given a while ago: its
+// own delay (Cable::delayMs), one chunk at the least (a ring per loop, read
+// before written). Every ring holds maxLoopDelayMs, so a new plan with the
+// same loops takes the old rings over and a level or delay change doesn't
+// cut the loop.
+//
+// The loop guard: what a ring takes passes a limiter with a ceiling of
+// loopCeiling (0 dBFS), instant attack and a 200 ms release; the output of
+// a graph with a loop passes another (the output guard), because an effect
+// in a loop can still pile up what the loop feeds it (a Spring reverb at
+// full size did, to +21 dB). A loop whose
+// gain is over 1 (it happens easily: a Reverb that two branches feed twice)
+// would otherwise grow until something clips, and stay there (ilana's
+// Reverb, Smear and EQ patch, 2026-10-11, peaked at +24 dB and never
+// stopped). Bounded, it holds at the ceiling while the loop stays patched
+// and dies away like any loop once it's gone or turned down. The ring also
+// zeroes NaN and flushes values under 1e-20, so a decaying loop doesn't sink
+// into denormals even when the host has reset the CPU's flush-to-zero mode.
 namespace PatchGraph
 {
 struct NodeBuffers
@@ -49,6 +62,20 @@ struct NodeStats
     std::atomic<bool> sleeping { false };
 };
 
+// Per loop, for the view: which cable (from and to, packed) and how hard the
+// loop guard is holding it (1: not at all; under 1: the gain it applies).
+struct LoopStats
+{
+    std::atomic<std::uint64_t> cable { 0 };
+    std::atomic<float> guard { 1.0f };
+
+    static std::uint64_t pack (Port from, Port to)
+    {
+        return ((std::uint64_t) from.node << 40) | ((std::uint64_t) (from.port & 0xff) << 32) | ((std::uint64_t) to.node << 8)
+               | (std::uint64_t) (to.port & 0xff);
+    }
+};
+
 class Runner
 {
 public:
@@ -56,6 +83,7 @@ public:
     {
         bool measureCpu = true;   // time each node (two clock reads per node per chunk)
         bool silenceSkip = false; // skip nodes whose input is silent and tail is spent (A5)
+        bool loopGuards = true;   // the loop and output guards (off: a ring only clamps at +-8, for the exactness tests)
     };
 
     // Optional, for silenceSkip: how many samples a node of this kind keeps
@@ -103,9 +131,17 @@ public:
         for (size_t b = 1; b < program->buffers.size(); ++b)
             program->buffers[b].setSize (channels, chunk, false, true, false);
         program->rings.resize (plan.loops.size());
+        const auto shortest = plan.chunkSize > 0 ? plan.chunkSize : 1;
+        program->ringLength = plan.hasFeedback() ? shortest + (int) std::ceil (maxLoopDelayMs * 0.001 * sampleRate) : 1;
         for (auto& ring : program->rings)
-            ring.setSize (channels, plan.chunkSize > 0 ? plan.chunkSize : 1, false, true, false);
-        program->ringLength = plan.chunkSize > 0 ? plan.chunkSize : 1;
+            ring.setSize (channels, program->ringLength, false, true, false);
+        program->loopDelay.resize (plan.loops.size());
+        for (size_t r = 0; r < plan.loops.size(); ++r)
+            program->loopDelay[r] = juce::jlimit (shortest, program->ringLength,
+                                                  (int) std::lround ((double) plan.loops[r].delayMs * 0.001 * sampleRate));
+        program->loopGuards.assign (plan.loops.size(), {});
+        program->loopLeast.assign (plan.loops.size(), 1.0f);
+        program->release = (float) std::exp (-(double) guardStep / (0.2 * juce::jmax (1.0, sampleRate)));
         program->tails.resize (plan.nodes.size(), -1);
         program->sinceInput.resize (plan.nodes.size(), 0);
         if (tailOf != nullptr)
@@ -133,6 +169,20 @@ public:
     }
 
     float totalCpu() const { return graphCpu.load (std::memory_order_relaxed); }
+
+    // The loop guard's gain on the loop that `from` -> `to` closes (1 when
+    // it isn't holding it, or there is no such loop). Any thread.
+    float loopGuard (Port from, Port to) const
+    {
+        const auto key = LoopStats::pack (from, to);
+        for (const auto& l : loopStats)
+            if (l.cable.load (std::memory_order_relaxed) == key)
+                return l.guard.load (std::memory_order_relaxed);
+        return 1.0f;
+    }
+
+    // The output guard's gain (1 when idle); only a graph with a loop has one.
+    float outputGuard() const { return outputGuardGain.load (std::memory_order_relaxed); }
 
     // Audio thread: takes up a newly published program, then the plan that
     // process() will run, or null before the first one.
@@ -164,6 +214,23 @@ public:
             runChunk (program, length, numChannels, callback);
         }
 
+        // The output guard (see the top): a graph with a loop never leaves
+        // more than loopCeiling.
+        if (program.plan.hasFeedback() && settings.loopGuards)
+        {
+            float* channelsOut[maxChannels] {};
+            const auto count = juce::jmin (numChannels, maxChannels);
+            for (int c = 0; c < count; ++c)
+                channelsOut[c] = buffer.getWritePointer (c);
+            const auto least = guardBlock (channelsOut, count, 0, numSamples, program.outputGuard, program.release);
+            outputGuardGain.store (least, std::memory_order_relaxed);
+            for (size_t r = 0; r < program.loopLeast.size() && r < loopStats.size(); ++r)
+            {
+                loopStats[r].guard.store (program.loopLeast[r], std::memory_order_relaxed);
+                program.loopLeast[r] = 1.0f;
+            }
+        }
+
         if (settings.measureCpu)
         {
             const auto elapsed = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startTicks);
@@ -181,11 +248,22 @@ public:
             return;
         for (auto& ring : active->rings)
             ring.clear();
+        std::fill (active->loopGuards.begin(), active->loopGuards.end(), Guard {});
+        active->outputGuard = {};
         active->ringPosition = 0;
         std::fill (active->sinceInput.begin(), active->sinceInput.end(), 0);
     }
 
     static constexpr float silence = 3.0e-6f; // -110 dB, the rack's sleep level
+    static constexpr float loopCeiling = 1.0f;  // the loop guard's (see the top)
+    static constexpr int maxChannels = 8;       // a loop carries this many
+    static constexpr int guardStep = 16;        // the guards set their gain this often (samples)
+
+    struct Guard
+    {
+        float envelope = 0.0f;
+        float gain = 1.0f;
+    };
 
 private:
     struct Program
@@ -196,6 +274,11 @@ private:
         std::vector<juce::AudioBuffer<float>> rings;
         int ringLength = 1;
         int ringPosition = 0;
+        std::vector<int> loopDelay;       // per ring, in samples (chunk..ringLength)
+        std::vector<Guard> loopGuards;    // per ring
+        std::vector<float> loopLeast;     // per ring, its least gain this block (for loopStats)
+        Guard outputGuard;
+        float release = 0.0f;             // the guards' envelope, per guardStep samples
         std::vector<int> tails;
         std::vector<int> sinceInput;
         juce::AudioBuffer<float> host; // refers to the host block, never owns
@@ -213,6 +296,7 @@ private:
         auto* next = pending.exchange (nullptr, std::memory_order_acq_rel);
         if (next == nullptr)
             return;
+        takeOverLoops (*next, active);
         retired.store (active, std::memory_order_release);
         active = next;
         for (size_t n = 0; n < stats.size(); ++n)
@@ -221,6 +305,121 @@ private:
             stats[n].cpu.store (0.0f, std::memory_order_relaxed);
             stats[n].sleeping.store (false, std::memory_order_relaxed);
         }
+        for (size_t r = 0; r < loopStats.size(); ++r)
+        {
+            const auto* loop = r < active->plan.loops.size() ? &active->plan.loops[r] : nullptr;
+            loopStats[r].cable.store (loop != nullptr ? LoopStats::pack (loop->from, loop->to) : 0, std::memory_order_relaxed);
+            loopStats[r].guard.store (1.0f, std::memory_order_relaxed);
+        }
+        outputGuardGain.store (1.0f, std::memory_order_relaxed);
+    }
+
+    // The guards' limiter on samples [start, start + length) of `count`
+    // channels, in place. Most blocks are under the ceiling and finite: then
+    // nothing changes but a block gone quiet (under 1e-15) is zeroed, so a
+    // dying loop never sinks into denormals. (Below the ceiling the
+    // envelope's exact value doesn't matter: a sample over it sets it.)
+    // Otherwise the gain is worked out every guardStep samples from their
+    // peak and glides there, and a clip catches what the glide lets over
+    // the ceiling; NaN becomes 0. Returns the least gain it applied.
+    static float guardBlock (float* const* channels, int count, int start, int length, Guard& guard, float release)
+    {
+        auto poison = 0.0f;
+        const auto peak = peakOf (channels, count, start, length, poison);
+        if (poison == 0.0f && peak <= loopCeiling && guard.envelope <= loopCeiling && guard.gain == 1.0f)
+        {
+            guard.envelope = peak;
+            if (peak < 1.0e-15f)
+                for (int c = 0; c < count; ++c)
+                    juce::FloatVectorOperations::clear (channels[c] + start, length);
+            return 1.0f;
+        }
+
+        auto least = 1.0f;
+        for (int from = start; from < start + length; from += guardStep)
+        {
+            const auto n = juce::jmin (guardStep, start + length - from);
+            auto bad = 0.0f;
+            const auto stepPeak = peakOf (channels, count, from, n, bad);
+            guard.envelope = juce::jmax (stepPeak, guard.envelope * release);
+            const auto target = guard.envelope > loopCeiling ? loopCeiling / guard.envelope : 1.0f;
+            for (int c = 0; c < count; ++c)
+            {
+                auto* x = channels[c] + from;
+                if (bad != 0.0f)
+                    for (int i = 0; i < n; ++i)
+                        x[i] = std::isfinite (x[i]) ? x[i] : (x[i] == x[i] ? std::copysign (loopCeiling, x[i]) : 0.0f);
+                auto gain = guard.gain;
+                const auto step = (target - guard.gain) / (float) n;
+                for (int i = 0; i < n; ++i)
+                {
+                    gain += step;
+                    x[i] *= gain;
+                }
+                juce::FloatVectorOperations::clip (x, x, -loopCeiling, loopCeiling, n);
+            }
+            guard.gain = target;
+            least = juce::jmin (least, target);
+        }
+        return least;
+    }
+
+    // The largest magnitude among finite samples; `poison` turns NaN if any
+    // is NaN or infinite. (Eight lanes, so the compiler can vectorise
+    // without reordering sums.)
+    static float peakOf (const float* const* channels, int count, int start, int length, float& poison)
+    {
+        float peaks[8] {}, poisons[8] {};
+        for (int c = 0; c < count; ++c)
+        {
+            const auto* x = channels[c] + start;
+            int i = 0;
+            for (; i + 8 <= length; i += 8)
+                for (int j = 0; j < 8; ++j)
+                {
+                    const auto magnitude = std::abs (x[i + j]);
+                    peaks[j] = peaks[j] < magnitude ? magnitude : peaks[j];
+                    poisons[j] += x[i + j] * 0.0f;
+                }
+            for (; i < length; ++i)
+            {
+                peaks[0] = juce::jmax (peaks[0], std::abs (x[i]));
+                poisons[0] += x[i] * 0.0f;
+            }
+        }
+        auto peak = 0.0f;
+        for (int j = 0; j < 8; ++j)
+        {
+            peak = juce::jmax (peak, peaks[j]);
+            poison += poisons[j];
+        }
+        return std::isfinite (peak) ? peak : 0.0f;
+    }
+
+    // Audio thread: a new program keeps what the old one's loops still hold,
+    // for every loop it has too (the same cable), so editing a patch with a
+    // loop in it doesn't cut the loop. Swapping buffers allocates nothing.
+    static void takeOverLoops (Program& next, Program* old)
+    {
+        if (old == nullptr || ! old->plan.hasFeedback() || ! next.plan.hasFeedback() || old->ringLength != next.ringLength)
+            return;
+        auto any = false;
+        for (size_t r = 0; r < next.plan.loops.size(); ++r)
+            for (size_t o = 0; o < old->plan.loops.size(); ++o)
+            {
+                const auto& a = next.plan.loops[r];
+                const auto& b = old->plan.loops[o];
+                if (a.from == b.from && a.to == b.to && next.rings[r].getNumChannels() == old->rings[o].getNumChannels())
+                {
+                    std::swap (next.rings[r], old->rings[o]);
+                    next.loopGuards[r] = old->loopGuards[o];
+                    next.outputGuard = old->outputGuard;
+                    any = true;
+                    break;
+                }
+            }
+        if (any)
+            next.ringPosition = old->ringPosition;
     }
 
     static float peakOf (const juce::AudioBuffer<float>& b, int numChannels, int length)
@@ -275,11 +474,12 @@ private:
                 case Op::feedbackRead:
                 {
                     const auto& ring = program.rings[(size_t) op.ring];
+                    const auto start = (program.ringPosition - program.loopDelay[(size_t) op.ring] + program.ringLength) % program.ringLength;
                     for (int c = 0; c < numChannels; ++c)
                     {
                         auto* dst = views[op.dst].getWritePointer (c);
                         const auto* src = ring.getReadPointer (c);
-                        auto pos = program.ringPosition;
+                        auto pos = start;
                         for (int i = 0; i < length; ++i)
                         {
                             dst[i] = src[pos];
@@ -292,21 +492,38 @@ private:
 
                 case Op::feedbackWrite:
                 {
+                    // The loop guard (see the top): the chunk into the ring,
+                    // then the guard on it there (one or two runs: it may wrap).
                     auto& ring = program.rings[(size_t) op.ring];
-                    for (int c = 0; c < numChannels; ++c)
+                    const auto count = juce::jmin (numChannels, maxChannels);
+                    float* dst[maxChannels] {};
+                    const auto first = juce::jmin (length, program.ringLength - program.ringPosition);
+                    for (int c = 0; c < count; ++c)
                     {
-                        auto* dst = ring.getWritePointer (c);
+                        dst[c] = ring.getWritePointer (c);
                         const auto* src = views[op.src].getReadPointer (c);
-                        auto pos = program.ringPosition;
-                        for (int i = 0; i < length; ++i)
-                        {
-                            auto x = src[i];
-                            x = std::abs (x) < 1.0e-20f ? 0.0f : juce::jlimit (-8.0f, 8.0f, x);
-                            dst[pos] = x == x ? x : 0.0f; // NaN -> 0
-                            if (++pos == program.ringLength)
-                                pos = 0;
-                        }
+                        juce::FloatVectorOperations::copy (dst[c] + program.ringPosition, src, first);
+                        if (first < length)
+                            juce::FloatVectorOperations::copy (dst[c], src + first, length - first);
                     }
+                    if (! settings.loopGuards)
+                    {
+                        for (int c = 0; c < count; ++c)
+                        {
+                            auto* x = dst[c];
+                            for (int i = 0, pos = program.ringPosition; i < length; ++i, pos = pos + 1 == program.ringLength ? 0 : pos + 1)
+                            {
+                                const auto v = std::abs (x[pos]) < 1.0e-20f ? 0.0f : juce::jlimit (-8.0f, 8.0f, x[pos]);
+                                x[pos] = v == v ? v : 0.0f;
+                            }
+                        }
+                        break;
+                    }
+                    auto& guard = program.loopGuards[(size_t) op.ring];
+                    auto& least = program.loopLeast[(size_t) op.ring];
+                    least = juce::jmin (least, guardBlock (dst, count, program.ringPosition, first, guard, program.release));
+                    if (first < length)
+                        least = juce::jmin (least, guardBlock (dst, count, 0, length - first, guard, program.release));
                     break;
                 }
 
@@ -384,6 +601,8 @@ private:
     Program* active = nullptr; // audio thread only
 
     std::array<NodeStats, maxNodes> stats;
+    std::array<LoopStats, maxFeedbackCables> loopStats;
+    std::atomic<float> outputGuardGain { 1.0f };
     std::atomic<float> graphCpu { 0.0f };
 };
 } // namespace PatchGraph

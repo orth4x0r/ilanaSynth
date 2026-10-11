@@ -57,6 +57,8 @@ inline juce::ValueTree toValueTree (const Graph& graph)
         child.setProperty ("toPort", cable.to.port, nullptr);
         if (cable.gain != 1.0f)
             child.setProperty ("gain", cable.gain, nullptr);
+        if (cable.delayMs > 0.0f)
+            child.setProperty ("delay", cable.delayMs, nullptr);
         tree.appendChild (child, nullptr);
     }
     return tree;
@@ -108,7 +110,8 @@ inline Graph fromValueTree (const juce::ValueTree& tree)
         auto gain = (float) (double) child.getProperty ("gain", 1.0);
         if (! std::isfinite (gain))
             gain = 1.0f;
-        graph.connect (from, to, juce::jlimit (-16.0f, 16.0f, gain));
+        if (graph.connect (from, to, juce::jlimit (-16.0f, 16.0f, gain)) == ConnectResult::ok && child.hasProperty ("delay"))
+            graph.setCableDelay (graph.findCable (from, to), (float) (double) child.getProperty ("delay", 0.0));
     }
     return graph;
 }

@@ -1420,7 +1420,7 @@ private:
         {
             return card.withTrimmedTop (cardHeaderHeight + cardPadY).reduced (cardPadX, 0).withTrimmedBottom (cardPadY);
         };
-        constexpr int gap = cardGap, rowHeight = 28;
+        constexpr int gap = cardGap, rowHeight = 26;
 
         // SUB: the wave's picture, the menu over the octave pills, the two knobs.
         {
@@ -1442,7 +1442,7 @@ private:
             noiseLevel->setBounds (body.removeFromRight (juce::jlimit (60, 66, body.getWidth() / 4)));
             body.removeFromRight (gap);
             noiseType->setBounds (body.removeFromTop (rowHeight * 2 - 8));
-            noisePreview.setBounds (body.removeFromBottom (14));
+            noisePreview.setBounds (body.removeFromBottom (10));
         }
 
         for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
@@ -1749,8 +1749,8 @@ private:
     // The two-row wavetable card: 160 px (three fit the column), a 150 px
     // picture, 4 px between the rows, and the engine, source and warp menus
     // (100 / 96 / 78 px) in the header line.
-    static constexpr int twoRowHeight = 160, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 114, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
+    static constexpr int twoRowHeight = 148, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;

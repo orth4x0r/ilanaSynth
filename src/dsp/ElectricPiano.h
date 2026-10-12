@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 
+#include "DamperTaper.h"
 #include "EpTuning.h"
 #include "KnobGlide.h"
 
@@ -316,7 +317,7 @@ private:
             auto& mode = modes[(size_t) i];
             auto t60 = mode.t60;
             if (released && damper > 0.0f)
-                t60 = juce::jmin (t60, t60 + (t.damperT60 - t60) * damper);
+                t60 = 1.0f / (1.0f / t60 + 1.0f / (DamperTaper::t60 (damper, frequency) * (t.damperT60 / 0.12f)));
             const auto radius = std::exp (-6.9078f / (juce::jmax (0.002f, t60) * (float) sampleRate));
             mode.cr = radius * std::cos (mode.angle);
             mode.ci = radius * std::sin (mode.angle);

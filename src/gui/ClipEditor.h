@@ -111,6 +111,7 @@ public:
         repaint();
     }
     float getZoom() const { return zoom; }
+    int getLowNote() const { return lowNote; }
     const Clip& getShownClip() const { return clip; }
 
     int getNumSelected() const { return (int) std::count (selected.begin(), selected.end(), true); }
@@ -532,6 +533,7 @@ public:
             dragOrigin = clip;
             dragNote = n.note;
             paintOrigin = n.start;
+            paintLast = position;
             paintCells.clear();
             paintCells.push_back (0);
             commit();
@@ -683,10 +685,13 @@ public:
         repaint();
     }
 
+    // A mouse notch (about 0.5) and a touchpad's stream of tiny deltas move
+    // the view by the same total: time and zoom follow the delta directly,
+    // whole pitch rows come out of an accumulator.
     void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
     {
-        const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
-        const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
+        const auto horizontal = std::abs (wheel.deltaX) > std::abs (wheel.deltaY);
+        const auto delta = horizontal ? wheel.deltaX : wheel.deltaY;
 
         if (event.mods.isAltDown() || ! (event.mods.isCommandDown() || event.mods.isCtrlDown() || event.mods.isShiftDown()
                                          || std::abs (wheel.deltaX) > std::abs (wheel.deltaY)))
@@ -698,7 +703,7 @@ public:
             const auto anchor = yToNote (event.position.y);
             const auto fromBottom = anchor - lowNote;
             const auto before = visibleRows();
-            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * (direction > 0 ? 1.2f : direction < 0 ? 1.0f / 1.2f : 1.0f));
+            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * std::exp (juce::jlimit (-1.0f, 1.0f, delta) * 0.4f));
             const auto rows = visibleRows();
             lowNote = juce::jlimit (0, 128 - rows, anchor - juce::roundToInt ((float) fromBottom * (float) rows / (float) before));
         }
@@ -707,20 +712,23 @@ public:
             // Zoom in time around the pointer.
             const auto anchor = xToBeat (event.position.x);
             const auto fraction = (event.position.x - gridBounds().getX()) / gridBounds().getWidth();
-            zoom *= direction > 0 ? 1.25f : direction < 0 ? 0.8f : 1.0f;
+            zoom *= std::exp (juce::jlimit (-1.0f, 1.0f, delta) * 0.45f);
             clampView();
             viewStart = anchor - fraction * viewBeats();
             clampView();
         }
-        else if (event.mods.isShiftDown() || std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
+        else if (event.mods.isShiftDown() || horizontal)
         {
-            viewStart -= (float) direction * viewBeats() * 0.125f;
+            viewStart -= juce::jlimit (-1.0f, 1.0f, delta) * viewBeats() * 0.25f;
             clampView();
         }
         else
         {
             const auto rows = visibleRows();
-            lowNote = juce::jlimit (0, 128 - rows, lowNote + direction * 3);
+            rowScroll += juce::jlimit (-1.0f, 1.0f, delta) * 6.0f;
+            const auto whole = (int) rowScroll;
+            rowScroll -= (float) whole;
+            lowNote = juce::jlimit (0, 128 - rows, lowNote + whole);
         }
 
         repaint();
@@ -1341,13 +1349,23 @@ private:
     }
 
     // DRAW's run: a note in every grid cell the pointer crosses (cells of the
-    // last length, on the grid), at the pointer's pitch, never two in one cell.
+    // last length, on the grid), never two in one cell. A cell takes the
+    // pitch the pointer had where it crossed it, along the line from where
+    // the last event was to this one (a fast sweep makes few events, and
+    // none of its cells should take the last pitch). The pointer above or
+    // below the roll keeps the top or bottom row, and a spot that already
+    // holds a note of that pitch is left alone.
     void paintRun (juce::Point<float> position)
     {
+        const auto grid = gridBounds();
+        position.y = juce::jlimit (grid.getY() + 0.01f, grid.getBottom() - 0.01f, position.y);
+        const auto from = paintLast;
+        paintLast = position;
         const auto spacing = juce::jmax (gridStep(), ceilToGrid (lastLength));
         const auto cell = (int) std::floor ((xToBeat (position.x) - paintOrigin) / spacing + 1.0e-4f);
         const auto last = paintCells.empty() ? 0 : paintCells.back();
         const auto direction = cell >= last ? 1 : -1;
+        const auto fromBeat = xToBeat (from.x), toBeat = xToBeat (position.x);
         auto added = false;
 
         for (auto c = last; c != cell + direction; c += direction)
@@ -1359,12 +1377,23 @@ private:
                 || (int) clip.notes.size() >= ClipState::maxNotes)
                 continue;
 
+            const auto across = std::abs (toBeat - fromBeat) < 1.0e-4f
+                                    ? 1.0f
+                                    : juce::jlimit (0.0f, 1.0f, (start + spacing * 0.5f - fromBeat) / (toBeat - fromBeat));
             ClipNote n;
             n.start = start;
             n.length = lastLength;
-            n.note = yToNote (position.y);
+            n.note = yToNote (from.y + (position.y - from.y) * across);
             n.velocity = lastVelocity;
             constrain (n);
+
+            if (std::any_of (clip.notes.begin(), clip.notes.end(), [&n] (const ClipNote& other)
+                             { return other.note == n.note && std::abs (other.start - n.start) < 1.0e-3f; }))
+            {
+                paintCells.push_back (c);
+                continue;
+            }
+
             clip.notes.push_back (n);
             selected.push_back (true);
             paintCells.push_back (c);
@@ -1647,6 +1676,7 @@ private:
     int shownIndex = -1;
     unsigned shownEpoch = 0;
     int lowNote = 48;
+    float rowScroll = 0.0f;
     int gridIndex = defaultGrid;
     float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
     // On by default (review 8, the Serum 2 speed table): the first click
@@ -1654,6 +1684,7 @@ private:
     bool drawMode = true;
     bool pitchViewTouched = false; // the pitches scrolled or zoomed by hand
     float paintOrigin = 0.0f;      // DRAW: the first note's start
+    juce::Point<float> paintLast;  // DRAW: where the pointer was at the last event
     std::vector<int> paintCells;   // DRAW: the cells painted, in order
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;

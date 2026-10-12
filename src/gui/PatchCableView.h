@@ -24,7 +24,24 @@
 //                                a node: bypass, remove, the owner's items;
 //                                empty space: the owner's add menu
 //   drag (or scroll) a loop's    its level (ilana 2026-10-11: every loop
-//   tag up and down              gets a level she can reach on the cable)
+//   tag up and down              gets a level she can reach on the cable;
+//                                the wheel only once the tag is selected)
+//   drop a box on a cable        lifts it out of where it was (its inputs
+//                                joined to its outputs) and puts it in the
+//                                cable (ilana 2026-10-12: "reorder freely")
+//
+// Navigation (ilana 2026-10-12: "better patcher navigation and zooming and
+// touchpad support"), the convention of Figma and most canvas apps:
+//   scroll, two-finger swipe     pans (shift turns a mouse wheel sideways)
+//   ctrl / cmd + scroll, pinch   zooms around the pointer (a Windows
+//                                touchpad's pinch arrives as ctrl + wheel)
+//   drag empty space, middle     pans
+//   drag, space + drag
+//   F, 0, + and -                fit, 100 %, zoom in and out
+// The view's position and zoom glide to a new place (FIT, the buttons) on
+// the same frame timer as the cables, so nothing ticks while it is still.
+// While part of the patch is off screen a small map in the corner shows
+// where the view is; click or drag in it to move there.
 //
 // A cable that closes a loop is drawn dashed and runs under the boxes, with
 // a tag halfway along that shows its level and delay ("20% | 1.3 ms"). The
@@ -55,6 +72,9 @@ public:
     static constexpr float fixedWidth = 90.0f;
     static constexpr float portRadius = 5.0f;
     static constexpr float grid = 10.0f;
+
+    // The zoom range the user can reach (1 = design size).
+    static constexpr float minViewZoom = 0.3f, maxViewZoom = 2.5f;
 
     explicit PatchCableView (PatchGraph::Graph& graphToShow) : graph (graphToShow)
     {
@@ -91,6 +111,15 @@ public:
     std::function<void (juce::Graphics&)> paintBackdrop;
     // Optional: the loop guard's gain on a loop cable (under 1: ringing).
     std::function<float (const PatchGraph::Cable&)> loopGuardOf;
+    // Optional: the user moved or zoomed the view (scroll, pinch, drag, keys;
+    // not the owner's own fits), so the owner stops refitting it by itself.
+    std::function<void()> onNavigated;
+    // Optional: F (or the owner's FIT button) fits the patch the owner's way;
+    // unset, fitContent().
+    std::function<void()> onFitRequested;
+    // Optional: whether a box may be dropped into a cable (unset: any box the
+    // user can move, into any forward cable not already on it).
+    std::function<bool (const PatchGraph::Node&, const PatchGraph::Cable&)> canSplice;
     // A drag on a loop's tag: true at its start, false at its end; the Edit::loop
     // edits come between (the owner makes them one undo step).
     std::function<void (bool)> onGesture;
@@ -111,6 +140,7 @@ public:
         auto content = contentBounds();
         if (content.isEmpty())
             return;
+        stopGlide();
         origin = viewArea().getCentre() - content.getCentre();
         origin = { std::round (origin.x / grid) * grid, std::round (origin.y / grid) * grid };
         repaint();
@@ -120,10 +150,60 @@ public:
     // hit tests and geometry below are in unzoomed view coordinates.
     void setZoom (float newZoom)
     {
-        zoom = juce::jlimit (0.5f, 3.0f, newZoom);
+        stopGlide();
+        zoom = juce::jlimit (minViewZoom, maxViewZoom, newZoom);
         repaint();
     }
     float getZoom() const { return zoom; }
+
+    // Zooms to newZoom keeping the graph point under `at` (view pixels) where
+    // it is; animated: glides there.
+    void zoomAround (float newZoom, juce::Point<float> at, bool animated = false)
+    {
+        const auto fromZoom = animated && gliding ? glideZoom : zoom;
+        const auto fromOrigin = animated && gliding ? glideOrigin : origin;
+        newZoom = juce::jlimit (minViewZoom, maxViewZoom, newZoom);
+        const auto pinned = at / fromZoom - fromOrigin; // the graph point under `at`
+        moveCamera (newZoom, at / newZoom - pinned, animated);
+    }
+
+    // One step in or out (the buttons and keys), around the middle of the view.
+    void zoomStep (int direction)
+    {
+        const auto current = gliding ? glideZoom : zoom;
+        zoomAround (current * std::pow (1.25f, (float) direction), getLocalBounds().toFloat().getCentre(), true);
+        navigated();
+    }
+
+    // Back to the design size, around the middle of the view.
+    void zoomToActualSize()
+    {
+        zoomAround (1.0f, getLocalBounds().toFloat().getCentre(), true);
+        navigated();
+    }
+
+    // Moves the view by a distance in view pixels.
+    void panBy (juce::Point<float> delta)
+    {
+        const auto base = gliding ? glideOrigin : origin;
+        const auto z = gliding ? glideZoom : zoom;
+        moveCamera (z, base + delta / z, false);
+    }
+
+    // The zoom it is at or gliding to.
+    float getTargetZoom() const { return gliding ? glideZoom : zoom; }
+    bool isGliding() const { return gliding; }
+    // Ends a glide where it was going.
+    void finishGlide()
+    {
+        if (gliding)
+        {
+            zoom = glideZoom;
+            origin = glideOrigin;
+            gliding = false;
+            repaint();
+        }
+    }
 
     // The largest zoom (from minZoom to maxZoom) at which the graph, with a
     // margin, fits the view; then centred.
@@ -140,17 +220,17 @@ public:
 
     // The same, into a part of the view (view coordinates, e.g. what an open
     // window leaves free), with its own margins and zoom steps.
-    void fitContentInto (juce::Rectangle<int> area, float maxZoom, float minZoom, float padX, float padY, float step)
+    void fitContentInto (juce::Rectangle<int> area, float maxZoom, float minZoom, float padX, float padY, float step, bool animated = false)
     {
         const auto content = contentBounds();
         if (content.isEmpty() || area.getWidth() <= 0 || area.getHeight() <= 0)
             return;
         const auto fit = juce::jmin ((float) area.getWidth() / (content.getWidth() + padX),
                                      (float) area.getHeight() / (content.getHeight() + padY));
-        zoom = juce::jlimit (minZoom, juce::jmax (minZoom, maxZoom), std::floor (fit / step) * step);
-        origin = area.toFloat().getCentre() / zoom - content.getCentre();
-        origin = { std::round (origin.x / grid) * grid, std::round (origin.y / grid) * grid };
-        repaint();
+        const auto newZoom = juce::jlimit (minZoom, juce::jmax (minZoom, maxZoom), std::floor (fit / step) * step);
+        auto newOrigin = area.toFloat().getCentre() / newZoom - content.getCentre();
+        newOrigin = { std::round (newOrigin.x / grid) * grid, std::round (newOrigin.y / grid) * grid };
+        moveCamera (newZoom, newOrigin, animated);
     }
 
     // The nodes' box in unzoomed coordinates (before the origin).
@@ -177,7 +257,8 @@ public:
     juce::Rectangle<float> nodeBounds (const PatchGraph::Node& node) const
     {
         const auto width = node.isFixed() ? fixedWidth : nodeWidth;
-        return { origin.x + node.x, origin.y + node.y, width, nodeHeight };
+        const auto slide = slideOf (node.id);
+        return { origin.x + node.x + slide.x, origin.y + node.y + slide.y, width, nodeHeight };
     }
 
     juce::Point<float> portPosition (PatchGraph::Port port, bool input) const
@@ -256,6 +337,17 @@ public:
                 continue;
             paintCable (g, cables[c], feedback[c], (int) c == selectedCable);
         }
+        if (drag.kind == DragKind::node && juce::isPositiveAndBelow (drag.spliceCable, (int) cables.size()))
+        {
+            // The cable a dragged box would drop into: a soft glow under a bright line.
+            const auto path = cablePathOf (cables[(size_t) drag.spliceCable], false);
+            const auto* box = graph.find (drag.node);
+            const auto colour = box != nullptr ? colourFor (*box) : Ui::text;
+            g.setColour (colour.withAlpha (0.22f));
+            g.strokePath (path, juce::PathStrokeType (10.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (colour);
+            g.strokePath (path, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
 
         for (const auto& node : graph.nodes())
             if (isShown (node))
@@ -270,13 +362,60 @@ public:
             const auto pending = swings.find (pendingKey);
             g.strokePath (cablePath (from, drag.mouse, false, pending != swings.end() ? pending->second.offset : juce::Point<float>()), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
+
+        g.addTransform (juce::AffineTransform::scale (1.0f / zoom));
+        paintMap (g);
+    }
+
+    //==========================================================================
+    // The map: the whole patch small in the bottom-right corner, with the part
+    // in view framed, while some of it is off screen (view pixels).
+    juce::Rectangle<float> mapBounds() const
+    {
+        const auto content = contentBounds();
+        if (content.isEmpty() || contentFits() || getWidth() < 360 || getHeight() < 200)
+            return {};
+        const auto world = mapWorld();
+        const auto scale = juce::jmin (mapMaxWidth / world.getWidth(), mapMaxHeight / world.getHeight());
+        const auto size = juce::Point<float> (world.getWidth() * scale, world.getHeight() * scale) + juce::Point<float> (2.0f * mapPad, 2.0f * mapPad);
+        return { (float) getWidth() - mapMargin - size.x, (float) getHeight() - mapMargin - size.y, size.x, size.y };
+    }
+
+    // Moves the view so the map point `at` (view pixels) is in its middle.
+    void centreOnMapPoint (juce::Point<float> at)
+    {
+        const auto map = mapBounds();
+        if (map.isEmpty())
+            return;
+        const auto world = mapWorld();
+        const auto inner = map.reduced (mapPad);
+        const auto scale = inner.getWidth() / world.getWidth();
+        const auto target = world.getPosition() + (at - inner.getPosition()) / scale; // graph coordinates
+        moveCamera (zoom, viewArea().getCentre() - target, false);
     }
 
     //==========================================================================
     void mouseDown (const juce::MouseEvent& e) override
     {
         grabKeyboardFocus();
+        finishGlide();
         const auto position = e.position / zoom;
+
+        // Middle button or space held: pan from anywhere.
+        if (e.mods.isMiddleButtonDown() || (spaceHeld && e.mods.isLeftButtonDown()))
+        {
+            startPan (e.position);
+            return;
+        }
+
+        if (const auto map = mapBounds(); map.contains (e.position) && ! e.mods.isPopupMenu())
+        {
+            drag = {};
+            drag.kind = DragKind::map;
+            centreOnMapPoint (e.position);
+            navigated();
+            return;
+        }
 
         if (e.mods.isPopupMenu())
         {
@@ -322,6 +461,7 @@ public:
             drag.kind = movable && ! movable (*node) ? DragKind::none : DragKind::node;
             drag.node = node->id;
             drag.grabOffset = position - juce::Point<float> (origin.x + node->x, origin.y + node->y);
+            drag.start = { node->x, node->y };
             repaint();
             return;
         }
@@ -329,19 +469,26 @@ public:
         selectCable (cableAt (position));
         selectedNode = 0;
         if (selectedCable < 0)
-        {
-            // Empty space: drag to look around a big patch.
-            drag = {};
-            drag.kind = DragKind::pan;
-            drag.grabOffset = position - origin;
-        }
+            startPan (e.position); // empty space: drag to look around a big patch
         repaint();
     }
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
-        if (const auto* node = nodeAt (e.position / zoom); node != nullptr && ! node->isFixed() && onOpen)
-            onOpen (*node);
+        const auto position = e.position / zoom;
+        if (const auto* node = nodeAt (position))
+        {
+            if (! node->isFixed() && onOpen)
+                onOpen (*node);
+        }
+        else if (cableAt (position) < 0 && loopTagAt (position) < 0 && ! mapBounds().contains (e.position))
+        {
+            // Empty space: the whole patch back in view.
+            if (onFitRequested)
+                onFitRequested();
+            else
+                fitContent();
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
@@ -351,8 +498,17 @@ public:
             const auto target = e.position / zoom - drag.grabOffset - origin;
             graph.moveNode (drag.node, std::round (target.x / grid) * grid, std::round (target.y / grid) * grid);
             drag.moved = true;
+            if (const auto target = spliceTargetAt (e.position / zoom); target != drag.spliceCable)
+            {
+                drag.spliceCable = target;
+                previewSplice();
+            }
             wakeCables();
             repaint();
+        }
+        else if (drag.kind == DragKind::map)
+        {
+            centreOnMapPoint (e.position);
         }
         else if (drag.kind == DragKind::cable)
         {
@@ -369,8 +525,11 @@ public:
         }
         else if (drag.kind == DragKind::pan)
         {
-            const auto target = e.position / zoom - drag.grabOffset;
-            origin = { std::round (target.x / grid) * grid, std::round (target.y / grid) * grid };
+            // (Not snapped: the grid follows the view, a snapped pan would stutter.)
+            origin = drag.grabOffset + e.position / zoom;
+            if (! drag.moved && e.getDistanceFromDragStart() > 2)
+                navigated();
+            drag.moved = drag.moved || e.getDistanceFromDragStart() > 2;
             repaint();
         }
     }
@@ -385,8 +544,23 @@ public:
             repaint();
             return;
         }
-        if (drag.kind == DragKind::node && drag.moved && onEdited)
-            onEdited (Edit::layout);
+        if (drag.kind == DragKind::node && drag.moved)
+        {
+            const auto spliced = drag.spliceCable >= 0 && spliceInto (drag.node, drag.spliceCable);
+            if (! spliced)
+            {
+                settleSlides ({});
+                if (onEdited)
+                    onEdited (Edit::layout);
+            }
+        }
+        if (drag.kind == DragKind::pan || drag.kind == DragKind::map)
+        {
+            drag = {};
+            updateCursor (e.position);
+            repaint();
+            return;
+        }
 
         if (drag.kind == DragKind::cable)
             finishCableDrag (portAt (e.position / zoom, true));
@@ -397,9 +571,31 @@ public:
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
+        // The deltas, not their signs: a mouse notch (about 0.23 on Windows)
+        // and a touchpad's stream of small events move the view alike.
+        const auto horizontal = std::abs (wheel.deltaX) > std::abs (wheel.deltaY);
         const auto tag = loopTagAt (e.position / zoom);
-        if (tag < 0 || nodeAt (e.position / zoom) != nullptr)
-            return juce::Component::mouseWheelMove (e, wheel);
+        const auto onTag = tag >= 0 && tag == selectedCable && nodeAt (e.position / zoom) == nullptr;
+        if (e.mods.isCommandDown() || e.mods.isCtrlDown())
+        {
+            const auto delta = juce::jlimit (-1.0f, 1.0f, horizontal ? -wheel.deltaX : wheel.deltaY);
+            zoomAround (zoom * std::exp (delta * wheelZoomRate), e.position);
+            navigated();
+            return;
+        }
+        if (! onTag)
+        {
+            auto delta = juce::Point<float> (wheel.deltaX, wheel.deltaY);
+            if (e.mods.isShiftDown() && wheel.deltaX == 0.0f)
+                delta = { wheel.deltaY, 0.0f }; // a mouse wheel, sideways
+            if (wheel.isReversed)
+                delta = -delta;
+            delta.x = juce::jlimit (-1.0f, 1.0f, delta.x);
+            delta.y = juce::jlimit (-1.0f, 1.0f, delta.y);
+            panBy (delta * wheelPanRate);
+            navigated();
+            return;
+        }
         selectCable (tag);
         const auto step = (wheel.deltaY != 0.0f ? wheel.deltaY : wheel.deltaX) > 0.0f ? 0.01f : -0.01f;
         const auto level = juce::jlimit (0.0f, maxLoopLevel, std::round ((graph.cables()[(size_t) tag].gain + step) * 100.0f) / 100.0f);
@@ -412,22 +608,69 @@ public:
         drag = {};
     }
 
-    void mouseMove (const juce::MouseEvent& e) override
+    // A pinch on a Mac touchpad (or a touch screen): zoom around the fingers.
+    void mouseMagnify (const juce::MouseEvent& e, float scaleFactor) override
     {
-        const auto position = e.position / zoom;
-        if (loopTagAt (position) >= 0 && nodeAt (position) == nullptr)
-        {
-            setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        if (scaleFactor <= 0.0f || ! std::isfinite (scaleFactor))
             return;
-        }
-        const auto overPort = portAt (position, false).node != 0 || portAt (position, true).node != 0;
-        setMouseCursor (overPort ? juce::MouseCursor::CrosshairCursor
-                                 : nodeAt (position) != nullptr ? juce::MouseCursor::DraggingHandCursor
-                                                                  : juce::MouseCursor::NormalCursor);
+        zoomAround (zoom * scaleFactor, e.position);
+        navigated();
     }
+
+    void mouseMove (const juce::MouseEvent& e) override { updateCursor (e.position); }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoverNode != 0 || hoverCable >= 0 || hoverPort.node != 0)
+        {
+            hoverNode = 0;
+            hoverCable = -1;
+            hoverPort = {};
+            repaint();
+        }
+    }
+
+    bool keyStateChanged (bool) override
+    {
+        const auto held = juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::spaceKey);
+        if (held != spaceHeld)
+        {
+            spaceHeld = held;
+            setMouseCursor (held ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+        }
+        return held;
+    }
+
+    void focusLost (FocusChangeType) override { spaceHeld = false; }
 
     bool keyPressed (const juce::KeyPress& key) override
     {
+        if (! key.getModifiers().isCommandDown() && ! key.getModifiers().isCtrlDown() && ! key.getModifiers().isAltDown())
+        {
+            // (The typed character, or the key's code when none comes with it.)
+            const auto code = key.getKeyCode();
+            const auto c = key.getTextCharacter() != 0 ? key.getTextCharacter()
+                         : code == juce::KeyPress::numberPadAdd ? (juce::juce_wchar) '+'
+                         : code == juce::KeyPress::numberPadSubtract ? (juce::juce_wchar) '-'
+                         : code == juce::KeyPress::numberPad0 ? (juce::juce_wchar) '0'
+                                                              : (juce::juce_wchar) code;
+            if (c == 'f' || c == 'F')
+            {
+                if (onFitRequested)
+                    onFitRequested();
+                else
+                    fitContent();
+                return true;
+            }
+            if (c == '0')
+                return zoomToActualSize(), true;
+            if (c == '+' || c == '=')
+                return zoomStep (1), true;
+            if (c == '-' || c == '_')
+                return zoomStep (-1), true;
+            if (key == juce::KeyPress::spaceKey)
+                return true; // (held: pans)
+        }
         if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
         {
             if (selectedCable >= 0 && selectedCable < (int) graph.cables().size())
@@ -562,13 +805,69 @@ private:
         if (! isShowing())
         {
             swings.clear();
+            finishGlide();
             stopTimer();
             return;
         }
 
-        if (! advanceMotion (juce::jmin (frameSeconds(), 0.04f)))
-            stopTimer(); // (the next drag step wakes it again)
+        const auto dt = juce::jmin (frameSeconds(), 0.04f);
+        const auto camera = stepGlide (dt);
+        const auto sliding = stepSlides (dt);
+        if (! advanceMotion (dt) && ! camera && ! sliding)
+            stopTimer(); // (the next drag step or glide wakes it again)
     }
+
+    //==========================================================================
+    // The camera: where the view looks and how close. A glide eases the
+    // middle of the view and the zoom (in log steps, so zooming in and out
+    // feel the same) towards the target, about 90 % of the way in 160 ms.
+    void moveCamera (float newZoom, juce::Point<float> newOrigin, bool animated)
+    {
+        newZoom = juce::jlimit (minViewZoom, maxViewZoom, newZoom);
+        if (! std::isfinite (newOrigin.x) || ! std::isfinite (newOrigin.y))
+            return;
+        if (animated && isShowing())
+        {
+            glideZoom = newZoom;
+            glideOrigin = newOrigin;
+            gliding = true;
+            if (! isTimerRunning())
+                startTimerHz (60);
+            return;
+        }
+        gliding = false;
+        zoom = newZoom;
+        origin = newOrigin;
+        repaint();
+    }
+
+    void stopGlide() { gliding = false; }
+
+public:
+    // One glide step of dt seconds; whether it is still moving (the tests
+    // step it by hand).
+    bool stepGlide (float dt)
+    {
+        if (! gliding)
+            return false;
+        const auto centre = getLocalBounds().toFloat().getCentre();
+        const auto from = centre / zoom - origin, to = centre / glideZoom - glideOrigin; // graph points in the middle
+        const auto amount = 1.0f - std::exp (-dt * 14.0f);
+        const auto logZoom = std::log (zoom) + (std::log (glideZoom) - std::log (zoom)) * amount;
+        const auto middle = from + (to - from) * amount;
+        zoom = std::exp (logZoom);
+        origin = centre / zoom - middle;
+        if (std::abs (std::log (glideZoom / zoom)) < 0.002f && (to - middle).getDistanceFromOrigin() < 0.3f)
+        {
+            zoom = glideZoom;
+            origin = glideOrigin;
+            gliding = false;
+        }
+        repaint();
+        return gliding;
+    }
+
+private:
 
 public:
     // One physics step of dt seconds; whether any cable is still moving.
@@ -665,7 +964,360 @@ private:
     std::map<SwingKey, Swing> swings;
     bool motion = true;
 
-    enum class DragKind { none, node, cable, pan, loopLevel };
+    enum class DragKind { none, node, cable, pan, loopLevel, map };
+
+    //==========================================================================
+    // Navigation helpers.
+    static constexpr float wheelPanRate = 360.0f;   // view pixels for a delta of 1 (a Windows notch: about 85)
+    static constexpr float wheelZoomRate = 0.65f;   // e^(0.65 x delta): a Windows notch about x1.16
+    static constexpr float mapMaxWidth = 180.0f, mapMaxHeight = 110.0f, mapPad = 8.0f, mapMargin = 12.0f;
+
+    void startPan (juce::Point<float> screen)
+    {
+        drag = {};
+        drag.kind = DragKind::pan;
+        drag.grabOffset = origin - screen / zoom;
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+    }
+
+    void navigated()
+    {
+        if (onNavigated)
+            onNavigated();
+    }
+
+    void updateCursor (juce::Point<float> screen)
+    {
+        setHover (screen / zoom);
+        if (spaceHeld)
+            return setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        if (mapBounds().contains (screen))
+            return setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        const auto position = screen / zoom;
+        if (const auto tag = loopTagAt (position); tag >= 0 && nodeAt (position) == nullptr)
+            return setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        const auto overPort = portAt (position, false).node != 0 || portAt (position, true).node != 0;
+        setMouseCursor (overPort ? juce::MouseCursor::CrosshairCursor
+                                 : nodeAt (position) != nullptr ? juce::MouseCursor::DraggingHandCursor
+                                                                  : juce::MouseCursor::NormalCursor);
+    }
+
+    // What the map shows (graph coordinates): the patch and the view.
+    juce::Rectangle<float> mapWorld() const
+    {
+        return contentBounds().getUnion (viewArea() - origin).expanded (20.0f);
+    }
+
+    void paintMap (juce::Graphics& g) const
+    {
+        using namespace IlanaTheme;
+        const auto map = mapBounds();
+        if (map.isEmpty())
+            return;
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRoundedRectangle (map.translated (0.0f, 2.0f), 8.0f);
+        g.setColour (Ui::panel.withAlpha (0.94f));
+        g.fillRoundedRectangle (map, 8.0f);
+        g.setColour (Ui::line);
+        g.drawRoundedRectangle (map.reduced (0.5f), 8.0f, 1.0f);
+
+        const auto world = mapWorld();
+        const auto inner = map.reduced (mapPad);
+        const auto scale = inner.getWidth() / world.getWidth();
+        const auto toMap = [&] (juce::Rectangle<float> box)
+        {
+            return juce::Rectangle<float> (inner.getX() + (box.getX() - world.getX()) * scale, inner.getY() + (box.getY() - world.getY()) * scale,
+                                           box.getWidth() * scale, box.getHeight() * scale);
+        };
+        for (const auto& node : graph.nodes())
+            if (isShown (node))
+            {
+                const auto box = toMap ({ node.x, node.y, node.isFixed() ? fixedWidth : nodeWidth, nodeHeight });
+                g.setColour (colourFor (node).withAlpha (node.bypassed ? 0.3f : 0.75f));
+                g.fillRoundedRectangle (box, juce::jmin (2.0f, box.getHeight() * 0.5f));
+            }
+        const auto seen = toMap (viewArea() - origin).getIntersection (inner);
+        g.setColour (Ui::text.withAlpha (0.06f));
+        g.fillRoundedRectangle (seen, 3.0f);
+        g.setColour (Ui::text2);
+        g.drawRoundedRectangle (seen.reduced (0.5f), 3.0f, 1.2f);
+    }
+
+    //==========================================================================
+    // Dropping a box into a cable. The box is lifted first (each cable into
+    // it joined to each cable out of it, so the chain it leaves stays whole),
+    // then the cable runs through it. Only one-in, one-out boxes off any loop.
+    static bool spliceGraph (PatchGraph::Graph& g, PatchGraph::NodeId id, PatchGraph::Port cableFrom, PatchGraph::Port cableTo)
+    {
+        const auto targetIndex = g.findCable (cableFrom, cableTo);
+        if (targetIndex < 0)
+            return false;
+        const auto gain = g.cables()[(size_t) targetIndex].gain;
+        std::vector<PatchGraph::Cable> ins, outs;
+        for (const auto& cable : g.cables())
+        {
+            if (cable.to.node == id)
+                ins.push_back (cable);
+            if (cable.from.node == id)
+                outs.push_back (cable);
+        }
+        for (const auto& cable : ins)
+            g.disconnect (cable.from, cable.to);
+        for (const auto& cable : outs)
+            g.disconnect (cable.from, cable.to);
+        for (const auto& in : ins)
+            for (const auto& out : outs)
+                if (g.findCable (in.from, out.to) < 0)
+                    g.connect (in.from, out.to, in.gain * out.gain);
+        g.disconnect (cableFrom, cableTo);
+        return g.connect (cableFrom, { id, 0 }, gain) == PatchGraph::ConnectResult::ok
+               && g.connect ({ id, 0 }, cableTo, 1.0f) == PatchGraph::ConnectResult::ok;
+    }
+
+    static int countLoops (const PatchGraph::Graph& g)
+    {
+        const auto loops = g.feedbackCables();
+        return (int) std::count (loops.begin(), loops.end(), true);
+    }
+
+    // The cable a box dragged to `position` would drop into, or -1.
+    int spliceTargetAt (juce::Point<float> position) const
+    {
+        const auto* node = graph.find (drag.node);
+        if (node == nullptr || node->isFixed() || node->numInputs != 1 || node->numOutputs != 1)
+            return -1;
+        const auto& cables = graph.cables();
+        const auto feedback = graph.feedbackCables();
+        for (size_t c = 0; c < cables.size(); ++c)
+            if (feedback[c] && (cables[c].from.node == node->id || cables[c].to.node == node->id))
+                return -1; // (lifting it would drop its loop)
+        // (The cable it is over keeps it within a wider reach, so the boxes
+        // sliding apart to make room can't shake it loose.)
+        if (juce::isPositiveAndBelow (drag.spliceCable, (int) cables.size()) && ! feedback[(size_t) drag.spliceCable])
+        {
+            juce::Point<float> nearest;
+            cablePathOf (cables[(size_t) drag.spliceCable], false).getNearestPoint (position, nearest);
+            if (nearest.getDistanceFrom (position) < 30.0f)
+                return drag.spliceCable;
+        }
+        auto best = -1;
+        auto bestDistance = 16.0f;
+        for (size_t c = 0; c < cables.size(); ++c)
+        {
+            const auto& cable = cables[c];
+            if (feedback[c] || cable.from.node == node->id || cable.to.node == node->id)
+                continue;
+            juce::Point<float> nearest;
+            cablePathOf (cable, false).getNearestPoint (position, nearest);
+            const auto distance = nearest.getDistanceFrom (position);
+            if (distance < bestDistance && (! canSplice || canSplice (*node, cable)))
+            {
+                auto trial = graph;
+                if (spliceGraph (trial, node->id, cable.from, cable.to) && countLoops (trial) <= countLoops (graph)
+                    && (! acceptGraph || acceptGraph (trial)))
+                {
+                    bestDistance = distance;
+                    best = (int) c;
+                }
+            }
+        }
+        return best;
+    }
+
+    bool spliceInto (PatchGraph::NodeId id, int cableIndex)
+    {
+        if (! juce::isPositiveAndBelow (cableIndex, (int) graph.cables().size()))
+            return false;
+        const auto cable = graph.cables()[(size_t) cableIndex];
+        auto trial = graph;
+        if (! spliceGraph (trial, id, cable.from, cable.to) || (acceptGraph && ! acceptGraph (trial)))
+            return false;
+        const auto before = graph;
+        spliceGraph (graph, id, cable.from, cable.to);
+        makeRoomFor (graph, id, cable.from.node, cable.to.node, drag.start);
+        std::map<PatchGraph::NodeId, juce::Point<float>> moved;
+        for (const auto& node : graph.nodes())
+            if (const auto* was = before.find (node.id); was != nullptr && node.id != id && (node.x != was->x || node.y != was->y))
+                moved[node.id] = { node.x - was->x, node.y - was->y };
+        settleSlides (moved);
+        selectedNode = id;
+        selectedCable = -1;
+        wakeCables();
+        edited (Edit::cables);
+        return true;
+    }
+
+    // A dropped box tidied into its new place. First the hole it left: when
+    // nothing else stands in its old column, the boxes right of it close up
+    // (the nearest lands where it was). Then it goes one gap right of the
+    // box that now feeds it, on that box's row, and everything from the box
+    // it now feeds onwards moves right as far as it takes (10 px grid).
+    void makeRoomFor (PatchGraph::Graph& g, PatchGraph::NodeId id, PatchGraph::NodeId from, PatchGraph::NodeId to, juce::Point<float> was) const
+    {
+        constexpr float gap = 30.0f;
+        const auto width = [] (const PatchGraph::Node& node) { return node.isFixed() ? fixedWidth : nodeWidth; };
+        const auto canMove = [this] (const PatchGraph::Node& node) { return ! node.isInput() && (! movable || movable (node)); };
+
+        auto columnFree = true;
+        auto nearest = std::numeric_limits<float>::max();
+        for (const auto& node : g.nodes())
+        {
+            if (node.id == id || ! isShown (node))
+                continue;
+            if (node.x < was.x + nodeWidth && node.x + width (node) > was.x)
+                columnFree = false;
+            if (node.x > was.x)
+                nearest = juce::jmin (nearest, node.x);
+        }
+        if (columnFree && nearest < std::numeric_limits<float>::max())
+        {
+            auto movableRight = true;
+            for (const auto& node : g.nodes())
+                if (node.id != id && node.x > was.x && ! canMove (node))
+                    movableRight = false;
+            if (movableRight)
+            {
+                const auto back = std::floor ((nearest - was.x) / grid) * grid;
+                for (const auto& node : std::vector<PatchGraph::Node> (g.nodes()))
+                    if (node.id != id && node.x > was.x)
+                        g.moveNode (node.id, node.x - back, node.y);
+            }
+        }
+
+        const auto* source = g.find (from);
+        const auto* target = g.find (to);
+        if (source == nullptr || target == nullptr || g.find (id) == nullptr)
+            return;
+        const auto x = std::round ((source->x + width (*source) + gap) / grid) * grid;
+        const auto y = source->y;
+        const auto targetX = target->x;
+        g.moveNode (id, x, y);
+        const auto shift = std::ceil ((x + nodeWidth + gap - targetX) / grid) * grid;
+        if (shift <= 0.0f)
+            return;
+        for (const auto& node : std::vector<PatchGraph::Node> (g.nodes()))
+            if (node.id != id && node.x >= targetX && canMove (node))
+                g.moveNode (node.id, node.x + shift, node.y);
+    }
+
+    //==========================================================================
+    // Slides: a box's drawn place eases to where it is going (the boxes
+    // making room while a dragged box hovers a cable, and after a drop), so
+    // nothing jumps. Display offsets only; the graph holds the real places.
+    juce::Point<float> slideOf (PatchGraph::NodeId id) const
+    {
+        const auto found = slides.find (id);
+        return found != slides.end() ? found->second.offset : juce::Point<float>();
+    }
+
+    struct Slide
+    {
+        juce::Point<float> offset, target;
+    };
+
+    // The room a dropped box would make, shown before the drop.
+    void previewSplice()
+    {
+        std::map<PatchGraph::NodeId, juce::Point<float>> targets;
+        if (drag.spliceCable >= 0 && drag.spliceCable < (int) graph.cables().size())
+        {
+            const auto cable = graph.cables()[(size_t) drag.spliceCable];
+            auto trial = graph;
+            trial.moveNode (drag.node, drag.start.x, drag.start.y);
+            if (spliceGraph (trial, drag.node, cable.from, cable.to))
+            {
+                makeRoomFor (trial, drag.node, cable.from.node, cable.to.node, drag.start);
+                for (const auto& node : trial.nodes())
+                    if (const auto* now = graph.find (node.id); now != nullptr && node.id != drag.node)
+                        if (node.x != now->x || node.y != now->y)
+                            targets[node.id] = { node.x - now->x, node.y - now->y };
+            }
+        }
+        for (auto& [id, slide] : slides)
+            slide.target = targets.count (id) ? targets[id] : juce::Point<float>();
+        for (const auto& [id, target] : targets)
+            slides[id].target = target;
+        wakeSlides();
+    }
+
+    // After the graph moved boxes by `moved`: what was drawn stays put and
+    // eases on from there.
+    void settleSlides (const std::map<PatchGraph::NodeId, juce::Point<float>>& moved)
+    {
+        for (const auto& [id, by] : moved)
+        {
+            auto& slide = slides[id];
+            slide.offset -= by;
+            slide.target = {};
+        }
+        for (auto& [id, slide] : slides)
+            if (! moved.count (id))
+                slide.target = {};
+        wakeSlides();
+    }
+
+    void wakeSlides()
+    {
+        if (! isShowing())
+        {
+            slides.clear(); // (nothing to animate off screen: straight there)
+            repaint();
+            return;
+        }
+        if (! isTimerRunning())
+            startTimerHz (60);
+    }
+
+public:
+    // One slide step of dt seconds; whether any box is still sliding.
+    bool stepSlides (float dt)
+    {
+        if (slides.empty())
+            return false;
+        const auto amount = 1.0f - std::exp (-dt * 16.0f);
+        for (auto it = slides.begin(); it != slides.end();)
+        {
+            auto& slide = it->second;
+            slide.offset += (slide.target - slide.offset) * amount;
+            if (slide.offset.getDistanceFrom (slide.target) < 0.25f)
+                slide.offset = slide.target;
+            if (slide.offset == juce::Point<float>() && slide.target == juce::Point<float>())
+                it = slides.erase (it);
+            else
+                ++it;
+        }
+        repaint();
+        return std::any_of (slides.begin(), slides.end(), [] (const auto& entry) { return entry.second.offset != entry.second.target; });
+    }
+
+private:
+    std::map<PatchGraph::NodeId, Slide> slides;
+
+    // What the pointer is over (drawn a little brighter).
+    PatchGraph::NodeId hoverNode = 0;
+    int hoverCable = -1;
+    PatchGraph::Port hoverPort;
+    bool hoverInput = false;
+
+    void setHover (juce::Point<float> position)
+    {
+        const auto out = portAt (position, false), in = portAt (position, true);
+        const auto port = out.node != 0 ? out : in;
+        const auto* node = port.node == 0 ? nodeAt (position) : nullptr;
+        const auto cable = port.node == 0 && node == nullptr ? cableAt (position) : -1;
+        const auto nodeId = node != nullptr ? node->id : (PatchGraph::NodeId) 0;
+        if (port == hoverPort && (port.node == 0 || hoverInput == (out.node == 0)) && nodeId == hoverNode && cable == hoverCable)
+            return;
+        hoverPort = port;
+        hoverInput = out.node == 0;
+        hoverNode = nodeId;
+        hoverCable = cable;
+        repaint();
+    }
+
+    bool gliding = false, spaceHeld = false;
+    float glideZoom = 1.0f;
+    juce::Point<float> glideOrigin;
 
     bool isShown (const PatchGraph::Node& node) const { return showInputNode || ! node.isInput(); }
     bool canRemove (const PatchGraph::Node& node) const { return ! node.isFixed() && nodesRemovable && (! removable || removable (node)); }
@@ -681,6 +1333,8 @@ private:
         float pickedGain = 1.0f;
         float pickedDelay = 0.0f;
         juce::Point<float> mouse;
+        int spliceCable = -1; // a dragged box over a cable it would drop into
+        juce::Point<float> start; // where a dragged box was
     };
 
     void removeNodeNow (const PatchGraph::Node& node)
@@ -927,7 +1581,9 @@ private:
         const auto length = path.getLength();
         for (const auto& node : graph.nodes())
         {
-            if (! isShown (node))
+            // (Nor the box being dragged: over a cable, the cable stays under
+            // it, lit up as where it drops.)
+            if (! isShown (node) || (drag.kind == DragKind::node && node.id == drag.node))
                 continue;
             const auto box = nodeBounds (node).reduced (2.0f);
             if (box.expanded (8.0f).contains (from) || box.expanded (8.0f).contains (to))
@@ -945,8 +1601,10 @@ private:
         const auto path = cablePathOf (cable, loop);
         const auto* source = graph.find (cable.from.node);
         auto colour = source != nullptr ? colourFor (*source) : Ui::text2;
-        colour = colour.withAlpha (selected ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));
-        const auto width = selected ? 2.6f : 2.0f;
+        const auto hovered = ! selected && drag.kind == DragKind::none && hoverCable >= 0 && hoverCable < (int) graph.cables().size()
+                             && graph.cables()[(size_t) hoverCable].from == cable.from && graph.cables()[(size_t) hoverCable].to == cable.to;
+        colour = colour.withAlpha (selected || hovered ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));
+        const auto width = selected ? 2.6f : hovered ? 2.4f : 2.0f;
 
         if (loop)
         {
@@ -1017,7 +1675,8 @@ private:
             g.fillRoundedRectangle (bounds, 8.0f);
             g.setColour (colour.withAlpha (0.08f * alpha));
             g.fillRoundedRectangle (bounds.reduced (1.0f), 7.0f);
-            g.setColour (selected ? colour : Ui::line);
+            const auto hovered = ! selected && node.id == hoverNode && drag.kind == DragKind::none;
+            g.setColour (selected ? colour : hovered ? colour.withAlpha (0.45f) : Ui::line);
             g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, selected ? 1.5f : 1.0f);
 
             auto inner = bounds.reduced (14.0f, 8.0f).toNearestInt();
@@ -1044,7 +1703,10 @@ private:
             for (const auto& cable : graph.cables())
                 connected = connected || (input ? cable.to == port : cable.from == port);
             const auto target = drag.kind == DragKind::cable && input && portAt (drag.mouse, true) == port;
-            const auto disc = juce::Rectangle<float> (portRadius * 2.0f, portRadius * 2.0f).withCentre (centre);
+            // (A port under the pointer grows a little: it can be grabbed.)
+            const auto hovered = drag.kind == DragKind::none && hoverPort == port && hoverInput == input;
+            const auto radius = portRadius + (target || hovered ? 1.5f : 0.0f);
+            const auto disc = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
             g.setColour (connected || target ? colour.withMultipliedAlpha (alpha) : Ui::raised);
             g.fillEllipse (disc);
             g.setColour (target ? Ui::text : colour.withAlpha (0.8f * alpha));

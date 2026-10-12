@@ -168,9 +168,12 @@ void runSampleTempoTests()
     const auto wav = folder.getChildFile ("two-beats.wav");
     MultiSampleLab::writeWav (wav, MultiSampleLab::sine (c4, 48000.0, 48000), 48000.0);
 
-    const auto render = [&wav] (double hostBpm, int sync, float bpm, bool stretch, int note, int blocks = 160)
+    // time: TIME's choice (0 Repitch, 1 Stretch, 2 Signalsmith, 3 Bungee,
+    // 4 PGHI, 5 Paulstretch). Offline, so the engines' copies render in place.
+    const auto render = [&wav] (double hostBpm, int sync, float bpm, int time, int note, int blocks = 160)
     {
         IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
         Head head;
         head.bpm = hostBpm;
         processor.setPlayHead (&head);
@@ -178,7 +181,7 @@ void runSampleTempoTests()
         processor.loadUserSample (0, wav);
         set (processor, "osc1_sample_sync", (float) sync);
         set (processor, "osc1_sample_bpm", bpm);
-        set (processor, "osc1_sample_stretch", stretch ? 1.0f : 0.0f);
+        set (processor, "osc1_sample_stretch", (float) time);
         const auto out = MultiSampleLab::play (processor, note, blocks);
         processor.setPlayHead (nullptr);
         return out;
@@ -226,6 +229,101 @@ void runSampleTempoTests()
         sounding (out, 1.0, "SYNC Off, Stretch, C5");
         pitched (out, 2.0 * c4, "SYNC Off, Stretch, C5");
     }
+    // TIME's engines, rendered copies (offline: in place). A tolerance per
+    // engine for where the sound ends: Paulstretch's long windows smear it.
+    const char* engineNames[] { "Signalsmith", "Bungee", "PGHI", "Paulstretch" };
+    for (int engine = 0; engine < 4; ++engine)
+    {
+        const juce::String name (engineNames[engine]);
+        const auto time = 2 + engine;
+        const auto tail = engine == 3 ? 0.3 : 0.06;
+        const auto soundsFor = [tail] (const std::vector<float>& out, double expectedSeconds, const juce::String& what)
+        {
+            const auto seconds = lastSounding (out) / 48000.0;
+            check (seconds > expectedSeconds - tail && seconds < expectedSeconds + tail,
+                   what + ": sounds " + juce::String (seconds, 3) + " s (expected " + juce::String (expectedSeconds, 3) + " s)");
+        };
+        // The pitch over the middle half of the sound (away from the edges a
+        // stretcher smears); Paulstretch's random phases blur it a little.
+        const auto pitchedMiddle = [engine] (const std::vector<float>& out, double seconds, double expected, const juce::String& what)
+        {
+            const auto from = (size_t) (0.25 * seconds * 48000.0), to = (size_t) (0.75 * seconds * 48000.0);
+            const std::vector<float> part (out.begin() + (long) from, out.begin() + (long) juce::jmin (to, out.size()));
+            const auto cents = centsOff (MultiSampleLab::sineFrequency (part, 48000.0), expected);
+            check (std::abs (cents) < (engine == 3 ? 25.0 : 5.0), what + ": at pitch (" + juce::String (cents, 2) + " cents)");
+        };
+        const auto bounded = [] (const std::vector<float>& out, const juce::String& what)
+        {
+            auto peak = 0.0f;
+            auto finite = true;
+            for (const auto x : out)
+            {
+                finite = finite && std::isfinite (x);
+                peak = juce::jmax (peak, std::abs (x));
+            }
+            check (finite && peak < 2.0f && peak > 0.05f, what + ": finite, bounded and sounding (peak " + juce::String (peak, 3) + ")");
+        };
+        {
+            const auto out = render (240.0, 3, 120.0f, time, 60);
+            bounded (out, name + ", 2 beats at host 240");
+            soundsFor (out, 0.5, name + ", 2 beats at host 240");
+            pitchedMiddle (out, 0.5, c4, name + ", 2 beats at host 240");
+        }
+        {
+            const auto out = render (80.0, 3, 120.0f, time, 67, 260);
+            bounded (out, name + ", 2 beats at host 80, G4");
+            soundsFor (out, 1.5, name + ", 2 beats at host 80, G4");
+            pitchedMiddle (out, 1.5, juce::MidiMessage::getMidiNoteInHertz (67), name + ", 2 beats at host 80, G4");
+        }
+        {
+            // SYNC Off: the engine as a pitch shifter, an octave up keeps 1 s.
+            const auto out = render (120.0, SampleTempo::off, 120.0f, time, 72);
+            soundsFor (out, 1.0, name + ", SYNC Off, C5");
+            pitchedMiddle (out, 1.0, 2.0 * c4, name + ", SYNC Off, C5");
+        }
+    }
+
+    {
+        // Live (not offline): the first note plays the plain stretch while the
+        // copy renders in the background; once it's there, notes play it. A
+        // note held through the swap stays bounded.
+        IlanaSynthAudioProcessor processor;
+        Head head;
+        head.bpm = 240.0;
+        processor.setPlayHead (&head);
+        MultiSampleLab::setUp (processor);
+        processor.loadUserSample (0, wav);
+        set (processor, "osc1_sample_loop", 1.0f);
+        set (processor, "osc1_sample_sync", 3.0f);
+        set (processor, "osc1_sample_stretch", 2.0f); // Signalsmith
+        const auto first = MultiSampleLab::play (processor, 60, 8);
+        juce::ignoreUnused (first);
+        auto peak = 0.0f;
+        auto finite = true;
+        std::vector<float> held;
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int block = 0; block < 400; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 512; ++i)
+                held.push_back (buffer.getSample (0, i));
+            juce::Thread::sleep (2); // a render's worth of wall time passes
+        }
+        for (const auto x : held)
+        {
+            finite = finite && std::isfinite (x);
+            peak = juce::jmax (peak, std::abs (x));
+        }
+        check (finite && peak < 2.0f, "live: a held note through the swap stays bounded (peak " + juce::String (peak, 3) + ")");
+        check (rmsRange (held, held.size() - 24000, 24000) > 0.01, "live: the held note keeps sounding after the swap");
+        for (int wait = 0; wait < 400 && processor.getStretchRendersPending() > 0; ++wait)
+            juce::Thread::sleep (10);
+        check (processor.getStretchRendersPending() == 0, "live: the copy finished rendering");
+        processor.setPlayHead (nullptr);
+    }
+
     {
         // At the sample's own tempo, SYNC changes nothing (bit for bit).
         const auto synced = render (120.0, 3, 120.0f, false, 64);
@@ -298,9 +396,10 @@ void runSampleTempoTests()
         const auto source = out.getChildFile ("loop-120bpm.wav");
         MultiSampleLab::writeWav (source, loop, rate);
 
-        const auto renderTo = [&source, &out] (const juce::String& name, double hostBpm, bool stretch, int note, int sync)
+        const auto renderTo = [&source, &out] (const juce::String& name, double hostBpm, int time, int note, int sync)
         {
             IlanaSynthAudioProcessor processor;
+            processor.setNonRealtime (true);
             Head head;
             head.bpm = hostBpm;
             processor.setPlayHead (&head);
@@ -308,7 +407,7 @@ void runSampleTempoTests()
             processor.loadUserSample (0, source);
             set (processor, "osc1_sample_loop", 1.0f);
             set (processor, "osc1_sample_sync", (float) sync);
-            set (processor, "osc1_sample_stretch", stretch ? 1.0f : 0.0f);
+            set (processor, "osc1_sample_stretch", (float) time);
             const auto audio = MultiSampleLab::play (processor, note, (int) (8.0 * 48000.0 / 512.0));
             processor.setPlayHead (nullptr);
             juce::AudioBuffer<float> buffer (1, (int) audio.size());
@@ -322,6 +421,15 @@ void runSampleTempoTests()
         renderTo ("4-host-150-repitch", 150.0, false, 60, 5);
         renderTo ("5-host-120-stretch-up-5-semitones", 120.0, true, 65, 5);
         renderTo ("6-host-120-repitch-up-5-semitones", 120.0, false, 65, SampleTempo::off);
+        const char* engines[] { "signalsmith", "bungee", "pghi", "paulstretch" };
+        for (int engine = 0; engine < 4; ++engine)
+        {
+            const juce::String name (engines[engine]);
+            renderTo ("7-" + name + "-host-90", 90.0, 2 + engine, 60, 5);
+            renderTo ("8-" + name + "-host-150", 150.0, 2 + engine, 60, 5);
+            renderTo ("9-" + name + "-host-120-up-5-semitones", 120.0, 2 + engine, 65, 5);
+        }
+        renderTo ("10-paulstretch-host-30-pad", 30.0, 5, 60, 5);
         std::cout << "Sample tempo demo written to " << out.getFullPathName() << std::endl;
     }
 
@@ -347,6 +455,25 @@ void runSampleTempoTests()
                 best = juce::jmin (best, seconds * 1.0e9 / (double) out.size());
             }
             std::cout << "BENCH sample player " << (stretch ? "stretch" : "repitch") << ": " << juce::String (best, 2) << " ns/sample" << std::endl;
+        }
+
+        // TIME's engines: the time to render a 4 s stereo 44.1 kHz copy, 1.25x
+        // longer and up 3 semitones (on the worker thread, not the audio one).
+        OfflineStretch::Audio input;
+        input.sampleRate = 44100.0;
+        for (int c = 0; c < 2; ++c)
+        {
+            const auto* read = stereo->buffer.getReadPointer (c);
+            input.channels.emplace_back (read, read + 4 * 44100);
+        }
+        const char* engines[] { "Signalsmith", "Bungee", "PGHI", "Paulstretch" };
+        for (int engine = 0; engine < 4; ++engine)
+        {
+            const auto start = juce::Time::getHighResolutionTicks();
+            const auto copy = OfflineStretch::render ((OfflineStretch::Engine) engine, input, 1.25, std::exp2 (3.0 / 12.0));
+            const auto ms = 1000.0 * juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start);
+            std::cout << "BENCH render " << engines[engine] << ": " << juce::String (ms, 1) << " ms for 4 s stereo ("
+                      << copy.numFrames() << " frames)" << std::endl;
         }
     }
 }

@@ -3454,6 +3454,22 @@ int runUiTests()
         expect (zoomed > 1.1f && std::abs (roll.getZoom() - zoomed) < 1.0e-6f,
                 "Ctrl+wheel zooms the clip roll in time, the wheel alone doesn't");
 
+        // A touchpad's stream of small deltas scrolls as far as one mouse notch.
+        {
+            const auto before = roll.getLowNote();
+            roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), wheel);
+            const auto notch = roll.getLowNote() - before;
+            const auto start = roll.getLowNote();
+            juce::MouseWheelDetails tiny {};
+            tiny.deltaY = -0.025f;
+            tiny.isSmooth = true;
+            for (int i = 0; i < 20; ++i)
+                roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), tiny);
+            const auto moved = roll.getLowNote() - start;
+            expect (notch >= 2 && notch <= 4 && std::abs (moved + notch) <= 1,
+                    "twenty tiny touchpad deltas scroll the clip roll as far as one mouse notch ("
+                        + juce::String (moved) + " vs " + juce::String (notch) + ")");
+        }
         // Review 6 (V5-22, S6-10): a keyboard column left of the grid and a
         // bar ruler over it; zoom buttons' calls; QUANTISE snaps starts to
         // the grid in one undo step (every note with none selected).
@@ -3509,6 +3525,63 @@ int runUiTests()
         shown = processor.getClipState().getClip (0);
         expect (shown.notes.size() == 5 && steps.size() == 1 && steps[0] == "Draw clip notes",
                 "a drag in DRAW paints a run of notes on beats 2-5 in one undo step (" + starts (shown) + ")");
+        // Step 24: the spray lands where the pointer went. A single jump
+        // across the grid gives each cell the pitch the pointer had where it
+        // crossed it (not all the last one); a pointer above the roll keeps
+        // the top row; a spray across notes that are already there doesn't
+        // stack a second note on them.
+        {
+            const auto kept = processor.getClipState().getClip (0);
+            Clip blank;
+            blank.bars = 2;
+            const auto freshRoll = [&] (const Clip& clip)
+            {
+                processor.getClipState().setClip (0, clip);
+                processor.clipsEdited();
+                roll.reload (true);
+            };
+            const auto sorted = [&] (Clip clip)
+            {
+                std::sort (clip.notes.begin(), clip.notes.end(), [] (const ClipNote& a, const ClipNote& b) { return a.start < b.start; });
+                return clip;
+            };
+
+            freshRoll (blank);
+            gesture (roll, { x (2.1f), roll.yForNote (58) }, { x (5.5f), roll.yForNote (64) });
+            auto sprayed = sorted (processor.getClipState().getClip (0));
+            auto rising = sprayed.notes.size() == 4 && sprayed.notes.front().note == 58;
+            for (size_t i = 1; i < sprayed.notes.size(); ++i)
+                rising = rising && sprayed.notes[i].note > sprayed.notes[i - 1].note && sprayed.notes[i].note <= 64;
+            expect (rising && sprayed.notes.back().note >= 62,
+                    "a spray dragged in one jump from note 58 up to 64 puts each cell on the pitch the pointer crossed it at (" + starts (sprayed) + ")");
+
+            freshRoll (blank);
+            gesture (roll, { x (1.1f), roll.getGridArea().getY() + 0.5f }, { x (3.5f), roll.getGridArea().getY() + 0.5f });
+            const auto top = processor.getClipState().getClip (0).notes.front().note;
+            freshRoll (blank);
+            gesture (roll, { x (1.1f), roll.getGridArea().getY() + 0.5f }, { x (3.5f), roll.getGridArea().getY() - 80.0f });
+            sprayed = processor.getClipState().getClip (0);
+            auto kept_in_view = ! sprayed.notes.empty();
+            for (const auto& n : sprayed.notes)
+                kept_in_view = kept_in_view && n.note <= top;
+            expect (kept_in_view, "a spray whose pointer leaves the roll at the top stays on the top row (" + starts (sprayed) + ")");
+
+            Clip busy = blank;
+            busy.notes.push_back ({ 3.0f, 0.25f, 60, 100 });
+            busy.notes.push_back ({ 4.0f, 0.25f, 60, 100 });
+            freshRoll (busy);
+            gesture (roll, { x (1.1f), roll.yForNote (60) }, { x (6.5f), roll.yForNote (60) });
+            sprayed = processor.getClipState().getClip (0);
+            auto stacked = false;
+            for (size_t i = 0; i < sprayed.notes.size(); ++i)
+                for (size_t j = i + 1; j < sprayed.notes.size(); ++j)
+                    stacked = stacked || (sprayed.notes[i].note == sprayed.notes[j].note
+                                          && std::abs (sprayed.notes[i].start - sprayed.notes[j].start) < 1.0e-3f);
+            expect (! stacked && sprayed.notes.size() > 2, "a spray across notes that are already there doesn't stack a second one on them (" + starts (sprayed) + ")");
+
+            freshRoll (kept);
+        }
+
         roll.keyPressed (juce::KeyPress ('d'));
         clearHistory();
         gesture (roll, { x (7.1f), roll.yForNote (64) }, { x (7.1f), roll.yForNote (64) });
@@ -8750,6 +8823,60 @@ int main (int argc, char** argv)
                 view->centreContent();
             shot ("loop-75");
             top->setBounds (before);
+        }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_PATCHNAV: the PATCH tab without modes (2026-10-12):
+    // fitted, zoomed in with the map, an effect dragged over a cable (lit
+    // up) and dropped there; then stop. Best with Neuro Wobble.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PATCHNAV", "").isNotEmpty())
+    {
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (400);
+            save (*editor, outDir.getChildFile ("patchnav-" + name + ".png"));
+        };
+        pages->showPage ("PATCH");
+        shot ("fit");
+        auto* view = findChild<PatchCableView> (*editor);
+        if (view == nullptr)
+            return 1;
+        const auto toScreen = [view] (juce::Point<float> p) { return p * view->getZoom(); };
+        const auto& graph = view->getGraph();
+        std::vector<const PatchGraph::Node*> effects;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+                effects.push_back (&node);
+        std::sort (effects.begin(), effects.end(), [] (const auto* a, const auto* b) { return a->x < b->x; });
+
+        // Zoomed in on the effects: the map in the corner.
+        if (! effects.empty())
+        {
+            view->zoomAround (2.0f, toScreen (view->nodeBounds (*effects.front()).getCentre()));
+            view->onNavigated();
+            shot ("zoomed");
+        }
+        if (view->onFitRequested)
+            view->onFitRequested();
+        view->finishGlide();
+        settle (200);
+
+        // The last effect dragged onto the cable between the first two.
+        if (effects.size() >= 3)
+        {
+            const auto moving = effects.back()->id, first = effects[0]->id, second = effects[1]->id;
+            const auto target = (view->portPosition ({ first, 0 }, false) + view->portPosition ({ second, 0 }, true)) * 0.5f;
+            const auto grab = view->nodeBounds (*graph.find (moving)).getCentre();
+            view->mouseDown (PatchCableUi::mouse (*view, toScreen (grab), true));
+            for (int step = 1; step <= 8; ++step)
+                view->mouseDrag (PatchCableUi::mouse (*view, toScreen (grab + (target - grab) * ((float) step / 8.0f)), true));
+            view->setMotion (false); // (the picture without the swing in flight)
+            view->repaint();
+            shot ("drop-hover");
+            view->mouseUp (PatchCableUi::mouse (*view, toScreen (target), false));
+            view->setMotion (true);
+            shot ("dropped");
         }
         return 0;
     }

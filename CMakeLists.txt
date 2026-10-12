@@ -19,6 +19,70 @@ FetchContent_Declare(JUCE
 )
 FetchContent_MakeAvailable(JUCE)
 
+# Step 40 follow-up: the TIME menu's high-quality stretchers, rendered in the
+# background (src/dsp/stretch). Pinned sources, only downloaded: Signalsmith
+# Stretch and its linear library (MIT), Bungee (MPL-2.0) with Eigen (MPL-2.0)
+# and pffft (BSD-like), which PGHI and Paulstretch use too.
+set(ILANA_STRETCH_DEPS ${CMAKE_BINARY_DIR}/_deps/stretch)
+FetchContent_Declare(signalsmith_stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG a670068d9aeb64913331d5cc29337b19a457a7df # 1.4.0
+    SOURCE_DIR ${ILANA_STRETCH_DEPS}/signalsmith-stretch
+    SOURCE_SUBDIR none
+)
+FetchContent_Declare(signalsmith_linear
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+    GIT_TAG 146b26f91b48835d665fa0498d64d9617818d27a # 0.6.5
+    SOURCE_DIR ${ILANA_STRETCH_DEPS}/signalsmith-linear
+    SOURCE_SUBDIR none
+)
+FetchContent_Declare(bungee
+    GIT_REPOSITORY https://github.com/bungee-audio-stretch/bungee.git
+    GIT_TAG 052451eff35165dae16221092447be0ce521dd24 # 2.4.8
+    GIT_SUBMODULES ""
+    SOURCE_DIR ${ILANA_STRETCH_DEPS}/bungee
+    SOURCE_SUBDIR none
+)
+FetchContent_Declare(eigen
+    URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+    URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
+    SOURCE_DIR ${ILANA_STRETCH_DEPS}/eigen
+    SOURCE_SUBDIR none
+)
+FetchContent_Declare(pffft
+    URL https://bitbucket.org/jpommier/pffft/get/0aec0327a691.tar.gz
+    URL_HASH SHA256=29b3b0bf83ace5e32ad4fb26a99fe13284240a4d4f1b762970aa19c3821ddb1f
+    SOURCE_DIR ${ILANA_STRETCH_DEPS}/pffft
+    SOURCE_SUBDIR none
+)
+FetchContent_MakeAvailable(signalsmith_stretch signalsmith_linear bungee eigen pffft)
+
+file(GLOB ILANA_BUNGEE_SOURCES ${ILANA_STRETCH_DEPS}/bungee/src/*.cpp)
+add_library(ilanaStretch STATIC
+    src/dsp/stretch/OfflineStretch.cpp
+    src/dsp/stretch/StretchSignalsmith.cpp
+    src/dsp/stretch/StretchBungee.cpp
+    src/dsp/stretch/StretchPghi.cpp
+    src/dsp/stretch/StretchPaul.cpp
+    src/dsp/stretch/StretchResample.cpp
+    ${ILANA_BUNGEE_SOURCES}
+    ${ILANA_STRETCH_DEPS}/pffft/pffft.c
+    ${ILANA_STRETCH_DEPS}/pffft/fftpack.c
+)
+target_include_directories(ilanaStretch PRIVATE
+    ${ILANA_STRETCH_DEPS}
+    ${ILANA_STRETCH_DEPS}/signalsmith-stretch
+    ${ILANA_STRETCH_DEPS}/bungee
+    ${ILANA_STRETCH_DEPS}/eigen
+    ${ILANA_STRETCH_DEPS}/pffft
+)
+target_compile_definitions(ilanaStretch PRIVATE
+    BUNGEE_VERSION="2.4.8" BUNGEE_VISIBILITY= BUNGEE_SELF_TEST=0
+    eigen_assert=BUNGEE_ASSERT1 EIGEN_DONT_PARALLELIZE=1 _USE_MATH_DEFINES
+)
+target_compile_options(ilanaStretch PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-fwrapv>)
+set_target_properties(ilanaStretch PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # M9: the formats. VST3 and the standalone everywhere, AU on macOS, and
 # CLAP through clap-juce-extensions (ILANA_CLAP=OFF skips it).
 option(ILANA_CLAP "Build CLAP versions of both plugins" ON)
@@ -544,4 +608,12 @@ add_test(NAME fx_tests COMMAND ilanaFxTest)
 
 foreach (tool ilanaSnapshot ilanaFingerprint ilanaStress ilanaPresetRender ilanaFxTest)
     ilana_big_stack (${tool})
+endforeach()
+
+# TIME's high-quality stretchers, in everything built from the processor.
+foreach(target ilanaSynth ilanaSynthFX ilanaTableTest ilanaSnapshot ilanaFingerprint ilanaStress
+               ilanaPresetRender ilanaKnobAudit ilanaFxTest ilanaFxCpuBench)
+    if (TARGET ${target})
+        target_link_libraries(${target} PRIVATE ilanaStretch)
+    endif()
 endforeach()

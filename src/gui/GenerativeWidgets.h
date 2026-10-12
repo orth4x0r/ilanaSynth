@@ -803,7 +803,9 @@ public:
                 const auto edited = std::abs (value - defaultFor (lane)) > 1.0e-3f;
 
                 const auto hovered = lane == hoverLane && step == hoverStep;
-                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : on ? 0.045f : 0.07f) * (active ? 1.0f : 0.6f)));
+                static const int r18 = juce::SystemStats::getEnvironmentVariable ("ILANA_R18_SEQ", "0").getIntValue();
+                const auto offBack = r18 == 1 ? 0.0f : r18 == 2 ? 0.02f : r18 == 3 ? 0.045f : 0.07f;
+                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : on ? 0.045f : offBack) * (active ? 1.0f : 0.6f)));
                 g.fillRoundedRectangle (full, 2.0f);
                 // Off, the bars also lose most of their colour, so they read
                 // as stored, not playing (I8-24), while the values stay clear.
@@ -846,8 +848,19 @@ public:
                     // (every step at its default), as dimmed ghost bars, so the
                     // lane shows content but never reads as in use (V11-16,
                     // V15-1).
-                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.5f * cellAlpha));
-                    g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
+                    if (r18 == 1)
+                    {
+                    }
+                    else if (r18 == 2)
+                    {
+                        g.setColour (IlanaTheme::Ui::text3.withAlpha (0.55f * cellAlpha));
+                        g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX() + 3.0f, cell.getBottom() - unit * cell.getHeight() - 1.5f, cell.getWidth() - 6.0f, 3.0f), 1.5f);
+                    }
+                    else
+                    {
+                        g.setColour (IlanaTheme::Ui::text3.withAlpha ((r18 == 3 ? 0.2f : 0.5f) * cellAlpha));
+                        g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
+                    }
 
                     if (lane == gate)
                     {

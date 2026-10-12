@@ -4,7 +4,7 @@
 // (block time / block duration). Used for docs/ROUTING-CPU.md.
 //
 //   ilanaFxCpuBench                 every scenario
-//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep|graph|patcher   one group
+//   ILANA_BENCH_ONLY=types|series|parallel|overhead|sleep|graph|patcher|fxlfo   one group
 //                                   (graph: the patch graph of roadmap step A,
 //                                   its own overhead and the rack run through it)
 //   ILANA_BENCH_TYPELIST=12,13   effect types the types group measures
@@ -392,6 +392,45 @@ int main()
                       << ")   patcher " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanB).toStdString()
                       << ")   difference " << juce::String (pair.meanB - pair.meanA, 2).toStdString() << " us" << std::endl;
         }
+    }
+
+    if (want ("fxlfo"))
+    {
+        const auto core = 1.0e6 * blockSize / sampleRate;
+        const auto percent = [core] (double us) { return juce::String (100.0 * us / core, 3) + " %"; };
+        // The PATCH tab's LFO boxes (FxLfo.h): Drive, Chorus, Delay, Reverb in
+        // the patcher, without LFO boxes against the same with FX LFO 1 on
+        // Delay TIME and FEEDBACK and FX LFO 2 (Sample & Hold) on Reverb's
+        // MIX and Drive's amount (the rack then runs in 128-sample chunks).
+        std::cout << "\n== FX LFO boxes: Drive, Chorus, Delay, Reverb in the patcher (us per block, mean; two processors, blocks in turn)\n";
+        IlanaSynthAudioProcessor plain, moved;
+        for (auto* q : { &plain, &moved })
+        {
+            quiet (*q);
+            const std::vector<int> types { 2, 7, 9, 13 };
+            for (size_t s = 0; s < types.size(); ++s)
+                q->assignFxSlot ((int) s + 1, types[s]);
+            q->prepareToPlay (sampleRate, blockSize);
+            q->setFxPatcherOn (true);
+            q->compileFxPlansNow();
+        }
+        const auto first = moved.addFxLfo (0.0f, -100.0f);
+        moved.assignFxLfo (first, 2, "fx_delay_time", true, 0.3f);
+        moved.assignFxLfo (first, 2, "fx_delay_feedback", true, 0.3f);
+        const auto second = moved.addFxLfo (200.0f, -100.0f);
+        FxLfo::Settings steps;
+        steps.shape = 5;
+        moved.setFxLfoSettings (second, steps);
+        moved.assignFxLfo (second, 3, "mix", true, 0.4f);
+        moved.assignFxLfo (second, 0, "fx_drive_amount", true, 0.4f);
+        moved.compileFxPlansNow();
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        const auto pair = timeInTurn ([&] (juce::AudioBuffer<float>& b) { plain.processEffects (b); },
+                                      [&] (juce::AudioBuffer<float>& b) { moved.processEffects (b); }, buffer);
+        std::cout << juce::String ("2 LFO boxes, 4 knobs on 3 effects").paddedRight (' ', 40).toStdString()
+                  << " none " << juce::String (pair.meanA, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanA).toStdString()
+                  << ")   with " << juce::String (pair.meanB, 2).paddedLeft (' ', 7).toStdString() << " us (" << percent (pair.meanB).toStdString()
+                  << ")   difference " << juce::String (pair.meanB - pair.meanA, 2).toStdString() << " us" << std::endl;
     }
 
     if (want ("silentblocks"))

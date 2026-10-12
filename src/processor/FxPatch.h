@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <utility>
 #include <vector>
@@ -8,6 +9,7 @@
 
 #include "PatchGraph.h"
 #include "PatchGraphState.h"
+#include "FxLfo.h"
 #include "../dsp/airwindows/Categories.h"
 
 // The FX patcher's part of a patch (roadmap step 17), kept outside the
@@ -45,11 +47,73 @@ struct Instance
     }
 };
 
+// An LFO box (FxLfo.h): its number (1..FxLfo::maxLfos, kept for life),
+// where it sits on the canvas (the FX graph's coordinates) and its settings.
+struct Lfo
+{
+    int id = 1;
+    float x = 0.0f, y = 0.0f;
+    FxLfo::Settings settings;
+
+    bool operator== (const Lfo& o) const { return id == o.id && x == o.x && y == o.y && settings == o.settings; }
+};
+
+// A cable from an LFO box to an effect's box (slot 0..numSlots-1). It moves
+// nothing until a knob of that effect is assigned to the LFO (an LfoRoute).
+struct LfoCable
+{
+    int lfo = 1;
+    int slot = 0;
+
+    bool operator== (const LfoCable& o) const { return lfo == o.lfo && slot == o.slot; }
+};
+
+// One knob an LFO moves: `param` is the effect's parameter ID, or "mix" for
+// the slot's MIX (kept apart from the slot's number, so the route survives a
+// slot swap). `amount` -1..1 of the knob's range at full DEPTH.
+struct LfoRoute
+{
+    int lfo = 1;
+    int slot = 0;
+    juce::String param;
+    float amount = 0.5f;
+
+    bool operator== (const LfoRoute& o) const { return lfo == o.lfo && slot == o.slot && param == o.param && amount == o.amount; }
+};
+
+inline const juce::String mixParam { "mix" };
+
 struct Patch
 {
     std::array<Instance, numSlots> slots;
     PatchGraph::Graph graph;
     bool hasGraph = false;
+    std::vector<Lfo> lfos;
+    std::vector<LfoCable> lfoCables;
+    std::vector<LfoRoute> lfoRoutes;
+
+    const Lfo* findLfo (int id) const
+    {
+        for (const auto& lfo : lfos)
+            if (lfo.id == id)
+                return &lfo;
+        return nullptr;
+    }
+
+    bool hasLfoCable (int lfo, int slot) const
+    {
+        return std::find (lfoCables.begin(), lfoCables.end(), LfoCable { lfo, slot }) != lfoCables.end();
+    }
+
+    // Routes whose LFO or cable is gone are dropped (an edit leaves none behind).
+    void pruneLfoRoutes()
+    {
+        lfoCables.erase (std::remove_if (lfoCables.begin(), lfoCables.end(), [this] (const LfoCable& c)
+                                         { return findLfo (c.lfo) == nullptr || ! juce::isPositiveAndBelow (c.slot, numSlots); }),
+                         lfoCables.end());
+        lfoRoutes.erase (std::remove_if (lfoRoutes.begin(), lfoRoutes.end(), [this] (const LfoRoute& r) { return ! hasLfoCable (r.lfo, r.slot); }),
+                         lfoRoutes.end());
+    }
 
     bool anyInstances() const
     {
@@ -59,7 +123,7 @@ struct Patch
         return false;
     }
 
-    bool isDefault() const { return ! anyInstances() && ! hasGraph; }
+    bool isDefault() const { return ! anyInstances() && ! hasGraph && lfos.empty() && lfoCables.empty() && lfoRoutes.empty(); }
 };
 
 // Which parameters are an effect type's own settings: the ones an instance
@@ -120,6 +184,9 @@ inline bool isParamOf (int type, const juce::String& id)
 //==============================================================================
 inline const juce::Identifier patchTag { "FxPatch" };
 inline const juce::Identifier slotTag { "Instance" };
+inline const juce::Identifier lfoTag { "Lfo" };
+inline const juce::Identifier lfoCableTag { "LfoCable" };
+inline const juce::Identifier lfoRouteTag { "LfoRoute" };
 
 inline juce::ValueTree toValueTree (const Patch& patch)
 {
@@ -145,6 +212,37 @@ inline juce::ValueTree toValueTree (const Patch& patch)
     }
     if (patch.hasGraph)
         tree.appendChild (PatchGraph::toValueTree (patch.graph), nullptr);
+    for (const auto& lfo : patch.lfos)
+    {
+        juce::ValueTree child (lfoTag);
+        child.setProperty ("id", lfo.id, nullptr);
+        child.setProperty ("x", lfo.x, nullptr);
+        child.setProperty ("y", lfo.y, nullptr);
+        child.setProperty ("shape", lfo.settings.shape, nullptr);
+        child.setProperty ("sync", lfo.settings.sync, nullptr);
+        child.setProperty ("rate", lfo.settings.rateHz, nullptr);
+        child.setProperty ("division", lfo.settings.division, nullptr);
+        child.setProperty ("depth", lfo.settings.depth, nullptr);
+        child.setProperty ("bipolar", lfo.settings.bipolar, nullptr);
+        child.setProperty ("phase", lfo.settings.phase, nullptr);
+        tree.appendChild (child, nullptr);
+    }
+    for (const auto& cable : patch.lfoCables)
+    {
+        juce::ValueTree child (lfoCableTag);
+        child.setProperty ("lfo", cable.lfo, nullptr);
+        child.setProperty ("slot", cable.slot + 1, nullptr);
+        tree.appendChild (child, nullptr);
+    }
+    for (const auto& route : patch.lfoRoutes)
+    {
+        juce::ValueTree child (lfoRouteTag);
+        child.setProperty ("lfo", route.lfo, nullptr);
+        child.setProperty ("slot", route.slot + 1, nullptr);
+        child.setProperty ("param", route.param, nullptr);
+        child.setProperty ("amount", route.amount, nullptr);
+        tree.appendChild (child, nullptr);
+    }
     return tree;
 }
 
@@ -162,6 +260,46 @@ inline Patch fromValueTree (const juce::ValueTree& tree)
         {
             patch.graph = PatchGraph::fromValueTree (child);
             patch.hasGraph = true;
+            continue;
+        }
+        if (child.hasType (lfoTag))
+        {
+            Lfo lfo;
+            lfo.id = (int) child.getProperty ("id", 0);
+            const auto finite = [] (const juce::var& v) { const auto f = (float) v; return std::isfinite (f) ? f : 0.0f; };
+            lfo.x = finite (child.getProperty ("x", 0.0f));
+            lfo.y = finite (child.getProperty ("y", 0.0f));
+            lfo.settings.shape = (int) child.getProperty ("shape", 0);
+            lfo.settings.sync = (bool) child.getProperty ("sync", false);
+            lfo.settings.rateHz = (float) child.getProperty ("rate", 0.5f);
+            lfo.settings.division = (int) child.getProperty ("division", FxLfo::defaultDivision);
+            lfo.settings.depth = (float) child.getProperty ("depth", 1.0f);
+            lfo.settings.bipolar = (bool) child.getProperty ("bipolar", true);
+            lfo.settings.phase = (float) child.getProperty ("phase", 0.0f);
+            lfo.settings = lfo.settings.sanitised();
+            if (lfo.id >= 1 && lfo.id <= FxLfo::maxLfos && patch.findLfo (lfo.id) == nullptr)
+                patch.lfos.push_back (lfo);
+            continue;
+        }
+        if (child.hasType (lfoCableTag))
+        {
+            const LfoCable cable { (int) child.getProperty ("lfo", 0), (int) child.getProperty ("slot", 0) - 1 };
+            if (! patch.hasLfoCable (cable.lfo, cable.slot))
+                patch.lfoCables.push_back (cable);
+            continue;
+        }
+        if (child.hasType (lfoRouteTag))
+        {
+            LfoRoute route;
+            route.lfo = (int) child.getProperty ("lfo", 0);
+            route.slot = (int) child.getProperty ("slot", 0) - 1;
+            route.param = child.getProperty ("param").toString();
+            route.amount = (float) child.getProperty ("amount", 0.5f);
+            route.amount = std::isfinite (route.amount) ? juce::jlimit (-1.0f, 1.0f, route.amount) : 0.0f;
+            const auto known = std::any_of (patch.lfoRoutes.begin(), patch.lfoRoutes.end(), [&route] (const LfoRoute& r)
+                                            { return r.lfo == route.lfo && r.slot == route.slot && r.param == route.param; });
+            if (route.param.isNotEmpty() && ! known && (int) patch.lfoRoutes.size() < FxLfo::maxRoutes)
+                patch.lfoRoutes.push_back (route);
             continue;
         }
         if (! child.hasType (slotTag))
@@ -184,6 +322,7 @@ inline Patch fromValueTree (const juce::ValueTree& tree)
             }
         }
     }
+    patch.pruneLfoRoutes();
     return patch;
 }
 
@@ -194,6 +333,7 @@ inline bool sameGraph (const PatchGraph::Graph& a, const PatchGraph::Graph& b)
 
 inline bool samePatch (const Patch& a, const Patch& b)
 {
-    return a.slots == b.slots && a.hasGraph == b.hasGraph && (! a.hasGraph || sameGraph (a.graph, b.graph));
+    return a.slots == b.slots && a.hasGraph == b.hasGraph && (! a.hasGraph || sameGraph (a.graph, b.graph)) && a.lfos == b.lfos
+           && a.lfoCables == b.lfoCables && a.lfoRoutes == b.lfoRoutes;
 }
 } // namespace FxPatchData

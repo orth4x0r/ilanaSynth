@@ -1,0 +1,171 @@
+// The PATCH tab's LFO boxes (src/gui/pages/PatchLfo.h) driven the way ilana
+// asked for them (2026-10-12): "+ LFO" adds a box, a cable dragged from it
+// onto an effect's box goes to that effect, a right-click on a knob in the
+// effect's window assigns it, and the inspector takes the cable and the box
+// away again. The audio cables are never touched. Included by Snapshot.cpp
+// after OscRoutingUiTests.h; runs from runUiTests (ILANA_UITEST_ONLY=FL for
+// just these). ILANA_SNAPSHOT_FXLFO=1 writes pictures instead.
+#pragma once
+
+namespace FxLfoUi
+{
+inline juce::Button* buttonNamed (juce::Component& root, const juce::String& text)
+{
+    std::vector<juce::Button*> buttons;
+    findAll<juce::Button> (root, buttons);
+    for (auto* button : buttons)
+        if (visibleInTree (button) && button->getButtonText() == text)
+            return button;
+    return nullptr;
+}
+
+// A knob `id` in the floating window titled `window` ("FX WINDOW DELAY 2").
+inline KnobControl* windowKnob (juce::Component& root, const juce::String& window, const juce::String& id)
+{
+    std::vector<KnobControl*> knobs;
+    findAll<KnobControl> (root, knobs);
+    for (auto* knob : knobs)
+        if (knob->getParameterId() == id && visibleInTree (knob))
+            for (auto* parent = knob->getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+                if (parent->getName().equalsIgnoreCase (window))
+                    return knob;
+    return nullptr;
+}
+
+// Runs the item named `text` in a menu (or its submenus); false if none.
+inline bool pick (const juce::PopupMenu& menu, const juce::String& text)
+{
+    for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+        if (it.getItem().text == text && it.getItem().action != nullptr)
+        {
+            it.getItem().action();
+            return true;
+        }
+    return false;
+}
+
+inline bool hasItem (const juce::PopupMenu& menu, const juce::String& text)
+{
+    for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+        if (it.getItem().text == text)
+            return true;
+    return false;
+}
+} // namespace FxLfoUi
+
+inline void runFxLfoUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
+{
+    using namespace FxLfoUi;
+    constexpr int delay = 9;
+    constexpr PatchGraph::NodeId lfoNode = (1u << 21) + 1u; // (PatchPage::lfoNodeId + 1)
+
+    processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
+    settle (200);
+    processor.addFxEffect (delay);
+    processor.addFxEffect (delay);
+    processor.setFxPatcherOn (true);
+    editor.showPage ("PATCH");
+    settle (400);
+
+    auto* view = OscRoutingUi::findRoutingView (editor);
+    expect (view != nullptr, "FX LFO: PATCH shows the cable view");
+    if (view == nullptr)
+        return;
+    const auto audioCables = processor.getFxPatchGraph().cables().size();
+    const auto boxOfSlot = [view] (int slot) -> const PatchGraph::Node*
+    {
+        auto seen = 0;
+        for (const auto& node : view->getGraph().nodes())
+            if (! node.isFixed() && node.id < (1u << 20) && node.kind == delay && seen++ == slot)
+                return &node;
+        return nullptr;
+    };
+
+    // Both copies' windows open (the one not in front works on a shadow of
+    // its own settings; opening it read freed memory before 2026-10-12).
+    for (int k : { 0, 1 })
+        if (const auto* box = boxOfSlot (k))
+        {
+            view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (*box).getCentre() * view->getZoom(), false));
+            settle (300);
+        }
+    expect (windowKnob (editor, "FX WINDOW DELAY 1", "fx_delay_time") != nullptr && windowKnob (editor, "FX WINDOW DELAY 2", "fx_delay_time") != nullptr,
+            "FX LFO: both Delays' windows open");
+
+    // "+ LFO" adds FX LFO 1 as a box on the canvas.
+    auto* add = buttonNamed (editor, "+ LFO");
+    expect (add != nullptr, "FX LFO: the toolbar has + LFO");
+    if (add == nullptr)
+        return;
+    add->triggerClick();
+    settle (200);
+    expect (processor.getFxPatch().lfos.size() == 1 && view->getGraph().find (lfoNode) != nullptr, "FX LFO: + LFO adds a box");
+
+    // A cable dragged from it onto Delay 2's box goes to Delay 2 (slot 1).
+    const auto* second = boxOfSlot (1);
+    expect (second != nullptr, "FX LFO: Delay 2 has a box");
+    if (second == nullptr)
+        return;
+    const auto secondId = second->id;
+    const auto from = view->portPosition ({ lfoNode, 0 }, false) * view->getZoom();
+    const auto to = view->nodeBounds (*second).getCentre() * view->getZoom();
+    PatchCableUi::dragFromTo (*view, from, to);
+    settle (200);
+    expect (processor.getFxPatch().hasLfoCable (1, 1) && processor.getFxPatch().lfoCables.size() == 1,
+            "FX LFO: a cable dragged onto Delay 2's box goes to Delay 2");
+    expect (processor.getFxPatchGraph().cables().size() == audioCables, "FX LFO: the cable is not an audio cable");
+
+    // Right-click TIME in Delay 2's window: "Assign to FX LFO 1".
+    if (const auto* box = view->getGraph().find (secondId))
+        view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (*box).getCentre() * view->getZoom(), false));
+    settle (300);
+    auto* time = windowKnob (editor, "FX WINDOW DELAY 2", "fx_delay_time");
+    expect (time != nullptr, "FX LFO: Delay 2's window opens with its TIME knob");
+    if (time != nullptr)
+    {
+        expect (pick (time->buildModMenu(), "Assign to FX LFO 1"), "FX LFO: TIME's right-click menu offers Assign to FX LFO 1");
+        settle (100);
+        const auto routes = processor.getFxPatch().lfoRoutes;
+        expect (routes.size() == 1 && routes[0].slot == 1 && routes[0].param == "fx_delay_time",
+                "FX LFO: assigning moves Delay 2's TIME only");
+        const auto menu = time->buildModMenu();
+        expect (hasItem (menu, "Remove from FX LFO 1") && ! hasItem (menu, "Assign to FX LFO 1"),
+                "FX LFO: an assigned knob's menu offers Remove (not Assign)");
+    }
+
+    // Delay 1 has no LFO cable: its knobs offer a new LFO, not FX LFO 1.
+    if (const auto* first = boxOfSlot (0))
+        view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (*first).getCentre() * view->getZoom(), false));
+    settle (300);
+    if (auto* other = windowKnob (editor, "FX WINDOW DELAY 1", "fx_delay_time"))
+    {
+        const auto menu = other->buildModMenu();
+        expect (! hasItem (menu, "Assign to FX LFO 1") && hasItem (menu, "Assign to a new LFO"),
+                "FX LFO: an effect with no LFO cable offers a new LFO, not another effect's");
+    }
+    else
+        expect (false, "FX LFO: Delay 1's window opens");
+
+    // The cable selected: REMOVE CABLE takes it and its knob away.
+    view->selectCable (view->getGraph().findCable ({ lfoNode, 0 }, { secondId, 0 }));
+    settle (200);
+    if (auto* remove = buttonNamed (editor, "REMOVE CABLE"))
+        remove->triggerClick();
+    settle (200);
+    expect (processor.getFxPatch().lfoCables.empty() && processor.getFxPatch().lfoRoutes.empty(),
+            "FX LFO: REMOVE CABLE takes the cable and its knobs out");
+
+    // The box selected: REMOVE takes it away.
+    const auto centre = [view] { const auto* node = view->getGraph().find (lfoNode); return node != nullptr ? view->nodeBounds (*node).getCentre() * view->getZoom() : juce::Point<float>(); };
+    view->mouseDown (PatchCableUi::mouse (*view, centre(), true));
+    view->mouseUp (PatchCableUi::mouse (*view, centre(), false));
+    settle (200);
+    if (auto* remove = buttonNamed (editor, "REMOVE"))
+        remove->triggerClick();
+    settle (200);
+    expect (processor.getFxPatch().lfos.empty() && view->getGraph().find (lfoNode) == nullptr, "FX LFO: REMOVE takes the box away");
+    expect (processor.getFxPatchGraph().cables().size() == audioCables, "FX LFO: the audio cables are as they were");
+
+    processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
+    settle (200);
+}

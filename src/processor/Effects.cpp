@@ -14,7 +14,137 @@
 // they are; for the moment after a slot is added, removed, bypassed or
 // soloed, until the new plan is in, the fixed loop runs instead (the same
 // sound). Offline the plan is made here, at once.
+//
+// The patcher's LFO boxes (FxLfo.h): while any of their cables moves a knob,
+// the rack runs in chunks of FxLfo::chunk samples and the LFOs step between
+// them (the effects read their knobs once per call). Without one, nothing
+// here changes what runs.
 void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
+{
+    const auto* program = fxLfoProgram.load (std::memory_order_acquire);
+    if (program == nullptr || program->numRoutes == 0)
+    {
+        if (fxLfoRunning)
+        {
+            for (auto& mods : fxLfoSlotMods)
+                mods.count = 0;
+            fxLfoRunning = false;
+        }
+        return processEffectsNow (buffer);
+    }
+
+    fxLfoRunning = true;
+    const auto total = buffer.getNumSamples();
+    for (int start = 0; start < total; start += FxLfo::chunk)
+    {
+        const auto length = juce::jmin (FxLfo::chunk, total - start);
+        advanceFxLfos (*program, length);
+        if (start == 0 && length == total)
+        {
+            processEffectsNow (buffer);
+            break;
+        }
+        juce::AudioBuffer<float> part (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
+        processEffectsNow (part);
+    }
+}
+
+// The LFOs' values for the chunk about to run (each slot's offsets), then
+// on by the chunk.
+void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int numSamples)
+{
+    const auto sampleRate = juce::jmax (1.0, currentSampleRate);
+    const auto bpm = juce::jlimit (20.0, 999.0, currentBpm.load());
+    const auto playing = hostPlaying.load();
+    const auto ppq = hostPpq.load();
+    if (ppq != fxLfoLastPpq)
+    {
+        fxLfoLastPpq = ppq;
+        fxLfoSamplesSincePpq = 0;
+    }
+    const auto ppqNow = ppq + (double) fxLfoSamplesSincePpq / sampleRate * bpm / 60.0;
+    fxLfoSamplesSincePpq += numSamples;
+
+    std::array<float, FxLfo::maxLfos> outputs {};
+    for (int l = 0; l < FxLfo::maxLfos; ++l)
+    {
+        if (! program.used[(size_t) l])
+            continue;
+        const auto& settings = program.settings[(size_t) l];
+        auto& state = fxLfoStates[(size_t) l];
+        const auto shapeValue = state.shapeValue (FxLfo::shapeOf (settings.shape));
+        outputs[(size_t) l] = FxLfo::output (settings, shapeValue);
+        fxLfoShownValue[(size_t) l].store (shapeValue, std::memory_order_relaxed);
+        fxLfoShownPhase[(size_t) l].store ((float) std::fmod (state.phase + settings.phase, 1.0), std::memory_order_relaxed);
+
+        double cyclesPerSample = settings.rateHz / sampleRate;
+        double synced = -1.0;
+        if (settings.sync)
+        {
+            const auto beats = FxLfo::divisionBeats (settings.division);
+            cyclesPerSample = bpm / 60.0 / beats / sampleRate;
+            if (playing)
+            {
+                const auto atEnd = (ppqNow + (double) numSamples / sampleRate * bpm / 60.0) / beats;
+                synced = atEnd - std::floor (atEnd);
+            }
+        }
+        state.advance (settings, cyclesPerSample, numSamples, synced);
+    }
+
+    for (auto& mods : fxLfoSlotMods)
+        mods.count = 0;
+    for (int r = 0; r < program.numRoutes; ++r)
+    {
+        const auto& route = program.routes[(size_t) r];
+        auto& mods = fxLfoSlotMods[(size_t) route.slot];
+        const auto offset = outputs[(size_t) route.lfo] * route.amount;
+        // (Two LFOs on one knob add up.)
+        auto k = 0;
+        while (k < mods.count && mods.index[(size_t) k] != route.index)
+            ++k;
+        if (k == mods.count)
+        {
+            mods.index[(size_t) k] = route.index;
+            mods.parameter[(size_t) k] = route.parameter;
+            mods.offset[(size_t) k] = 0.0f;
+            ++mods.count;
+        }
+        mods.offset[(size_t) k] = juce::jlimit (-1.0f, 1.0f, mods.offset[(size_t) k] + offset);
+    }
+}
+
+void IlanaSynthAudioProcessor::resetFxLfos()
+{
+    for (int l = 0; l < FxLfo::maxLfos; ++l)
+        fxLfoStates[(size_t) l].reset (l + 1);
+    fxLfoLastPpq = -1.0;
+    fxLfoSamplesSincePpq = 0;
+}
+
+float IlanaSynthAudioProcessor::getFxLfoValue (int id) const
+{
+    return juce::isPositiveAndBelow (id - 1, FxLfo::maxLfos) ? fxLfoShownValue[(size_t) (id - 1)].load (std::memory_order_relaxed) : 0.0f;
+}
+
+float IlanaSynthAudioProcessor::getFxLfoPhase (int id) const
+{
+    return juce::isPositiveAndBelow (id - 1, FxLfo::maxLfos) ? fxLfoShownPhase[(size_t) (id - 1)].load (std::memory_order_relaxed) : 0.0f;
+}
+
+float IlanaSynthAudioProcessor::getFxLfoOffset (int slotIndex, const juce::String& parameterId) const
+{
+    const auto* entry = findParam (parameterId.toRawUTF8());
+    if (entry == nullptr || ! juce::isPositiveAndBelow (slotIndex, numFxSlots))
+        return 0.0f;
+    const auto& mods = fxLfoSlotMods[(size_t) slotIndex];
+    for (int k = 0; k < mods.count; ++k)
+        if (mods.index[(size_t) k] == entry->index)
+            return mods.offset[(size_t) k];
+    return 0.0f;
+}
+
+void IlanaSynthAudioProcessor::processEffectsNow (juce::AudioBuffer<float>& buffer)
 {
     if (getParam (fxPatcherRef) > 0.5f)
         return processEffectsPatched (buffer);
@@ -188,6 +318,12 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         const float* previous;
         ~OwnValues() { swapFxParamValues (previous); }
     } ownValues { swapFxParamValues (slotValues[(size_t) (slot - 1)].load (std::memory_order_acquire)) };
+    // Its LFO cables' offsets, while it runs (readParam).
+    struct LfoMods
+    {
+        const FxLfoSlotMods* previous;
+        ~LfoMods() { swapFxLfoMods (previous); }
+    } lfoMods { swapFxLfoMods (fxLfoSlotMods[(size_t) (slot - 1)].count > 0 ? &fxLfoSlotMods[(size_t) (slot - 1)] : nullptr) };
 
     {
         const auto& ids = fxSlotIds[(size_t) (slot - 1)];
@@ -2472,6 +2608,7 @@ void IlanaSynthAudioProcessor::resetFxEngineRamps() noexcept
 
 void IlanaSynthAudioProcessor::prepareFxEngines (double sampleRate, int samplesPerBlock)
 {
+    resetFxLfos();
     fxMain->prepare (sampleRate, samplesPerBlock, expectedBlockSize);
     for (auto& engine : slotEngines)
         if (auto* own = engine.load (std::memory_order_acquire))
@@ -2481,6 +2618,7 @@ void IlanaSynthAudioProcessor::prepareFxEngines (double sampleRate, int samplesP
 
 void IlanaSynthAudioProcessor::resetFxEngines()
 {
+    resetFxLfos();
     fxPatchRunner->reset(); // the patcher's loops start empty
     fxMain->reset();
     for (auto& engine : slotEngines)

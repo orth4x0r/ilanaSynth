@@ -194,7 +194,8 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         set (prefix + "_sample_tuned", 1.0f);
         // Tuned samples play at pitch on C4: shift the bounced note back.
         set (prefix + "_semi", (float) juce::jlimit (-24, 24, 60 - request.note));
-        for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out" })
+        for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out",
+                                "_sample_sync", "_sample_bpm", "_sample_stretch" })
             reset (prefix + id);
         message = "Bounced into " + oscName + " as a " + juce::String (seconds, 1) + " s sample, saved inside the patch.";
     }

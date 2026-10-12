@@ -2,7 +2,11 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "SampleTempo.h"
+
+#include <array>
 #include <cmath>
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -80,10 +84,20 @@ public:
         float gain = 1.0f;
         // A multisample region's own loop (samples); used when loopEnd > loopStart.
         int loopStart = 0, loopEnd = 0;
+        // Roadmap step 40: STRETCH keeps the pitch apart from the speed. The
+        // read position moves at the time rate and short overlapping grains
+        // read it at the pitch rate (setRates). Off, as before: one read at
+        // one rate (setPlaybackRatio).
+        bool stretch = false;
     };
 
-    void prepare (double)
+    void prepare (double newSampleRate)
     {
+        grainLength = juce::jmax (64, 2 * juce::roundToInt (0.023 * newSampleRate));
+        window.resize ((size_t) grainLength);
+        // A periodic Hann: two grains half a length apart sum to exactly one.
+        for (int i = 0; i < grainLength; ++i)
+            window[(size_t) i] = (float) (0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * i / grainLength));
     }
 
     void reset()
@@ -102,11 +116,15 @@ public:
 
         position = params.reverse ? regionEnd - 1.0 : regionStart;
         active = true;
+
+        if (params.stretch)
+            startGrains();
     }
 
     void setParams (const Params& newParams)
     {
         const auto newSample = newParams.sample != params.sample;
+        const auto newStretch = newParams.stretch && ! params.stretch;
         params = newParams;
 
         if (params.sample == nullptr || params.sample->getNumSamples() <= 1)
@@ -122,12 +140,25 @@ public:
 
         if (newSample)
             trigger();
+        else if (newStretch && active)
+            startGrains();
     }
 
     void setPlaybackRatio (double newRatio)
     {
         ratio = juce::jlimit (0.0001, 64.0, std::abs (newRatio));
     }
+
+    // STRETCH: the read position moves at timeRate source samples per output
+    // sample, the grains read at pitchRate. (Each includes the sample rates' ratio.)
+    void setRates (double timeRate, double pitchRate)
+    {
+        ratio = juce::jlimit (0.0001, 64.0, std::abs (timeRate));
+        pitch = juce::jlimit (0.0001, 64.0, std::abs (pitchRate));
+    }
+
+    // The grains' length in output samples (about 46 ms); set by prepare.
+    int getGrainLength() const noexcept { return grainLength; }
 
     bool isActive() const noexcept { return active; }
 
@@ -164,6 +195,12 @@ public:
                 while (position >= regionEnd)
                     position -= regionLength;
             }
+        }
+
+        if (params.stretch)
+        {
+            processStretched (left, right);
+            return;
         }
 
         const auto* sample = params.sample;
@@ -204,7 +241,170 @@ public:
     }
 
 private:
+    struct Grain
+    {
+        double read = 0.0; // source position
+        int age = 0;       // output samples since it started
+        bool on = false;
+    };
+
+    // Both channels' sum at a whole sample, for the grain search.
+    static float monoAt (const SampleData& sample, int index) noexcept
+    {
+        if (index < 0 || index >= sample.getNumSamples())
+            return 0.0f;
+        auto sum = sample.buffer.getSample (0, index);
+        if (sample.getNumChannels() > 1)
+            sum += sample.buffer.getSample (1, index);
+        return sum;
+    }
+
+    void startGrains()
+    {
+        if (grainLength <= 0)
+            prepare (44100.0);
+        // The first grain starts at its peak, so a note's attack is not faded
+        // in; the second starts with it, reading the same audio.
+        grains[0] = { position, grainLength / 2, true };
+        grains[1] = { position, 0, true };
+        nextGrain = 0; // the older grain is the next to be replaced
+        hopCountdown = grainLength / 2;
+    }
+
+    // WSOLA: the new grain starts near the read position, where its audio
+    // best continues what the running grain plays now (a short correlation
+    // search, coarse then fine), so overlapping grains add in phase. About
+    // 10 multiply-adds per output sample at 44.1 kHz.
+    double alignedStart (double target, double continuation) const noexcept
+    {
+        const auto& sample = *params.sample;
+        const auto numSamples = sample.getNumSamples();
+        const auto rate = juce::jmax (8000.0, sample.sampleRate);
+        const auto direction = params.reverse ? -1 : 1;
+        const auto searchRange = (int) (0.010 * rate);
+        const auto span = (int) (0.008 * rate);
+        const auto coarse = juce::jmax (1, (int) (rate / 5512.5)); // 8 at 44.1 kHz
+        const auto fine = juce::jmax (1, coarse / 4);
+        const auto from = (int) std::floor (continuation);
+        const auto* left = sample.buffer.getReadPointer (0);
+        const auto* right = sample.buffer.getReadPointer (sample.getNumChannels() > 1 ? 1 : 0);
+
+        // Correlation of the window at start with the one at from, over the
+        // first window's level. Indices outside the sample read silence.
+        const auto score = [&] (int start, int step)
+        {
+            auto cross = 0.0f, energy = 1.0e-9f;
+            const auto last = (span - 1) / step * step;
+            const auto inside = [numSamples] (int a, int b) { return juce::jmin (a, b) >= 0 && juce::jmax (a, b) < numSamples; };
+            if (inside (start, start + last * direction) && inside (from, from + last * direction))
+            {
+                for (int j = 0; j < span; j += step)
+                {
+                    const auto a = start + j * direction, b = from + j * direction;
+                    const auto x = left[a] + right[a];
+                    cross += x * (left[b] + right[b]);
+                    energy += x * x;
+                }
+            }
+            else
+            {
+                for (int j = 0; j < span; j += step)
+                {
+                    const auto x = monoAt (sample, start + j * direction);
+                    cross += x * monoAt (sample, from + j * direction);
+                    energy += x * x;
+                }
+            }
+            return cross / std::sqrt (energy);
+        };
+
+        const auto centre = (int) std::floor (target);
+        auto best = centre;
+        auto bestScore = -1.0e30f;
+        for (int offset = -searchRange; offset <= searchRange; offset += coarse)
+            if (const auto value = score (centre + offset, coarse); value > bestScore)
+            {
+                bestScore = value;
+                best = centre + offset;
+            }
+
+        // (Fine scores are compared only with each other: the step changes the scale.)
+        const auto rough = best;
+        bestScore = -1.0e30f;
+        for (int offset = -coarse + 1; offset < coarse; ++offset)
+            if (const auto value = score (rough + offset, fine); value > bestScore)
+            {
+                bestScore = value;
+                best = rough + offset;
+            }
+
+        return (double) best + (target - std::floor (target));
+    }
+
+    void processStretched (float& left, float& right)
+    {
+        const auto& sample = *params.sample;
+        const auto direction = params.reverse ? -1.0 : 1.0;
+
+        if (hopCountdown <= 0)
+        {
+            // The younger grain is at its peak: the older one has ended.
+            const auto& running = grains[(size_t) (1 - nextGrain)];
+            grains[(size_t) nextGrain] = { alignedStart (position, running.read), 0, true };
+            nextGrain = 1 - nextGrain;
+            hopCountdown = grainLength / 2;
+        }
+
+        float sumL = 0.0f, sumR = 0.0f;
+        const auto numSamples = sample.getNumSamples();
+        const auto* dataL = sample.buffer.getReadPointer (0);
+        const auto* dataR = sample.buffer.getReadPointer (sample.getNumChannels() > 1 ? 1 : 0);
+        for (auto& grain : grains)
+        {
+            if (! grain.on)
+                continue;
+            if (grain.age >= grainLength)
+            {
+                grain.on = false;
+                continue;
+            }
+            const auto weight = window[(size_t) grain.age];
+            // Linear read; silence outside the sample.
+            const auto index = (int) std::floor (grain.read);
+            if (index >= 0 && index < numSamples)
+            {
+                const auto next = juce::jmin (index + 1, numSamples - 1);
+                const auto frac = (float) (grain.read - (double) index);
+                sumL += (dataL[index] + (dataL[next] - dataL[index]) * frac) * weight;
+                sumR += (dataR[index] + (dataR[next] - dataR[index]) * frac) * weight;
+            }
+            grain.read += direction * pitch;
+            ++grain.age;
+        }
+
+        const auto posSinceStart = params.reverse ? (regionEnd - position) : (position - regionStart);
+        const auto posToEnd = params.reverse ? (position - regionStart) : (regionEnd - position);
+
+        auto gain = 1.0;
+        const auto fadeInLength = (double) params.fadeIn * regionLength;
+        if (fadeInLength > 1.0)
+            gain *= juce::jlimit (0.0, 1.0, posSinceStart / fadeInLength);
+        const auto fadeOutLength = (double) params.fadeOut * regionLength;
+        if (fadeOutLength > 1.0)
+            gain *= juce::jlimit (0.0, 1.0, posToEnd / fadeOutLength);
+        gain *= (double) params.gain;
+
+        left = sumL * (float) gain;
+        right = sumR * (float) gain;
+        position += direction * ratio;
+        --hopCountdown;
+    }
+
     Params params;
+    std::vector<float> window;
+    std::array<Grain, 2> grains {};
+    int grainLength = 0, nextGrain = 0, hopCountdown = 0;
+    double pitch = 1.0;
     double position = 0.0;
     double regionStart = 0.0;
     double regionEnd = 0.0;

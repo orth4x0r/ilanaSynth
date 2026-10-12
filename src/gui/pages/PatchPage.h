@@ -657,7 +657,7 @@ private:
             return "The chain and rack as cables. Change one to play the cables.";
         const auto loops = processorRef.getFxLoopLatencyMs();
         if (loops > 0.0f)
-            return "Drag an output to an input. Drag a loop's tag for its level; click it for DELAY.";
+            return "Drag an output to an input. Drag a loop's tag for its level.";
         return "Drag an output to an input. More cables play in parallel.";
     }
 
@@ -768,7 +768,9 @@ private:
 
         if (node == nullptr || node->isFixed())
         {
-            // Nothing selected: the patch in one line, and how to start.
+            // Nothing selected: the patch in one line, and how to start
+            // (left of the stats at the right).
+            text = text.withTrimmedRight (hasVoice ? 470 : 320);
             juce::String line;
             if (hasVoice)
             {
@@ -781,7 +783,7 @@ private:
             g.drawText (line, text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft, true);
             g.setColour (Ui::text3);
             g.setFont (font (TextSize::label));
-            g.drawText ("Click a box to set it here, or a loop's tag for its LEVEL and DELAY; double-click a box to open it. Right-click the canvas to add an effect.",
+            g.drawText ("Click a box or a loop's tag to set it here; double-click a box to open it. Right-click to add an effect.",
                         text.withTrimmedTop (4), juce::Justification::topLeft, true);
 
             // At the right: how the patch is wired and what its effects cost.
@@ -880,7 +882,6 @@ private:
         if (loop)
         {
             // Name and detail, LEVEL, DELAY (the MIX knob's size), REMOVE CABLE at the right.
-            inspectorText = row.removeFromLeft (juce::jmin (300, row.getWidth() / 3));
             auto actions = row.removeFromRight (340);
             removeCableButton.setBounds (actions.removeFromRight (130).withSizeKeepingCentre (130, 28));
             row.removeFromLeft (20);
@@ -1259,26 +1260,42 @@ private:
         // window: right of it, left, below, above; else right of it.
         const auto box = (view.nodeBounds (*node) * view.getZoom()).toNearestInt() + view.getPosition();
         const auto size = window->getLocalBounds();
-        const juce::Rectangle<int> places[] = {
+        std::vector<juce::Rectangle<int>> places {
             size.withPosition (box.getRight() + 20, box.getY()),
             size.withPosition (box.getX() - 20 - size.getWidth(), box.getY()),
             size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getBottom() + 20),
             size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getY() - 20 - size.getHeight())
         };
-        // (None clear: the one covering the least of the others.)
-        auto place = places[0];
-        auto least = std::numeric_limits<int>::max();
+        // (Or beside a window already open, so they tile rather than stack.)
+        for (const auto& other : windows)
+            if (other->isVisible())
+            {
+                const auto at = other->getBounds();
+                places.push_back (size.withPosition (at.getX() - 10 - size.getWidth(), at.getY()));
+                places.push_back (size.withPosition (at.getRight() + 10, at.getY()));
+                places.push_back (size.withPosition (at.getX(), at.getBottom() + 10));
+                places.push_back (size.withPosition (at.getX(), at.getY() - 10 - size.getHeight()));
+            }
+        // The one covering the least: another window counts far more than the
+        // boxes (which stay reachable round it); a place that fits as it is
+        // wins a tie.
+        auto place = places[0].constrainedWithin (view.getBounds());
+        auto least = std::numeric_limits<juce::int64>::max();
         for (const auto& candidate : places)
         {
             const auto inside = candidate.constrainedWithin (view.getBounds());
-            auto covered = 0;
+            juce::int64 covered = view.getBounds().contains (candidate) ? 0 : 1;
             for (const auto& other : windows)
                 if (other->isVisible())
                 {
                     const auto overlap = other->getBounds().getIntersection (inside);
-                    covered += overlap.getWidth() * overlap.getHeight();
+                    covered += 100 * (juce::int64) overlap.getWidth() * overlap.getHeight();
                 }
-            covered += view.getBounds().contains (candidate) ? 0 : 1; // (a place that fits as it is wins a tie)
+            for (const auto& node : shown.nodes())
+            {
+                const auto overlap = ((view.nodeBounds (node) * view.getZoom()).toNearestInt() + view.getPosition()).getIntersection (inside);
+                covered += (juce::int64) overlap.getWidth() * overlap.getHeight();
+            }
             if (covered < least)
             {
                 least = covered;

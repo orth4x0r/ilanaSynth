@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "DisplayStyle.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
@@ -393,7 +394,7 @@ private:
             }
             juce::Path dashed;
             const float pattern[] { 5.0f, 4.0f };
-            juce::PathStrokeType (1.4f).createDashedStroke (dashed, ghost, pattern, 2);
+            IlanaTrace::stroke (1.4f).createDashedStroke (dashed, ghost, pattern, 2);
             g.setColour (IlanaTheme::accent().withAlpha (0.38f));
             g.fillPath (dashed);
             g.setColour (IlanaTheme::Ui::text3);
@@ -437,11 +438,7 @@ private:
 
             const auto colour = channel == 0 ? IlanaTheme::accent() : juce::Colour (0xff5b8cff);
 
-            g.setColour (colour.withAlpha (0.14f));
-            g.strokePath (path, juce::PathStrokeType (4.0f));
-
-            g.setColour (colour.withAlpha (channel == 0 ? 0.95f : 0.85f));
-            g.strokePath (path, juce::PathStrokeType (1.4f));
+            IlanaTrace::paintTrace (g, path, colour.withAlpha (channel == 0 ? 0.95f : 0.85f));
         }
     }
 
@@ -524,7 +521,7 @@ private:
             g.fillPath (fill);
             juce::Path dashed;
             const float pattern[] { 5.0f, 4.0f };
-            juce::PathStrokeType (1.2f).createDashedStroke (dashed, ghost, pattern, 2);
+            IlanaTrace::stroke (1.2f).createDashedStroke (dashed, ghost, pattern, 2);
             g.setColour (IlanaTheme::accent().withAlpha (0.38f));
             g.fillPath (dashed);
             g.setColour (IlanaTheme::Ui::text3);
@@ -532,22 +529,6 @@ private:
             IlanaTheme::drawFitted (g, "play a note to see its spectrum", area.withSizeKeepingCentre (area.getWidth() * 0.6f, 18.0f).translated (0.0f, -area.getHeight() * 0.18f).toNearestInt(),
                                     juce::Justification::centred, 1);
         }
-
-        juce::Path path;
-        path.startNewSubPath (area.getX(), area.getBottom());
-
-        for (int x = 1; x < width; ++x)
-        {
-            const auto y = area.getBottom() - spectrumSmoothed[(size_t) x] * area.getHeight();
-            path.lineTo (area.getX() + (float) x, y);
-        }
-
-        path.closeSubPath();
-
-        juce::ColourGradient fillGradient (IlanaTheme::accent().withAlpha (0.45f), 0.0f, area.getY(),
-                                           IlanaTheme::accent().withAlpha (0.03f), 0.0f, area.getBottom(), false);
-        g.setGradientFill (fillGradient);
-        g.fillPath (path);
 
         // Peak-hold spectrum outline with slow decay.
         if ((int) spectrumPeak.size() != width)
@@ -567,7 +548,7 @@ private:
         }
 
         g.setColour (IlanaTheme::accent().withAlpha (0.35f));
-        g.strokePath (peakPath, juce::PathStrokeType (1.0f));
+        g.strokePath (peakPath, IlanaTrace::stroke (1.0f));
 
         juce::Path outline;
         outline.startNewSubPath (area.getX(), area.getBottom() - spectrumSmoothed[0] * area.getHeight());
@@ -578,11 +559,9 @@ private:
             outline.lineTo (area.getX() + (float) x, y);
         }
 
-        g.setColour (IlanaTheme::accent().withAlpha (0.14f));
-        g.strokePath (outline, juce::PathStrokeType (3.5f));
-
-        g.setColour (IlanaTheme::accent());
-        g.strokePath (outline, juce::PathStrokeType (1.4f));
+        // The shared trace style (DisplayStyle.h): a soft area under a 1.6 px trace.
+        IlanaTrace::paintArea (g, outline, IlanaTheme::accent(), area.getBottom(), area.getX(), area.getX() + (float) (width - 1));
+        IlanaTrace::paintTrace (g, outline, IlanaTheme::accent());
 
         SpectrumColumns::paintFrequencyBand (g, area, band);
     }

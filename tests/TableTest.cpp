@@ -8863,6 +8863,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
+#include "ParamInfoTests.inc"
 #include "DemoRender.inc"
 
 // ILANA_PRESET_PROFILE=<factory preset>: hold ILANA_PROFILE_NOTES notes
@@ -9622,6 +9623,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PARAMINFO_TEST", "").isNotEmpty())
+    {
+        runParamInfoTests();
+        std::cout << (failures == 0 ? "PARAMINFO TESTS PASSED" : "PARAMINFO TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (const auto spec = juce::SystemStats::getEnvironmentVariable ("ILANA_PHYSMOD_RENDER", ""); spec.isNotEmpty())
         return renderPhysModPreset (spec);
 
@@ -10050,6 +10058,7 @@ int main()
     timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
     timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
+    timedRun ("runParamInfoTests", [] { runParamInfoTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED")

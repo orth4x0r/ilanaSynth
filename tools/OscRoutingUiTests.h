@@ -256,6 +256,13 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
                 reset = button;
         }
         expect (modes.isEmpty(), "PATCH has no routing mode switches (" + modes + ")");
+        // R19-1: the fitted graph uses the canvas's height, not a strip of it.
+        if (view->onFitRequested)
+            view->onFitRequested();
+        view->finishGlide();
+        settle (200);
+        const auto fitted = view->getContentArea().getHeight() * view->getZoom() / (float) juce::jmax (1, view->getHeight());
+        expect (fitted > 0.55f, "PATCH: after FIT the boxes fill the canvas's height (" + juce::String (fitted, 2) + " of it)");
         expect (reset != nullptr, "PATCH has RESET");
         if (reset != nullptr)
             reset->triggerClick();

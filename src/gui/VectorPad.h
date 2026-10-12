@@ -85,8 +85,9 @@ public:
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, false));
             const auto shown = osc >= 0 && osc < OscillatorIds::count && processorRef.isOscillatorShown (osc);
-            // (One wording for a missing oscillator: "OSC 4: none".)
-            g.drawText (shown ? "NOT A WAVETABLE" : "OSC " + juce::String (osc + 1) + ": none", area, juce::Justification::centred);
+            // (A missing oscillator's picture stays blank: the corner's menu says "OSC 4: none", R19-4.)
+            if (shown)
+                g.drawText ("NOT A WAVETABLE", area, juce::Justification::centred);
             return;
         }
 

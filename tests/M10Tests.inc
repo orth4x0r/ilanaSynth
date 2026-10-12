@@ -13,14 +13,14 @@ float rawValue (IlanaSynthAudioProcessor& processor, const juce::String& id)
 }
 
 // A state saved before v1.3 (tableSchema 2) with the given table choices.
-std::unique_ptr<IlanaSynthAudioProcessor> loadSchema2 (const std::vector<std::pair<juce::String, float>>& tables)
+std::unique_ptr<IlanaSynthAudioProcessor> loadSchema2 (const std::vector<std::pair<juce::String, float>>& tables, int schema = 2)
 {
     IlanaSynthAudioProcessor source;
     juce::MemoryBlock block;
     source.getStateInformation (block);
     std::unique_ptr<juce::XmlElement> xml (juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize()));
     auto state = juce::ValueTree::fromXml (*xml);
-    state.setProperty ("tableSchema", 2, nullptr);
+    state.setProperty ("tableSchema", schema, nullptr);
     for (const auto& [id, value] : tables)
         for (int i = 0; i < state.getNumChildren(); ++i)
             if (state.getChild (i).getProperty ("id").toString() == id)
@@ -132,9 +132,9 @@ void runTests()
     runPresetIdTest();
     runBouncePresetTest();
     const auto factory = TableFactory::getNumFactoryTables();
-    check (factory == 120 && TableFactory::getFactoryTableNames().size() == factory
+    check (factory == 134 && TableFactory::getFactoryTableNames().size() == factory
                && TableFactory::getFactoryTableCategories().size() == factory,
-           "120 factory tables, each with a name and a category");
+           "134 factory tables, each with a name and a category");
 
     // Old patches: a User choice moves past the new tables, on all six
     // oscillators; a factory choice stays.
@@ -148,6 +148,17 @@ void runTests()
         IlanaSynthAudioProcessor reloaded;
         reloaded.setStateInformation (again.getData(), (int) again.getSize());
         check (juce::roundToInt (rawValue (reloaded, "osc2_table")) == factory + 1, "a migrated patch is not migrated twice");
+    }
+
+    // Step 19: a patch saved with 120 factory tables (tableSchema 3) keeps its
+    // factory choices and moves its User choices past the 14 new tables.
+    {
+        auto p = loadSchema2 ({ { "osc1_table", 119.0f }, { "osc2_table", 120.0f }, { "osc5_table", 123.0f } }, 3);
+        check (juce::roundToInt (rawValue (*p, "osc1_table")) == 119 && juce::roundToInt (rawValue (*p, "osc2_table")) == factory
+                   && juce::roundToInt (rawValue (*p, "osc5_table")) == factory + 3,
+               "a 120-table patch's User choices move past the step 19 tables");
+        auto q = loadSchema2 ({ { "osc1_table", 40.0f } }, 2);
+        check (juce::roundToInt (rawValue (*q, "osc1_table")) == factory, "a pre-1.3 User 1 lands on User 1 after both moves");
     }
 
     // Choices come back exactly (the stored value of index 7 of 136 is

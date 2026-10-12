@@ -351,7 +351,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium-large. Touches `src/gui/ClipEditor.h` (1,840 lines): the mouse gestures and a pencil mode. The clip data and playback don't change.
    Order 11. Why here: after the wheel (23) and spray (24) fixes, so the clip editor is changed once rather than three times.
 
-20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided, not started). Add a small icon
+20. **A change-wavetable icon on the oscillator display** (ilana, 2026-10-10: decided; DONE 2026-10-12: a stacked-waves icon in the top-left of each wavetable display on PLAY and OSC opens the table browser). Add a small icon
    on the oscillator's waveform display (on PLAY and OSC) that opens the wavetable picker, so changing the table is
    obvious. The existing table dropdown stays. Ilana's screenshot is of OSC 1's card on PLAY, where the display sits
    left of the Wavetable, Basic and Off menus.

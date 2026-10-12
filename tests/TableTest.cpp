@@ -9890,6 +9890,13 @@ int main()
         return 0;
     }
 
+    if (const auto demo = juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_DEMO", ""); demo.isNotEmpty())
+    {
+        Demo::renderTables (juce::File (demo), juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_FROM", "120").getIntValue(),
+                            juce::SystemStats::getEnvironmentVariable ("ILANA_TABLE_TO", "9999").getIntValue());
+        return 0;
+    }
+
     if (const auto demo = juce::SystemStats::getEnvironmentVariable ("ILANA_RENDER_DEMO", ""); demo.isNotEmpty())
     {
         // ILANA_DEMO_ONLY=m81 (or m82, ...) renders one milestone's demos.

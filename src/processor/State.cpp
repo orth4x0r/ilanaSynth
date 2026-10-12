@@ -6,7 +6,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
-    state.setProperty ("tableSchema", 3, nullptr);
+    state.setProperty ("tableSchema", 4, nullptr);
     state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
@@ -685,7 +685,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     // six oscillators.
     if ((int) state.getProperty ("tableSchema", 1) < 3)
     {
-        const auto added = TableFactory::getNumFactoryTables() - 40;
+        const auto added = 120 - 40; // the factory count then (step 19's tables are moved below)
 
         for (int i = 0; i < state.getNumChildren(); ++i)
         {
@@ -702,6 +702,29 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
         state.setProperty ("tableSchema", 3, nullptr);
+    }
+
+    // Step 19 appended 14 factory tables (Arca Tear ... Noise Choir) ahead of
+    // the User tables, for all six oscillators.
+    if ((int) state.getProperty ("tableSchema", 1) < 4)
+    {
+        const auto added = TableFactory::getNumFactoryTables() - 120;
+
+        for (int i = 0; i < state.getNumChildren(); ++i)
+        {
+            auto child = state.getChild (i);
+            const auto id = child.getProperty ("id").toString();
+
+            for (const auto* prefix : OscillatorIds::prefixes)
+                if (id == juce::String (prefix) + "_table")
+                {
+                    const auto table = juce::roundToInt ((float) child.getProperty ("value"));
+                    if (table >= 120)
+                        child.setProperty ("value", table + added, nullptr);
+                }
+        }
+
+        state.setProperty ("tableSchema", 4, nullptr);
     }
 
     // v1.1 added explicit (FM) destinations ahead of the parameter

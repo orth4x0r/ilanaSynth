@@ -166,7 +166,7 @@ int main()
                                     "OTT", "Limiter", "Widener", "Tremolo", "FreqShift", "RingMod",
                                     "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder",
                                     "AW Tape", "AW Saturation", "AW Reverb", "AW Delay", "AW Modulation",
-                                    "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo" };
+                                    "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo", "Filter" };
 
     IlanaSynthAudioProcessor p;
     quiet (p);
@@ -185,6 +185,24 @@ int main()
             p.assignFxSlot (1, type);
             row (names[type], measure (p), base);
         }
+    }
+
+    // FILTER (type 42): its models at full resonance, mono and spread.
+    if (want ("filter"))
+    {
+        std::cout << "\n== FILTER (type 42), reso 0.8, drive 2 (net = minus the empty rack)\n";
+        for (const int model : { (int) FilterType::LowPass, (int) FilterType::LadderLow, (int) FilterType::MoogDrive,
+                                 (int) FilterType::VowelBank, (int) FilterType::CombPlus, (int) FilterType::AwPear, (int) FilterType::Disperser })
+            for (const float spread : { 0.0f, 1.0f })
+            {
+                quiet (p);
+                p.assignFxSlot (1, 42);
+                setParam (p, "fx_filter_type", (float) model);
+                setParam (p, "fx_filter_reso", 0.8f);
+                setParam (p, "fx_filter_drive", 2.0f);
+                setParam (p, "fx_filter_spread", spread);
+                row ("Filter " + FilterType::getNames()[model] + (spread > 0.0f ? " spread" : ""), measure (p), base);
+            }
     }
 
     if (want ("blocksize"))

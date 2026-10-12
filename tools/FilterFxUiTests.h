@@ -374,7 +374,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         // N16-3: every effect has a picture (none is left as a sentence in a well).
         {
             auto missing = juce::String();
-            for (int type = 1; type <= 41; ++type)
+            for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
                 if (! FxDisplay::hasDisplay (type) && type != 16 && type != 29)
                     missing << type << " ";
             expect (missing.isEmpty(), "every effect type draws a picture on its card (without: " + missing + ")");

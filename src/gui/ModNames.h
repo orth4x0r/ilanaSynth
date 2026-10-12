@@ -289,7 +289,7 @@ inline const std::vector<FxModule>& fxModules()
         { "fx_trem_", 23, "Tremolo", "Tremolo " }, { "fx_shifter_", 24, "Freq Shift", "Freq Shift " },
         { "fx_ring_", 25, "Ring Mod", "Ring " },  { "fx_octaver_", 26, "Octaver", "Octaver " },
         { "fx_vowel_", 27, "Vowel", "Vowel " },   { "fx_feedback_", 28, "Feedback", "Feedback " },
-        { "fx_eq_", 29, "EQ", "EQ " },
+        { "fx_eq_", 29, "EQ", "EQ " }, { "fx_filter_", 42, "Filter", "Filter " },
     };
     return list;
 }

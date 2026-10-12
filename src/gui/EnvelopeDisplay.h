@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "../dsp/TensionAdsr.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamInfo.h"
 #include "AnimationUtils.h"
@@ -211,8 +212,8 @@ private:
         // end, sustain end, release end.
         float x0 = 0.0f, xStart = 0.0f, xA = 0.0f, xH = 0.0f, xD = 0.0f, xS = 0.0f, xR = 0.0f;
         float yTop = 0.0f, yBottom = 0.0f, ySustain = 0.0f;
-        // The attack's, decay's and release's bends.
-        std::array<float, 3> exponents { 1.0f, 1.0f, 1.0f };
+        // The attack's, decay's and release's tension rates (TensionCurve).
+        std::array<double, 3> rates { 0.0, 0.0, 0.0 };
         float scale = 1.0f;
     };
 
@@ -221,22 +222,22 @@ private:
         juce::Path path;
         path.startNewSubPath (geo.x0, geo.yBottom);
         path.lineTo (geo.xStart, geo.yBottom);
-        addSegment (path, geo.xStart, geo.yBottom, geo.xA, geo.yTop, true, geo.exponents[0]);
+        addSegment (path, geo.xStart, geo.yBottom, geo.xA, geo.yTop, true, geo.rates[0]);
         path.lineTo (geo.xH, geo.yTop);
-        addSegment (path, geo.xH, geo.yTop, geo.xD, geo.ySustain, false, geo.exponents[1]);
+        addSegment (path, geo.xH, geo.yTop, geo.xD, geo.ySustain, false, geo.rates[1]);
         path.lineTo (geo.xS, geo.ySustain);
-        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.exponents[2]);
+        addSegment (path, geo.xS, geo.ySustain, geo.xR, geo.yBottom, false, geo.rates[2]);
         return path;
     }
 
-    static void addSegment (juce::Path& path, float x1, float y1, float x2, float y2, bool rising, float exponent)
+    static void addSegment (juce::Path& path, float x1, float y1, float x2, float y2, bool rising, double rate)
     {
         constexpr int steps = 20;
 
         for (int i = 1; i <= steps; ++i)
         {
             const auto u = (float) i / (float) steps;
-            const auto value = rising ? std::pow (u, exponent) : std::pow (1.0f - u, exponent);
+            const auto value = (float) TensionCurve::shape (rising ? u : 1.0f - u, rate);
             const auto x = x1 + (x2 - x1) * u;
             const auto y = y1 + (y2 - y1) * (rising ? value : (1.0f - value));
 
@@ -282,7 +283,7 @@ private:
         geo.yBottom = geo.plot.getBottom();
         geo.ySustain = geo.yBottom - sustain * geo.plot.getHeight();
         for (int segment = 0; segment < 3; ++segment)
-            geo.exponents[(size_t) segment] = std::exp2 (-segmentCurve (segment) * 2.0f);
+            geo.rates[(size_t) segment] = TensionCurve::rateFor (segmentCurve (segment));
         geo.scale = scale;
 
         return geo;
@@ -300,13 +301,13 @@ private:
     {
         return {
             juce::Point<float> { (geo.xStart + geo.xA) * 0.5f,
-                                 juce::jmap (std::pow (0.5f, geo.exponents[0]), geo.yBottom, geo.yTop) },
+                                 juce::jmap ((float) TensionCurve::shape (0.5, geo.rates[0]), geo.yBottom, geo.yTop) },
             juce::Point<float> { (geo.xH + geo.xD) * 0.5f,
                                  geo.yBottom - (readValue ("sustain")
-                                                + (1.0f - readValue ("sustain")) * std::pow (0.5f, geo.exponents[1]))
+                                                + (1.0f - readValue ("sustain")) * (float) TensionCurve::shape (0.5, geo.rates[1]))
                                                     * geo.plot.getHeight() },
             juce::Point<float> { (geo.xS + geo.xR) * 0.5f,
-                                 geo.yBottom - readValue ("sustain") * std::pow (0.5f, geo.exponents[2])
+                                 geo.yBottom - readValue ("sustain") * (float) TensionCurve::shape (0.5, geo.rates[2])
                                                    * geo.plot.getHeight() }
         };
     }
@@ -355,10 +356,10 @@ private:
         switch (stage)
         {
             case 0: return juce::Point<float> (geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom);
-            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - std::pow (u, geo.exponents[0]) * height);
+            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - (float) TensionCurve::shape (u, geo.rates[0]) * height);
             case 2: return juce::Point<float> (geo.xA + u * (geo.xH - geo.xA), geo.yTop);
             case 3: return juce::Point<float> (geo.xH + u * (geo.xD - geo.xH),
-                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - std::pow (1.0f - u, geo.exponents[1])));
+                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - (float) TensionCurve::shape (1.0f - u, geo.rates[1])));
             case 4: return juce::Point<float> (geo.xD + 0.25f * (geo.xS - geo.xD), geo.ySustain);
             default: return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
                                                 geo.yBottom - juce::jlimit (0.0f, 1.0f, readMonitor()) * height);
@@ -766,10 +767,9 @@ private:
 
                 if ((high - low) * height >= 8.0f)
                 {
-                    // The dot is the segment at its middle: low + span * 0.5^e.
-                    const auto fraction = juce::jlimit (std::pow (0.5f, 4.0f), std::pow (0.5f, 0.25f), (level - low) / (high - low));
-                    const auto exponent = std::log (fraction) / std::log (0.5f);
-                    const auto bend = -std::log2 (exponent) * 0.5f;
+                    // The dot is the segment at its middle: low + span * shape (0.5).
+                    const auto fraction = (level - low) / (high - low);
+                    const auto bend = (float) (-TensionCurve::rateForMidHeight (fraction) / TensionCurve::range);
                     const auto range = dragParameter->getNormalisableRange();
                     dragNormalised = dragParameter->convertTo0to1 (juce::jlimit (range.start, range.end, bend - readCurve()));
                 }

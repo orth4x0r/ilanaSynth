@@ -113,7 +113,7 @@ public:
             for (int x = 0; x < (int) plot.getWidth(); ++x)
             {
                 const auto phase = (double) x / (double) plot.getWidth() * cycles;
-                const auto step = juce::jlimit (0, stepsPerCycle * 2 - 1, (int) (phase * (double) stepsPerCycle));
+                const auto step = juce::jlimit (0, stepsPerCycle - 1, (int) (phase * (double) stepsPerCycle));
                 const auto value = sampleHoldPreview[(size_t) step];
                 const auto y = centreY - value * halfHeight;
                 const auto px = plot.getX() + (float) x;
@@ -226,7 +226,9 @@ public:
 
         if (isSampleHold)
         {
-            const auto step = juce::jlimit (0, stepsPerCycle * 2 - 1, (int) (phase * 2.0 * (double) stepsPerCycle));
+            // The same eight steps the trace draws (it used to count sixteen,
+            // so the dot read held values the graph never shows).
+            const auto step = juce::jlimit (0, stepsPerCycle - 1, (int) (phase * (double) stepsPerCycle));
             value = sampleHoldPreview[(size_t) step];
         }
         else if (isSteps)

@@ -87,7 +87,19 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         }
         if (data != nullptr)
         {
-            auto tree = encodeSample (*data);
+            juce::ValueTree tree;
+            {
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                if (encodedSamples[(size_t) i].first == data)
+                    tree = encodedSamples[(size_t) i].second;
+            }
+            if (! tree.isValid())
+            {
+                tree = encodeSample (*data);
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                encodedSamples[(size_t) i] = { data, tree };
+            }
+            tree = tree.createCopy();
             tree.setProperty ("osc", i, nullptr);
             samples.appendChild (tree, nullptr);
         }

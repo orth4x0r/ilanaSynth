@@ -8856,6 +8856,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "ParallelFxTests.inc"
 #include "PatchGraphTests.inc"
 #include "FxPatcherTests.inc"
+#include "TensionEnvTests.inc"
 #include "OscRoutingTests.inc"
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
@@ -9612,6 +9613,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_TENSIONENV_TEST", "").isNotEmpty())
+    {
+        runTensionEnvTests();
+        std::cout << (failures == 0 ? "TENSIONENV TESTS PASSED" : "TENSIONENV TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SAMPLE_TEMPO_TEST", "").isNotEmpty())
     {
         runSampleTempoTests();
@@ -10012,6 +10020,7 @@ int main()
     timedRun ("runVocoderTests", [] { runVocoderTests(); });
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });
     timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
+    timedRun ("runTensionEnvTests", [] { runTensionEnvTests(); });
     timedRun ("runSampleTempoTests", [] { runSampleTempoTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });

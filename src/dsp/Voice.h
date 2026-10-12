@@ -238,6 +238,12 @@ struct VoiceParams
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
+        // Roadmap step 40: SYNC follows the host tempo (0 off, 1 the BPM
+        // below, 2.. the region's length in beats, sampleSyncBeats); STRETCH
+        // keeps the pitch apart from the speed.
+        int sampleSync = 0;
+        float sampleBpm = 120.0f;
+        bool sampleStretch = false;
 
         bool granularMode = false; // also sets sampleMode: grains read the sample
         bool grainLive = false;    // M7.5: grains read the live input's history
@@ -300,6 +306,7 @@ struct VoiceParams
 
     float voiceSpread = 0.0f;
     float stretch = 0.0f; // M4: piano stretch tuning, 0 = equal temperament
+    double hostBpm = 120.0; // the host's tempo, for samples that follow it (step 40)
     const Tuning* tuning = nullptr; // Scala tuning; nullptr = 12-TET (the old path)
     float unisonRandom = 0.0f;
 

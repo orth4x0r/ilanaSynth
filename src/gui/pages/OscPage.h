@@ -827,6 +827,9 @@ class OscPage : public juce::Component,
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
               sampleFadeOut (state, prefix + "_sample_fade_out", "FADE OUT"),
+              sampleSync (state, prefix + "_sample_sync", "SYNC"),
+              sampleStretch (state, prefix + "_sample_stretch", "TIME"),
+              sampleBpm (state, prefix + "_sample_bpm", "BPM"),
               chord (state, prefix + "_chord", "CHORD"),
               ampEnv (state, prefix + "_amp_env", "ENVELOPE"),
               warp (state, prefix + "_warp", "WARP"),
@@ -863,7 +866,7 @@ class OscPage : public juce::Component,
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
                                 &stringDecay, &stringDamp, &stringSustain, &sampleStart, &sampleEnd, &sampleFadeIn,
-                                &sampleFadeOut, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
+                                &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
                                 &grainDensity, &grainSpray, &grainPitch, &grainSpread })
                 knob->setIdentityColour (colour);
         }
@@ -876,6 +879,9 @@ class OscPage : public juce::Component,
         KnobControl frame, level, pan, semi, fine, unison, detune, spread;
         KnobControl stringDecay, stringDamp, stringSustain;
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut;
+        // Step 40: the sample follows the host tempo.
+        ComboControl sampleSync, sampleStretch;
+        KnobControl sampleBpm;
         KnobControl warpAmt, uniBlend, uniFrame, uniWarp, spectralAmt;
         KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
         ToggleControl grainLive; // M7.5: grains from the live input (ilanaSynth FX)
@@ -999,6 +1005,7 @@ public:
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleStart,
                                 osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
+                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
         }
@@ -1014,7 +1021,7 @@ public:
             for (auto* knob : cardKnobs (osc))
                 knob->setInlineKnob (true);
             for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
-                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode })
+                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch })
                 menu->setCompactLayout (true);
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.grainLive })
                 toggle->setInlineLabel (true);
@@ -1037,6 +1044,9 @@ public:
             osc.warp2Amt.setDashWhen ([this, prefix] { return readChoice (prefix + "_warp2") == 0; });
             osc.pdEnvAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_pd_env") == 0; });
             osc.spectralAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_spectral") == 0; });
+            // The sample's BPM counts only when SYNC asks for it (a length
+            // gives the tempo itself).
+            osc.sampleBpm.setDashWhen ([this, prefix] { return readChoice (prefix + "_sample_sync") != SampleTempo::bpm; });
 
             addChildComponent (card.stringView);
             card.stringView.setColour (oscColour (i));
@@ -1211,7 +1221,8 @@ public:
 
             // The sample's own controls dim until there is a sample (S14-3).
             for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleStart,
-                                              (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut })
+                                              (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut,
+                                              (juce::Component*) &osc.sampleSync, (juce::Component*) &osc.sampleBpm, (juce::Component*) &osc.sampleStretch })
                 effectRules.add (*control, [this, i]
                                  {
                                      const auto* sample = processorRef.getSampleForOsc (i);
@@ -1623,13 +1634,17 @@ private:
                 add (osc.unison, 1, 4);
                 add (osc.ampEnv, 1, 5);
                 add (osc.chord, 1, 6);
+                // Step 40: the host tempo, on its own row.
+                add (osc.sampleSync, 2, 0);
+                add (osc.sampleBpm, 2, 1);
+                add (osc.sampleStretch, 2, 2);
                 // More than one voice: the unison's own row (review 11, I11-11).
                 if (readFloat (prefix + "_unison") > 1.5f)
                 {
-                    add (osc.uniMode, 2, 0);
-                    add (osc.detune, 2, 1);
-                    add (osc.uniBlend, 2, 2);
-                    add (osc.spread, 2, 3);
+                    add (osc.uniMode, 3, 0);
+                    add (osc.detune, 3, 1);
+                    add (osc.uniBlend, 3, 2);
+                    add (osc.spread, 3, 3);
                 }
                 break;
         }
@@ -1701,7 +1716,7 @@ private:
             case Kind::physical: return row == 0 ? "STRING" : row == 1 ? "PITCH" : "UNISON";
             case Kind::grain: return row == 0 ? "GRAINS" : row == 1 ? "PITCH" : "UNISON";
             case Kind::live: return "LEVEL";
-            case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : "UNISON";
+            case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : row == 2 ? "TEMPO" : "UNISON";
         }
 
         return {};
@@ -1709,7 +1724,7 @@ private:
 
     static int numRows (Kind kind, bool unisonRow)
     {
-        return kind == Kind::live ? 1 : kind == Kind::sample ? (unisonRow ? 3 : 2) : 3;
+        return kind == Kind::live ? 1 : kind == Kind::sample ? (unisonRow ? 4 : 3) : 3;
     }
 
     // One card's measures, laid out by layoutPage and read by paint.
@@ -2334,7 +2349,7 @@ private:
     {
         return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleBpm, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
                  &osc.trim, &osc.feedback };
@@ -2612,7 +2627,8 @@ private:
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch,
+                 &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
                  &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback, &osc.feedbackType,
@@ -2780,6 +2796,7 @@ private:
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
+                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,

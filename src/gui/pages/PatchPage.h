@@ -994,23 +994,8 @@ private:
 
     //==========================================================================
     // Edits.
-    // The graph fills what the open windows leave free: tighter margins and
-    // 5 % zoom steps than the default fit, so it keeps its size (R17-2).
-    void fit() { view.fitContentInto (freeArea(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f); }
-
-    juce::Rectangle<int> freeArea() const
-    {
-        auto free = view.getLocalBounds();
-        for (const auto& window : windows)
-            if (window->isVisible())
-            {
-                const auto at = window->getBounds().translated (-view.getX(), -view.getY());
-                // (Only one docked at the right edge; a window dragged elsewhere floats.)
-                if (at.getRight() >= free.getRight() - 2 && at.getX() > free.getX() + 300)
-                    free.setRight (at.getX() - 10);
-            }
-        return free;
-    }
+    // Tighter margins and 5 % zoom steps than the default fit, so the graph keeps its size (R17-2).
+    void fit() { view.fitContentInto (view.getLocalBounds(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f); }
 
     // A cable may not cross the line at VOICES: the per-note boxes feed only
     // each other and VOICES, the effects never feed back into a note.
@@ -1304,24 +1289,6 @@ private:
                 places.push_back (size.withPosition (at.getX(), at.getBottom() + 10));
                 places.push_back (size.withPosition (at.getX(), at.getY() - 10 - size.getHeight()));
             }
-        // Docked first: against the canvas's right edge while that leaves the
-        // graph room; the graph refits into what is left (R17-3), so a window
-        // no longer covers its own boxes. Further windows tile as before.
-        std::vector<juce::Rectangle<int>> docks { size.withPosition (view.getRight() - size.getWidth(), view.getY()) };
-        auto docked = false;
-        for (const auto& dock : docks)
-        {
-            auto clear = view.getBounds().contains (dock) && (float) (dock.getX() - view.getX()) >= view.getContentArea().getWidth() * minZoom + 60.0f;
-            for (const auto& other : windows)
-                clear = clear && (! other->isVisible() || ! other->getBounds().intersects (dock));
-            if (clear)
-            {
-                places.insert (places.begin(), dock);
-                docked = true;
-                break;
-            }
-        }
-
         // The one covering the least: another window counts far more than the
         // boxes (which stay reachable round it); a place that fits as it is
         // wins a tie.
@@ -1348,12 +1315,10 @@ private:
                 place = inside;
             }
         }
-        window->setBounds (docked ? places.front() : place);
+        window->setBounds (place);
         addAndMakeVisible (*window);
         window->setLimits (view.getBounds());
         windows.push_back (std::move (window));
-        if (docked)
-            fit();
     }
 
     // (Deferred: a window closes from its own button's click.)
@@ -1368,7 +1333,6 @@ private:
                 return;
             auto& list = safe->windows;
             list.erase (std::remove_if (list.begin(), list.end(), [window] (const auto& w) { return w.get() == window; }), list.end());
-            safe->fit();
         });
     }
 

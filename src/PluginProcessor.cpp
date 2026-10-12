@@ -210,6 +210,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
                                            prefix + "_sample_fade_out" };
+            sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
                                          prefix + "_grain_spread" };
@@ -1306,6 +1307,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleEnd = getParam (ids[4]);
         osc.sampleFadeIn = getParam (ids[5]);
         osc.sampleFadeOut = getParam (ids[6]);
+        const auto& tempo = sampleTempoIds[(size_t) oscIndex];
+        osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
+        osc.sampleBpm = getParam (tempo[1]);
+        osc.sampleStretch = getParam (tempo[2]) > 0.5f;
 
         const auto& grain = grainParamIds[(size_t) oscIndex];
         osc.grainSizeMs = getParam (grain[0]);
@@ -1323,6 +1328,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     p.voiceSpread = getParam ("voice_spread");
     p.stretch = getParam ("stretch");
+    p.hostBpm = juce::jlimit (20.0, 999.0, currentBpm.load());
     p.unisonRandom = getParam ("unison_random");
     p.filter1Fm = getParam ("f1_fm");
     p.filter2Fm = getParam ("f2_fm");

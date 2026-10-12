@@ -8827,6 +8827,60 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_PATCHNAV: the PATCH tab without modes (2026-10-12):
+    // fitted, zoomed in with the map, an effect dragged over a cable (lit
+    // up) and dropped there; then stop. Best with Neuro Wobble.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PATCHNAV", "").isNotEmpty())
+    {
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (400);
+            save (*editor, outDir.getChildFile ("patchnav-" + name + ".png"));
+        };
+        pages->showPage ("PATCH");
+        shot ("fit");
+        auto* view = findChild<PatchCableView> (*editor);
+        if (view == nullptr)
+            return 1;
+        const auto toScreen = [view] (juce::Point<float> p) { return p * view->getZoom(); };
+        const auto& graph = view->getGraph();
+        std::vector<const PatchGraph::Node*> effects;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+                effects.push_back (&node);
+        std::sort (effects.begin(), effects.end(), [] (const auto* a, const auto* b) { return a->x < b->x; });
+
+        // Zoomed in on the effects: the map in the corner.
+        if (! effects.empty())
+        {
+            view->zoomAround (2.0f, toScreen (view->nodeBounds (*effects.front()).getCentre()));
+            view->onNavigated();
+            shot ("zoomed");
+        }
+        if (view->onFitRequested)
+            view->onFitRequested();
+        view->finishGlide();
+        settle (200);
+
+        // The last effect dragged onto the cable between the first two.
+        if (effects.size() >= 3)
+        {
+            const auto moving = effects.back()->id, first = effects[0]->id, second = effects[1]->id;
+            const auto target = (view->portPosition ({ first, 0 }, false) + view->portPosition ({ second, 0 }, true)) * 0.5f;
+            const auto grab = view->nodeBounds (*graph.find (moving)).getCentre();
+            view->mouseDown (PatchCableUi::mouse (*view, toScreen (grab), true));
+            for (int step = 1; step <= 8; ++step)
+                view->mouseDrag (PatchCableUi::mouse (*view, toScreen (grab + (target - grab) * ((float) step / 8.0f)), true));
+            view->setMotion (false); // (the picture without the swing in flight)
+            view->repaint();
+            shot ("drop-hover");
+            view->mouseUp (PatchCableUi::mouse (*view, toScreen (target), false));
+            view->setMotion (true);
+            shot ("dropped");
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_ROUTING: the FILTER tab's ROUTING page (roadmap step
     // 16): a preset's chain as cables, a cabled patch (WEST before the
     // filters, an oscillator split into Filter 1 and OUT, the sub straight

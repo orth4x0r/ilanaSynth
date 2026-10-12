@@ -59,6 +59,7 @@ public:
     {
         sampleRate = newSampleRate;
         loopSetupDirty = true;
+        glideCoefficient = KnobGlide<float>::coefficientFor (glideSeconds, sampleRate);
 
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
@@ -82,6 +83,7 @@ public:
         pushLow = outputDcIn = outputDcOut = 0.0f;
         thiranInput = thiranOutput = 0.0f;
         bridgeInput = 0.0f;
+        snapGlides = true;
         electric.reset();
         piano.reset();
     }
@@ -206,6 +208,8 @@ public:
             return;
 
         const auto level = juce::jlimit (0.0f, 1.0f, velocity);
+        // A new note starts on the knobs as they are; moves after this glide.
+        snapGlides = true;
 
         if (isElectric())
         {
@@ -329,13 +333,22 @@ public:
         // setters (at most once a sub-block): worked out again only then.
         if (loopSetupDirty)
             prepareLoop();
+        if (snapGlides)
+            snapToTargets();
         const auto period = cachedPeriod;
         const auto hammered = excite == Excite::Hammer;
         // Piano strings run two loops (see readHorizontal), one per half.
         const auto loopSize = hammered ? size / 2 : size;
         const auto useDispersion = loopUseDispersion;
-        const auto delay = loopDelay;
-        const auto coefficient = loopCoefficient;
+        // Modulation moves the knobs once a block: the loop's delay and
+        // allpass glide there (a step in either is a click every block).
+        if (! hammered && (glidedDelay.moving (loopDelay) || glidedCoefficient.moving (loopCoefficient)))
+        {
+            glidedDelay.step (loopDelay, (double) glideCoefficient, 1.0e-6);
+            glidedCoefficient.step (loopCoefficient, glideCoefficient, 1.0e-7f);
+        }
+        const auto delay = hammered ? loopDelay : glidedDelay.value;
+        const auto coefficient = hammered ? loopCoefficient : glidedCoefficient.value;
 
         auto readPosition = (double) writePosition - period
                             + delay;
@@ -406,13 +419,20 @@ public:
             output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity
                       * std::abs (delayed);
 
-        if (pickupPosition > 0.0f)
+        if (pickupGlide.moving (pickupPosition))
+            pickupGlide.step (pickupPosition, glideCoefficient, 1.0e-6f);
+
+        if (pickupGlide.value > 0.0f)
         {
-            auto tap = readPosition - period * (double) pickupPosition;
+            // Within the loop's own buffer: a piano string's vertical loop
+            // is the first half (the horizontal one owns the second).
+            auto tap = (double) writePosition - period + delay - period * (double) pickupGlide.value;
             while (tap < 0.0)
-                tap += (double) size;
+                tap += (double) loopSize;
+            while (tap >= (double) loopSize)
+                tap -= (double) loopSize;
             const auto tapIndex = (int) tap;
-            const auto tapNext = (tapIndex + 1) % size;
+            const auto tapNext = (tapIndex + 1) % loopSize;
             const auto tapFraction = (float) (tap - (double) tapIndex);
             output -= 0.75f * (buffer[(size_t) tapIndex]
                               + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction);
@@ -500,7 +520,7 @@ public:
             --slapRemaining;
         }
 
-        if (stiffness == 0.0f && pickupPosition == 0.0f && slapRemaining == 0
+        if (stiffness == 0.0f && ! pickupGlide.moving (0.0f) && slapRemaining == 0
             && buzz == 0.0f && rattle == 0.0f && excite != Excite::Bow
             && excite != Excite::Hammer && excite != Excite::External)
             return output;
@@ -590,6 +610,16 @@ private:
     }
 
     int slapSamples() const { return (int) (sampleRate * 0.010); }
+
+    // The glides' starting points: a note starts on the knobs as they are.
+    void snapToTargets()
+    {
+        snapGlides = false;
+        glidedDelay.snap (loopDelay);
+        glidedCoefficient.snap (loopCoefficient);
+        pickupGlide.snap (pickupPosition);
+        bowPositionGlide.snap (juce::jlimit (0.06, 0.5, excitationPosition > 0.0f ? (double) excitationPosition : 0.127));
+    }
     int dispersionStages() const { return excite == Excite::Hammer ? maxDispersionStages : 2; }
     void updateDispersionDelay()
     {
@@ -959,7 +989,14 @@ private:
         const auto size = (int) buffer.size();
         const auto half = size / 2;
         const auto period = sampleRate / frequency;
-        const auto position = juce::jlimit (0.06, 0.5, excitationPosition > 0.0f ? (double) excitationPosition : 0.127);
+        // The bow's place glides to the knob: a jump moves both waveguides'
+        // read points at once, a click every block under modulation.
+        const auto target = juce::jlimit (0.06, 0.5, excitationPosition > 0.0f ? (double) excitationPosition : 0.127);
+        if (snapGlides)
+            snapToTargets();
+        if (bowPositionGlide.moving (target))
+            bowPositionGlide.step (target, (double) glideCoefficient, 1.0e-7);
+        const auto position = bowPositionGlide.value;
         const auto base = juce::jmax (4.0, period - 1.0 - (1.0 - (double) lowpassCoefficient) / (double) lowpassCoefficient);
         const auto bridgeLength = juce::jlimit (2.0, (double) half - 2.0, base * position);
         const auto neckLength = juce::jlimit (2.0, (double) half - 2.0, base * (1.0 - position));
@@ -1100,6 +1137,12 @@ private:
     bool loopSetupDirty = true, loopUseDispersion = false;
     double loopDelay = 0.0;
     float loopCoefficient = 0.0f;
+    // Modulated knobs glide to their block's value over a few milliseconds.
+    static constexpr double glideSeconds = 0.0025; // per stage
+    float glideCoefficient = 0.008f;
+    bool snapGlides = true;
+    KnobGlide<double> glidedDelay, bowPositionGlide;
+    KnobGlide<float> glidedCoefficient, pickupGlide;
     double cachedFrequency = -1.0, cachedSampleRate = -1.0, cachedPeriod = 1.0, cachedPhaseStep = 0.0;
     double cachedShortDelay = -1.0, cachedShortStages = -1.0;
     float cachedShortCoefficient = 0.0f;

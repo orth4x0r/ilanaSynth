@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "EpTuning.h"
+#include "KnobGlide.h"
 
 // M7.3 electric pianos: a struck tine (Rhodes-style) or reed (Wurlitzer-
 // style), heard through its pickup.
@@ -88,6 +89,7 @@ public:
     {
         if (dirty)
             updateModes();
+        snapGlide(); // a strike starts on the knobs as they are
         const auto& t = tuning();
         velocityLevel = juce::jlimit (0.0f, 1.0f, velocity);
         released = false;
@@ -163,8 +165,10 @@ public:
         }
 
         const auto& t = tuning();
+        if (gliding)
+            glide();
         const auto pickup = pickupOf (x);
-        auto y = (pickup - lastPickup) * derivativeScale;
+        auto y = (pickup - lastPickup) * derivativeScale.value;
         lastPickup = pickup;
 
         if (model == Model::Reed)
@@ -177,7 +181,7 @@ public:
                 y = (std::tanh (t.drive * y + t.bias) - biasOffset) / t.drive;
         }
 
-        tone += toneCoefficient * (y - tone);
+        tone += toneCoefficient.value * (y - tone);
         return tone * outputGain;
     }
 
@@ -195,14 +199,37 @@ private:
         return model == Model::Tine ? EpTuning::get().tine : EpTuning::get().reed;
     }
 
+    // A knob moved by modulation (once a block) glides to its new value: a
+    // step in the pickup's distance or offset is a step in what it reads,
+    // and the pickup is heard through its derivative (a click per block).
+    void glide()
+    {
+        const auto k = glideCoefficient;
+        inverseDistance.step (targetInverseDistance, k, 1.0e-5f * targetInverseDistance);
+        pickupOffset.step (targetPickupOffset, k, 1.0e-7f);
+        derivativeScale.step (targetDerivativeScale, k, 1.0e-5f * targetDerivativeScale);
+        toneCoefficient.step (targetToneCoefficient, k, 1.0e-7f);
+        gliding = inverseDistance.moving (targetInverseDistance) || pickupOffset.moving (targetPickupOffset)
+                  || derivativeScale.moving (targetDerivativeScale) || toneCoefficient.moving (targetToneCoefficient);
+    }
+
+    void snapGlide()
+    {
+        inverseDistance.snap (targetInverseDistance);
+        pickupOffset.snap (targetPickupOffset);
+        derivativeScale.snap (targetDerivativeScale);
+        toneCoefficient.snap (targetToneCoefficient);
+        gliding = false;
+    }
+
     float pickupOf (float x) const
     {
         if (model == Model::Tine)
         {
-            const auto u = (x - pickupOffset) * inverseDistance;
+            const auto u = (x - pickupOffset.value) * inverseDistance.value;
             return 1.0f / (1.0f + u * u);
         }
-        auto z = (x + pickupOffset) * inverseDistance;
+        auto z = (x + pickupOffset.value) * inverseDistance.value;
         if (z > 0.8f)
             z = 0.8f + 0.17f * std::tanh ((z - 0.8f) / 0.17f);
         return 1.0f / (1.0f - z);
@@ -250,24 +277,30 @@ private:
         // Pickup distance: 0.5 is the fitted distance; each quarter of the
         // knob halves or doubles it (closer = more bark or growl).
         const auto distance = t.distance * std::pow (2.0f, (distanceKnob - 0.5f) * 4.0f);
-        inverseDistance = 1.0f / juce::jmax (0.02f, distance);
-        pickupOffset = (t.offset + t.offsetRegister * octaves + t.offsetRange * (positionKnob - 0.5f)) * distance;
+        targetInverseDistance = 1.0f / juce::jmax (0.02f, distance);
+        targetPickupOffset = (t.offset + t.offsetRegister * octaves + t.offsetRange * (positionKnob - 0.5f)) * distance;
         if (model == Model::Tine)
         {
             // Normalised by the steepest slope of the bump (at x = d / sqrt 3).
-            slopeNorm = 0.6495f * inverseDistance;
+            slopeNorm = 0.6495f * targetInverseDistance;
         }
         else
         {
-            const auto rest = juce::jlimit (-0.7f, 0.7f, pickupOffset * inverseDistance);
-            slopeNorm = inverseDistance / ((1.0f - rest) * (1.0f - rest));
+            const auto rest = juce::jlimit (-0.7f, 0.7f, targetPickupOffset * targetInverseDistance);
+            slopeNorm = targetInverseDistance / ((1.0f - rest) * (1.0f - rest));
         }
-        derivativeScale = (float) (sampleRate / (juce::MathConstants<double>::twoPi * frequency)) / slopeNorm;
+        targetDerivativeScale = (float) (sampleRate / (juce::MathConstants<double>::twoPi * frequency)) / slopeNorm;
 
         // DAMP: its default (0.35) is the fitted tone; more darkens it.
         const auto cut = juce::jlimit (200.0f, (float) sampleRate * 0.45f,
                                        t.toneCut * std::pow (2.0f, (0.35f - damping) * 5.0f));
-        toneCoefficient = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * cut / (float) sampleRate);
+        targetToneCoefficient = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * cut / (float) sampleRate);
+        glideCoefficient = KnobGlide<float>::coefficientFor (0.0025, sampleRate);
+        // A sounding tine glides to the new values; a new one starts on them.
+        if (primed)
+            gliding = true;
+        else
+            snapGlide();
         highPassCoefficient = std::exp (-juce::MathConstants<float>::twoPi * t.highPass / (float) sampleRate);
         biasOffset = std::tanh (t.bias);
         outputGain = t.gain * juce::Decibels::decibelsToGain (t.gainTilt * octaves);
@@ -298,8 +331,12 @@ private:
     bool dirty = true, released = false, primed = false;
     float velocityLevel = 0.0f, forceScale = 0.0f, liveForce = 0.0f;
     int hammerSample = 0, hammerLength = 0;
-    float inverseDistance = 1.0f, pickupOffset = 0.0f, slopeNorm = 1.0f, derivativeScale = 1.0f;
+    KnobGlide<float> inverseDistance, pickupOffset, derivativeScale, toneCoefficient;
+    float slopeNorm = 1.0f;
     float lastPickup = 0.0f;
-    float tone = 0.0f, toneCoefficient = 1.0f, outputGain = 1.0f;
+    float targetInverseDistance = 1.0f, targetPickupOffset = 0.0f, targetDerivativeScale = 1.0f, targetToneCoefficient = 1.0f;
+    float glideCoefficient = 0.005f;
+    bool gliding = false;
+    float tone = 0.0f, outputGain = 1.0f;
     float highPassIn = 0.0f, highPassOut = 0.0f, highPassCoefficient = 1.0f, biasOffset = 0.0f;
 };

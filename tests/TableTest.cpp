@@ -8857,6 +8857,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "PatchGraphTests.inc"
 #include "FxPatcherTests.inc"
 #include "TensionEnvTests.inc"
+#include "PhysModTests.inc"
 #include "OscRoutingTests.inc"
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
@@ -9613,6 +9614,16 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (const auto spec = juce::SystemStats::getEnvironmentVariable ("ILANA_PHYSMOD_RENDER", ""); spec.isNotEmpty())
+        return renderPhysModPreset (spec);
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PHYSMOD_TEST", "").isNotEmpty())
+    {
+        runPhysModTests();
+        std::cout << (failures == 0 ? "PHYSMOD TESTS PASSED" : "PHYSMOD TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_TENSIONENV_TEST", "").isNotEmpty())
     {
         runTensionEnvTests();
@@ -10021,6 +10032,7 @@ int main()
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });
     timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
     timedRun ("runTensionEnvTests", [] { runTensionEnvTests(); });
+    timedRun ("runPhysModTests", [] { runPhysModTests(); });
     timedRun ("runSampleTempoTests", [] { runSampleTempoTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });

@@ -9049,6 +9049,45 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_LFOSH: LFO 1 on Sample & Hold with the dot in the second half of the cycle
+    // (the dot used to count sixteen steps against the eight the trace draws), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_LFOSH", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        setParam ("lfo1_shape", (float) LfoShapes::SampleHold);
+        setParam ("lfo1_sync", 0.0f);
+        setParam ("lfo1_rate", 1.0f);
+        pages->showPage ("ENV/LFO");
+        settle (400);
+        if (auto* page = pages->getCurrentPage())
+            if (auto* thumbs = findChild<LfoThumbBar> (*page); thumbs != nullptr && thumbs->onSelect != nullptr)
+                thumbs->onSelect (0);
+        juce::AudioBuffer<float> audio (2, 512);
+        const auto sampleRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 44100.0;
+        const auto blocksPerCycle = sampleRate / 512.0; // 1 Hz
+        int block = 0;
+        for (const auto [fraction, name] : std::initializer_list<std::pair<double, const char*>> {
+                 { 0.30, "lfosh-a.png" }, { 0.62, "lfosh-b.png" }, { 0.88, "lfosh-c.png" } })
+        {
+            const auto target = (int) (fraction * blocksPerCycle) + (int) blocksPerCycle * 2;
+            for (; block < target; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+                audio.clear();
+                processor.processBlock (audio, midi);
+            }
+            settle (150);
+            save (*editor, outDir.getChildFile (name));
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_R16P4: review 16's FILTER / MOD / MATRIX states, then stop.
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_R16P4", "").isNotEmpty())
     {

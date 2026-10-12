@@ -240,93 +240,161 @@ private:
 
 // An envelope's playhead published once per block as stage + fraction of
 // the stage (0 delay, 1 attack, 2 hold, 3 decay, 4 sustain, 5 release; -1
-// idle). Shown by running on in time through the stages' real lengths, so a
-// 2 ms attack crosses the screen in 2 ms and a 3 s decay in 3 s (the
-// BlockSmoother moved between two published positions at an even pace,
-// whatever the stages' lengths). `seconds` holds the four stage lengths
-// then the release, and the dot rests at the sustain until the next
-// published position says the key is up.
+// idle), shown on a clock of its own. The position is turned into seconds
+// along the note (delay, attack, hold, decay), then the sustain, then the
+// release, and that time runs on at the real speed from frame to frame, so
+// a 2 ms attack crosses the screen in 2 ms and a 3 s decay in 3 s. Each
+// published position only steers it: the time it implies, brought up to
+// date, pulls the shown time over about 120 ms (the published positions
+// reach the display at uneven delays, and following them directly made the
+// dot stutter). `seconds` are the voice's stage lengths (delay, attack,
+// hold, decay, release) as the note really runs them, key scaling and
+// modulation included. `noteSerial` counts the notes played: when it goes
+// up the clock starts over, and for 150 ms ignores the published position
+// (the first one may already be past a short attack).
 class EnvTracker
 {
 public:
-    float get (float published, const std::array<float, 5>& seconds) const
+    float get (float published, const std::array<float, 5>& seconds, int noteSerial = 0) const
     {
         const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto frame = lastCallMs > 0.0 ? juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0) : 0.0;
+        lastCallMs = now;
 
         if (published < 0.0f)
         {
-            lastCallMs = now;
-            lastPublished = -1.0f;
-            shown = -1.0f;
+            running = false;
+            lastSerial = noteSerial;
             return -1.0f;
         }
 
-        const auto frame = (float) juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0);
+        const auto restart = noteSerial != lastSerial && lastSerial >= 0;
+        lastSerial = noteSerial;
+        const auto sustainStart = seconds[0] + seconds[1] + seconds[2] + seconds[3];
 
-        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0 || shown < 0.0f)
+        if (restart)
+        {
+            running = true;
+            phase = 0;
+            time = 0.0;
+            restartMs = now;
+        }
+
+        const auto freeRunning = restart || (running && now - restartMs < 150.0 && (int) published != 5);
+
+        if (published != lastPublished)
         {
             lastPublished = published;
             publishedAtMs = now;
-            shown = published;
         }
-        else if (published != lastPublished)
+
+        if (! running)
         {
-            lastPublished = published;
+            running = true;
+            decode (published, seconds, phase, time);
             publishedAtMs = now;
         }
+        else if (! freeRunning)
+        {
+            int targetPhase = 0;
+            double targetTime = 0.0;
+            decode (lastPublished, seconds, targetPhase, targetTime);
 
-        lastCallMs = now;
-        const auto predicted = advance (lastPublished, (float) juce::jlimit (0.0, 0.12, (now - publishedAtMs) / 1000.0), seconds);
+            if (targetPhase == phase || (targetPhase == 1 && phase == 0))
+            {
+                // The time the published position stands for, brought up to
+                // date. (Sustain waits; the clock stays where it is.)
+                if (targetPhase != 1)
+                    targetTime += juce::jlimit (0.0, 0.25, (now - publishedAtMs) / 1000.0);
 
-        // In the same stage: ease onto the prediction (30 ms); in another
-        // (the prediction ran on, or a new note): go there.
-        if ((int) predicted == (int) shown)
-            shown += (predicted - shown) * (1.0f - std::exp (-frame / 0.03f));
-        else
-            shown = predicted;
+                if (targetPhase == 1)
+                {
+                    phase = 1;
+                    time = 0.0;
+                }
+                else if (std::abs (targetTime - time) > 0.3)
+                    time = targetTime;
+                else
+                    time += (targetTime - time) * (1.0 - std::exp (-frame / 0.12));
+            }
+            else if (! (targetPhase == 0 && phase == 1 && targetTime > sustainStart - 0.05))
+            {
+                phase = targetPhase;
+                time = targetTime;
+            }
+        }
 
-        return shown;
+        // The clock.
+        if (phase == 0)
+        {
+            time += frame;
+
+            if (time >= sustainStart)
+            {
+                phase = 1;
+                time = 0.0;
+            }
+        }
+        else if (phase == 2)
+            time = juce::jmin (time + frame, (double) juce::jmax (seconds[4], 1.0e-4f));
+
+        return encode (seconds);
     }
 
 private:
-    static float advance (float position, float dt, const std::array<float, 5>& seconds)
+    // position -> (phase: 0 note, 1 sustain, 2 release; seconds into it)
+    static void decode (float position, const std::array<float, 5>& seconds, int& phase, double& time)
     {
-        auto stage = (int) position;
-        auto fraction = position - (float) stage;
+        const auto stage = juce::jlimit (0, 5, (int) position);
+        const auto fraction = (double) juce::jlimit (0.0f, 1.0f, position - (float) stage);
 
-        if (stage >= 4 && stage != 5)
-            return position;
-
-        while (dt > 0.0f)
+        if (stage == 4)
         {
-            if (stage == 4)
-                return 4.0f;
-
-            const auto length = stage == 5 ? seconds[4] : seconds[(size_t) stage];
-            const auto left = juce::jmax (0.0f, 1.0f - fraction) * length;
-
-            if (length <= 1.0e-5f || dt >= left)
-            {
-                dt -= left;
-                fraction = 0.0f;
-
-                if (stage == 5)
-                    return 5.999f;
-
-                ++stage;
-            }
-            else
-            {
-                fraction += dt / length;
-                dt = 0.0f;
-            }
+            phase = 1;
+            time = 0.0;
         }
+        else if (stage == 5)
+        {
+            phase = 2;
+            time = fraction * seconds[4];
+        }
+        else
+        {
+            phase = 0;
+            time = fraction * seconds[(size_t) stage];
 
-        return (float) stage + juce::jmin (fraction, 0.999f);
+            for (int before = 0; before < stage; ++before)
+                time += seconds[(size_t) before];
+        }
     }
 
-    mutable float lastPublished = -1.0f, shown = -1.0f;
-    mutable double publishedAtMs = 0.0, lastCallMs = 0.0;
+    float encode (const std::array<float, 5>& seconds) const
+    {
+        if (phase == 1)
+            return 4.0f;
+
+        if (phase == 2)
+            return 5.0f + juce::jlimit (0.0001f, 0.999f, (float) (time / juce::jmax (seconds[4], 1.0e-4f)));
+
+        auto left = juce::jmax (time, 0.0001);
+
+        for (int stage = 0; stage < 4; ++stage)
+        {
+            const auto length = (double) seconds[(size_t) stage];
+
+            if (length > 1.0e-5 && left < length)
+                return (float) stage + juce::jmin (0.999f, (float) (left / length));
+
+            left -= juce::jmax (0.0, length);
+        }
+
+        return 3.999f;
+    }
+
+    mutable float lastPublished = -1.0f;
+    mutable double publishedAtMs = 0.0, lastCallMs = 0.0, restartMs = 0.0, time = 0.0;
+    mutable int lastSerial = -1, phase = 0;
+    mutable bool running = false;
 };
 
 

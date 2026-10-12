@@ -508,6 +508,30 @@ public:
             default: return extraEnvs[(size_t) juce::jlimit (0, 10, env - 5)].getDisplayPosition();
         }
     }
+    float getEnvelopeStageStart (int env) const
+    {
+        switch (env)
+        {
+            case 0: return ampEnv.getDisplayStageStart();
+            case 1: return filterEnv.getDisplayStageStart();
+            case 2: return filter2Env.getDisplayStageStart();
+            case 3: return modEnv.getDisplayStageStart();
+            case 4: return env4.getDisplayStageStart();
+            default: return extraEnvs[(size_t) juce::jlimit (0, 10, env - 5)].getDisplayStageStart();
+        }
+    }
+    std::array<float, 5> getEnvelopeSeconds (int env) const
+    {
+        switch (env)
+        {
+            case 0: return ampEnv.getDisplaySeconds();
+            case 1: return filterEnv.getDisplaySeconds();
+            case 2: return filter2Env.getDisplaySeconds();
+            case 3: return modEnv.getDisplaySeconds();
+            case 4: return env4.getDisplaySeconds();
+            default: return extraEnvs[(size_t) juce::jlimit (0, 10, env - 5)].getDisplaySeconds();
+        }
+    }
     float getVelocity() const { return velocityLevel; }
     float getKeyTrack() const { return keyTrackValue; }
     float getRandomValue() const { return randomValue; }

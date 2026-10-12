@@ -127,6 +127,24 @@ public:
         centreContent();
     }
 
+    // The same, into a part of the view (view coordinates, e.g. what an open
+    // window leaves free), with its own margins and zoom steps.
+    void fitContentInto (juce::Rectangle<int> area, float maxZoom, float minZoom, float padX, float padY, float step)
+    {
+        const auto content = contentBounds();
+        if (content.isEmpty() || area.getWidth() <= 0 || area.getHeight() <= 0)
+            return;
+        const auto fit = juce::jmin ((float) area.getWidth() / (content.getWidth() + padX),
+                                     (float) area.getHeight() / (content.getHeight() + padY));
+        zoom = juce::jlimit (minZoom, juce::jmax (minZoom, maxZoom), std::floor (fit / step) * step);
+        origin = area.toFloat().getCentre() / zoom - content.getCentre();
+        origin = { std::round (origin.x / grid) * grid, std::round (origin.y / grid) * grid };
+        repaint();
+    }
+
+    // The nodes' box in unzoomed coordinates (before the origin).
+    juce::Rectangle<float> getContentArea() const { return contentBounds(); }
+
     // Whether every node is inside the view (else the owner may refit).
     bool contentFits() const
     {

@@ -8640,7 +8640,8 @@ int main (int argc, char** argv)
 
         // Mini windows: Delay 2's and Reverb's, opened by double-clicks.
         if (auto* view = findChild<PatchCableView> (*editor))
-            for (const auto ref : { 5, 3 })
+            for (const auto ref : { 3, 5 })
+            {
                 for (const auto& node : view->getGraph().nodes())
                     if (node.ref == ref && node.id < (1u << 20))
                     {
@@ -8648,6 +8649,10 @@ int main (int argc, char** argv)
                         view->mouseDoubleClick (PatchCableUi::mouse (*view, centre, false));
                         break;
                     }
+                // (One window docks at the right and the graph refits beside it.)
+                if (ref == 3)
+                    shot ("window-one");
+            }
         shot ("windows");
 
         pages->showPage ("FX");
@@ -8736,6 +8741,15 @@ int main (int argc, char** argv)
         settle (300);
         pages->showPage ("PATCH");
         shot ("chain");
+        // One effect's window: it docks at the right and the graph refits beside it.
+        if (auto* view = findChild<PatchCableView> (*editor))
+            for (const auto& node : view->getGraph().nodes())
+                if (juce::String (node.label) == "REVERB")
+                {
+                    view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (node).getCentre() * view->getZoom(), false));
+                    break;
+                }
+        shot ("chain-window");
 
         using namespace VoiceRouting;
         auto patch = processor.getChainAsCables();

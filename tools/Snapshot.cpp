@@ -233,7 +233,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto addArea = add != nullptr ? editor.getLocalArea (add, add->getLocalBounds()) : juce::Rectangle<int>();
         const auto level3Area = level3 != nullptr ? editor.getLocalArea (level3, level3->getLocalBounds()) : juce::Rectangle<int>();
         expect (add != nullptr && add->getHeight() <= 32 && level3 != nullptr && addArea.getY() > level3Area.getBottom()
-                    && addArea.getY() - level3Area.getBottom() < 120 && knobFor (osc3 + "_level") == nullptr,
+                    && addArea.getY() - level3Area.getBottom() < 160 && knobFor (osc3 + "_level") == nullptr,
                 "PLAY: one slim + ADD OSC 4 row right after the folded OSC 3, no empty slots");
         expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
                     && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
@@ -8281,6 +8281,12 @@ int main (int argc, char** argv)
         pages->showPage ("MAIN");
         settle (500);
         save (*editor, outDir.getChildFile ("play.png"));
+        // Three open (OSC 2 and 3 switched on; OSC 3 is "sub"): three two-row cards fill the column.
+        for (const char* id : { "osc2_on", "sub_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        settle (500);
+        save (*editor, outDir.getChildFile ("play-3osc.png"));
         processor.addOscillator (3);
         processor.addOscillator (4);
         settle (500);

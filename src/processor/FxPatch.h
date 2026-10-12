@@ -101,6 +101,7 @@ inline std::vector<juce::String> paramPrefixes (int type)
         case 29: return { "fx_eq_" };
         case 30: return { "fx_aw_" };
         case 31: return { "fx_voc_" };
+        case 42: return { "fx_filter_" };
         default: break;
     }
     if (const auto category = airwindows::categoryForFxType (type); category >= 0)

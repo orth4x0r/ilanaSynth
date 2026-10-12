@@ -138,7 +138,11 @@ public:
           vocWidth (p.apvts, "fx_voc_width", "WIDTH"), vocAttack (p.apvts, "fx_voc_attack", "ATTACK"),
           vocRelease (p.apvts, "fx_voc_release", "RELEASE"), vocFormant (p.apvts, "fx_voc_formant", "FORMANT"),
           vocUnvoiced (p.apvts, "fx_voc_unvoiced", "UNVOICED"), vocRate (p.apvts, "fx_voc_rate", "TALK RATE"),
-          vocLevel (p.apvts, "fx_voc_level", "LEVEL"), vocMix (p.apvts, "fx_voc_mix", "MIX")
+          vocLevel (p.apvts, "fx_voc_level", "LEVEL"), vocMix (p.apvts, "fx_voc_mix", "MIX"),
+          filterType (p.apvts, "fx_filter_type", "TYPE"), filterSlope (p.apvts, "fx_filter_slope", "SLOPE"),
+          filterCutoff (p.apvts, "fx_filter_cutoff", "CUTOFF"), filterReso (p.apvts, "fx_filter_reso", "RESO"),
+          filterDrive (p.apvts, "fx_filter_drive", "DRIVE"), filterMorph (p.apvts, "fx_filter_morph", "MORPH"),
+          filterSpread (p.apvts, "fx_filter_spread", "SPREAD")
     {
         addAll (*this, eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain);
         addChildComponent (eqCurve);
@@ -231,6 +235,20 @@ public:
                 addChildComponent (*item);
             slotGroups.push_back (group);
             controls.algo->setPopupOverride ([this, c] { showCategoryMenu (c); });
+        }
+
+        // FILTER (type 42): the voice's filter models on the rack.
+        addAll (*this, filterType, filterSlope, filterCutoff, filterReso, filterDrive, filterMorph, filterSpread);
+        slotGroups.push_back ({ &filterType, &filterSlope, &filterCutoff, &filterReso, &filterDrive, &filterMorph, &filterSpread });
+        {
+            // The tiles' short names, and the FILTER page's grouped list.
+            auto& box = filterType.getComboBox();
+            const auto selected = box.getSelectedId();
+            const auto shortNames = FilterTypeGrid::shortNames();
+            for (int index = 0; index < shortNames.size() && index < box.getNumItems(); ++index)
+                box.changeItemText (index + 1, shortNames[index]);
+            box.setSelectedId (selected, juce::dontSendNotification);
+            filterType.setPopupOverride ([this] { showFilterTypeMenu(); });
         }
 
         // The menus show Airwindows' names as words ("To Tape 6"); the saved
@@ -2812,6 +2830,8 @@ private:
     KnobControl awP1, awP2, awP3, awP4, awP5, awMix;
     ComboControl vocSource;
     KnobControl vocBands, vocWidth, vocAttack, vocRelease, vocFormant, vocUnvoiced, vocRate, vocLevel, vocMix;
+    ComboControl filterType, filterSlope;
+    KnobControl filterCutoff, filterReso, filterDrive, filterMorph, filterSpread;
 
     int airwindowsAlgorithm() const
     {
@@ -3098,6 +3118,44 @@ private:
 
     // The category's effects; picking one sets its knobs to the plugin's
     // own defaults.
+    // FILTER's TYPE list, grouped as the FILTER page's grid.
+    void showFilterTypeMenu()
+    {
+        auto* parameter = processorRef.apvts.getParameter ("fx_filter_type");
+        if (parameter == nullptr)
+            return;
+        const auto current = juce::roundToInt (parameter->convertFrom0to1 (parameter->getValue()));
+        const auto names = FilterTypeGrid::shortNames();
+        juce::PopupMenu menu;
+        for (int page = 0; page < FilterTypeGrid::getNumPages(); ++page)
+        {
+            juce::PopupMenu pageMenu;
+            auto holdsCurrent = false;
+            for (const auto& family : FilterTypeGrid::getFamilies (page))
+            {
+                pageMenu.addSectionHeader (family.first);
+                for (const auto type : family.second)
+                {
+                    pageMenu.addItem (type + 1, names[type], true, type == current);
+                    holdsCurrent = holdsCurrent || type == current;
+                }
+            }
+            menu.addSubMenu (FilterTypeGrid::getPageName (page), pageMenu, true, nullptr, holdsCurrent);
+        }
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&filterType),
+                            [safeThis = juce::Component::SafePointer<FxPage> (this), parameter] (int result)
+                            {
+                                if (safeThis == nullptr || result <= 0)
+                                    return;
+                                safeThis->processorRef.performEdit ("Filter FX type", [parameter, result]
+                                {
+                                    parameter->beginChangeGesture();
+                                    parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (result - 1)));
+                                    parameter->endChangeGesture();
+                                });
+                            });
+    }
+
     void showCategoryMenu (int c)
     {
         const auto& category = airwindows::categoryModules()[(size_t) c];

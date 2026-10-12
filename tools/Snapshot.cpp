@@ -8510,6 +8510,64 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_FILTERFX: FX type 42, FILTER (ilana 2026-10-11): its
+    // RACK card, a Delay > FILTER > back into Delay loop on the PATCH tab
+    // with the loop selected, and FILTER's mini window; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FILTERFX", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("filterfx-" + name + ".png"));
+        };
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        for (const auto type : { 9, 42, 13 })
+            processor.addFxEffect (type);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_reverb_on", 1.0f);
+        setParam ("fx_filter_type", (float) FilterType::LadderLow);
+        setParam ("fx_filter_cutoff", 900.0f);
+        setParam ("fx_filter_reso", 0.7f);
+        setParam ("fx_filter_spread", 0.5f);
+        pages->showPage ("FX");
+        shot ("rack");
+
+        processor.setFxPatcherOn (true);
+        settle (200);
+        auto graph = processor.getFxPatchGraph();
+        std::map<int, PatchGraph::NodeId> nodeOf;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed())
+                nodeOf[node.ref] = node.id;
+        graph.connect ({ nodeOf[2], 0 }, { nodeOf[1], 0 }, 0.5f); // FILTER back into Delay
+        processor.setFxPatchGraph (graph);
+        pages->showPage ("PATCH");
+        settle (200);
+        if (auto* view = findChild<PatchCableView> (*editor))
+        {
+            const auto loop = view->getGraph().findCable ({ nodeOf[2], 0 }, { nodeOf[1], 0 });
+            view->selectCable (loop);
+        }
+        shot ("loop");
+        if (auto* view = findChild<PatchCableView> (*editor))
+            for (const auto& node : view->getGraph().nodes())
+                if (node.ref == 2 && node.id < (1u << 20))
+                {
+                    const auto centre = view->nodeBounds (node).getCentre() * view->getZoom();
+                    view->mouseDoubleClick (PatchCableUi::mouse (*view, centre, false));
+                    break;
+                }
+        shot ("window");
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_PATCHER: the FX tab's PATCHER (roadmap step 17): a rack
     // shown as cables, then a patch with a parallel split, two instances of
     // one effect and a loop, the RACK page with those instances, and the

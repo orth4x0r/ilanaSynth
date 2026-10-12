@@ -202,3 +202,19 @@ ilana's patch (Reverb into Smear and EQ, Smear into EQ, EQ back to Reverb at 50 
 
 Cost (`ILANA_BENCH_ONLY=graph` and `patcher`, alternating runs of main `44db408` and this branch, 48 kHz, block 512): under the ceiling a guard is one vectorised peak pass per chunk (16 gain nodes in series with a loop: 6.3 / 6.5 us on main, 5.4 / 8.2 us here, noise). Drive, Chorus, Delay, Reverb with a Reverb to Drive loop at 50 % (it rings, so both guards work): PATCHER on minus off 20.8 / 19.2 / 24.5 us on main, 24.2 / 21.7 / 19.6 us here. Unchanged within noise.
 
+## FILTER effect measured (2026-10-12, branch `claude/reroutable-oscillators-hl008x`)
+
+FX type 42 runs one voice filter model per channel on the rack, coefficients every 32 samples. `ILANA_BENCH_ONLY=filter ilanaFxCpuBench` (block 512 at 48 kHz, reso 0.8, drive 2; net = minus the empty rack, 1.18 % of a core; cloud box):
+
+| Model | net, SPREAD 0 | net, SPREAD 100 % |
+|---|---|---|
+| Low Pass (AW Y) | 0.47 % | 0.41 % |
+| Ladder LP | 1.41 % | 1.42 % |
+| Moog Drive | 1.94 % | 2.02 % |
+| Vowel | 0.52 % | 0.48 % |
+| Comb + | 0.48 % | 0.56 % |
+| AW Pear | 0.40 % | 0.66 % |
+| Disperser | 0.18 % | 0.19 % |
+
+For scale: Reverb 0.31 %, EQ 0.20 %, Tilt 0.09 % in the same run. The empty rack and every other effect run the same code as before (FILTER only runs when a slot holds it); 0 of 698 presets changed. In a loop it costs the same per pass, as every effect does (rules A1-A3 above).
+

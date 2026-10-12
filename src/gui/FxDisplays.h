@@ -80,7 +80,7 @@ public:
             case 34: case 35: return Kind::airwindowsImpulse; // AW Reverb (spaces), AW Delay (echo)
             // The effects that were a sentence in a well: a small picture each (N16-3).
             case 8: case 10: case 11: case 14: case 15: case 17: case 18: case 19: case 22:
-            case 23: case 24: case 25: case 26: case 28: case 36: case 41: return Kind::picture;
+            case 23: case 24: case 25: case 26: case 28: case 36: case 41: case 42: return Kind::picture;
             default: return Kind::none;
         }
     }
@@ -1584,6 +1584,44 @@ private:
         paintCaption (g, "SEE-SAW AT 700 Hz", signedText (-tilt * 12.0f, 1, " dB low") + "  " + signedText (tilt * 12.0f, 1, " dB high"));
     }
 
+    // ---- FILTER (type 42): the chosen model's small-signal response, as
+    // the FILTER page draws it; with SPREAD, the two sides apart. ----
+    void paintFilterFx (juce::Graphics& g)
+    {
+        const auto plot = plotArea();
+        const auto type = juce::jlimit (0, (int) FilterType::Count - 1, juce::roundToInt (param ("fx_filter_type")));
+        const auto slope24 = param ("fx_filter_slope") > 0.5f;
+        const auto cutoff = (double) juce::jlimit (20.0f, 20000.0f, param ("fx_filter_cutoff"));
+        const auto reso = (double) juce::jlimit (0.0f, 1.0f, param ("fx_filter_reso"));
+        const auto morph = (double) juce::jlimit (0.0f, 1.0f, param ("fx_filter_morph"));
+        const auto spread = juce::jlimit (0.0f, 1.0f, param ("fx_filter_spread"));
+        constexpr double low = 20.0, high = 20000.0;
+        constexpr float floor = -36.0f, top = 18.0f;
+        paintFrequencyGrid (g, plot, low, high);
+        const auto zeroY = plot.getBottom() - (0.0f - floor) / (top - floor) * plot.getHeight();
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), zeroY));
+        if (plot.getHeight() > 30.0f)
+            for (const auto& tick : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+                paintTick (g, tick.second, juce::Rectangle<float> (logX (plot, tick.first, low, high) + 2.0f, plot.getBottom() - 10.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+        const auto curveAt = [&] (double at)
+        {
+            return responsePath (plot, low, high, floor, top, [&] (double f)
+            {
+                return FilterType::response (type, slope24, reso, std::complex<double> (0.0, f / at), morph, at);
+            });
+        };
+        if (spread > 0.0f)
+        {
+            // The right side, closed by SPREAD, faint under the left.
+            g.setColour (colour.withAlpha (0.35f));
+            g.strokePath (curveAt (cutoff * std::exp2 (-0.5 * spread)), juce::PathStrokeType (1.2f));
+        }
+        strokeCurve (g, curveAt (cutoff * std::exp2 (0.5 * spread)), plot, plot.getBottom());
+        const auto hz = cutoff < 1000.0 ? juce::String (juce::roundToInt (cutoff)) + " Hz" : juce::String (cutoff / 1000.0, cutoff < 10000.0 ? 2 : 1) + " kHz";
+        paintCaption (g, FilterType::getNames()[type].toUpperCase(), hz);
+    }
+
     void paintUtility (juce::Graphics& g)
     {
         const auto plot = plotArea();
@@ -1891,6 +1929,7 @@ private:
             case 28: paintFeedbackLoop (g); break;
             case 36: paintEnsemble (g); break;
             case 41: paintStereoField (g); break;
+            case 42: paintFilterFx (g); break;
             default: break;
         }
     }
@@ -1914,6 +1953,7 @@ private:
             case 25: return { "fx_ring_freq" };
             case 26: return { "fx_octaver_mix" };
             case 28: return { "fx_feedback_amount", "fx_feedback_delay" };
+            case 42: return { "fx_filter_type", "fx_filter_slope", "fx_filter_cutoff", "fx_filter_reso", "fx_filter_morph", "fx_filter_spread" };
             default: return {};
         }
     }

@@ -37,6 +37,7 @@
  #define ILANA_PIANO_SSE 0
 #endif
 
+#include "DamperTaper.h"
 #include "PianoModelTuning.h"
 
 class PianoString
@@ -268,7 +269,7 @@ public:
         lossState += (wave - lossState) * lossCoefficient;
         auto atBridge = lossState * lossGain;
         if (damper > 0.0f && ! noteHeld)
-            atBridge *= 1.0f - damper * damperLoss;
+            atBridge *= damperTrip.get (damper, period, sampleRate);
         bridgeReturn = -atBridge;
 
         auto output = atBridge;
@@ -287,7 +288,7 @@ public:
             horizontalLossState += (h - horizontalLossState) * horizontalLossCoefficient;
             auto loop = horizontalLossState * horizontalLossGain;
             if (damper > 0.0f && ! noteHeld)
-                loop *= 1.0f - damper * damperLoss;
+                loop *= damperTrip.get (damper, period, sampleRate);
             // One loop stands for both ends' reflections: no inversion.
             buffer[horizontalOffset + horizontalWrite] = loop + drive;
             if (++horizontalWrite >= horizontalSize)
@@ -531,7 +532,6 @@ private:
 
         aftersound = t.aftersound;
         horizontalMix = t.horizontalMix;
-        damperLoss = 0.16f;
 
         // The bass bark: tension modulation and longitudinal modes, fading
         // out by the tenor.
@@ -615,7 +615,8 @@ private:
     float lossCoefficient = 0.5f, lossGain = 0.99f, lossState = 0.0f;
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;
-    float aftersound = 0.3f, horizontalMix = 1.0f, damperLoss = 0.16f;
+    float aftersound = 0.3f, horizontalMix = 1.0f;
+    DamperTaper::Cache damperTrip;
 
     static constexpr int forceHistorySize = 4096;
     std::array<float, forceHistorySize> forceHistory {};

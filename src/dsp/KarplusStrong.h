@@ -12,6 +12,7 @@
 #include <complex>
 #include <vector>
 
+#include "DamperTaper.h"
 #include "ElectricPiano.h"
 #include "PianoString.h"
 #include "FeedbackGuitar.h"
@@ -475,7 +476,7 @@ public:
         // Dampers: once the key is up, felt lands on the string. The loss is
         // per trip round the loop, so low strings die away more slowly.
         if (damper > 0.0f && ! noteHeld)
-            loopValue *= 1.0f - damper * 0.16f; // full: about 0.15 s to silence at middle C
+            loopValue *= damperLoss.get (damper, period, sampleRate); // see DamperTaper.h
 
         // Bridge buzz (jawari): the string grazes the bridge on loud swings,
         // flattening the peaks on every pass. The curve only ever reduces
@@ -933,7 +934,7 @@ private:
         horizontalLowState += (delayed - horizontalLowState) * horizontalLowpass;
         auto loopValue = horizontalLowState * horizontalFeedback;
         if (damper > 0.0f && ! noteHeld)
-            loopValue *= 1.0f - damper * 0.16f;
+            loopValue *= damperLoss.get (damper, cachedPeriod, sampleRate);
 
         buffer[(size_t) (half + horizontalWrite)] = loopValue + drive * PianoTuning::get().aftersound;
         horizontalWrite = horizontalWrite + 1 < half ? horizontalWrite + 1 : (horizontalWrite + 1) % half;
@@ -983,7 +984,7 @@ private:
         lowpassState += (bridgeOut - lowpassState) * lowpassCoefficient;
         auto bridgeReflection = -lowpassState * feedback;
         if (damper > 0.0f && ! noteHeld)
-            bridgeReflection *= 1.0f - damper * 0.16f;
+            bridgeReflection *= damperLoss.get (damper, period, sampleRate);
         // The bridge's buzz (as on the plucked string) flattens the peaks
         // that come back from it.
         if (buzz > 0.0f)
@@ -1097,6 +1098,7 @@ private:
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
     double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
+    DamperTaper::Cache damperLoss;
     bool loopSetupDirty = true, loopUseDispersion = false;
     double loopDelay = 0.0;
     float loopCoefficient = 0.0f;

@@ -1,7 +1,10 @@
 #pragma once
 
+#include <array>
 #include <functional>
+#include <map>
 
+#include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
 #include "../processor/PatchGraph.h"
 
@@ -27,7 +30,15 @@
 // a tag halfway along that shows its level and delay ("20% | 1.3 ms"). The
 // tag turns the accent colour while the runner's loop guard is holding the
 // loop at 0 dB (it rings by itself: turn its level down).
-class PatchCableView : public juce::Component
+//
+// Cable motion (roadmap step 47): a forward cable hangs with a soft sag, and
+// when a box, the cable's other end or the pointer carrying a new cable
+// moves, the cable swings behind it on a damped spring and settles. This is
+// display only (the graph, the compiled plan and the audio never see it). A
+// frame timer runs only while some cable is still moving; at rest the view
+// draws on demand like before, so an idle patcher costs nothing.
+class PatchCableView : public juce::Component,
+                       private IlanaAnim::FrameTimer
 {
 public:
     enum class Edit
@@ -207,7 +218,7 @@ public:
     // The tag halfway along a loop cable (its level and delay).
     juce::Rectangle<float> loopTagBounds (const PatchGraph::Cable& cable) const
     {
-        const auto path = cablePath (portPosition (cable.from, false), portPosition (cable.to, true), true);
+        const auto path = cablePathOf (cable, true);
         return juce::Rectangle<float> (0.0f, 0.0f, 100.0f, 20.0f).withCentre (path.getPointAlongPath (path.getLength() * 0.5f));
     }
 
@@ -256,7 +267,8 @@ public:
             const auto* source = graph.find (drag.from.node);
             const auto colour = source != nullptr ? colourFor (*source) : Ui::text2;
             g.setColour (colour.withAlpha (0.9f));
-            g.strokePath (cablePath (from, drag.mouse), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            const auto pending = swings.find (pendingKey);
+            g.strokePath (cablePath (from, drag.mouse, false, pending != swings.end() ? pending->second.offset : juce::Point<float>()), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
     }
 
@@ -339,11 +351,13 @@ public:
             const auto target = e.position / zoom - drag.grabOffset - origin;
             graph.moveNode (drag.node, std::round (target.x / grid) * grid, std::round (target.y / grid) * grid);
             drag.moved = true;
+            wakeCables();
             repaint();
         }
         else if (drag.kind == DragKind::cable)
         {
             drag.mouse = e.position / zoom;
+            wakeCables();
             repaint();
         }
         else if (drag.kind == DragKind::loopLevel)
@@ -466,7 +480,7 @@ public:
         auto bestDistance = 6.0f;
         for (size_t c = 0; c < cables.size(); ++c)
         {
-            const auto path = cablePath (portPosition (cables[c].from, false), portPosition (cables[c].to, true), feedback[c]);
+            const auto path = cablePathOf (cables[c], feedback[c]);
             juce::Point<float> nearest;
             const auto along = path.getNearestPoint (position, nearest);
             juce::ignoreUnused (along);
@@ -481,6 +495,176 @@ public:
     }
 
 private:
+    //==========================================================================
+    // Cable motion. Each cable carries a sideways/vertical offset that is
+    // zero at rest; the middle of the cable is displaced by it (nothing at
+    // the ports). Moving a cable's ends kicks the offset against the motion,
+    // and a spring with some damping brings it back, overshooting a little.
+    struct Swing
+    {
+        juce::Point<float> offset, velocity, lastMid;
+        bool seen = false;
+        bool moving() const { return offset.x != 0.0f || offset.y != 0.0f || velocity.x != 0.0f || velocity.y != 0.0f; }
+    };
+    using SwingKey = std::array<int, 4>;
+    static constexpr SwingKey pendingKey { -1, -1, -1, -1 };
+
+    static SwingKey swingKey (const PatchGraph::Cable& cable)
+    {
+        return { (int) cable.from.node, cable.from.port, (int) cable.to.node, cable.to.port };
+    }
+
+    juce::Point<float> swingOf (const PatchGraph::Cable& cable) const
+    {
+        const auto found = swings.find (swingKey (cable));
+        return found != swings.end() ? found->second.offset : juce::Point<float>();
+    }
+
+    void wakeCables()
+    {
+        if (motion && ! isTimerRunning() && isShowing())
+            startTimerHz (60);
+    }
+
+    // One step for one cable whose ends are `from` and `to` (view coordinates).
+    // Returns whether it is still moving.
+    bool stepSwing (Swing& swing, juce::Point<float> from, juce::Point<float> to, float dt)
+    {
+        constexpr float stiffness = 150.0f, damping = 7.0f, kick = 0.55f, reach = 40.0f;
+        const auto mid = (from + to) * 0.5f - origin; // (panning the view moves everything together: no swing)
+        if (! swing.seen)
+        {
+            swing.lastMid = mid;
+            swing.seen = true;
+        }
+        const auto moved = mid - swing.lastMid;
+        swing.lastMid = mid;
+        swing.offset -= moved * kick;
+
+        const auto length = swing.offset.getDistanceFromOrigin();
+        if (length > reach)
+            swing.offset = swing.offset * (reach / length);
+
+        swing.velocity += (swing.offset * -stiffness - swing.velocity * damping) * dt;
+        swing.offset += swing.velocity * dt;
+
+        if (swing.offset.getDistanceFromOrigin() < 0.05f && swing.velocity.getDistanceFromOrigin() < 0.5f)
+        {
+            swing.offset = {};
+            swing.velocity = {};
+            return false;
+        }
+        return true;
+    }
+
+    void timerCallback() override
+    {
+        if (! isShowing())
+        {
+            swings.clear();
+            stopTimer();
+            return;
+        }
+
+        if (! advanceMotion (juce::jmin (frameSeconds(), 0.04f)))
+            stopTimer(); // (the next drag step wakes it again)
+    }
+
+public:
+    // One physics step of dt seconds; whether any cable is still moving.
+    // (The timer calls this; the tests step it by hand.)
+    bool advanceMotion (float dt)
+    {
+        auto active = false;
+        std::map<SwingKey, Swing> next;
+        for (const auto& cable : graph.cables())
+        {
+            const auto key = swingKey (cable);
+            auto swing = swings.count (key) ? swings[key] : Swing();
+            active |= stepSwing (swing, portPosition (cable.from, false), portPosition (cable.to, true), dt);
+            if (swing.seen)
+                next[key] = swing;
+        }
+        if (drag.kind == DragKind::cable)
+        {
+            auto swing = swings.count (pendingKey) ? swings[pendingKey] : Swing();
+            active |= stepSwing (swing, portPosition (drag.from, false), drag.mouse, dt);
+            next[pendingKey] = swing;
+        }
+        const auto wasMoving = std::any_of (swings.begin(), swings.end(), [] (const auto& entry) { return entry.second.moving(); });
+        swings = std::move (next);
+
+        if (active || wasMoving)
+            repaint();
+        return active;
+    }
+
+    // Whether any cable is swinging (so a frame timer is wanted).
+    bool isAnimating() const
+    {
+        return std::any_of (swings.begin(), swings.end(), [] (const auto& entry) { return entry.second.moving(); });
+    }
+
+    // The largest swing offset of any cable, in graph pixels (0 at rest).
+    float largestSwing() const
+    {
+        auto largest = 0.0f;
+        for (const auto& entry : swings)
+            largest = juce::jmax (largest, entry.second.offset.getDistanceFromOrigin());
+        return largest;
+    }
+
+    // Cable sag and swing can be turned off (the cables then draw the plain
+    // curves of step A and no timer ever runs).
+    void setMotion (bool on)
+    {
+        motion = on;
+        swings.clear();
+        stopTimer();
+        repaint();
+    }
+
+private:
+
+    // The route with its sag and swing applied: a smooth curve through points
+    // sampled along it, pushed down by the sag and sideways by the swing,
+    // most in the middle and not at all at the ports.
+    static juce::Path displaced (const juce::Path& route, juce::Point<float> push)
+    {
+        if (push.x == 0.0f && push.y == 0.0f)
+            return route;
+
+        const auto length = route.getLength();
+        const auto count = juce::jlimit (8, 48, juce::roundToInt (length / 8.0f));
+        std::vector<juce::Point<float>> points;
+        points.reserve ((size_t) count + 1);
+        for (int i = 0; i <= count; ++i)
+        {
+            const auto along = (float) i / (float) count;
+            points.push_back (route.getPointAlongPath (length * along) + push * std::sin (juce::MathConstants<float>::pi * along));
+        }
+
+        juce::Path path;
+        path.startNewSubPath (points.front());
+        for (size_t i = 1; i + 1 < points.size(); ++i)
+            path.quadraticTo (points[i], (points[i] + points[i + 1]) * 0.5f);
+        path.lineTo (points.back());
+        return path;
+    }
+
+    // A forward cable that is not routed round the boxes hangs: the sag
+    // grows with its length up to 14 px.
+    float sagFor (juce::Point<float> from, juce::Point<float> to) const { return motion ? juce::jmin (14.0f, from.getDistanceFrom (to) * 0.06f) : 0.0f; }
+
+    juce::Path cablePathOf (const PatchGraph::Cable& cable, bool loop) const
+    {
+        const auto from = portPosition (cable.from, false), to = portPosition (cable.to, true);
+        return cablePath (from, to, loop, swingOf (cable));
+    }
+
+    std::map<SwingKey, Swing> swings;
+    bool motion = true;
+
     enum class DragKind { none, node, cable, pan, loopLevel };
 
     bool isShown (const PatchGraph::Node& node) const { return showInputNode || ! node.isInput(); }
@@ -686,7 +870,7 @@ private:
         }
     }
 
-    juce::Path cablePath (juce::Point<float> from, juce::Point<float> to, bool loop = false) const
+    juce::Path cablePath (juce::Point<float> from, juce::Point<float> to, bool loop = false, juce::Point<float> swing = {}) const
     {
         juce::Path path;
         path.startNewSubPath (from);
@@ -711,8 +895,11 @@ private:
                 round.cubicTo (from.translated (40.0f, 0.0f), { from.x + 40.0f, lane }, { from.x + 80.0f, lane });
                 round.lineTo (to.x - 80.0f, lane);
                 round.cubicTo ({ to.x - 40.0f, lane }, to.translated (-40.0f, 0.0f), to);
-                return round;
+                return displaced (round, swing);
             }
+
+            // (a loop cable runs under the boxes already, so it does not hang)
+            return displaced (path, swing + juce::Point<float> (0.0f, loop ? 0.0f : sagFor (from, to)));
         }
         else if (! loop && std::abs (to.y - from.y) >= nodeHeight)
         {
@@ -731,7 +918,7 @@ private:
             path.cubicTo (from.translated (60.0f, 0.0f), { from.x + 60.0f, drop }, { (from.x + to.x) * 0.5f, drop });
             path.cubicTo ({ to.x - 60.0f, drop }, to.translated (-60.0f, 0.0f), to);
         }
-        return path;
+        return displaced (path, swing);
     }
 
     // Whether a cable's curve crosses a box other than the two it joins.
@@ -755,9 +942,7 @@ private:
     void paintCable (juce::Graphics& g, const PatchGraph::Cable& cable, bool loop, bool selected) const
     {
         using namespace IlanaTheme;
-        const auto from = portPosition (cable.from, false);
-        const auto to = portPosition (cable.to, true);
-        const auto path = cablePath (from, to, loop);
+        const auto path = cablePathOf (cable, loop);
         const auto* source = graph.find (cable.from.node);
         auto colour = source != nullptr ? colourFor (*source) : Ui::text2;
         colour = colour.withAlpha (selected ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));

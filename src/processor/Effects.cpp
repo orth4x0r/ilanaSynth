@@ -1,6 +1,7 @@
 #include "ProcessorInternal.h"
 #include "PatchGraphRunner.h"
 #include "PatchGraphState.h"
+#include "../dsp/FastMath.h"
 
 // The rack. PATCHER on: the slots as the nodes of the patcher's graph
 // (processEffectsPatched). Otherwise the rack's routing (fx_routing): SERIES,
@@ -459,6 +460,7 @@ void IlanaSynthAudioProcessor::FxEngine::processSlot (int type, juce::AudioBuffe
         case 29: processEq (buffer); break;
         case 30: processAirwindows (buffer); break;
         case 31: processVocoder (buffer); break;
+        case 42: processFilter (buffer); break;
         default:
             if (const auto category = airwindows::categoryForFxType (type); category >= 0)
                 processAirwindowsCategory (buffer, category);
@@ -1439,6 +1441,74 @@ void IlanaSynthAudioProcessor::FxEngine::processTilt (juce::AudioBuffer<float>& 
     }
 }
 
+// FX type 42, FILTER: the voice's filter models (FilterUnit) on the rack's
+// two channels, driven by a tanh in front as the voice drives them (or inside,
+// for the models that take DRIVE in their loop). Coefficients every 32
+// samples, the cutoff glided in octaves over about 20 ms. A model that ever
+// gives a non-finite or runaway sample is reset (the loop guard bounds a PATCH
+// loop; this keeps one bad sample from sticking).
+void IlanaSynthAudioProcessor::FxEngine::processFilter (juce::AudioBuffer<float>& buffer)
+{
+    const auto numSamples = buffer.getNumSamples();
+    const auto channels = juce::jmin (2, buffer.getNumChannels());
+    const auto sampleRate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    const auto type = juce::jlimit (0, (int) FilterType::Count - 1, juce::roundToInt (getParam (filterTypeRef)));
+    const auto slope24 = getParam (filterSlopeRef) > 0.5f;
+    const auto cutoff = juce::jlimit (20.0, sampleRate * 0.45, (double) getParam (filterCutoffRef));
+    const auto reso = (double) juce::jlimit (0.0f, 1.0f, getParam (filterResoRef));
+    const auto drive = juce::jlimit (1.0f, 10.0f, getParam (filterDriveRef));
+    const auto morph = juce::jlimit (0.0f, 1.0f, getParam (filterMorphRef));
+    const auto spread = juce::jlimit (0.0f, 1.0f, getParam (filterSpreadRef));
+    const auto inside = FilterType::drivesInside (type);
+
+    // Each side's target in octaves above 20 Hz (SPREAD: half an octave either way at most).
+    const float target[2] { (float) std::log2 (cutoff / 20.0) + 0.5f * spread, (float) std::log2 (cutoff / 20.0) - 0.5f * spread };
+    if (! filterGlideStarted)
+    {
+        filterOctaves[0] = target[0];
+        filterOctaves[1] = target[1];
+        filterGlideStarted = true;
+    }
+    constexpr int step = 32;
+    const auto glide = 1.0f - std::exp (-(float) step / (0.02f * (float) sampleRate));
+    const auto top = (float) std::log2 (sampleRate * 0.45 / 20.0);
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        filterUnits[channel].setType (type, slope24);
+        filterUnits[channel].setDrive (inside ? drive : 1.0f);
+    }
+
+    for (int start = 0; start < numSamples; start += step)
+    {
+        const auto count = juce::jmin (step, numSamples - start);
+        for (int channel = 0; channel < 2; ++channel)
+            filterOctaves[channel] += (target[channel] - filterOctaves[channel]) * glide;
+        const auto same = spread <= 0.0f && std::abs (filterOctaves[0] - filterOctaves[1]) < 1.0e-4f;
+        FilterUnit::Coefficients coefficients[2];
+        for (int channel = 0; channel < (same ? 1 : 2); ++channel)
+            coefficients[channel] = FilterUnit::makeCoefficients (type, sampleRate,
+                                                                  20.0 * std::exp2 ((double) juce::jlimit (0.0f, top, filterOctaves[channel])), reso, morph);
+        for (int channel = 0; channel < channels; ++channel)
+        {
+            auto& unit = filterUnits[channel];
+            unit.setCoefficients (coefficients[same ? 0 : channel]);
+            auto* data = buffer.getWritePointer (channel, start);
+            for (int i = 0; i < count; ++i)
+            {
+                const auto in = ! inside && drive > 1.0f ? FastMath::tanh (data[i] * drive) : data[i];
+                auto out = unit.process (in);
+                if (! std::isfinite (out) || std::abs (out) > 64.0f)
+                {
+                    unit.reset();
+                    out = 0.0f;
+                }
+                data[i] = out;
+            }
+        }
+    }
+}
+
 EqSettings IlanaSynthAudioProcessor::getEqSettings() const
 {
     EqSettings settings;
@@ -2193,6 +2263,9 @@ void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samples
         smear[channel].prepare (sampleRate);
     }
     freeze.prepare (sampleRate);
+    for (auto& unit : filterUnits)
+        unit.prepare (sampleRate);
+    filterGlideStarted = false;
 
     haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
 
@@ -2309,6 +2382,10 @@ void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samples
 // and without allocating.
 void IlanaSynthAudioProcessor::FxEngine::reset()
 {
+    for (auto& unit : filterUnits)
+        unit.reset();
+    filterGlideStarted = false;
+
     for (int channel = 0; channel < 2; ++channel)
     {
         tapeShift[channel].reset();

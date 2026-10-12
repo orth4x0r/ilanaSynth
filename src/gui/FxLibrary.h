@@ -30,7 +30,7 @@ inline juce::Colour fxColour (int type)
             return juce::Colour (0xff9a8cff); // motion: chorus .. comb, vocoder, AW modulation
         case 16: case 10: case 17:
             return juce::Colour (0xff7ad98e); // rhythm: trance gate, stutter, tape stop
-        case 29: case 18: case 4: case 20: case 21: case 19: case 37: case 38:
+        case 29: case 18: case 4: case 20: case 21: case 19: case 37: case 38: case 42:
             return juce::Colour (0xffe0c35c); // tone & level: eq, tilt, comp, ott, limiter, utility, AW dynamics/EQ
         default:
             return IlanaTheme::Ui::text3;
@@ -133,7 +133,7 @@ inline const std::vector<FxLibraryGroup>& fxLibraryGroups()
                          { 25, "Ring Mod" }, { 5, "Comb" } } },
         { "RHYTHM", 3, { { 16, "Trance Gate" }, { 10, "Stutter" }, { 17, "Tape Stop" } } },
         { "VOICE", 3, { { 27, "Vowel" }, { 31, "Vocoder" } } },
-        { "TONE & LEVEL", 4, { { 29, "EQ", 38, "Tone" }, { 18, "Tilt" }, { 4, "Comp", 37, "Glue" }, { 20, "OTT" }, { 21, "Limiter" },
+        { "TONE & LEVEL", 4, { { 42, "Filter" }, { 29, "EQ", 38, "Tone" }, { 18, "Tilt" }, { 4, "Comp", 37, "Glue" }, { 20, "OTT" }, { 21, "Limiter" },
                                { 19, "Utility" } } },
         { "MORE AIRWINDOWS", -1, { { 30, "Airwindows (all)" } } } };
     return groups;

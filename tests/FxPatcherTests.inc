@@ -378,6 +378,72 @@ void runFxPatcherTests()
                                       + runaway.joinIntoString (", ") + ")");
     }
 
+    // FILTER (type 42, ilana 2026-10-11: an effect fed back into a filter).
+    // Its low pass passes the 110 Hz tone and cuts 5 kHz; every filter model
+    // at full resonance and drive, in a hot loop with a Reverb (Reverb >
+    // FILTER > back into Reverb at 70 %), stays finite and at or under 0 dB,
+    // and plays again after the loop is unpatched.
+    {
+        constexpr int filterFx = 42;
+        const auto tonePeak = [] (IlanaSynthAudioProcessor& processor, double hz)
+        {
+            processor.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> buffer (2, 256);
+            auto peak = 0.0f;
+            for (int block = 0; block < 60; ++block)
+            {
+                for (int channel = 0; channel < 2; ++channel)
+                    for (int i = 0; i < 256; ++i)
+                        buffer.setSample (channel, i, 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * hz * (block * 256 + i) / 48000.0));
+                processor.processEffects (buffer);
+                if (block >= 30)
+                    peak = juce::jmax (peak, buffer.getMagnitude (0, 0, 256));
+            }
+            return peak;
+        };
+        IlanaSynthAudioProcessor processor;
+        setUp (processor, { filterFx }, false);
+        set (processor, "fx_filter_type", 0.0f);
+        set (processor, "fx_filter_cutoff", 300.0f);
+        set (processor, "fx_filter_reso", 0.0f);
+        const auto low = tonePeak (processor, 110.0), high = tonePeak (processor, 5000.0);
+        check (low > 0.4f && low < 0.7f && high < 0.05f,
+               "FILTER's low pass at 300 Hz passes 110 Hz and cuts 5 kHz (" + juce::String (low, 3) + ", " + juce::String (high, 4) + ")");
+
+        juce::StringArray runaway;
+        for (int model = 0; model < FilterType::Count; ++model)
+        {
+            IlanaSynthAudioProcessor looped;
+            setUp (looped, { reverb, filterFx }, false);
+            set (looped, "fx_reverb_on", 1.0f);
+            set (looped, "fx_filter_type", (float) model);
+            set (looped, "fx_filter_cutoff", 800.0f);
+            set (looped, "fx_filter_reso", 1.0f);
+            set (looped, "fx_filter_drive", 10.0f);
+            set (looped, "fx_filter_morph", 0.5f);
+            looped.setFxPatcherOn (true);
+            auto graph = looped.getFxPatchGraph();
+            const auto verb = nodeOfSlot (graph, 0), filter = nodeOfSlot (graph, 1);
+            graph.connect ({ filter, 0 }, { verb, 0 });
+            looped.setFxPatchGraph (graph);
+            auto hot = looped.getFxPatchGraph();
+            hot.setCableGain (hot.findCable ({ filter, 0 }, { verb, 0 }), 0.7f);
+            looped.setFxPatchGraph (hot);
+            looped.compileFxPlansNow();
+            looped.prepareToPlay (48000.0, 256);
+            const auto peak = runPeak (looped, 300, 40, 2.0f);
+            auto unlooped = looped.getFxPatchGraph();
+            unlooped.disconnect ({ filter, 0 }, { verb, 0 });
+            looped.setFxPatchGraph (unlooped);
+            looped.compileFxPlansNow();
+            const auto again = runPeak (looped, 80, 40, 1.0f, 20);
+            if (! (peak <= 1.0f) || ! std::isfinite (again) || again > 1.0e3f || again <= 0.0f)
+                runaway.add (FilterType::getNames()[model] + " (" + juce::String (peak, 3) + ", then " + juce::String (again, 3) + ")");
+        }
+        check (runaway.isEmpty(), "a Reverb > FILTER > Reverb loop at 70 % on every filter model (full reso and drive) stays at or under 0 dB "
+                                  "and plays again unpatched (" + runaway.joinIntoString (", ") + ")");
+    }
+
     // The loop delay: a loop cable's own delay, from one chunk up to
     // maxLoopDelayMs; it saves and loads with the patch.
     {

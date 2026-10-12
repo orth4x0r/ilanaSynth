@@ -101,6 +101,7 @@ private:
     void processVowel (juce::AudioBuffer<float>& buffer);
     void processFeedback (juce::AudioBuffer<float>& buffer);
     void processEq (juce::AudioBuffer<float>& buffer);
+    void processFilter (juce::AudioBuffer<float>& buffer);
 
     //==========================================================================
     // State (moved verbatim from the processor; same initial values).
@@ -179,6 +180,15 @@ private:
     double tapeStopRead = 0.0;
     float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
     float tiltLowState[2] {};
+
+    // FILTER (type 42): one voice filter per side, the cutoff glided in
+    // octaves (a jump would click), and its knobs.
+    FilterUnit filterUnits[2];
+    float filterOctaves[2] {};
+    bool filterGlideStarted = false;
+    ParamRef filterTypeRef { "fx_filter_type" }, filterSlopeRef { "fx_filter_slope" }, filterCutoffRef { "fx_filter_cutoff" },
+        filterResoRef { "fx_filter_reso" }, filterDriveRef { "fx_filter_drive" }, filterMorphRef { "fx_filter_morph" },
+        filterSpreadRef { "fx_filter_spread" };
     float tiltHighState[2] {};
     std::array<BlockRamp, (size_t) FxRamp::Count> fxRamps;
 

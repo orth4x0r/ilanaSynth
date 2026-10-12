@@ -520,7 +520,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder",
                                       // 32-41: the Airwindows category modules (append only)
                                       "AW Tape", "AW Saturation", "AW Reverb", "AW Delay", "AW Modulation",
-                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo" };
+                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo",
+                                      // 42: the synth's filters as an effect (append only)
+                                      "Filter" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -1187,6 +1189,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
             addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + stage), VoiceRouting::cableParamName (VoiceRouting::numSources + stage),
                        masks, defaults.stage[(size_t) stage]);
     }
+
+    // FX type 42, FILTER (ilana 2026-10-11: feed an effect back into a
+    // filter): any of the voice filters (FilterType, dsp/FilterUnit.h) run
+    // once on the rack's stereo signal, so a PATCH loop can go through one.
+    // SPREAD opens the left side and closes the right, up to an octave apart.
+    addChoice ("fx_filter_type", "Filter FX Type", FilterType::getNames(), FilterType::LowPass);
+    addChoice ("fx_filter_slope", "Filter FX Slope", { "12 dB", "24 dB" }, 0);
+    addFloat ("fx_filter_cutoff", "Filter FX Cutoff", 20.0f, 20000.0f, 2000.0f, 0.25f);
+    addFloat ("fx_filter_reso", "Filter FX Reso", 0.0f, 1.0f, 0.3f);
+    addFloat ("fx_filter_drive", "Filter FX Drive", 1.0f, 10.0f, 1.0f);
+    addFloat ("fx_filter_morph", "Filter FX Morph", 0.0f, 1.0f, 0.0f);
+    addFloat ("fx_filter_spread", "Filter FX Spread", 0.0f, 1.0f, 0.0f);
 
     return layout;
 }

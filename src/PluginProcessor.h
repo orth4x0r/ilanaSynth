@@ -29,6 +29,7 @@
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
+#include "dsp/FilterUnit.h"
 #include "dsp/SympatheticStrings.h"
 #include "dsp/AcousticKeys.h"
 #include "dsp/Modulation.h"
@@ -67,7 +68,7 @@ public:
     inline static std::atomic<long> sanitisedNonFinite { 0 }, sanitisedClamped { 0 };
     // Tests: -1 follows MULTI-CORE, 0 one core, 1 several.
     inline static int forceVoiceThreads = -1;
-    static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
+    static constexpr int numFxTypes = 42; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories, 42: Filter
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;

@@ -8286,7 +8286,7 @@ int main (int argc, char** argv)
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (1.0f);
         settle (500);
-        // The pin on SUB's header: SUB + NOISE below the scrolling cards.
+        // The pin on the SUB + NOISE seam: SUB + NOISE below the scrolling cards.
         const auto setPin = [&] (bool pinned)
         {
             std::vector<juce::Button*> buttons;

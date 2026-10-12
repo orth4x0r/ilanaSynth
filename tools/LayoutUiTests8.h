@@ -91,7 +91,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         processor.performEdit ("Remove OSC 4", [&processor] { processor.removeOscillator (3); });
         settle (300);
 
-        // The pin on SUB's header takes SUB + NOISE out of the scroll, and back.
+        // The pin on the seam between SUB and NOISE takes SUB + NOISE out of the scroll, and back.
         {
             std::vector<juce::Button*> buttons;
             findAll<juce::Button> (editor, buttons);

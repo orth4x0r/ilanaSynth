@@ -243,7 +243,7 @@ public:
         addChildComponent (footColumn);
         footColumn.onPaint = [this] (juce::Graphics& g) { paintColumn (g, true); };
         oscColumn.addAndMakeVisible (subPin);
-        subPin.setTooltip ("PIN SUB + NOISE\nPinned, they stay below the oscillator cards, which scroll above; unpinned, they scroll with the cards (three cards per screen).");
+        subPin.setTooltip ("PIN SUB + NOISE\nPinned, the two cards stay below the oscillator cards, which scroll above; unpinned, they scroll with the cards (three cards per screen).");
         subPin.onClick = [this] { setSubNoisePinned (subPin.getToggleState(), true); };
 
         // Right-click an oscillator's title for its menu (switch, remove).
@@ -1406,8 +1406,9 @@ private:
         noiseCard = row.withTrimmedLeft (subWidth + slotGap);
         subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
         noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
-        // The pin sits at SUB's header, left of its switch.
-        subPin.setBounds (juce::Rectangle<int> (24, 24).withCentre ({ subOn->getX() - 18, subCard.getY() + cardHeaderHeight / 2 + 1 }));
+        // The pin is a small tab on the seam between the two cards, level with
+        // the switches: it belongs to the section, not to SUB.
+        subPin.setBounds (juce::Rectangle<int> (14, 18).withCentre ({ subCard.getRight() + slotGap / 2, subCard.getY() + cardHeaderHeight / 2 + 1 }));
 
         // One grid for both cards: the body starts where an oscillator card's
         // picture does (header + padding) and ends one padding above the card's
@@ -1697,7 +1698,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::Viewport oscView;
     Column oscColumn;
-    // SUB + NOISE pinned below the scrolling cards (the pin on SUB's header).
+    // SUB + NOISE pinned below the scrolling cards (the tab on their seam).
     // A UI setting (the editor's), not a preset's.
     class PinButton : public juce::Button
     {
@@ -1711,20 +1712,26 @@ private:
         void paintButton (juce::Graphics& g, bool over, bool) override
         {
             const auto on = getToggleState();
-            auto bounds = getLocalBounds().toFloat().reduced (3.0f);
+            const auto bounds = getLocalBounds().toFloat();
             const auto colour = on ? IlanaTheme::accent() : (over ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            // A small tab on the seam between the two cards: it belongs to
+            // both, so it pins the whole SUB + NOISE section.
+            g.setColour (IlanaTheme::Ui::panel);
+            g.fillRoundedRectangle (bounds, 4.0f);
+            g.setColour (on ? colour.withAlpha (0.8f) : IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
             // A push-pin, tilted: the head, the collar, the needle.
             juce::Path pin;
+            pin.addRoundedRectangle (-2.2f, -5.0f, 4.4f, 5.0f, 1.0f);
+            pin.addRectangle (-3.6f, 0.0f, 7.2f, 1.4f);
+            pin.addRectangle (-0.5f, 1.4f, 1.0f, 4.0f);
             const auto c = bounds.getCentre();
-            pin.addRoundedRectangle (-3.5f, -7.0f, 7.0f, 7.0f, 1.5f);
-            pin.addRectangle (-5.5f, 0.0f, 11.0f, 2.0f);
-            pin.addRectangle (-0.6f, 2.0f, 1.2f, 5.5f);
-            pin.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi * 0.2f).translated (c.x, c.y));
+            pin.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi * 0.2f).translated (c.x, c.y - 0.2f));
             g.setColour (colour);
             if (on)
                 g.fillPath (pin);
             else
-                g.strokePath (pin, juce::PathStrokeType (1.1f));
+                g.strokePath (pin, juce::PathStrokeType (1.0f));
         }
     };
 

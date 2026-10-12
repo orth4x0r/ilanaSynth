@@ -412,7 +412,175 @@ public:
         return (float) oversampler.downsample (a, b);
     }
 
+    // Two ladders (a voice's left and right) over a block, as the two lanes
+    // of SSE registers: the same arithmetic as process() on each, lane by
+    // lane, so the output is bit for bit what two separate runs give. Only
+    // while both have the same coefficients (else each runs on its own).
+    static void processPairBlock (LadderFilter& l, LadderFilter& r, const float* inL, const float* inR,
+                                  float* outL, float* outR, int n, bool highPass, bool slope24)
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        if (l.coeffs.g == r.coeffs.g && l.coeffs.k == r.coeffs.k
+            && l.cascade.linearBeta == r.cascade.linearBeta && l.cascade.linearBigG == r.cascade.linearBigG)
+        {
+            l.processPair (r, inL, inR, outL, outR, n, highPass, slope24);
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i], highPass, slope24);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i], highPass, slope24);
+    }
+
 private:
+   #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+    // (lane 0: this, lane 1: o.) Stage drive is 0 for the ladder, so every
+    // stage runs the linear coefficients and the cascade's 'last' memory,
+    // which only the saturating stages read, is not kept.
+    void processPair (LadderFilter& o, const float* inL, const float* inR, float* outL, float* outR, int n, bool highPass, bool slope24)
+    {
+        const auto pair = [] (double a, double b) { return _mm_set_pd (b, a); };
+        const auto bigG = _mm_set1_pd (cascade.linearBigG), beta = _mm_set1_pd (cascade.linearBeta);
+        const auto& cs = cascade.settings;
+        const auto sign = cs.positiveFeedback ? 1.0 : -1.0;
+        const auto signK = _mm_set1_pd (sign * cs.k);
+        const auto loopA = (-sign * cs.k);
+        const auto level = cs.loopLevel;
+        const auto compensation = _mm_set1_pd (highPass ? 1.0 : 1.0 + 0.5 * coeffs.k);
+
+        // b (the loop's gain through the four stages) is the same every sample.
+        auto bAll = 1.0;
+        for (int i = 0; i < 4; ++i)
+            bAll = cascade.linearBigG * bAll;
+        const auto bCoef = _mm_set1_pd (bAll);
+        const auto loopCoef = loopA * bAll;
+        const auto steps = loopCoef <= 0.5 ? 1 : 2;
+
+        __m128d st[4], up0[4], up1[4], dn0[4], dn1[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            st[i] = pair (cascade.state[(size_t) i], o.cascade.state[(size_t) i]);
+            up0[i] = pair (oversampler.up0[(size_t) i], o.oversampler.up0[(size_t) i]);
+            up1[i] = pair (oversampler.up1[(size_t) i], o.oversampler.up1[(size_t) i]);
+            dn0[i] = pair (oversampler.down0[(size_t) i], o.oversampler.down0[(size_t) i]);
+            dn1[i] = pair (oversampler.down1[(size_t) i], o.oversampler.down1[(size_t) i]);
+        }
+
+        const auto c0 = _mm_set1_pd (0.091994723790), c1 = _mm_set1_pd (0.317108117416),
+                   c2 = _mm_set1_pd (0.584460827036), c3 = _mm_set1_pd (0.854180068706);
+        // Halfband2x::section on two lanes: x1 = s[0], y1 = s[1] of the pair.
+        const auto section = [] (__m128d x, __m128d c, __m128d& x1, __m128d& y1)
+        {
+            const auto y = _mm_add_pd (_mm_mul_pd (c, _mm_sub_pd (x, y1)), x1);
+            x1 = x;
+            y1 = y;
+            return y;
+        };
+
+        const auto one = _mm_set1_pd (1.0), minusOne = _mm_set1_pd (-1.0), limit = _mm_set1_pd (4.97),
+                   minusLimit = _mm_set1_pd (-4.97), c135135 = _mm_set1_pd (135135.0), c17325 = _mm_set1_pd (17325.0),
+                   c378 = _mm_set1_pd (378.0), c62370 = _mm_set1_pd (62370.0), c3150 = _mm_set1_pd (3150.0),
+                   c28 = _mm_set1_pd (28.0), levelV = _mm_set1_pd (level), minusLevel = _mm_set1_pd (-level),
+                   invLevel = _mm_set1_pd (1.0 / level), onePlusA = _mm_set1_pd (1.0 + loopCoef), aV = _mm_set1_pd (loopCoef);
+        const auto select = [] (__m128d mask, __m128d yes, __m128d no)
+        { return _mm_or_pd (_mm_and_pd (mask, yes), _mm_andnot_pd (mask, no)); };
+
+        // FilterCore::tanhApprox on two lanes.
+        const auto tanhPair = [&] (__m128d x)
+        {
+            const auto x2 = _mm_mul_pd (x, x);
+            const auto num = _mm_mul_pd (x, _mm_add_pd (c135135, _mm_mul_pd (x2, _mm_add_pd (c17325, _mm_mul_pd (x2, _mm_add_pd (c378, x2))))));
+            const auto den = _mm_add_pd (c135135, _mm_mul_pd (x2, _mm_add_pd (c62370, _mm_mul_pd (x2, _mm_add_pd (c3150, _mm_mul_pd (x2, c28))))));
+            auto result = _mm_div_pd (num, den);
+            result = select (_mm_cmpgt_pd (x, limit), one, result);
+            return select (_mm_cmplt_pd (x, minusLimit), minusOne, result);
+        };
+
+        // One ladder step at the doubled rate (Ladder::step) on two lanes.
+        const auto stepPair = [&] (__m128d x)
+        {
+            // The output as a + b u (a through the four stages).
+            auto a = _mm_setzero_pd();
+            for (int i = 0; i < 4; ++i)
+                a = _mm_add_pd (_mm_mul_pd (bigG, a), _mm_mul_pd (beta, st[i]));
+
+            // u = sat (x + sign k (a + b u)), FilterCore::solveLoop.
+            const auto v = _mm_add_pd (x, _mm_mul_pd (signK, a));
+            auto u = _mm_mul_pd (levelV, tanhPair (_mm_div_pd (_mm_mul_pd (v, invLevel), onePlusA)));
+            for (int step = 0; step < steps; ++step)
+            {
+                const auto xs = _mm_mul_pd (_mm_sub_pd (v, _mm_mul_pd (aV, u)), invLevel);
+                const auto x2 = _mm_mul_pd (xs, xs);
+                const auto nn = _mm_mul_pd (xs, _mm_add_pd (c135135, _mm_mul_pd (x2, _mm_add_pd (c17325, _mm_mul_pd (x2, _mm_add_pd (c378, x2))))));
+                const auto d = _mm_add_pd (c135135, _mm_mul_pd (x2, _mm_add_pd (c62370, _mm_mul_pd (x2, _mm_add_pd (c3150, _mm_mul_pd (x2, c28))))));
+                const auto dd = _mm_mul_pd (d, d);
+                const auto numerator = _mm_mul_pd (_mm_sub_pd (_mm_mul_pd (u, d), _mm_mul_pd (levelV, nn)), d);
+                const auto denominator = _mm_add_pd (dd, _mm_mul_pd (aV, _mm_sub_pd (dd, _mm_mul_pd (nn, nn))));
+                const auto newton = _mm_sub_pd (u, _mm_div_pd (numerator, denominator));
+                // Past the clamp tanh is flat: u = +-level.
+                const auto flat = select (_mm_cmpgt_pd (xs, _mm_setzero_pd()), levelV, minusLevel);
+                const auto outside = _mm_or_pd (_mm_cmpgt_pd (xs, limit), _mm_cmplt_pd (xs, minusLimit));
+                u = select (outside, flat, newton);
+            }
+
+            __m128d y[4];
+            auto in = u;
+            for (int i = 0; i < 4; ++i)
+            {
+                const auto vs = _mm_mul_pd (_mm_sub_pd (in, st[i]), bigG);
+                const auto low = _mm_add_pd (vs, st[i]);
+                st[i] = _mm_add_pd (low, vs);
+                y[i] = low;
+                in = low;
+            }
+
+            if (highPass)
+            {
+                if (! slope24)
+                    return _mm_add_pd (_mm_sub_pd (u, _mm_mul_pd (_mm_set1_pd (2.0), y[0])), y[1]);
+
+                const auto four = _mm_set1_pd (4.0), six = _mm_set1_pd (6.0);
+                return _mm_add_pd (_mm_sub_pd (_mm_add_pd (_mm_sub_pd (u, _mm_mul_pd (four, y[0])), _mm_mul_pd (six, y[1])),
+                                               _mm_mul_pd (four, y[2])), y[3]);
+            }
+            return slope24 ? y[3] : y[1];
+        };
+
+        for (int s = 0; s < n; ++s)
+        {
+            const auto x = _mm_mul_pd (_mm_set_pd ((double) inR[s], (double) inL[s]), compensation);
+            const auto first = section (section (x, c0, up0[0], up0[1]), c2, up0[2], up0[3]);
+            const auto second = section (section (x, c1, up1[0], up1[1]), c3, up1[2], up1[3]);
+            const auto a = stepPair (first);
+            const auto b = stepPair (second);
+            const auto da = section (section (b, c0, dn0[0], dn0[1]), c2, dn0[2], dn0[3]);
+            const auto db = section (section (a, c1, dn1[0], dn1[1]), c3, dn1[2], dn1[3]);
+            const auto out = _mm_mul_pd (_mm_set1_pd (0.5), _mm_add_pd (da, db));
+            alignas (16) double lanes[2];
+            _mm_store_pd (lanes, out);
+            outL[s] = (float) lanes[0];
+            outR[s] = (float) lanes[1];
+        }
+
+        const auto store = [] (__m128d v, double& a, double& b)
+        {
+            alignas (16) double lanes[2];
+            _mm_store_pd (lanes, v);
+            a = lanes[0];
+            b = lanes[1];
+        };
+        for (size_t i = 0; i < 4; ++i)
+        {
+            store (st[i], cascade.state[i], o.cascade.state[i]);
+            store (up0[i], oversampler.up0[i], o.oversampler.up0[i]);
+            store (up1[i], oversampler.up1[i], o.oversampler.up1[i]);
+            store (dn0[i], oversampler.down0[i], o.oversampler.down0[i]);
+            store (dn1[i], oversampler.down1[i], o.oversampler.down1[i]);
+        }
+    }
+   #endif
+
     double step (double x, bool highPass, bool slope24)
     {
         std::array<double, 4> y;
@@ -909,6 +1077,13 @@ public:
         if (yType && right.type == left.type && right.slope24 == left.slope24)
         {
             Airwindows::YFilter::processPairBlock (left.y1, right.y1, inLeft, inRight, outLeft, outRight, n, left.slope24);
+            return;
+        }
+        if ((left.type == FilterType::LadderLow || left.type == FilterType::LadderHigh)
+            && right.type == left.type && right.slope24 == left.slope24)
+        {
+            LadderFilter::processPairBlock (left.ladder, right.ladder, inLeft, inRight, outLeft, outRight, n,
+                                            left.type == FilterType::LadderHigh, left.slope24);
             return;
         }
         left.processBlock (inLeft, outLeft, n);

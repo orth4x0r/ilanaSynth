@@ -310,6 +310,9 @@ const SampleData* Voice::stretchCopyFor (int osc, const SampleData* origin)
 
 void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound*, int currentPitchWheelPosition)
 {
+    if (paramsSource != nullptr)
+        params = *paramsSource;
+
     const auto mono = monoPending;
     const auto legato = mono && monoLegato;
     releaseSilentSamples = 0;

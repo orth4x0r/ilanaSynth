@@ -675,6 +675,19 @@ inline const FactoryTagRow factoryTagRows[] {
     { "BANKS, T. (DEXED01)", "FM, Warm, Slow Attack, 80s" },
     { "Slow3D Pad (DEXED01)", "FM, Dark, Slow Attack, 80s" },
     { "LFO SWEEP (DEXED01)", "Sweep, FM, Warm, Slow Attack, 80s" },
+    { "Tresillo Gate", "Supersaw, Rhythmic, Detuned, Bright, Sustained, Wide" },
+    { "Seven Over Four", "Rhythmic, Evolving, Warm, Sustained, Wide, Wavetable" },
+    { "Pump Pad", "Supersaw, Rhythmic, Bright, Sustained, Wide, Wavetable" },
+    { "Breathing Choir", "Vocal, Rhythmic, Warm, Slow Attack, Wide, Wavetable" },
+    { "Gated Cathedral", "Supersaw, Rhythmic, Warm, Sustained, Wide, Wavetable" },
+    { "Triplet Arp Through Gate", "Arpeggiated, Rhythmic, Bright, Percussive, Echo, Wavetable" },
+    { "Ghost Note Strings", "Rhythmic, Warm, Sustained, Wide, Wavetable" },
+    { "Dotted Five Drone", "Rhythmic, Evolving, Dark, Slow Attack, Echo, Wavetable" },
+    { "Half Time Gate Bass", "Rhythmic, Gritty, Dark, Mono, Wavetable" },
+    { "Euclid Gate Stack", "Supersaw, Rhythmic, Detuned, Warm, Sustained, Echo" },
+    { "Gate Build Riser", "Supersaw, Rhythmic, Evolving, Bright, Slow Attack, Wavetable" },
+    { "Stutter Bell Machine", "Bell, Gritty, Rhythmic, Lo-Fi, Bright, Percussive" },
+    { "Random Gate Choir", "Vocal, Rhythmic, Evolving, Warm, Sustained, Wavetable" },
 };
 
 // A factory preset's tags ("Bell, FM, Bright"), or "" for any other name.

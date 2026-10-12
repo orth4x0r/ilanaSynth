@@ -444,7 +444,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium. Touches `src/dsp/GranularOsc.h`, the parameter layout (new parameters, appended), and the modulation destination list for grain stereo spread.
    Order 32. Why here: separate from the core sample work, so it stays after it.
 
-40. **Tempo sync and time-stretch** (ilana, 2026-10-10: decided; DONE 2026-10-12, see HANDOFF.md: SYNC / BPM / TIME on the sample card, WSOLA stretch). Set a source BPM or bar length, follow the host tempo, and change pitch independently of duration.
+40. **Tempo sync and time-stretch** (ilana, 2026-10-10: decided; DONE 2026-10-12, see HANDOFF.md: SYNC / BPM / TIME on the sample card, WSOLA stretch; follow-up 2026-10-12: Signalsmith, Bungee, PGHI and Paulstretch as rendered copies). Set a source BPM or bar length, follow the host tempo, and change pitch independently of duration.
    Size: very large. A new time-stretch engine, plus host tempo in the processor. Touches `src/dsp/SamplePlayer.h` and the processor's transport.
    Order 33. Why here: the largest engine change in this group. It comes after the playback modes (33) and quality modes (39), which it builds on.
 
@@ -452,7 +452,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: large. Extends RESAMPLE (`src/processor/Bounce.cpp`) and writes zones through `src/dsp/MultiSample.h`. Depends on steps 36 and 31.
    Order 34. Why here: it needs the zone map (36) to edit its zones and portable presets (31) to save them.
 
-25. **Better trance gate presets** (ilana, 2026-10-10: decided, not started). The current trance gate presets are not
+25. **Better trance gate presets** (ilana, 2026-10-10: decided; **built** 2026-10-12, PR open, see HANDOFF; ilana still has to listen). The current trance gate presets are not
    good enough. Make new ones, judged by how they sound (ilana listens to them herself).
    **Rules when it starts:** new presets are appended, so no existing preset changes sound.
    Size: content only. Touches `src/PresetVoicing.h` and `src/PresetPackM10.h` (the Euclid Trance Gate and the new presets), with level tuning. Judged by ilana's ear.

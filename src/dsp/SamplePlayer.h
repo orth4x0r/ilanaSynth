@@ -89,6 +89,10 @@ public:
         // read it at the pitch rate (setRates). Off, as before: one read at
         // one rate (setPlaybackRatio).
         bool stretch = false;
+        // The same sound swapped for a rendered copy of it (or back): a
+        // playing note carries on from the same place in it, with a short
+        // crossfade, rather than starting again.
+        bool keepPosition = false;
     };
 
     void prepare (double newSampleRate)
@@ -103,6 +107,7 @@ public:
     void reset()
     {
         active = false;
+        tail.remaining = 0;
         position = regionStart;
     }
 
@@ -116,6 +121,7 @@ public:
 
         position = params.reverse ? regionEnd - 1.0 : regionStart;
         active = true;
+        tail.remaining = 0;
 
         if (params.stretch)
             startGrains();
@@ -125,6 +131,7 @@ public:
     {
         const auto newSample = newParams.sample != params.sample;
         const auto newStretch = newParams.stretch && ! params.stretch;
+        const auto* oldSample = params.sample;
         params = newParams;
 
         if (params.sample == nullptr || params.sample->getNumSamples() <= 1)
@@ -138,7 +145,23 @@ public:
         regionEnd = juce::jlimit (regionStart + 1.0, length, (double) juce::jlimit (0.0f, 1.0f, params.end) * length);
         regionLength = regionEnd - regionStart;
 
-        if (newSample)
+        if (newSample && params.keepPosition && oldSample != nullptr && oldSample->getNumSamples() > 1)
+        {
+            if (active)
+            {
+                if (params.stretch)
+                {
+                    tail = { oldSample, grains, tailLength() };
+                    position *= (double) params.sample->getNumSamples() / (double) oldSample->getNumSamples();
+                    startGrains();
+                }
+                else
+                {
+                    position *= (double) params.sample->getNumSamples() / (double) oldSample->getNumSamples();
+                }
+            }
+        }
+        else if (newSample)
             trigger();
         else if (newStretch && active)
             startGrains();
@@ -382,6 +405,35 @@ private:
             ++grain.age;
         }
 
+        // After a swap to a rendered copy: the old sound's grains fade out.
+        if (tail.remaining > 0)
+        {
+            const auto fade = (float) tail.remaining / (float) tailLength();
+            const auto& old = *tail.sample;
+            const auto* oldL = old.buffer.getReadPointer (0);
+            const auto* oldR = old.buffer.getReadPointer (old.getNumChannels() > 1 ? 1 : 0);
+            for (auto& grain : tail.grains)
+            {
+                if (! grain.on || grain.age >= grainLength)
+                {
+                    grain.on = false;
+                    continue;
+                }
+                const auto index = (int) std::floor (grain.read);
+                if (index >= 0 && index < old.getNumSamples())
+                {
+                    const auto next = juce::jmin (index + 1, old.getNumSamples() - 1);
+                    const auto frac = (float) (grain.read - (double) index);
+                    const auto weight = window[(size_t) grain.age] * fade;
+                    sumL += (oldL[index] + (oldL[next] - oldL[index]) * frac) * weight;
+                    sumR += (oldR[index] + (oldR[next] - oldR[index]) * frac) * weight;
+                }
+                grain.read += direction * pitch;
+                ++grain.age;
+            }
+            --tail.remaining;
+        }
+
         const auto posSinceStart = params.reverse ? (regionEnd - position) : (position - regionStart);
         const auto posToEnd = params.reverse ? (position - regionStart) : (regionEnd - position);
 
@@ -400,7 +452,19 @@ private:
         --hopCountdown;
     }
 
+    // The old sound's grains after a swap, fading out (they read the old
+    // sample, which stays alive at least seconds after it's let go).
+    struct Tail
+    {
+        const SampleData* sample = nullptr;
+        std::array<Grain, 2> grains {};
+        int remaining = 0;
+    };
+
+    int tailLength() const noexcept { return juce::jmax (1, grainLength / 4); }
+
     Params params;
+    Tail tail;
     std::vector<float> window;
     std::array<Grain, 2> grains {};
     int grainLength = 0, nextGrain = 0, hopCountdown = 0;

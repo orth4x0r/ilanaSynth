@@ -1212,7 +1212,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc + 1);
         addChoice (prefix + "_sample_sync", name + " Sample Sync", SampleTempo::syncNames(), 0);
         addFloat (prefix + "_sample_bpm", name + " Sample BPM", 40.0f, 240.0f, 120.0f);
-        addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch" }, 0);
+        addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch", "Signalsmith", "Bungee", "PGHI", "Paulstretch" }, 0);
     }
 
     return layout;

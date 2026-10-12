@@ -1,6 +1,7 @@
 #include "Voice.h"
 #include "FastMath.h"
 #include "Generative.h"
+#include "StretchRenderer.h"
 
 #include <array>
 #include <cmath>
@@ -179,23 +180,29 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 
 void Voice::syncSamplePlayers()
 {
-    const auto setup = [] (const VoiceParams::OscParams& osc, const SampleZone* zone, SamplePlayer* players, GranularOsc* clouds,
-                           float startMod, float endMod)
+    const auto setup = [] (const VoiceParams::OscParams& osc, const SampleZone* zone, const SampleData* copy, bool sameSound,
+                           SamplePlayer* players, GranularOsc* clouds, float startMod, float endMod)
     {
         const auto start = juce::jlimit (0.0f, 0.98f, osc.sampleStart + startMod);
         const auto end = juce::jlimit (start + 0.01f, 1.0f, osc.sampleEnd + endMod);
         // A multisample plays the region the note picked, with its loop.
         const auto* sample = zone != nullptr ? zone->data.get() : osc.sample;
+        // A rendered copy is the whole sample stretched, so the region's
+        // start and end stay where they were; a region loop scales with it.
+        const auto loopScale = copy != nullptr && sample != nullptr && sample->getNumSamples() > 0
+                                   ? (double) copy->getNumSamples() / (double) sample->getNumSamples()
+                                   : 1.0;
 
         SamplePlayer::Params sampleParams;
-        sampleParams.sample = sample;
+        sampleParams.sample = copy != nullptr ? copy : sample;
+        sampleParams.keepPosition = sameSound;
         if (zone != nullptr)
         {
             sampleParams.gain = zone->gain;
             if (zone->loop)
             {
-                sampleParams.loopStart = zone->loopStart;
-                sampleParams.loopEnd = zone->loopEnd;
+                sampleParams.loopStart = (int) std::lround (zone->loopStart * loopScale);
+                sampleParams.loopEnd = (int) std::lround (zone->loopEnd * loopScale);
             }
         }
         sampleParams.loop = osc.sampleLoop;
@@ -204,7 +211,10 @@ void Voice::syncSamplePlayers()
         sampleParams.end = end;
         sampleParams.fadeIn = osc.sampleFadeIn;
         sampleParams.fadeOut = osc.sampleFadeOut;
-        sampleParams.stretch = osc.sampleStretch;
+        // TIME's engines: the copy plays through the live stretch too, which
+        // at the copy's own speed passes it through, and covers bends,
+        // cents and tempo changes mid-note.
+        sampleParams.stretch = osc.sampleStretch || osc.sampleEngine >= 0;
 
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
             players[u].setParams (sampleParams);
@@ -243,11 +253,59 @@ void Voice::syncSamplePlayers()
         if (osc < 3 || params.oscillatorEnabled[osc]
             || oscEnableSmooth[osc].getCurrentValue() > 0.0005f)
         {
-            const auto* sample = params.oscillators[osc].sample;
+            const auto& settings = params.oscillators[osc];
+            const auto* sample = settings.sample;
             sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity) : nullptr;
-            setup (params.oscillators[osc], sampleZone[osc], sampleUnison[osc], grains[osc],
+            const auto* origin = sampleZone[osc] != nullptr ? sampleZone[osc]->data.get() : sample;
+            const auto* copy = settings.granularMode ? nullptr : stretchCopyFor (osc, origin);
+            const auto sameSound = origin != nullptr && origin == stretchOrigin[osc];
+            stretchOrigin[osc] = origin;
+            stretchCopy[osc] = copy;
+            setup (settings, sampleZone[osc], copy, sameSound, sampleUnison[osc], grains[osc],
                    blockMod (startDestinations[osc]), blockMod (endDestinations[osc]));
         }
+    stretchNew = false;
+}
+
+// The copy of origin TIME's engine rendered for this note (asked for if it
+// isn't there yet), or null to play the original.
+const SampleData* Voice::stretchCopyFor (int osc, const SampleData* origin)
+{
+    const auto& settings = params.oscillators[osc];
+    if (params.stretchRenderer == nullptr || settings.sampleEngine < 0 || origin == nullptr || origin->getNumSamples() < 2
+        || ! settings.sampleMode)
+        return nullptr;
+
+    // The note's key: its length from the tempo and its semitones from the
+    // note, picked once per note (and again if the sample or engine changes).
+    if (stretchNew || origin != stretchOrigin[osc] || settings.sampleEngine != stretchEngine[osc])
+    {
+        const auto regionSeconds = origin->sampleRate > 0.0 ? (double) juce::jmax (0.0f, settings.sampleEnd - settings.sampleStart)
+                                                                  * origin->getNumSamples() / origin->sampleRate
+                                                            : 0.0;
+        const auto tempo = SampleTempo::tempoRatio (settings.sampleSync, settings.sampleBpm, regionSeconds, params.hostBpm);
+        stretchStep[osc] = StretchRenderer::lengthStep (1.0 / tempo);
+        stretchEngine[osc] = settings.sampleEngine;
+        stretchSemis[osc] = 0;
+        if (settings.sampleTuned)
+        {
+            const auto* zone = sampleZone[osc];
+            const auto frequency = settings.tuneMode == OscTuning::Semitones
+                                       ? baseFrequency * std::exp2 ((settings.semitones + (osc == 2 ? params.subOctaveOffset : 0)
+                                                                     + settings.cents / 100.0) / 12.0)
+                                   : settings.tuneMode == OscTuning::Fixed
+                                       ? oscFrequencyFactor (settings)
+                                       : baseFrequency * settings.ratio * std::exp2 ((settings.semitones + settings.cents / 100.0) / 12.0);
+            const auto root = zone != nullptr ? zone->rootHz() : 261.6255653005986;
+            if (frequency > 0.0 && root > 0.0)
+                stretchSemis[osc] = juce::jlimit (-48, 48, (int) std::lround (12.0 * std::log2 (frequency / root)));
+        }
+    }
+
+    if (stretchStep[osc] == 0 && stretchSemis[osc] == 0)
+        return nullptr; // the copy would be the original
+
+    return params.stretchRenderer->get (osc, origin, settings.sampleEngine, stretchStep[osc], stretchSemis[osc]);
 }
 
 void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSound*, int currentPitchWheelPosition)
@@ -295,6 +353,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
     velocityLevel = velocity;
     lastNote = midiNoteNumber;
+    stretchNew = true;
     lastVelocity = juce::jlimit (1, 127, juce::roundToInt (velocity * 127.0f));
     noteHeld = true;
 
@@ -3448,7 +3507,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                 const auto rateRatio = played != nullptr ? played->sampleRate / sampleRate : 1.0;
                 // Step 40: SYNC speeds the sample to the host's tempo; with
                 // STRETCH the note sets only the pitch. Neither: as before.
-                if (settings.sampleSync == SampleTempo::off && ! settings.sampleStretch)
+                if (settings.sampleSync == SampleTempo::off && ! settings.sampleStretch && settings.sampleEngine < 0)
                 {
                     sampleUnison[osc][u].setPlaybackRatio (rateRatio * sampleRatio[osc][u]);
                 }
@@ -3459,7 +3518,13 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                                                          * played->getNumSamples() / played->sampleRate
                                                    : 0.0;
                     const auto tempo = SampleTempo::tempoRatio (settings.sampleSync, settings.sampleBpm, regionSeconds, params.hostBpm);
-                    if (settings.sampleStretch)
+                    if (stretchCopy[osc] != nullptr)
+                        // The copy is already the note's length and pitch: the
+                        // live stretch adds only what changed since (bend,
+                        // cents, tempo) and the length's rounding.
+                        sampleUnison[osc][u].setRates (rateRatio * tempo * StretchRenderer::lengthForStep (stretchStep[osc]),
+                                                       rateRatio * sampleRatio[osc][u] / std::exp2 (stretchSemis[osc] / 12.0));
+                    else if (settings.sampleStretch || settings.sampleEngine >= 0)
                         sampleUnison[osc][u].setRates (rateRatio * tempo, rateRatio * sampleRatio[osc][u]);
                     else
                         sampleUnison[osc][u].setPlaybackRatio (rateRatio * sampleRatio[osc][u] * tempo);

@@ -1295,7 +1295,16 @@ public:
         }
 
         effectRules.apply();
+
+        // The TEMPO row's RENDERING note comes and goes with the renders.
+        if (const auto rendering = processorRef.getStretchRendersPending() > 0; rendering != shownRendering)
+        {
+            shownRendering = rendering;
+            repaint();
+        }
     }
+
+    bool shownRendering = false;
 
     void paint (juce::Graphics& g) override
     {
@@ -1667,10 +1676,19 @@ private:
         return numRows (kind, kind != Kind::sample || unisonShown (osc));
     }
 
+    bool showsRendering (int osc) const
+    {
+        return processorRef.getStretchRendersPending() > 0
+               && readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_sample_stretch") > 1.5f;
+    }
+
     // A card's row names: a Physical card's from its exciter.
     juce::String rowNameOf (int osc, int row) const
     {
         const auto kind = kindOf (osc);
+        // TIME's engines render a copy in the background: the TEMPO row says so meanwhile.
+        if (kind == Kind::sample && row == 2 && showsRendering (osc))
+            return juce::String (juce::CharPointer_UTF8 ("TEMPO \xc2\xb7 RENDERING"));
         if (kind != Kind::physical)
             return rowName (kind, row);
         if (physicalRowsMerged (osc))

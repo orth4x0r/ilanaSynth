@@ -111,6 +111,7 @@ public:
         repaint();
     }
     float getZoom() const { return zoom; }
+    int getLowNote() const { return lowNote; }
     const Clip& getShownClip() const { return clip; }
 
     int getNumSelected() const { return (int) std::count (selected.begin(), selected.end(), true); }
@@ -683,10 +684,13 @@ public:
         repaint();
     }
 
+    // A mouse notch (about 0.5) and a touchpad's stream of tiny deltas move
+    // the view by the same total: time and zoom follow the delta directly,
+    // whole pitch rows come out of an accumulator.
     void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
     {
-        const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
-        const auto direction = delta > 0.0f ? 1 : delta < 0.0f ? -1 : 0;
+        const auto horizontal = std::abs (wheel.deltaX) > std::abs (wheel.deltaY);
+        const auto delta = horizontal ? wheel.deltaX : wheel.deltaY;
 
         if (event.mods.isAltDown() || ! (event.mods.isCommandDown() || event.mods.isCtrlDown() || event.mods.isShiftDown()
                                          || std::abs (wheel.deltaX) > std::abs (wheel.deltaY)))
@@ -698,7 +702,7 @@ public:
             const auto anchor = yToNote (event.position.y);
             const auto fromBottom = anchor - lowNote;
             const auto before = visibleRows();
-            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * (direction > 0 ? 1.2f : direction < 0 ? 1.0f / 1.2f : 1.0f));
+            rowScale = juce::jlimit (0.6f, 2.5f, rowScale * std::exp (juce::jlimit (-1.0f, 1.0f, delta) * 0.4f));
             const auto rows = visibleRows();
             lowNote = juce::jlimit (0, 128 - rows, anchor - juce::roundToInt ((float) fromBottom * (float) rows / (float) before));
         }
@@ -707,20 +711,23 @@ public:
             // Zoom in time around the pointer.
             const auto anchor = xToBeat (event.position.x);
             const auto fraction = (event.position.x - gridBounds().getX()) / gridBounds().getWidth();
-            zoom *= direction > 0 ? 1.25f : direction < 0 ? 0.8f : 1.0f;
+            zoom *= std::exp (juce::jlimit (-1.0f, 1.0f, delta) * 0.45f);
             clampView();
             viewStart = anchor - fraction * viewBeats();
             clampView();
         }
-        else if (event.mods.isShiftDown() || std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
+        else if (event.mods.isShiftDown() || horizontal)
         {
-            viewStart -= (float) direction * viewBeats() * 0.125f;
+            viewStart -= juce::jlimit (-1.0f, 1.0f, delta) * viewBeats() * 0.25f;
             clampView();
         }
         else
         {
             const auto rows = visibleRows();
-            lowNote = juce::jlimit (0, 128 - rows, lowNote + direction * 3);
+            rowScroll += juce::jlimit (-1.0f, 1.0f, delta) * 6.0f;
+            const auto whole = (int) rowScroll;
+            rowScroll -= (float) whole;
+            lowNote = juce::jlimit (0, 128 - rows, lowNote + whole);
         }
 
         repaint();
@@ -1647,6 +1654,7 @@ private:
     int shownIndex = -1;
     unsigned shownEpoch = 0;
     int lowNote = 48;
+    float rowScroll = 0.0f;
     int gridIndex = defaultGrid;
     float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
     // On by default (review 8, the Serum 2 speed table): the first click

@@ -8677,6 +8677,15 @@ int main (int argc, char** argv)
         settle (300);
         pages->showPage ("PATCH");
         shot ("chain");
+        // One effect's window: it docks at the right and the graph refits beside it.
+        if (auto* view = findChild<PatchCableView> (*editor))
+            for (const auto& node : view->getGraph().nodes())
+                if (juce::String (node.label) == "REVERB")
+                {
+                    view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (node).getCentre() * view->getZoom(), false));
+                    break;
+                }
+        shot ("chain-window");
 
         using namespace VoiceRouting;
         auto patch = processor.getChainAsCables();

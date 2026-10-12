@@ -1311,7 +1311,7 @@ private:
         auto docked = false;
         for (const auto& dock : docks)
         {
-            auto clear = view.getBounds().contains (dock) && (float) (dock.getX() - view.getX()) >= view.getContentArea().getWidth() * 0.8f + 60.0f;
+            auto clear = view.getBounds().contains (dock) && (float) (dock.getX() - view.getX()) >= view.getContentArea().getWidth() * minZoom + 60.0f;
             for (const auto& other : windows)
                 clear = clear && (! other->isVisible() || ! other->getBounds().intersects (dock));
             if (clear)

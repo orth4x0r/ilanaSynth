@@ -403,8 +403,13 @@ public:
         {
             IlanaTheme::makePill (*button, IlanaTheme::accent());
             button->setRadioGroupId (0x5e71a1);
-            addAndMakeVisible (*button);
+            addChildComponent (*button); // (review 19: routing is chosen on PATCH; these only mirror fx_routing / fx_patcher)
         }
+        routingOnPatchButton.setTooltip ("Routing\nHow the effects are wired (series, parallel, branches, loops) is drawn and edited as cables on the PATCH tab.");
+        routingOnPatchButton.setDescription ("Open PATCH to change the FX routing");
+        IlanaTheme::makePill (routingOnPatchButton, IlanaTheme::accent());
+        routingOnPatchButton.onClick = [this] { if (onShowPatcher != nullptr) onShowPatcher(); };
+        addAndMakeVisible (routingOnPatchButton);
         seriesButton.onClick = [this] { setRouting (false); };
         parallelButton.onClick = [this] { setRouting (true); };
         patcherButton.onClick = [this] { setPatcher(); };
@@ -670,10 +675,8 @@ public:
         chainAButton.setBounds (chainSeg.withTrimmedLeft (3).removeFromLeft (64).reduced (0, 2));
         chainBButton.setBounds (chainSeg.withTrimmedLeft (3 + 66).removeFromLeft (64).reduced (0, 2));
         toolbar.removeFromLeft (10);
-        routingSeg = toolbar.removeFromLeft (232);
-        seriesButton.setBounds (routingSeg.withTrimmedLeft (3).removeFromLeft (66).reduced (0, 2));
-        parallelButton.setBounds (routingSeg.withTrimmedLeft (3 + 68).removeFromLeft (78).reduced (0, 2));
-        patcherButton.setBounds (routingSeg.withTrimmedLeft (3 + 68 + 80).removeFromLeft (78).reduced (0, 2));
+        routingSeg = toolbar.removeFromLeft (172);
+        routingOnPatchButton.setBounds (routingSeg.reduced (3, 2));
         toolbar.removeFromLeft (10);
         diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
         toolbar.removeFromRight (6);
@@ -1271,8 +1274,8 @@ private:
     juce::String routingHintText() const
     {
         if (patcherOn)
-            return "the PATCH tab's cables decide the routing";
-        return parallelRouting ? "every effect hears the input, outputs are summed" : "each effect feeds the next one";
+            return "the cables on PATCH decide what feeds what";
+        return parallelRouting ? "parallel: every effect hears the input, outputs are summed" : "series: each effect feeds the next one";
     }
 
     void chainABChanged()
@@ -2755,6 +2758,7 @@ private:
     juce::TextButton loadIrButton { "LOAD IR" };
     juce::TextButton chainAButton { "CHAIN 1" };
     juce::TextButton chainBButton { "CHAIN 2" };
+    juce::TextButton routingOnPatchButton { "ROUTING ON PATCH" };
     juce::TextButton seriesButton { "SERIES" }, parallelButton { "PARALLEL" }, patcherButton { "PATCHER" };
     std::unique_ptr<juce::ParameterAttachment> routingAttachment, patcherAttachment;
     bool parallelRouting = false, patcherOn = false;

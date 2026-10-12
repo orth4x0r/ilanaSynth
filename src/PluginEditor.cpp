@@ -412,6 +412,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
+    // SUB + NOISE pinned below the oscillator cards: an editor setting, not a preset's.
+    mainPage->setSubNoisePinned (settings->getBoolValue ("subNoisePinned", false));
+    mainPage->onSubNoisePinChanged = [this] (bool pinned)
+    {
+        settings->setValue ("subNoisePinned", pinned);
+        settings->saveIfNeeded();
+    };
     // The header's VOICES: the OSC page's VOICE tab (one voice panel).
     showVoicePanel = [this, oscViewport]
     {

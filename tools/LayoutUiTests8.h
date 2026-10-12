@@ -91,6 +91,38 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         processor.performEdit ("Remove OSC 4", [&processor] { processor.removeOscillator (3); });
         settle (300);
 
+        // The pin on SUB's header takes SUB + NOISE out of the scroll, and back.
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (editor, buttons);
+            juce::Button* pin = nullptr;
+            for (auto* button : buttons)
+                if (button->getName() == "pin")
+                    pin = button;
+            const auto scrolls = [&]
+            {
+                auto* noise = knobFor ("noise_level");
+                return noise != nullptr && noise->findParentComponentOfClass<juce::Viewport>() != nullptr;
+            };
+            expect (pin != nullptr, "PLAY: SUB's header has a pin");
+            if (pin != nullptr)
+            {
+                if (pin->getToggleState())
+                    pin->triggerClick();
+                settle (300);
+                const auto unpinnedScrolls = scrolls();
+                pin->triggerClick();
+                settle (300);
+                const auto pinnedScrolls = scrolls();
+                auto* noise = knobFor ("noise_level");
+                const auto inView = noise != nullptr && editor.getLocalArea (noise, noise->getLocalBounds()).getBottom() <= editor.getHeight();
+                pin->triggerClick();
+                settle (300);
+                expect (unpinnedScrolls && ! pinnedScrolls && inView && scrolls() && ! pin->getToggleState(),
+                        "PLAY: the pin keeps SUB + NOISE below the scroll; unpinned they scroll with the cards");
+            }
+        }
+
         // PLAY's picture is the cycle or the lit 3D stack, never SPEC, whatever view OSC last chose (S8-34, R17-7).
         std::vector<WaveDisplay*> waves;
         findAll<WaveDisplay> (editor, waves);

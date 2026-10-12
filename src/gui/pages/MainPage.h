@@ -240,6 +240,12 @@ public:
         noisePreview.onPaint = [this] (juce::Graphics& g, juce::Rectangle<float> well) { paintNoisePreview (g, well); };
         addAll (oscColumn, *subOn, *noiseOn, *subShape, *subOctave, *subLevel, *subColourKnob, *noiseType, *noiseLevel, subPreview, noisePreview);
 
+        addChildComponent (footColumn);
+        footColumn.onPaint = [this] (juce::Graphics& g) { paintColumn (g, true); };
+        oscColumn.addAndMakeVisible (subPin);
+        subPin.setTooltip ("PIN SUB + NOISE\nPinned, they stay below the oscillator cards, which scroll above; unpinned, they scroll with the cards (three cards per screen).");
+        subPin.onClick = [this] { setSubNoisePinned (subPin.getToggleState(), true); };
+
         // Right-click an oscillator's title for its menu (switch, remove).
         oscColumn.onClick = [this] (juce::Point<int> point, bool popup)
         {
@@ -385,6 +391,32 @@ public:
             processorRef.apvts.removeParameterListener (id, this);
     }
 
+    // Pins SUB + NOISE below the scrolling cards, or lets them scroll with
+    // them again (the editor's setting, kept by the caller).
+    void setSubNoisePinned (bool pinned, bool notify = false)
+    {
+        if (pinned == subNoisePinned && ! notify && subPin.getToggleState() == pinned)
+            return;
+
+        subNoisePinned = pinned;
+        subPin.setToggleState (pinned, juce::dontSendNotification);
+        juce::Component& home = pinned ? static_cast<juce::Component&> (footColumn) : static_cast<juce::Component&> (oscColumn);
+
+        for (auto* item : std::initializer_list<juce::Component*> { subOn.get(), noiseOn.get(), subShape.get(), subOctave.get(), subLevel.get(),
+                                                                  subColourKnob.get(), noiseType.get(), noiseLevel.get(), &subPreview, &noisePreview, &subPin })
+            home.addAndMakeVisible (*item);
+
+        footColumn.setVisible (pinned);
+        resized();
+        repaint();
+
+        if (notify && onSubNoisePinChanged != nullptr)
+            onSubNoisePinChanged (pinned);
+    }
+
+    bool isSubNoisePinned() const { return subNoisePinned; }
+    std::function<void (bool)> onSubNoisePinChanged;
+
     std::function<void (int)> onEditLfo, onEditEnvelope, onEditOperator, onEditOscillator;
     std::function<void (const juce::String&)> onOpenPage;
 
@@ -430,6 +462,13 @@ public:
         // short (five or six operators) scrolls, keeping every card whole, and one with room
         // to spare grows its strips a little rather than end in a bare band,
         // the rest going to a live PATCH tile and OUTPUT view.
+        // Pinned, SUB + NOISE leave the scroll: their column is the foot of
+        // the left side and the cards scroll in what remains above it.
+        if (subNoisePinned)
+        {
+            footColumn.setBounds (left.removeFromBottom (subHeightDesign));
+            left.removeFromBottom (slotGap);
+        }
         oscView.setBounds (left);
         const auto addRow = firstEmptySlot() >= 0 ? addRowHeight + slotGap : 0;
         auto shown = 0, folded = 0;
@@ -439,7 +478,7 @@ public:
                 ++shown;
                 folded += isFolded (osc) ? 1 : 0;
             }
-        const auto cards = shown + (addRow > 0 ? 1 : 0) + 1;
+        const auto cards = shown + (addRow > 0 ? 1 : 0) + (subNoisePinned ? 0 : 1);
         const auto openOscillators = shown - folded;
         const auto flexible = openOscillators; // the open strips (the SUB and NOISE cards keep their compact height)
         const auto free = left.getHeight() - folded * foldedHeight - (addRow > 0 ? addRowHeight : 0) - slotGap * (cards - 1);
@@ -454,7 +493,7 @@ public:
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (shownStrips[(size_t) osc] && ! isFolded (osc) && ! hasRowTwo (osc))
                 (usesCardLayout (osc) ? oneRowCards : otherCards)++;
-        const auto wanted = rowTwoCards * twoRowHeight + oneRowCards * oneRowHeight + otherCards * oscHeightDesign + subHeightDesign;
+        const auto wanted = rowTwoCards * twoRowHeight + oneRowCards * oneRowHeight + otherCards * oscHeightDesign + (subNoisePinned ? 0 : subHeightDesign);
         auto oscHeight = oscHeightDesign, extra = 0;
         if (flexible > 0 && wanted > free)
         {
@@ -489,7 +528,8 @@ public:
                 addCard (cardHeightOf (osc));
         if (addRow > 0)
             addCard (addRowHeight);
-        addCard (subHeightDesign);
+        if (! subNoisePinned)
+            addCard (subHeightDesign);
         const auto scrolls = columnHeight > left.getHeight();
         oscView.setSingleStepSizes (16, oscHeight + slotGap);
         // The column's foot is padded so that scrolled to its end the view
@@ -543,14 +583,14 @@ public:
         // SUB and NOISE sit at the column's foot, above the footer, whatever
         // the room (the approved mockup keeps its open space above them);
         // a scrolling column has them after the last strip.
-        auto subRow = scrolls ? column.removeFromTop (subHeightDesign) : column.removeFromBottom (subHeightDesign);
+        auto subRow = subNoisePinned ? footColumn.getLocalBounds() : scrolls ? column.removeFromTop (subHeightDesign) : column.removeFromBottom (subHeightDesign);
         layoutSubNoise (subRow);
 
         // Height the strips don't take goes to a live PATCH tile (the signal
         // flow, as on FILTER) and, with room to spare, a live output view,
         // above the two cards.
         patchCard = outputCard = {};
-        if (! scrolls)
+        if (! scrolls && ! subNoisePinned)
             column.removeFromBottom (slotGap);
         const auto spare = scrolls ? 0 : column.getHeight();
         const auto showPatch = spare >= patchMinHeight;
@@ -1366,6 +1406,8 @@ private:
         noiseCard = row.withTrimmedLeft (subWidth + slotGap);
         subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
         noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
+        // The pin sits at SUB's header, left of its switch.
+        subPin.setBounds (juce::Rectangle<int> (24, 24).withCentre ({ subOn->getX() - 18, subCard.getY() + cardHeaderHeight / 2 + 1 }));
 
         // One grid for both cards: the body starts where an oscillator card's
         // picture does (header + padding) and ends one padding above the card's
@@ -1514,7 +1556,7 @@ private:
 
     // The strips' cards and titles (their controls draw themselves), and
     // the dim empty slots.
-    void paintColumn (juce::Graphics& g)
+    void paintColumn (juce::Graphics& g, bool footOnly = false)
     {
         // One line across a card's top: tag, name, what it is. `reserve` is
         // the width the header's own controls take before EDIT (a low card's
@@ -1544,6 +1586,12 @@ private:
                 g.drawText (text, room, juce::Justification::centredLeft, true);
             }
         };
+
+        if (footOnly) // (the pinned SUB and NOISE: their own column below the scroll)
+        {
+            paintSubNoiseCards (g, paintTitle);
+            return;
+        }
 
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
         {
@@ -1611,6 +1659,13 @@ private:
             paintTitle (outputCard, "OUTPUT", IlanaTheme::Ui::text2, true, {});
         }
 
+        if (! subNoisePinned)
+            paintSubNoiseCards (g, paintTitle);
+    }
+
+    template <typename TitleFn>
+    void paintSubNoiseCards (juce::Graphics& g, TitleFn&& paintTitle)
+    {
         for (const auto& [card, title, id] : { std::tuple<juce::Rectangle<int>, const char*, const char*> { subCard, "SUB", "subosc_on" },
                                               std::tuple<juce::Rectangle<int>, const char*, const char*> { noiseCard, "NOISE", "noise_on" } })
         {
@@ -1642,6 +1697,40 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     juce::Viewport oscView;
     Column oscColumn;
+    // SUB + NOISE pinned below the scrolling cards (the pin on SUB's header).
+    // A UI setting (the editor's), not a preset's.
+    class PinButton : public juce::Button
+    {
+    public:
+        PinButton() : juce::Button ("pin")
+        {
+            setClickingTogglesState (true);
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        void paintButton (juce::Graphics& g, bool over, bool) override
+        {
+            const auto on = getToggleState();
+            auto bounds = getLocalBounds().toFloat().reduced (3.0f);
+            const auto colour = on ? IlanaTheme::accent() : (over ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            // A push-pin, tilted: the head, the collar, the needle.
+            juce::Path pin;
+            const auto c = bounds.getCentre();
+            pin.addRoundedRectangle (-3.5f, -7.0f, 7.0f, 7.0f, 1.5f);
+            pin.addRectangle (-5.5f, 0.0f, 11.0f, 2.0f);
+            pin.addRectangle (-0.6f, 2.0f, 1.2f, 5.5f);
+            pin.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi * 0.2f).translated (c.x, c.y));
+            g.setColour (colour);
+            if (on)
+                g.fillPath (pin);
+            else
+                g.strokePath (pin, juce::PathStrokeType (1.1f));
+        }
+    };
+
+    Column footColumn;
+    PinButton subPin;
+    bool subNoisePinned = false;
     DashedAddButton addOscButton { "+  ADD OSC", "+  ADD OSC" };
     DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
     std::array<bool, OscillatorIds::count> shownStrips {};

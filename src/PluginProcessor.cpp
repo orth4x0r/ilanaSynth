@@ -1574,6 +1574,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     addEuclidExciterHits (midiForSynth, buffer.getNumSamples());
     processClip (midiForSynth, buffer.getNumSamples());
 
+    for (const auto metadata : midiForSynth)
+        if (metadata.getMessage().isNoteOn())
+            noteSerial.fetch_add (1);
+
     p.exciterLevelMatch = exciterLevelMatch.load();
 
     // M7.5: the live input and its envelope for the voices; live grains
@@ -1646,6 +1650,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         std::array<float, 11> extraEnvValues {};
         std::array<float, 16> envPositions;
         envPositions.fill (-1.0f);
+        std::array<float, 16> envLevels {};
+        std::array<float, 80> envSeconds {};
+        Voice* newestVoice = nullptr;
         auto filterValue = 0.0f;
         auto filter2Value = 0.0f;
         auto modValue = 0.0f;
@@ -1661,6 +1668,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             {
                 westLevel = juce::jmax (westLevel, voice->getWestGateLevel());
+
+                // The envelope graphs' playhead follows the newest sounding
+                // note, not the loudest voice (a note still ringing out would
+                // hold the dot while the new one began).
+                if (voice->getLastLifetimeValue() > 0.001f && (newestVoice == nullptr || newestVoice->wasStartedBefore (*voice)))
+                    newestVoice = voice;
                 const auto amp = voice->getLastAmpValue();
                 const auto activity = voice->getLastLifetimeValue();
 
@@ -1682,8 +1695,6 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     }
                     for (int env = 0; env < 11; ++env)
                         extraEnvValues[(size_t) env] = voice->getLastExtraEnvValue (env);
-                    for (int env = 0; env < 16; ++env)
-                        envPositions[(size_t) env] = voice->getEnvelopePosition (env);
                     monitorVelocity.store (voice->getVelocity());
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
@@ -1705,6 +1716,18 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             monitorOpEnvSeconds.store (-1.0f);
             monitorOpEnvRelease.store (-1.0f);
         }
+        if (newestVoice != nullptr)
+        {
+            for (int env = 0; env < 16; ++env)
+            {
+                envPositions[(size_t) env] = newestVoice->getEnvelopePosition (env);
+                const auto seconds = newestVoice->getEnvelopeSeconds (env);
+                for (size_t i = 0; i < 5; ++i)
+                    envSeconds[(size_t) env * 5 + i] = seconds[i];
+                envLevels[(size_t) env] = newestVoice->getEnvelopeStageStart (env);
+            }
+        }
+
         envMonitorAmp.store (bestAmp);
         envMonitorFilter.store (filterValue);
         envMonitorFilter2.store (filter2Value);
@@ -1718,7 +1741,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         for (int env = 0; env < 11; ++env)
             envMonitorExtra[(size_t) env].store (extraEnvValues[(size_t) env]);
         for (int env = 0; env < 16; ++env)
+        {
             envMonitorPositions[(size_t) env].store (envPositions[(size_t) env]);
+            envMonitorStageStarts[(size_t) env].store (envLevels[(size_t) env]);
+            for (size_t i = 0; i < 5; ++i)
+                envMonitorSeconds[(size_t) env * 5 + i].store (envSeconds[(size_t) env * 5 + i]);
+        }
     }
 
     processAcousticKeys (buffer, midiForSynth);

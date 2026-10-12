@@ -342,8 +342,8 @@ private:
     std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
     {
         const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()),
-                                                    { readSeconds ("delay"), readSeconds ("attack"), readSeconds ("hold"),
-                                                      readSeconds ("decay"), readSeconds ("release") });
+                                                    processorRef.getEnvMonitorSeconds (envelopeIndex()),
+                                                    processorRef.getNoteSerial());
 
         // Idle, or an envelope that isn't running (it waits at the start).
         if (position <= 0.0f)
@@ -356,13 +356,25 @@ private:
         switch (stage)
         {
             case 0: return juce::Point<float> (geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom);
-            case 1: return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart), geo.yBottom - (float) TensionCurve::shape (u, geo.rates[0]) * height);
+            case 1:
+            {
+                // From zero, or from where a retrigger found the level.
+                const auto from = juce::jlimit (0.0f, 1.0f, processorRef.getEnvMonitorStageStart (envelopeIndex()));
+                return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart),
+                                           geo.yBottom - (from + (1.0f - from) * (float) TensionCurve::shape (u, geo.rates[0])) * height);
+            }
             case 2: return juce::Point<float> (geo.xA + u * (geo.xH - geo.xA), geo.yTop);
             case 3: return juce::Point<float> (geo.xH + u * (geo.xD - geo.xH),
                                                geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - (float) TensionCurve::shape (1.0f - u, geo.rates[1])));
             case 4: return juce::Point<float> (geo.xD + 0.25f * (geo.xS - geo.xD), geo.ySustain);
-            default: return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
-                                                geo.yBottom - juce::jlimit (0.0f, 1.0f, readMonitor()) * height);
+            default:
+            {
+                // The release runs the curve from the level the key was let
+                // go at (the sustain, or lower when let go early).
+                const auto from = juce::jlimit (0.0f, 1.0f, processorRef.getEnvMonitorStageStart (envelopeIndex()));
+                return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
+                                           geo.yBottom - from * (float) TensionCurve::shape (1.0f - u, geo.rates[2]) * height);
+            }
         }
     }
 
@@ -521,7 +533,7 @@ private:
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         if (IlanaAnim::showing (*this) && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
-                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), { readSeconds ("delay"), readSeconds ("attack"), readSeconds ("hold"), readSeconds ("decay"), readSeconds ("release") }), 31))))
+                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), processorRef.getEnvMonitorSeconds (envelopeIndex()), processorRef.getNoteSerial()), 31))))
             repaint();
     }
 

@@ -237,17 +237,55 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         expect (w != nullptr && f1 != nullptr && w->x < f1->x, "WEST cabled before Filter 1 sits left of it");
         expect (processor.apvts.getRawParameterValue ("west_on")->load() > 0.5f, "a cable into WEST switches it on");
 
+        // No modes (ilana 2026-10-12): no CHAIN / CABLES or SERIES /
+        // PARALLEL / PATCHER on PATCH; RESET writes the standard routing
+        // into the cables.
         std::vector<juce::Button*> buttons;
         findAll<juce::Button> (editor, buttons);
+        juce::String modes;
+        juce::Button* reset = nullptr;
         for (auto* button : buttons)
-            if (button->getButtonText() == "CHAIN" && visibleInTree (button))
-            {
-                button->triggerClick();
-                break;
-            }
+        {
+            if (! visibleInTree (button) || button->findParentComponentOfClass<PatchCableView>() != nullptr)
+                continue;
+            const auto onPatch = view->getParentComponent() != nullptr && view->getParentComponent()->isParentOf (button);
+            for (const auto* name : { "CHAIN", "CABLES", "SERIES", "PARALLEL", "PATCHER" })
+                if (onPatch && button->getButtonText() == name)
+                    modes << name << " ";
+            if (onPatch && button->getButtonText() == "RESET")
+                reset = button;
+        }
+        expect (modes.isEmpty(), "PATCH has no routing mode switches (" + modes + ")");
+        expect (reset != nullptr, "PATCH has RESET");
+        if (reset != nullptr)
+            reset->triggerClick();
         settle (300);
-        expect (! processor.areRouteCablesOn(), "CHAIN switches the cables off");
-        expect (processor.getRoutePatch() == westFirst, "the cables are kept while CHAIN plays");
+        expect (processor.getRoutePatch() == processor.getChainAsCables(), "RESET puts the standard routing back as cables");
+    }
+
+    // While the rack plays, the page shows the rack as it is, not a graph
+    // an earlier patcher session left behind.
+    {
+        processor.addFxEffect (2); // Drive
+        settle (200);
+        auto stale = processor.getFxPatchGraph();
+        for (const auto& cable : std::vector<PatchGraph::Cable> (stale.cables()))
+            stale.disconnect (cable.from, cable.to);
+        stale.connect ({ PatchGraph::inputNodeId, 0 }, { PatchGraph::outputNodeId, 0 });
+        processor.setFxPatchGraph (stale);
+        processor.setFxPatcherOn (false);
+        settle (400);
+        const auto& graph = view->getGraph();
+        auto effects = 0, fromVoices = 0;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+            {
+                ++effects;
+                fromVoices += graph.findCable ({ PatchGraph::inputNodeId, 0 }, { node.id, 0 }) >= 0 ? 1 : 0;
+            }
+        expect (effects > 0 && fromVoices > 0 && graph.findCable ({ PatchGraph::inputNodeId, 0 }, { PatchGraph::outputNodeId, 0 }) < 0,
+                "with the patcher off the page shows the rack's own routing (" + juce::String (effects) + " effects, "
+                    + juce::String (fromVoices) + " fed by VOICES, patcher " + (processor.isFxPatcherOn() ? "on" : "off") + ")");
     }
 
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));

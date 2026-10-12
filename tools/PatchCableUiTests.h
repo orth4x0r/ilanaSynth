@@ -268,6 +268,135 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         expect (h.graph.nodes().size() > 2 && inside && image.isValid() && compile (h.graph).ok,
                 "cable view: Neuro Wobble's rack shows " + juce::String ((int) h.graph.nodes().size() - 2) + " effects inside the view");
     }
+
+    // Navigation (ilana 2026-10-12): scroll and two-finger swipes pan by
+    // their delta, ctrl + scroll and a pinch zoom around the pointer, keys,
+    // middle-drag, all inside the zoom range and reported to the owner.
+    {
+        Harness h (demoGraph());
+        auto navigations = 0;
+        h.view.onNavigated = [&navigations] { ++navigations; };
+        h.view.setZoom (1.0f);
+        h.view.centreContent();
+        const auto under = [&h] (juce::Point<float> at) { return at / h.view.getZoom() - h.view.getOrigin(); };
+        const juce::Point<float> pointer (300.0f, 150.0f);
+        const auto pinned = under (pointer);
+
+        juce::MouseWheelDetails wheel {};
+        wheel.deltaY = 0.5f;
+        h.view.mouseWheelMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), pointer, juce::ModifierKeys (juce::ModifierKeys::ctrlModifier),
+                                                 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &h.view, &h.view, juce::Time::getCurrentTime(), pointer,
+                                                 juce::Time::getCurrentTime(), 1, false),
+                               wheel);
+        expect (h.view.getZoom() > 1.3f && under (pointer).getDistanceFrom (pinned) < 0.01f && navigations == 1,
+                "cable view: ctrl + scroll zooms in around the pointer (" + juce::String (h.view.getZoom(), 3) + ")");
+
+        const auto before = h.view.getOrigin();
+        const auto zoom = h.view.getZoom();
+        wheel = {};
+        wheel.deltaY = -0.1f;
+        wheel.deltaX = 0.05f;
+        h.view.mouseWheelMove (mouse (h.view, pointer, false), wheel);
+        const auto moved = (h.view.getOrigin() - before) * zoom;
+        expect (std::abs (moved.y + 36.0f) < 0.01f && std::abs (moved.x - 18.0f) < 0.01f && h.view.getZoom() == zoom,
+                "cable view: a two-finger swipe pans by its delta in both directions, without zooming (" + moved.toString() + ")");
+
+        const auto pinnedAgain = under (pointer);
+        h.view.mouseMagnify (mouse (h.view, pointer, false), 0.5f);
+        expect (std::abs (h.view.getZoom() - zoom * 0.5f) < 1.0e-4f && under (pointer).getDistanceFrom (pinnedAgain) < 0.01f,
+                "cable view: a pinch zooms around the fingers");
+        h.view.mouseMagnify (mouse (h.view, pointer, false), 100.0f);
+        expect (h.view.getZoom() == PatchCableView::maxViewZoom, "cable view: zoom stops at its largest");
+        h.view.mouseMagnify (mouse (h.view, pointer, false), 0.0001f);
+        expect (h.view.getZoom() == PatchCableView::minViewZoom, "cable view: and at its smallest");
+
+        h.view.keyPressed (juce::KeyPress ('0'));
+        const auto actual = h.view.getZoom();
+        h.view.keyPressed (juce::KeyPress ('+'));
+        const auto zoomedIn = h.view.getZoom();
+        h.view.keyPressed (juce::KeyPress ('-'));
+        expect (actual == 1.0f && std::abs (zoomedIn - 1.25f) < 1.0e-4f && std::abs (h.view.getZoom() - 1.0f) < 1.0e-4f,
+                "cable view: 0 is 100 %, + and - step the zoom");
+        auto fits = 0;
+        h.view.onFitRequested = [&fits] { ++fits; };
+        h.view.keyPressed (juce::KeyPress ('f'));
+        expect (fits == 1, "cable view: F asks the owner to fit");
+
+        // The middle button pans from on top of a box, and the box stays put.
+        const auto* delay = h.graph.find (4);
+        const auto boxAt = juce::Point<float> (delay->x, delay->y);
+        const auto grab = h.view.nodeBounds (*delay).getCentre() * h.view.getZoom();
+        const auto originBefore = h.view.getOrigin();
+        const auto middle = [&h] (juce::Point<float> at, bool down)
+        {
+            return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at,
+                                     down ? juce::ModifierKeys (juce::ModifierKeys::middleButtonModifier) : juce::ModifierKeys(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                     &h.view, &h.view, juce::Time::getCurrentTime(), {}, juce::Time::getCurrentTime(), 1, false);
+        };
+        h.view.mouseDown (middle (grab, true));
+        h.view.mouseDrag (middle (grab + juce::Point<float> (40.0f, 25.0f), true).withNewPosition (grab + juce::Point<float> (40.0f, 25.0f)));
+        h.view.mouseUp (middle (grab + juce::Point<float> (40.0f, 25.0f), false));
+        const auto* still = h.graph.find (4);
+        expect (juce::Point<float> (still->x, still->y) == boxAt && (h.view.getOrigin() - originBefore).getDistanceFrom ({ 40.0f, 25.0f }) < 0.01f,
+                "cable view: a middle-button drag pans the view, even from a box");
+
+        // Zoomed in, the map shows; a click in it moves the view there.
+        h.view.setZoom (2.5f);
+        h.view.centreContent();
+        const auto map = h.view.mapBounds();
+        expect (! map.isEmpty() && h.view.getLocalBounds().toFloat().contains (map), "cable view: while part of the patch is off screen a map shows");
+        if (! map.isEmpty())
+        {
+            const auto originAtMap = h.view.getOrigin();
+            h.view.mouseDown (mouse (h.view, map.getBottomLeft().translated (10.0f, -10.0f), true));
+            h.view.mouseUp (mouse (h.view, map.getBottomLeft().translated (10.0f, -10.0f), false));
+            expect (h.view.getOrigin() != originAtMap, "cable view: a click in the map moves the view there");
+        }
+        h.view.fitContent (1.0f, 0.3f);
+        expect (h.view.mapBounds().isEmpty(), "cable view: no map while the whole patch is in view");
+    }
+
+    // Reordering by dropping a box on a cable (ilana: "reorder everything
+    // freely"): DRIVE -> EQ, and CHORUS (unwired) dropped on that cable goes
+    // between them; then DRIVE dropped on CHORUS -> EQ moves behind CHORUS,
+    // the chain it left joined up. Over empty space a box only moves.
+    {
+        PatchGraph::Graph graph;
+        const auto drive = graph.addNode (2, 1, 1, 160.0f, 40.0f, "DRIVE", 1);
+        const auto eq = graph.addNode (12, 1, 1, 560.0f, 40.0f, "EQ", 2);
+        const auto chorus = graph.addNode (7, 1, 1, 360.0f, 200.0f, "CHORUS", 3);
+        graph.moveNode (inputNodeId, 0.0f, 40.0f);
+        graph.moveNode (outputNodeId, 760.0f, 40.0f);
+        graph.connect ({ inputNodeId, 0 }, { drive, 0 });
+        graph.connect ({ drive, 0 }, { eq, 0 }, 0.5f);
+        graph.connect ({ eq, 0 }, { outputNodeId, 0 });
+        Harness h (graph);
+        h.view.setSize (900, 320);
+        h.view.setMotion (false);
+        h.view.setZoom (1.0f);
+        h.view.centreContent();
+        const auto onCable = [&h] (PatchGraph::NodeId from, PatchGraph::NodeId to)
+        {
+            return (h.view.portPosition ({ from, 0 }, false) + h.view.portPosition ({ to, 0 }, true)) * 0.5f;
+        };
+        dragFromTo (h.view, h.view.nodeBounds (*h.graph.find (chorus)).getCentre(), onCable (drive, eq));
+        const auto first = h.graph.findCable ({ drive, 0 }, { chorus, 0 });
+        expect (first >= 0 && h.graph.cables()[(size_t) first].gain == 0.5f && h.graph.findCable ({ chorus, 0 }, { eq, 0 }) >= 0
+                    && h.graph.findCable ({ drive, 0 }, { eq, 0 }) < 0 && h.cableEdits == 1 && h.layoutEdits == 0,
+                "cable view: a box dropped on a cable goes into it (keeping the cable's level)");
+
+        h.graph.moveNode (chorus, 360.0f, 40.0f);
+        h.graph.moveNode (drive, 360.0f, 200.0f);
+        h.view.graphChanged();
+        dragFromTo (h.view, h.view.nodeBounds (*h.graph.find (drive)).getCentre(), onCable (chorus, eq));
+        expect (h.graph.findCable ({ inputNodeId, 0 }, { chorus, 0 }) >= 0 && h.graph.findCable ({ chorus, 0 }, { drive, 0 }) >= 0
+                    && h.graph.findCable ({ drive, 0 }, { eq, 0 }) >= 0 && h.graph.cables().size() == 4 && compile (h.graph).ok,
+                "cable view: dropping a wired box on another cable moves it there and joins up where it was");
+
+        const auto cables = h.graph.cables().size();
+        dragFromTo (h.view, h.view.nodeBounds (*h.graph.find (drive)).getCentre(), { 760.0f, 290.0f });
+        expect (h.graph.cables().size() == cables && h.layoutEdits == 1, "cable view: a box dropped on empty space only moves");
+    }
 }
 
 // ILANA_SNAPSHOT_GRAPH: pictures of the cable view, at twice the size:

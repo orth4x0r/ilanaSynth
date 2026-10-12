@@ -7,6 +7,15 @@
 // dsp/VoiceRouting.h) and the FX patch (FxPatch.h). The page merges them into
 // one graph for the cable view (PatchCableView.h) and splits each edit back.
 // Included only from PluginEditor.cpp, after FxPage.h and the FILTER page.
+//
+// No modes (ilana, 2026-10-12: "why chain or cables? let the user just pick
+// that themselves, reorder everything freely"): the page has no CHAIN /
+// CABLES or SERIES / PARALLEL / PATCHER switch. It always shows the patch
+// as cables. A patch that still plays the fixed chain or the rack shows
+// that routing as its cables (getChainAsCables, getFxRackGraph), so the
+// sound stays exactly as it was; the first edit on a side writes those
+// cables and switches that side to play them (one undo step puts it back).
+// The old switch parameters stay for older patches; only the UI is gone.
 #pragma once
 
 namespace
@@ -303,49 +312,35 @@ public:
     PatchPage (IlanaSynthAudioProcessor& p, FxPage& rackPage)
         : processorRef (p), rack (rackPage), view (shown), hasVoice (! IlanaSynthAudioProcessor::isEffectBuild)
     {
-        // VOICE: chain or cables; FX: the RACK page's three-way switch.
-        chainButton.setTooltip ("Chain\nThe fixed chain: each oscillator's route menu, SERIAL / PARALLEL and WEST's position decide.");
-        cablesButton.setTooltip ("Cables\nThe cables below decide where each oscillator goes and the order of the filters and WEST.");
-        chainButton.setDescription ("Oscillator routing: chain");
-        cablesButton.setDescription ("Oscillator routing: cables");
-        chainButton.onClick = [this] { setVoiceCables (false); };
-        cablesButton.onClick = [this] { setVoiceCables (true); };
-        seriesButton.setTooltip ("Series\nEach effect feeds the next one, in the rack's order.");
-        parallelButton.setTooltip ("Parallel\nEvery effect hears VOICES; their outputs are averaged.");
-        patcherButton.setTooltip ("Patcher\nThe cables after VOICES decide what feeds what.");
-        seriesButton.setDescription ("FX routing: series");
-        parallelButton.setDescription ("FX routing: parallel");
-        patcherButton.setDescription ("FX routing: patcher");
-        seriesButton.onClick = [this] { setFxRouting (0); };
-        parallelButton.onClick = [this] { setFxRouting (1); };
-        patcherButton.onClick = [this] { setFxRouting (2); };
-        for (auto* button : { &chainButton, &cablesButton })
-        {
-            IlanaTheme::makePill (*button, IlanaTheme::accent());
-            button->setRadioGroupId (0x5e71a3);
-            if (hasVoice)
-                addAndMakeVisible (*button);
-        }
-        for (auto* button : { &seriesButton, &parallelButton, &patcherButton })
-        {
-            IlanaTheme::makePill (*button, IlanaTheme::accent());
-            button->setRadioGroupId (0x5e71a2);
-            addAndMakeVisible (*button);
-        }
-
         addButton.setTooltip ("Add an effect: it is wired in just before OUT. One the rack has already is a new instance with its own settings.");
         addButton.onClick = [this] { rack.openLibrary (addButton); };
-        resetButton.setTooltip ("Voice cables back to the fixed chain's routing (each oscillator's route, SERIAL / PARALLEL, WEST's position)");
+        resetButton.setTooltip ("The oscillator and filter cables back to the standard routing (each oscillator's route, "
+                                "SERIAL / PARALLEL and WEST's position, as the OSC and FILTER pages set them)");
         resetButton.onClick = [this] { resetVoiceToChain(); };
-        fitButton.setTooltip ("Fit the patch to the view");
-        fitButton.onClick = [this] { fit(); };
-        for (auto* quiet : { &resetButton, &fitButton })
+        fitButton.setTooltip ("Fit the whole patch in view (F, or double-click empty space)");
+        fitButton.onClick = [this] { fit (true); };
+        // The zoom: out, the percentage (click: 100 %), in.
+        const auto navigation = juce::String ("Scroll or drag empty space to move around; pinch or ctrl + scroll to zoom. "
+                                              "Keys: F fits, 0 is 100 %, + and - zoom.");
+        zoomOutButton.setTooltip ("Zoom out (-)\n" + navigation);
+        zoomInButton.setTooltip ("Zoom in (+)\n" + navigation);
+        zoomLabel.setTooltip ("Back to 100 % (0)\n" + navigation);
+        zoomOutButton.setDescription ("Zoom out");
+        zoomInButton.setDescription ("Zoom in");
+        zoomOutButton.onClick = [this] { view.zoomStep (-1); };
+        zoomInButton.onClick = [this] { view.zoomStep (1); };
+        zoomLabel.onClick = [this] { view.zoomToActualSize(); };
+        for (auto* quiet : { &resetButton, &fitButton, &zoomOutButton, &zoomInButton, &zoomLabel })
         {
             quiet->setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
             quiet->setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         }
+        for (auto* inWell : { &zoomOutButton, &zoomInButton, &zoomLabel })
+            inWell->setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
         addAndMakeVisible (addButton);
         addAndMakeVisible (fitButton);
+        for (auto* zoomControl : { &zoomOutButton, &zoomLabel, &zoomInButton })
+            addAndMakeVisible (*zoomControl);
         if (hasVoice)
             addAndMakeVisible (resetButton);
 
@@ -382,6 +377,11 @@ public:
             return processorRef.isFxPatcherOn() ? processorRef.getFxLoopGuard (cable.from.node, cable.from.port, cable.to.node, cable.to.port) : 1.0f;
         };
         view.onGesture = [this] (bool starting) { loopGesture (starting, "Loop level"); };
+        // The user moved the view: it stays where they put it (FIT hands it back).
+        view.onNavigated = [this] { autoFit = false; };
+        view.onFitRequested = [this] { fit (true); };
+        // Only effects drop into cables, and only after VOICES (accept() vets the rest).
+        view.canSplice = [] (const PatchGraph::Node& node, const PatchGraph::Cable&) { return ! isVoice (node); };
         addAndMakeVisible (view);
 
         // The selected loop's own row: LEVEL and DELAY, and remove.
@@ -446,19 +446,8 @@ public:
     {
         using namespace IlanaTheme;
         paintPageBackground (g, getLocalBounds());
-        const auto caption = [&g] (const char* name, juce::Rectangle<int> area)
-        {
-            g.setColour (Ui::text3);
-            g.setFont (font (TextSize::tiny, true).withKerningFactor (0.08f));
-            g.drawText (name, area, juce::Justification::centredLeft, false);
-        };
-        if (hasVoice)
-        {
-            caption ("VOICE", voiceCaption);
-            paintWell (g, voiceSeg.toFloat(), (float) voiceSeg.getHeight() * 0.5f);
-        }
-        caption ("FX", fxCaption);
-        paintWell (g, fxSeg.toFloat(), (float) fxSeg.getHeight() * 0.5f);
+        // The zoom's well: one pill round out, the percentage and in.
+        paintWell (g, zoomWell.toFloat(), (float) zoomWell.getHeight() * 0.5f);
 
         const auto refused = juce::Time::getMillisecondCounter() < refusedUntil;
         g.setColour (refused ? Ui::accent2 : Ui::text3);
@@ -472,27 +461,19 @@ public:
         // The FX RACK page's frame: 8 px above and below, a 12 px gutter at the right.
         auto area = getLocalBounds().reduced (0, 8).withTrimmedRight (12);
         auto toolbar = area.removeFromTop (toolbarHeight);
-        if (hasVoice)
-        {
-            toolbar.removeFromLeft (10);
-            voiceCaption = toolbar.removeFromLeft (44);
-            voiceSeg = toolbar.removeFromLeft (152);
-            chainButton.setBounds (voiceSeg.withTrimmedLeft (3).removeFromLeft (70).reduced (0, 2));
-            cablesButton.setBounds (voiceSeg.withTrimmedLeft (3 + 72).removeFromLeft (74).reduced (0, 2));
-            toolbar.removeFromLeft (20);
-        }
-        else
-        {
-            toolbar.removeFromLeft (10);
-        }
-        fxCaption = toolbar.removeFromLeft (28);
-        fxSeg = toolbar.removeFromLeft (232);
-        seriesButton.setBounds (fxSeg.withTrimmedLeft (3).removeFromLeft (66).reduced (0, 2));
-        parallelButton.setBounds (fxSeg.withTrimmedLeft (3 + 68).removeFromLeft (78).reduced (0, 2));
-        patcherButton.setBounds (fxSeg.withTrimmedLeft (3 + 68 + 80).removeFromLeft (78).reduced (0, 2));
-        toolbar.removeFromLeft (20);
+        // Left: the hint. Right: + ADD EFFECT, RESET, the zoom and FIT.
+        toolbar.removeFromLeft (10);
         fitButton.setBounds (toolbar.removeFromRight (70).reduced (0, 2));
         toolbar.removeFromRight (6);
+        // (The well is the buttons' height, 24 px, its parts 2 px inside it.)
+        zoomWell = toolbar.removeFromRight (132).reduced (0, 2);
+        {
+            auto well = zoomWell.reduced (2, 2);
+            zoomOutButton.setBounds (well.removeFromLeft (32));
+            zoomInButton.setBounds (well.removeFromRight (32));
+            zoomLabel.setBounds (well);
+        }
+        toolbar.removeFromRight (16);
         if (hasVoice)
         {
             resetButton.setBounds (toolbar.removeFromRight (80).reduced (0, 2));
@@ -504,7 +485,8 @@ public:
         inspector = area.removeFromBottom (inspectorHeight);
         area.removeFromBottom (10);
         view.setBounds (area);
-        fit();
+        if (autoFit)
+            fit();
         layoutInspector();
         for (auto& window : windows)
             window->setLimits (view.getBounds());
@@ -548,10 +530,12 @@ public:
 private:
     static constexpr int toolbarHeight = 28;
     static constexpr int inspectorHeight = 70;
-    static constexpr float maxZoom = 1.3f, minZoom = 0.6f;
-    // The 10 px grid: voice columns 180 apart (a 130 px box and room for the
-    // cables, the rack's step), rows 70 apart (a 50 px box and a 20 px gap).
-    static constexpr float columnStep = 180.0f, rowStep = 70.0f;
+    static constexpr float maxZoom = 1.8f, minZoom = 0.5f;
+    // The 10 px grid: voice columns 160 apart (a 130 px box and 30 px for the
+    // cables; R18-1: tighter than the rack's 180, so a whole patch fits the
+    // canvas at full size), rows 70 apart (a 50 px box and a 20 px gap).
+    static constexpr float columnStep = 160.0f, rowStep = 70.0f;
+    static constexpr float rackStep = 180.0f; // PatchGraph::rackGraph's
 
     static int localKind (const PatchGraph::Node& node) { return node.kind - voiceKind; }
 
@@ -653,12 +637,10 @@ private:
 
     juce::String hintText() const
     {
-        if (hasVoice && ! processorRef.areRouteCablesOn() && ! processorRef.isFxPatcherOn())
-            return "Chain and rack as cables. Edit one to play them.";
         const auto loops = processorRef.getFxLoopLatencyMs();
         if (loops > 0.0f)
             return "Drag output to input. Drag a loop's tag for its level.";
-        return "Drag output to input. More cables play in parallel.";
+        return "Drag output to input. Drop an effect on a cable to move it there.";
     }
 
     // "WEST > FILTER 1 > FILTER 2", the voice's stages in the order they run.
@@ -995,7 +977,14 @@ private:
     //==========================================================================
     // Edits.
     // Tighter margins and 5 % zoom steps than the default fit, so the graph keeps its size (R17-2).
-    void fit() { view.fitContentInto (view.getLocalBounds(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f); }
+    // (R18-1: up to 1.8 x, so a small patch fills the canvas with readable boxes.)
+    // FIT and F glide there and give the view back to the page.
+    void fit (bool animated = false)
+    {
+        if (animated)
+            autoFit = true;
+        view.fitContentInto (view.getLocalBounds(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f, animated);
+    }
 
     // A cable may not cross the line at VOICES: the per-note boxes feed only
     // each other and VOICES, the effects never feed back into a note.
@@ -1069,9 +1058,9 @@ private:
         if (edit == PatchCableView::Edit::loop && loopGestureOpen)
         {
             // (Live while a loop's tag or knob turns; the gesture is one undo step.)
+            processorRef.setFxPatchGraph (fx);
             if (! processorRef.isFxPatcherOn())
                 processorRef.setFxPatcherOn (true);
-            processorRef.setFxPatchGraph (fx);
             fxShown = fx;
             nameEffects (fxShown);
             view.repaint();
@@ -1079,7 +1068,14 @@ private:
         }
         if (edit == PatchCableView::Edit::layout)
         {
-            processorRef.performEdit ("Move effect", [this, fx] { processorRef.setFxPatchGraph (fx); });
+            // (The rack's routing as cables, now with the box where it was put:
+            // the same sound, so it plays the cables from here on.)
+            processorRef.performEdit ("Move effect", [this, fx]
+            {
+                processorRef.setFxPatchGraph (fx);
+                if (! processorRef.isFxPatcherOn())
+                    processorRef.setFxPatcherOn (true);
+            });
             refresh (true);
             return;
         }
@@ -1098,9 +1094,10 @@ private:
                 processorRef.setRouteCables (voice, true);
             if (fxChanged)
             {
+                // (The graph first: turning the patcher on keeps a graph it already has.)
+                processorRef.setFxPatchGraph (fx);
                 if (! processorRef.isFxPatcherOn())
                     processorRef.setFxPatcherOn (true);
-                processorRef.setFxPatchGraph (fx);
             }
         });
         refresh (true);
@@ -1146,19 +1143,6 @@ private:
         commit (PatchCableView::Edit::loop);
     }
 
-    void setVoiceCables (bool on)
-    {
-        if (on == processorRef.areRouteCablesOn())
-            return;
-        // The first time (the cables still the default), they start as the
-        // chain plays, so switching to CABLES changes nothing heard.
-        auto patch = processorRef.getRoutePatch();
-        if (on && patch == VoiceRouting::defaultPatch())
-            patch = processorRef.getChainAsCables();
-        processorRef.performEdit (on ? "Routing: cables" : "Routing: chain", [this, patch, on] { processorRef.setRouteCables (patch, on); });
-        refresh (true);
-    }
-
     void resetVoiceToChain()
     {
         const auto chain = processorRef.getChainAsCables();
@@ -1166,25 +1150,15 @@ private:
         refresh (true);
     }
 
-    void setFxRouting (int mode)
+    // Right-click adds and duplicates put the new box where they were asked
+    // for: that needs the cables, so the rack's routing becomes them first
+    // (inside the caller's edit; the same sound).
+    void playRackAsCables()
     {
-        const auto patcher = processorRef.isFxPatcherOn();
-        if (mode == 2)
-        {
-            if (! patcher)
-                processorRef.performEdit ("FX routing: patcher", [this] { processorRef.setFxPatcherOn (true); });
-        }
-        else
-        {
-            processorRef.performEdit (mode == 1 ? "FX routing: parallel" : "FX routing: series", [this, mode, patcher]
-            {
-                if (patcher)
-                    processorRef.setFxPatcherOn (false);
-                if (auto* routing = processorRef.apvts.getParameter ("fx_routing"))
-                    routing->setValueNotifyingHost ((float) mode);
-            });
-        }
-        refresh (true);
+        if (processorRef.isFxPatcherOn())
+            return;
+        processorRef.setFxPatchGraph (processorRef.getFxRackGraph());
+        processorRef.setFxPatcherOn (true);
     }
 
     void toggleBypass (int slot)
@@ -1217,6 +1191,7 @@ private:
         auto added = -1;
         processorRef.performEdit ("Duplicate effect", [this, slot, type, &added]
         {
+            playRackAsCables();
             if (! processorRef.isFxSlotInFront (slot))
                 processorRef.focusFxInstance (slot);
             added = processorRef.addFxEffect (type);
@@ -1404,7 +1379,11 @@ private:
                 const auto add = [this, at] (int type, const juce::String& name)
                 {
                     auto added = -1;
-                    processorRef.performEdit ("Add " + name, [this, type, &added] { added = processorRef.addFxEffect (type); });
+                    processorRef.performEdit ("Add " + name, [this, type, &added]
+                    {
+                        playRackAsCables();
+                        added = processorRef.addFxEffect (type);
+                    });
                     if (added >= 0)
                         placeNode (added, at);
                 };
@@ -1441,11 +1420,6 @@ private:
         const auto cablesOn = hasVoice && processorRef.areRouteCablesOn();
         const auto patcher = processorRef.isFxPatcherOn();
         const auto parallel = read ("fx_routing") > 0.5f;
-        chainButton.setToggleState (! cablesOn, juce::dontSendNotification);
-        cablesButton.setToggleState (cablesOn, juce::dontSendNotification);
-        seriesButton.setToggleState (! patcher && ! parallel, juce::dontSendNotification);
-        parallelButton.setToggleState (! patcher && parallel, juce::dontSendNotification);
-        patcherButton.setToggleState (patcher, juce::dontSendNotification);
 
         const auto patch = hasVoice ? VoiceRouting::withoutLoops (cablesOn ? processorRef.getRoutePatch() : processorRef.getChainAsCables())
                                     : VoiceRouting::Patch {};
@@ -1485,7 +1459,18 @@ private:
 
         // The FX patch, each box named as the library names it (numbered when
         // the rack has two of one effect), moved so INPUT sits at VOICES.
-        fxShown = processorRef.getFxPatchGraph();
+        // (While the rack plays, its routing as it is now: a graph saved by an
+        // earlier patcher session is not what is heard.)
+        fxShown = patcher ? processorRef.getFxPatchGraph() : processorRef.getFxRackGraph();
+        if (! patcher)
+            if (const auto* rackInput = fxShown.find (PatchGraph::inputNodeId))
+            {
+                // (On the voice's column step, measured from INPUT.)
+                const auto from = rackInput->x;
+                for (const auto& node : std::vector<PatchGraph::Node> (fxShown.nodes()))
+                    if (node.id != PatchGraph::inputNodeId)
+                        fxShown.moveNode (node.id, from + std::round ((node.x - from) * columnStep / rackStep / 10.0f) * 10.0f, node.y);
+            }
         nameEffects (fxShown);
         const auto* input = fxShown.find (PatchGraph::inputNodeId);
         fxShift = input != nullptr ? voicesAt - juce::Point<float> (input->x, input->y) : juce::Point<float>();
@@ -1519,9 +1504,15 @@ private:
         shown = graph;
         view.setLoopLatencyMs (shortestLoopMs());
         view.graphChanged();
-        // A new box or one outside the view: the patch is fitted again.
-        if ((int) shown.nodes().size() != shownNodes || ! view.contentFits())
+        // A new box or one outside the view: the patch is fitted again, unless
+        // the user has moved the view (then only a new patch that is off
+        // screen is, as after loading a preset).
+        const auto countChanged = (int) shown.nodes().size() != shownNodes;
+        if (autoFit ? (countChanged || ! view.contentFits()) : (countChanged && ! view.contentFits()))
+        {
+            autoFit = true;
             fit();
+        }
         shownNodes = (int) shown.nodes().size();
         repaint();
     }
@@ -1670,6 +1661,16 @@ private:
         }
         view.repaint(); // the CPU readouts
         repaint (inspector);
+        updateZoomLabel();
+    }
+
+    void updateZoomLabel()
+    {
+        const auto text = juce::String (juce::roundToInt (view.getTargetZoom() * 100.0f)) + " %";
+        if (zoomLabel.getButtonText() != text)
+            zoomLabel.setButtonText (text);
+        zoomOutButton.setEnabled (view.getTargetZoom() > PatchCableView::minViewZoom + 0.001f);
+        zoomInButton.setEnabled (view.getTargetZoom() < PatchCableView::maxViewZoom - 0.001f);
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -1682,10 +1683,10 @@ private:
     juce::Point<float> fxShift;
     juce::Rectangle<float> voiceArea;
 
-    juce::TextButton chainButton { "CHAIN" }, cablesButton { "CABLES" };
-    juce::TextButton seriesButton { "SERIES" }, parallelButton { "PARALLEL" }, patcherButton { "PATCHER" };
     juce::TextButton addButton { "+ ADD EFFECT" }, resetButton { "RESET" }, fitButton { "FIT" };
-    juce::Rectangle<int> voiceCaption, voiceSeg, fxCaption, fxSeg, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
+    juce::TextButton zoomOutButton { juce::String::fromUTF8 ("\xe2\x88\x92") }, zoomInButton { "+" }, zoomLabel { "100 %" };
+    juce::Rectangle<int> zoomWell, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
+    bool autoFit = true; // false once the user moves the view (FIT gives it back)
 
     int inspectedVoice = -1, inspectedSlot = -1;
     juce::TextButton onButton { "ON" };

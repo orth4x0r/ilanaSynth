@@ -223,9 +223,181 @@ void runTests()
                "the background bounce finishes and lands on OSC 4 (" + processor.getBounceMessage() + ")");
     }
 }
+
+// Roadmap step 41: multisample resampling.
+void runMultisampleTests()
+{
+    using Request = IlanaSynthAudioProcessor::BounceRequest;
+
+    // The grid: notes from low to high by the spacing, velocities by layer.
+    {
+        Request request;
+        request.noteLow = 36;
+        request.noteHigh = 84;
+        request.spacing = 12;
+        check (request.multiNotes() == std::vector<int> ({ 36, 48, 60, 72, 84 }), "the multisample grid: C2 to C6 every octave is five notes");
+        request.spacing = 3;
+        check (request.multiNotes().size() == 17, "the multisample grid: every minor third from C2 to C6 is 17 notes");
+        request.noteLow = 84;
+        request.noteHigh = 36; // swapped ends are fine
+        check (request.multiNotes().front() == 36 && request.multiNotes().back() == 84, "the multisample grid: swapped ends are put right");
+        request.velocityLayers = 1;
+        request.velocity = 100;
+        check (request.multiVelocities() == std::vector<int> ({ 100 }), "one velocity layer plays the request's velocity");
+        request.velocityLayers = 2;
+        check (request.multiVelocities() == std::vector<int> ({ 32, 95 }), "two velocity layers sit at 32 and 95");
+        request.velocityLayers = 4;
+        check (request.numCaptures() == 4 * 17, "captures are notes times layers");
+    }
+
+    // A resample: zones tile the keys and velocities, share one gain, play in tune.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (sr, 256);
+        plainPatch (processor);
+        Request request;
+        request.targetOsc = 1;
+        request.multi = true;
+        request.noteLow = 48;
+        request.noteHigh = 72;
+        request.spacing = 12;
+        request.velocityLayers = 2;
+        request.holdSeconds = 0.4;
+        request.tailSeconds = 0.4;
+        const auto started = juce::Time::getMillisecondCounter();
+        auto audio = IlanaSynthAudioProcessor::renderBounce (stateOf (processor), request);
+        std::cout << "  [resample] 6 captures of 0.8 s: " << (juce::Time::getMillisecondCounter() - started) << " ms" << std::endl;
+        check (audio != nullptr && audio->zones.size() == 6, "a multisample resample makes one zone per note and velocity layer");
+        if (audio != nullptr && audio->zones.size() == 6)
+        {
+            // Zones are in note order, then layer: 48 low, 48 high, 60 low ...
+            check (audio->zones[0].loKey == 0 && audio->zones[0].hiKey == 54 && audio->zones[2].loKey == 55 && audio->zones[2].hiKey == 66
+                       && audio->zones[4].loKey == 67 && audio->zones[4].hiKey == 127,
+                   "the key ranges meet halfway between the roots and reach both ends of the keyboard");
+            check (audio->zones[0].loVel == 1 && audio->zones[0].hiVel == 63 && audio->zones[1].loVel == 64 && audio->zones[1].hiVel == 127,
+                   "the velocity layers split 1-127 evenly");
+            check (audio->zones[2].rootNote == 60.0 && audio->zones[4].rootNote == 72.0, "each zone's root is its note");
+            auto loudest = 0.0f, quietest = 10.0f;
+            for (const auto& zone : audio->zones)
+            {
+                const auto peak = zone.data->buffer.getMagnitude (0, zone.data->getNumSamples());
+                loudest = juce::jmax (loudest, peak);
+                quietest = juce::jmin (quietest, peak);
+            }
+            check (std::abs (juce::Decibels::gainToDecibels (loudest) + 1.0f) < 0.05f, "the loudest render reaches -1 dBFS");
+            check (quietest < loudest * 0.98f, "the renders share one gain (the soft layer stays softer: "
+                                                   + juce::String (juce::Decibels::gainToDecibels (quietest / loudest), 1) + " dB)");
+            check (audio->getNumSamples() > 0 && audio->zones.size() > 1, "the shown region is rebuilt from the zones");
+        }
+
+        juce::String message;
+        const auto ok = processor.applyBounce (request, audio, message);
+        check (ok && processor.isSampleEmbedded (1) && getParamValue (processor, "osc2_mode") == 2.0f
+                   && getParamValue (processor, "osc2_semi") == 0.0f && getParamValue (processor, "osc2_sample_tuned") > 0.5f,
+               "the multisample lands on OSC 2 in tuned Sample mode with no shift (" + message + ")");
+        for (const int note : { 48, 53, 60, 66, 72, 79 })
+        {
+            const auto expected = 440.0 * std::pow (2.0, (note - 69) / 12.0);
+            const auto heard = pitchOf (play (processor, note, 0.7));
+            check (std::abs (cents (heard, expected)) < 15.0,
+                   "the multisample plays in tune at note " + juce::String (note) + " (" + juce::String (heard, 1) + " Hz, wanted "
+                       + juce::String (expected, 1) + ")");
+        }
+
+        // It travels with the patch, zones and all.
+        juce::MemoryBlock saved, savedAgain;
+        processor.getStateInformation (saved);
+        processor.getStateInformation (savedAgain);
+        check (saved.getSize() == savedAgain.getSize(), "saving twice gives the same state (the encoding is reused)");
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (saved.getData(), (int) saved.getSize());
+        restored.flushAsyncUpdates();
+        const auto* a = processor.getSampleForOsc (1);
+        const auto* b = restored.getSampleForOsc (1);
+        auto same = a != nullptr && b != nullptr && a->zones.size() == b->zones.size();
+        auto worst = 0.0f;
+        for (size_t z = 0; same && z < a->zones.size(); ++z)
+        {
+            const auto &x = a->zones[z], &y = b->zones[z];
+            same = x.loKey == y.loKey && x.hiKey == y.hiKey && x.loVel == y.loVel && x.hiVel == y.hiVel && x.rootNote == y.rootNote
+                   && x.data->getNumSamples() == y.data->getNumSamples() && x.data->getNumChannels() == y.data->getNumChannels();
+            for (int ch = 0; same && ch < x.data->getNumChannels(); ++ch)
+                for (int i = 0; i < x.data->getNumSamples(); ++i)
+                    worst = juce::jmax (worst, std::abs (x.data->buffer.getSample (ch, i) - y.data->buffer.getSample (ch, i)));
+        }
+        check (same && worst < 1.0e-4f && restored.isSampleEmbedded (1),
+               "the multisample is saved inside the patch and restored, zones and audio (" + juce::String (saved.getSize() / 1024) + " KB state)");
+        const auto heard = pitchOf (play (restored, 66, 0.7));
+        check (std::abs (cents (heard, 440.0 * std::pow (2.0, (66 - 69) / 12.0))) < 15.0, "the restored multisample plays in tune");
+
+        // Replacing it with a plain sample drops the zones from the saved state.
+        processor.setUserSample (1, nullptr, {});
+        juce::MemoryBlock cleared;
+        processor.getStateInformation (cleared);
+        IlanaSynthAudioProcessor fresh;
+        fresh.setStateInformation (cleared.getData(), (int) cleared.getSize());
+        fresh.flushAsyncUpdates();
+        check (! fresh.isSampleEmbedded (1), "clearing the oscillator clears the saved multisample");
+
+        // CPU: an eight-note chord on the multisample against a plain sample
+        // of the same length.
+        const auto chord = [] (IlanaSynthAudioProcessor& p)
+        {
+            p.prepareToPlay (sr, 512);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer on;
+            for (int k = 0; k < 8; ++k)
+                on.addEvent (juce::MidiMessage::noteOn (1, 48 + k * 3, (juce::uint8) 100), 0);
+            const auto t0 = juce::Time::getHighResolutionTicks();
+            for (int blockIndex = 0; blockIndex < 400; ++blockIndex)
+            {
+                juce::MidiBuffer none;
+                p.processBlock (buffer, blockIndex == 0 ? on : none);
+            }
+            return juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+        };
+        IlanaSynthAudioProcessor multi, single;
+        for (auto* p : { &multi, &single })
+        {
+            plainPatch (*p);
+            setParam (*p, "osc1_on", 0.0f);
+            setParam (*p, "osc2_on", 1.0f);
+            setParam (*p, "osc2_mode", 2.0f);
+            setParam (*p, "osc2_sample_tuned", 1.0f);
+        }
+        multi.setUserSample (1, audio, {});
+        auto plainAudio = std::make_shared<SampleData>();
+        plainAudio->sampleRate = sr;
+        plainAudio->buffer.makeCopyOf (audio->zones[2].data->buffer);
+        single.setUserSample (1, plainAudio, {});
+        multi.flushAsyncUpdates();
+        single.flushAsyncUpdates();
+        const auto tMulti = chord (multi);
+        const auto tSingle = chord (single);
+        std::cout << "  [resample CPU] 8-note chord, 400 blocks of 512: multisample " << juce::String (tMulti * 1000.0, 1) << " ms, plain sample "
+                  << juce::String (tSingle * 1000.0, 1) << " ms" << std::endl;
+        check (tMulti < tSingle * 1.5 + 0.01, "a multisample costs about what a plain sample does");
+    }
+
+    // A silent patch gives nothing.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (sr, 256);
+        for (const auto* id : { "osc1_on", "osc2_on", "sub_on" })
+            setParam (processor, id, 0.0f);
+        Request request;
+        request.multi = true;
+        request.noteLow = 60;
+        request.noteHigh = 60;
+        request.holdSeconds = 0.2;
+        request.tailSeconds = 0.1;
+        check (IlanaSynthAudioProcessor::renderBounce (stateOf (processor), request) == nullptr, "a silent patch resamples to nothing");
+    }
+}
 } // namespace M86
 
 void runM86Tests()
 {
     M86::runTests();
+    M86::runMultisampleTests();
 }

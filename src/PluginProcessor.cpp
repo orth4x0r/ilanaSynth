@@ -1998,6 +1998,7 @@ void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<Samp
     const juce::SpinLock::ScopedLockType lock (stateLock);
     samplePaths[(size_t) oscIndex] = path;
     embeddedSamples[(size_t) oscIndex] = embedded;
+    encodedSamples[(size_t) oscIndex] = {};
     // The latest sample wins over a clear or reload still queued.
     pendingSampleClear[(size_t) oscIndex] = false;
     pendingSamplePaths[(size_t) oscIndex].clear();

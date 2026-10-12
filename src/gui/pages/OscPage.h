@@ -1083,9 +1083,9 @@ public:
             edit.onClick = [this, i] { openTableEditor (i); };
             addChildComponent (edit);
             auto& bounce = *bounceButtons[(size_t) i];
-            bounce.setTooltip ("Resample: play the whole patch (one note, optionally with its effects) and put the "
-                               "result on this oscillator, as a tuned sample or cut into a wavetable. "
-                               "The result is saved inside the patch.");
+            bounce.setTooltip ("Resample: play the whole patch (optionally with its effects) and put the result on this "
+                               "oscillator: one note as a tuned sample or a wavetable, or a multisample (several notes "
+                               "and velocity layers, one zone each). The result is saved inside the patch.");
             bounce.onClick = [this, i] { showBounceMenu (i); };
             addChildComponent (bounce);
 
@@ -2874,6 +2874,7 @@ public:
         menu.addSectionHeader ("Resample the patch into OSC " + juce::String (index + 1));
         menu.addItem (1, "As a sample (tuned, one note)");
         menu.addItem (2, "As a wavetable (cut into single cycles)");
+        menu.addItem (5, "As a multisample (" + juce::String (bounceRequest.numCaptures()) + " renders: notes x velocity layers)");
         menu.addSeparator();
         menu.addItem (3, "Include the effects", true, bounceRequest.withFx);
         menu.addItem (4, "Mute the other oscillators", true, bounceRequest.muteOthers);
@@ -2881,10 +2882,30 @@ public:
         for (int note : { 36, 48, 60, 72 })
             notes.addItem (100 + note, juce::MidiMessage::getMidiNoteName (note, true, true, 4), true, bounceRequest.note == note);
         for (double hold : { 0.5, 1.0, 2.0, 4.0, 8.0 })
-            lengths.addItem (300 + (int) (hold * 2.0), juce::String (hold, hold < 1.0 ? 1 : 0) + " s held + 2 s release",
+            lengths.addItem (300 + (int) (hold * 2.0), juce::String (hold, hold < 1.0 ? 1 : 0) + " s held",
                              true, std::abs (bounceRequest.holdSeconds - hold) < 1.0e-3);
-        menu.addSubMenu ("Note", notes);
+        menu.addSubMenu ("Note (one sample)", notes);
         menu.addSubMenu ("Length", lengths);
+        juce::PopupMenu tails, ranges, spacings, layers;
+        for (double tail : { 0.0, 0.5, 1.0, 2.0, 4.0 })
+            tails.addItem (700 + (int) (tail * 2.0), tail == 0.0 ? juce::String ("No tail") : juce::String (tail, tail < 1.0 ? 1 : 0) + " s tail",
+                           true, std::abs (bounceRequest.tailSeconds - tail) < 1.0e-3);
+        menu.addSubMenu ("Tail after release", tails);
+        menu.addSectionHeader ("Multisample");
+        const std::pair<int, int> rangeChoices[] { { 36, 84 }, { 24, 96 }, { 48, 72 }, { 36, 72 }, { 48, 96 }, { 24, 60 } };
+        for (int r = 0; r < 6; ++r)
+            ranges.addItem (800 + r, juce::MidiMessage::getMidiNoteName (rangeChoices[r].first, true, true, 4) + " to "
+                                         + juce::MidiMessage::getMidiNoteName (rangeChoices[r].second, true, true, 4),
+                            true, bounceRequest.noteLow == rangeChoices[r].first && bounceRequest.noteHigh == rangeChoices[r].second);
+        for (int step : { 1, 2, 3, 4, 6, 12 })
+            spacings.addItem (900 + step, step == 12 ? juce::String ("Every octave") : "Every " + juce::String (step) + (step == 1 ? " semitone" : " semitones"),
+                              true, bounceRequest.spacing == step);
+        for (int count = 1; count <= 4; ++count)
+            layers.addItem (1000 + count, count == 1 ? juce::String ("1 velocity layer") : juce::String (count) + " velocity layers",
+                            true, bounceRequest.velocityLayers == count);
+        menu.addSubMenu ("Note range", ranges);
+        menu.addSubMenu ("Note spacing", spacings);
+        menu.addSubMenu ("Velocity layers", layers);
 
         juce::Component::SafePointer<OscPage> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (bounceButtons[(size_t) index].get()),
@@ -2893,11 +2914,11 @@ public:
                                 if (safe == nullptr || result == 0)
                                     return;
                                 auto& request = safe->bounceRequest;
-                                if (result == 1 || result == 2)
+                                if (result == 1 || result == 2 || result == 5)
                                 {
                                     request.targetOsc = index;
                                     request.toTable = result == 2;
-                                    request.tailSeconds = 2.0;
+                                    request.multi = result == 5;
                                     if (safe->processorRef.startBounce (request))
                                     {
                                         safe->bouncingOsc = index;
@@ -2908,7 +2929,16 @@ public:
                                 if (result == 3) request.withFx = ! request.withFx;
                                 if (result == 4) request.muteOthers = ! request.muteOthers;
                                 if (result >= 100 && result < 300) request.note = result - 100;
-                                if (result >= 300) request.holdSeconds = (result - 300) / 2.0;
+                                if (result >= 300 && result < 700) request.holdSeconds = (result - 300) / 2.0;
+                                if (result >= 700 && result < 800) request.tailSeconds = (result - 700) / 2.0;
+                                if (result >= 800 && result < 900)
+                                {
+                                    const std::pair<int, int> choices[] { { 36, 84 }, { 24, 96 }, { 48, 72 }, { 36, 72 }, { 48, 96 }, { 24, 60 } };
+                                    request.noteLow = choices[result - 800].first;
+                                    request.noteHigh = choices[result - 800].second;
+                                }
+                                if (result >= 900 && result < 1000) request.spacing = result - 900;
+                                if (result >= 1000 && result < 1100) request.velocityLayers = result - 1000;
                                 safe->showBounceMenu (index); // keep choosing
                             });
     }

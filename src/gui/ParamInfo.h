@@ -314,6 +314,9 @@ inline juce::String describeValue (const juce::String& id, float value)
     if (id.endsWith ("_grain_size"))
         return juce::String (juce::roundToInt (value)) + " ms";
 
+    if (id.endsWith ("_sample_bpm"))
+        return juce::String (value, 1) + " BPM";
+
     if (id == "poly_voices")
         return juce::String (juce::roundToInt (value));
 
@@ -1456,6 +1459,17 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.endsWith ("_sample_fade_out"))
         return "Fades out over this fraction of the region.";
+
+    if (id.endsWith ("_sample_sync"))
+        return "Follows the host tempo. BPM: the sample's own tempo is the BPM knob. A length (1 beat to 16 bars): "
+               "the region from START to END lasts that long at the sample's tempo. Off plays at the sample's own speed.";
+
+    if (id.endsWith ("_sample_bpm"))
+        return "The sample's own tempo, when SYNC is set to BPM. At the host's tempo it plays at its own speed.";
+
+    if (id.endsWith ("_sample_stretch"))
+        return "Repitch: one speed, so a faster tempo or a higher note also raises the pitch. "
+               "Stretch: the note sets the pitch and the tempo sets the speed, apart (a time-stretch).";
 
     return {};
 }

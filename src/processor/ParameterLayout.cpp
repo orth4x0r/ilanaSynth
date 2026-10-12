@@ -1202,5 +1202,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fx_filter_morph", "Filter FX Morph", 0.0f, 1.0f, 0.0f);
     addFloat ("fx_filter_spread", "Filter FX Spread", 0.0f, 1.0f, 0.0f);
 
+    // Roadmap step 40: a sample follows the host tempo. SYNC names the
+    // sample's own tempo: its BPM, or its played region's length in beats or
+    // bars (4/4); STRETCH keeps the pitch apart from the speed (Repitch: one
+    // rate, as before). Off, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_sync", name + " Sample Sync", SampleTempo::syncNames(), 0);
+        addFloat (prefix + "_sample_bpm", name + " Sample BPM", 40.0f, 240.0f, 120.0f);
+        addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch" }, 0);
+    }
+
     return layout;
 }

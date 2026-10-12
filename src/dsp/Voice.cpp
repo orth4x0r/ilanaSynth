@@ -204,6 +204,7 @@ void Voice::syncSamplePlayers()
         sampleParams.end = end;
         sampleParams.fadeIn = osc.sampleFadeIn;
         sampleParams.fadeOut = osc.sampleFadeOut;
+        sampleParams.stretch = osc.sampleStretch;
 
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
             players[u].setParams (sampleParams);
@@ -3444,8 +3445,25 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                 const auto* played = zone != nullptr ? zone->data.get() : settings.sample;
                 sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : 261.6255653005986) : 1.0;
                 grains[osc][u].setPlaybackRatio (sampleRatio[osc][u]);
-                sampleUnison[osc][u].setPlaybackRatio ((played != nullptr ? played->sampleRate / sampleRate : 1.0)
-                                                       * sampleRatio[osc][u]);
+                const auto rateRatio = played != nullptr ? played->sampleRate / sampleRate : 1.0;
+                // Step 40: SYNC speeds the sample to the host's tempo; with
+                // STRETCH the note sets only the pitch. Neither: as before.
+                if (settings.sampleSync == SampleTempo::off && ! settings.sampleStretch)
+                {
+                    sampleUnison[osc][u].setPlaybackRatio (rateRatio * sampleRatio[osc][u]);
+                }
+                else
+                {
+                    const auto regionSeconds = played != nullptr && played->sampleRate > 0.0
+                                                   ? (double) juce::jmax (0.0f, settings.sampleEnd - settings.sampleStart)
+                                                         * played->getNumSamples() / played->sampleRate
+                                                   : 0.0;
+                    const auto tempo = SampleTempo::tempoRatio (settings.sampleSync, settings.sampleBpm, regionSeconds, params.hostBpm);
+                    if (settings.sampleStretch)
+                        sampleUnison[osc][u].setRates (rateRatio * tempo, rateRatio * sampleRatio[osc][u]);
+                    else
+                        sampleUnison[osc][u].setPlaybackRatio (rateRatio * sampleRatio[osc][u] * tempo);
+                }
             }
         }
     }

@@ -6,12 +6,28 @@
 #include "../dsp/TableFactory.h"
 #include "IlanaLookAndFeel.h"
 
+// Where the editor keeps its settings (set while an editor exists): the
+// browser's favourites live there, as the preset browser's do.
+inline juce::PropertiesFile*& tableBrowserSettings()
+{
+    static juce::PropertiesFile* file = nullptr;
+    return file;
+}
+
 // Every wavetable at a glance, grouped by category, each drawn from its
-// first and middle frames. Click one to load it into the oscillator. The
-// search field above narrows it to the tables whose name or group match.
-class TableBrowser : public juce::Component
+// first and middle frames. Click one to load it into the oscillator; the
+// star keeps it under FAVOURITES at the top, and HEAR plays the table under
+// the pointer (restored when you leave without picking). The search field
+// above narrows it to the tables whose name or group match.
+class TableBrowser : public juce::Component,
+                     private juce::Timer
 {
 public:
+    ~TableBrowser() override
+    {
+        restoreOriginal();
+    }
+
     TableBrowser (IlanaSynthAudioProcessor& p, juce::String parameterIdIn, juce::Colour colourIn)
         : processorRef (p), parameterId (std::move (parameterIdIn)), colour (colourIn)
     {
@@ -38,6 +54,34 @@ public:
         };
         addAndMakeVisible (search);
 
+        // HEAR: hovering a table plays it (review 9, S9-19).
+        hearButton.setButtonText ("HEAR");
+        hearButton.setClickingTogglesState (true);
+        hearButton.setTooltip ("Hear tables\nOn: resting the pointer on a table plays a note with it, in this oscillator. "
+                               "Leaving without picking puts the old table back.");
+        hearButton.onClick = [this]
+        {
+            audition = hearButton.getToggleState();
+
+            if (! audition)
+                restoreOriginal();
+        };
+        addAndMakeVisible (hearButton);
+
+        // LOAD...: the oscillator's own loader, one step from here (review
+        // 11, S11-7); shown when the caller gives one.
+        loadButton.setButtonText ("LOAD...");
+        loadButton.setTooltip ("Load a wavetable (.wav of single-cycle frames), or turn any recording into a wavetable");
+        loadButton.onClick = [this]
+        {
+            auto load = onLoad;
+            if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
+                callOut->dismiss();
+            if (load != nullptr)
+                juce::MessageManager::callAsync (load);
+        };
+        addChildComponent (loadButton);
+
         content.owner = this;
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false);
@@ -49,10 +93,16 @@ public:
 
     // Opens the browser in a call-out next to the given component.
     static void show (IlanaSynthAudioProcessor& processor, const juce::String& parameterId, juce::Colour colour,
-                      juce::Component& target)
+                      juce::Component& target, std::function<void()> onLoadIn = {})
     {
         auto browser = std::make_unique<TableBrowser> (processor, parameterId, colour);
+        browser->onLoad = std::move (onLoadIn);
+        browser->loadButton.setVisible (browser->onLoad != nullptr);
         auto* parent = target.getTopLevelComponent();
+        // The call-out is not guaranteed to sit in the editor's tree, so the
+        // browser takes the editor's look itself (HEAR and the scroll bar
+        // were the stock widgets: V10-12).
+        browser->setLookAndFeel (&target.getLookAndFeel());
 
         // Fill most of the plugin window so the previews are readable at any
         // UI zoom (the call-out is not scaled with the editor's content).
@@ -60,21 +110,54 @@ public:
             browser->setSize (juce::jmax (740, juce::roundToInt ((float) parent->getWidth() * 0.86f)),
                               juce::jmax (520, juce::roundToInt ((float) parent->getHeight() * 0.8f)));
 
-        juce::CallOutBox::launchAsynchronously (std::move (browser),
-                                                parent != nullptr ? parent->getLocalArea (&target, target.getLocalBounds())
-                                                                  : target.getScreenBounds(),
-                                                parent);
+        auto& callOut = juce::CallOutBox::launchAsynchronously (std::move (browser),
+                                                                parent != nullptr ? parent->getLocalArea (&target, target.getLocalBounds())
+                                                                                  : target.getScreenBounds(),
+                                                                parent);
+        callOut.setLookAndFeel (&target.getLookAndFeel());
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
-        search.setBounds (area.removeFromTop (34).reduced (6, 4));
+        auto searchRow = area.removeFromTop (34).reduced (6, 4);
+        hearButton.setBounds (searchRow.removeFromRight (70));
+        searchRow.removeFromRight (6);
+        if (loadButton.isVisible())
+        {
+            loadButton.setBounds (searchRow.removeFromRight (80));
+            searchRow.removeFromRight (6);
+        }
+        search.setBounds (searchRow);
+        // The category chips stay put above the scrolling tiles.
+        chipRow = area.removeFromTop (28).reduced (6, 2);
         viewport.setBounds (area);
         buildLayout();
     }
 
-    void paint (juce::Graphics& g) override { g.fillAll (IlanaTheme::Ui::panel); }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (IlanaTheme::Ui::panel);
+
+        for (const auto& chip : chips)
+        {
+            const auto box = chip.bounds.toFloat();
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (box, box.getHeight() * 0.5f);
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::pillFont());
+            g.drawText (chip.text, box, juce::Justification::centred);
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        for (const auto& chip : chips)
+            if (chip.bounds.contains (event.getPosition()))
+                viewport.setViewPosition (0, juce::jmax (0, chip.y - 4));
+    }
 
     // Typing goes straight to the search once the browser is up.
     void parentHierarchyChanged() override
@@ -144,6 +227,13 @@ private:
         juce::Rectangle<int> bounds;
     };
 
+    struct Chip
+    {
+        juce::String text;
+        juce::Rectangle<int> bounds;
+        int y = 0;
+    };
+
     struct Content : public juce::Component
     {
         TableBrowser* owner = nullptr;
@@ -184,11 +274,29 @@ private:
         const auto headingHeight = juce::roundToInt (22.0f * scale);
         auto y = 6;
 
-        for (const auto& category : order)
+        // FAVOURITES first, when the editor keeps settings and any is starred.
+        auto groups = order;
+        std::vector<Item> favourites;
+
+        if (tableBrowserSettings() != nullptr)
+        {
+            for (int i = 0; i < names.size(); ++i)
+                if (isFavourite (names[i]) && matches (displayName (i, names[i]) + " " + names[i], "favourites"))
+                    favourites.push_back ({ i, displayName (i, names[i]), {} });
+
+            if (! favourites.empty())
+                groups.insert (0, "Favourites");
+        }
+
+        for (const auto& category : groups)
         {
             std::vector<Item> group;
 
-            if (category == "User")
+            if (category == "Favourites")
+            {
+                group = favourites;
+            }
+            else if (category == "User")
             {
                 for (int slot = 0; slot < IlanaSynthAudioProcessor::numUserSlots; ++slot)
                     if (matches ("User " + juce::String (slot + 1), category))
@@ -223,6 +331,19 @@ private:
 
         content.setSize (width, juce::jmax (y, viewport.getHeight()));
         content.repaint();
+
+        // A chip per heading shown, jumping to it.
+        chips.clear();
+        auto chipX = chipRow.getX();
+        for (const auto& heading : headings)
+        {
+            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), heading.text) + 20;
+            if (chipX + chipWidth > chipRow.getRight())
+                break;
+            chips.push_back ({ heading.text, { chipX, chipRow.getY(), chipWidth, chipRow.getHeight() }, heading.bounds.getY() });
+            chipX += chipWidth + 5;
+        }
+        repaint (chipRow.expanded (4));
     }
 
     int current() const
@@ -270,7 +391,25 @@ private:
 
             g.setColour (isSelected ? colour : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body * scale, isSelected));
-            g.drawFittedText (item.name, label.toNearestInt(), juce::Justification::centred, 1, 0.8f);
+            IlanaTheme::drawFitted (g, item.name, label.toNearestInt(), juce::Justification::centred, 1);
+
+            // The favourite star, top right: faint until the pointer is on
+            // the cell, solid once starred.
+            if (const auto star = starBounds (item); ! star.isEmpty() && item.choice < TableFactory::getFactoryTableNames().size())
+            {
+                const auto starred = isFavourite (TableFactory::getFactoryTableNames()[item.choice]);
+                if (starred || isHovered)
+                {
+                    juce::Path shape;
+                    shape.addStar (star.getCentre().toFloat(), 5, star.getWidth() * 0.22f, star.getWidth() * 0.5f);
+                    g.setColour (starred ? juce::Colour (0xffffd447)
+                                         : juce::Colours::white.withAlpha (hoveredStar == item.choice ? 0.85f : 0.4f));
+                    if (starred)
+                        g.fillPath (shape);
+                    else
+                        g.strokePath (shape, juce::PathStrokeType (1.2f));
+                }
+            }
         }
     }
 
@@ -320,27 +459,113 @@ private:
         return -1;
     }
 
+    bool isFavourite (const juce::String& name) const
+    {
+        return tableBrowserSettings() != nullptr && tableBrowserSettings()->getValue ("tablefav_" + name) == "1";
+    }
+
+    // The star's hit area, in a cell's top right corner (factory tables).
+    juce::Rectangle<int> starBounds (const Item& item) const
+    {
+        if (tableBrowserSettings() == nullptr || item.choice >= TableFactory::getFactoryTableNames().size())
+            return {};
+
+        const auto size = juce::roundToInt (18.0f * scale);
+        return juce::Rectangle<int> (size, size).withPosition (item.bounds.getRight() - size - 3, item.bounds.getY() + 3);
+    }
+
     void hoverAt (juce::Point<int> position)
     {
         const auto choice = itemAt (position);
+        auto star = -1;
 
-        if (choice != hovered)
+        for (const auto& item : items)
+            if (item.choice == choice && starBounds (item).contains (position))
+                star = choice;
+
+        if (choice != hovered || star != hoveredStar)
         {
             hovered = choice;
+            hoveredStar = star;
             content.repaint();
+
+            // HEAR: a short rest on a table plays it.
+            stopTimer();
+            if (audition && choice >= 0 && choice != previewed && star < 0)
+                startTimer (160);
         }
+    }
+
+    void timerCallback() override
+    {
+        stopTimer();
+
+        if (audition && hovered >= 0 && hovered != previewed)
+            preview (hovered);
+    }
+
+    // Sets the table for a listen (no undo step, no EDITED beyond the
+    // value) and plays a note; the old value is kept to put back.
+    void preview (int choice)
+    {
+        auto* parameter = processorRef.apvts.getParameter (parameterId);
+
+        if (parameter == nullptr)
+            return;
+
+        if (! hasOriginal)
+        {
+            originalChoice = current();
+            hasOriginal = true;
+        }
+
+        previewed = choice;
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) choice));
+        processorRef.triggerPreviewNote (60, true, 0.7f);
+        juce::Timer::callAfterDelay (700, [&processor = processorRef] { processor.triggerPreviewNote (60, false); });
+        content.repaint();
+    }
+
+    // Leaving without picking (or HEAR off) puts the old table back.
+    void restoreOriginal()
+    {
+        if (! hasOriginal)
+            return;
+
+        hasOriginal = false;
+        previewed = -1;
+
+        if (auto* parameter = processorRef.apvts.getParameter (parameterId))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) originalChoice));
     }
 
     void pickAt (juce::Point<int> position)
     {
         const auto choice = itemAt (position);
 
-        if (choice >= 0)
-            pick (choice);
+        if (choice < 0)
+            return;
+
+        // The star only toggles the favourite.
+        for (const auto& item : items)
+            if (item.choice == choice && starBounds (item).contains (position))
+            {
+                const auto key = "tablefav_" + TableFactory::getFactoryTableNames()[choice];
+                tableBrowserSettings()->setValue (key, isFavourite (TableFactory::getFactoryTableNames()[choice]) ? "0" : "1");
+                tableBrowserSettings()->saveIfNeeded();
+                buildLayout();
+                return;
+            }
+
+        pick (choice);
     }
 
     void pick (int choice)
     {
+        // The pick is the edit: the old value goes back first, so the undo
+        // step records old to new, not the table already being heard.
+        restoreOriginal();
+
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
         {
             processorRef.performEdit (parameter->getName (64), [parameter, choice]
@@ -363,6 +588,11 @@ private:
     Content content;
     std::vector<Item> items;
     std::vector<Heading> headings;
-    int hovered = -1;
+    int hovered = -1, hoveredStar = -1, previewed = -1, originalChoice = 0;
+    bool audition = false, hasOriginal = false;
+    juce::TextButton hearButton, loadButton;
+    std::function<void()> onLoad;
+    std::vector<Chip> chips;
+    juce::Rectangle<int> chipRow;
     float scale = 1.0f;
 };

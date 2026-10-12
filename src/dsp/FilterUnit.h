@@ -904,6 +904,13 @@ public:
     static void processStereoBlock (FilterUnit& left, FilterUnit& right, const float* inLeft, const float* inRight,
                                     float* outLeft, float* outRight, int n)
     {
+        const auto yType = left.type == FilterType::LowPass || left.type == FilterType::BandPass
+                           || left.type == FilterType::HighPass || left.type == FilterType::Notch;
+        if (yType && right.type == left.type && right.slope24 == left.slope24)
+        {
+            Airwindows::YFilter::processPairBlock (left.y1, right.y1, inLeft, inRight, outLeft, outRight, n, left.slope24);
+            return;
+        }
         left.processBlock (inLeft, outLeft, n);
         right.processBlock (inRight, outRight, n);
     }

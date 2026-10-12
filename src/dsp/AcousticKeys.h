@@ -8,6 +8,13 @@
 #include <cmath>
 #include <vector>
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <emmintrin.h>
+ #define ILANA_BOARD_SSE 1
+#else
+ #define ILANA_BOARD_SSE 0
+#endif
+
 #include "PianoTuning.h"
 #include "PianoModelTuning.h"
 
@@ -245,9 +252,12 @@ public:
 
     void reset()
     {
-        for (auto& channel : modes)
-            for (auto& mode : channel)
-                mode.reset();
+        for (auto& channel : bank)
+        {
+            channel.y1.fill (0.0f);
+            channel.y2.fill (0.0f);
+            channel.x1 = channel.x2 = 0.0f;
+        }
         for (auto& channel : eq)
             for (auto& band : channel)
                 band.reset();
@@ -271,9 +281,7 @@ public:
                 for (auto& band : eq[(size_t) channel])
                     x = band.process (x);
                 x = lowCut[(size_t) channel][1].process (lowCut[(size_t) channel][0].process (x));
-                auto body = 0.0f;
-                for (int m = 0; m < numModes; ++m)
-                    body += modes[(size_t) channel][(size_t) m].process (x) * gains[(size_t) channel][(size_t) m];
+                const auto body = bank[(size_t) channel].process (x);
                 auto out = x + body * wood;
                 out = std::isfinite (out) ? juce::jlimit (-8.0f, 8.0f, out) : 0.0f;
                 (channel == 0 ? left : right)[i] = out;
@@ -343,18 +351,67 @@ private:
             for (int channel = 0; channel < 2; ++channel)
             {
                 const auto detune = 1.0 + ((double) random.nextFloat() - 0.5) * 0.06;
-                modes[(size_t) channel][(size_t) m].set (sampleRate, hz * detune, t60);
-                gains[(size_t) channel][(size_t) m] = (random.nextBool() ? 1.0f : -1.0f) * (0.5f + 0.5f * random.nextFloat())
-                                                      * 3.0f / std::sqrt ((float) numModes);
+                AcousticKeysDetail::Mode mode;
+                mode.set (sampleRate, hz * detune, t60);
+                auto& b = bank[(size_t) channel];
+                b.b0[(size_t) m] = mode.b0;
+                b.a1[(size_t) m] = mode.a1;
+                b.a2[(size_t) m] = mode.a2;
+                b.gain[(size_t) m] = (random.nextBool() ? 1.0f : -1.0f) * (0.5f + 0.5f * random.nextFloat())
+                                     * 3.0f / std::sqrt ((float) numModes);
             }
         }
     }
 
+    // One channel's modes side by side (four to an SSE register), the
+    // gains folded into the sum: each mode is AcousticKeysDetail::Mode,
+    // and the input's history (x1, x2) is the same for all of them.
+    struct ModeBank
+    {
+        alignas (16) std::array<float, numModes> b0 {}, a1 {}, a2 {}, gain {}, y1 {}, y2 {};
+        float x1 = 0.0f, x2 = 0.0f;
+
+        float process (float x)
+        {
+            const auto drive = x - x2;
+           #if ILANA_BOARD_SSE
+            const auto d = _mm_set1_ps (drive);
+            auto sum = _mm_setzero_ps();
+            for (int m = 0; m < numModes; m += 4)
+            {
+                const auto p1 = _mm_load_ps (&y1[(size_t) m]), p2 = _mm_load_ps (&y2[(size_t) m]);
+                const auto y = _mm_add_ps (_mm_add_ps (_mm_mul_ps (_mm_load_ps (&b0[(size_t) m]), d),
+                                                       _mm_mul_ps (_mm_load_ps (&a1[(size_t) m]), p1)),
+                                           _mm_mul_ps (_mm_load_ps (&a2[(size_t) m]), p2));
+                _mm_store_ps (&y2[(size_t) m], p1);
+                _mm_store_ps (&y1[(size_t) m], y);
+                sum = _mm_add_ps (sum, _mm_mul_ps (y, _mm_load_ps (&gain[(size_t) m])));
+            }
+            alignas (16) float lanes[4];
+            _mm_store_ps (lanes, sum);
+            const auto body = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+           #else
+            float lanes[4] {};
+            for (int m = 0; m < numModes; ++m)
+            {
+                const auto y = b0[(size_t) m] * drive + a1[(size_t) m] * y1[(size_t) m] + a2[(size_t) m] * y2[(size_t) m];
+                y2[(size_t) m] = y1[(size_t) m];
+                y1[(size_t) m] = y;
+                lanes[m % 4] += y * gain[(size_t) m];
+            }
+            const auto body = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+           #endif
+            x2 = x1;
+            x1 = x;
+            return body;
+        }
+    };
+    static_assert (numModes % 4 == 0);
+
     double sampleRate = 48000.0;
     std::array<float, 8> designedFor {};
     std::array<float, numBands> eqKey {};
-    std::array<std::array<AcousticKeysDetail::Mode, numModes>, 2> modes;
-    std::array<std::array<float, numModes>, 2> gains {};
+    std::array<ModeBank, 2> bank;
     std::array<std::array<Biquad, numBands>, 2> eq;
     std::array<std::array<Biquad, 2>, 2> lowCut;
 };

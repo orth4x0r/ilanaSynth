@@ -2,39 +2,102 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <map>
+
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 #include "ParamControls.h"
 #include "RemapEditor.h"
+
+// A quiet dashed pill for something not set yet: VIA's "+" (it reads
+// "+ VIA" under the mouse) and the "+ ADD MODULATION" row after the last
+// routing (review 7: I7-45, V7-20, S7-35).
+class DashedAddButton : public juce::Button
+{
+public:
+    DashedAddButton (const juce::String& textIn, const juce::String& hoverTextIn)
+        : juce::Button (textIn), text (textIn), hoverText (hoverTextIn)
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    // The one "add" component of the interface (UI review 9, V9-12): a dashed
+    // outline and "+  ADD X", the same height wherever it stands (pools of
+    // LFOs and envelopes keep their square "+" tile).
+    static constexpr int standardHeight = 32;
+
+    void setLabel (const juce::String& label)
+    {
+        text = hoverText = label;
+        setButtonText (label);
+        repaint();
+    }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (area, 5.0f);
+        const float dashes[] { 3.0f, 3.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line.withMultipliedAlpha (quiet ? 0.45f : 1.0f));
+        g.fillPath (dashed);
+        if (highlighted || down)
+        {
+            g.setColour (juce::Colours::white.withAlpha (down ? 0.08f : 0.04f));
+            g.fillRoundedRectangle (area, 5.0f);
+        }
+        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.withMultipliedAlpha (quiet ? 0.55f : 1.0f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
+        g.drawText (highlighted || down ? hoverText : text, getLocalBounds(), juce::Justification::centred, false);
+    }
+
+    // A tile nobody has used: its rim and "+" step back until the pointer is on it.
+    void setQuiet (bool shouldBeQuiet)
+    {
+        if (quiet != shouldBeQuiet)
+        {
+            quiet = shouldBeQuiet;
+            repaint();
+        }
+    }
+
+private:
+    juce::String text, hoverText;
+    bool quiet = false;
+};
 
 namespace MatrixMenus
 {
 // Fills a combo box with every destination, grouped into sub-menus so the
 // list of ~400 targets stays navigable. Item IDs are index + 1, which is
 // what ComboBoxAttachment expects.
+inline juce::PopupMenu buildDestinationMenu();
+
 inline void fillDestinations (juce::ComboBox& combo)
 {
-    using D = Mod::Destination;
-    const auto names = Mod::getDestinationNames();
-    auto* root = combo.getRootMenu();
-    root->clear();
+    // Built once (the 64 rows each take a copy; ~1000 names).
+    static const juce::PopupMenu menu = buildDestinationMenu();
+    *combo.getRootMenu() = menu;
+}
 
-    const auto item = [&names] (juce::PopupMenu& menu, int index)
+inline juce::PopupMenu buildDestinationMenu()
+{
+    using D = Mod::Destination;
+    juce::PopupMenu rootMenu;
+    auto* root = &rootMenu;
+
+    // Each written as the page labels it, module first ("Filter 1 › Cutoff").
+    const auto item = [] (juce::PopupMenu& menu, int index)
     {
-        menu.addItem (index + 1, names[index]);
+        menu.addItem (index + 1, ModNames::destination (index));
     };
 
     const auto fill = [&] (juce::PopupMenu& menu, std::initializer_list<D> list)
     {
         for (const auto destination : list)
             item (menu, (int) destination);
-    };
-
-    const auto group = [&] (const juce::String& title, std::initializer_list<D> list)
-    {
-        juce::PopupMenu menu;
-        fill (menu, list);
-        root->addSubMenu (title, menu);
     };
 
     item (*root, 0);
@@ -59,12 +122,53 @@ inline void fillDestinations (juce::ComboBox& combo)
     fill (fm, { D::FmAmount, D::Fm1to2, D::Fm1to3, D::Fm2to3, D::Fm3to1, D::Fm3to2,
                 D::FmFeedback, D::Fm2Feedback, D::Fm3Feedback });
 
-    juce::PopupMenu effects, global, keys;
+    juce::PopupMenu global, keys, macros;
+    juce::PopupMenu filters, voice;
+    fill (filters, { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
+                     D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
+    fill (voice, { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
+
+    // Envelopes, LFOs and effects have a sub-menu per module ("Amp Env",
+    // "LFO 3", "FX Reverb"), in the order first met (review 7: the list
+    // passed 900 targets).
+    struct Nested
+    {
+        std::vector<juce::String> order;
+        std::map<juce::String, juce::PopupMenu> menus;
+
+        void add (int destination, juce::String module = {})
+        {
+            if (module.isEmpty())
+                module = ModNames::destinationParts (destination).module;
+            if (menus.find (module) == menus.end())
+                order.push_back (module);
+            menus[module].addItem (destination + 1, ModNames::destination (destination));
+        }
+
+        juce::PopupMenu build()
+        {
+            juce::PopupMenu menu;
+            for (const auto& module : order)
+                menu.addSubMenu (module.toUpperCase(), menus[module]);
+            return menu;
+        }
+    };
+    Nested envelopes, lfos, effects;
+
+    for (const auto destination : { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
+                                    D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
+                                    D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
+                                    D::F2eAttack, D::F2eDecay, D::F2eSustain, D::F2eRelease,
+                                    D::E4Attack, D::E4Decay, D::E4Sustain, D::E4Release })
+        envelopes.add ((int) destination);
+    for (int lfo = 0; lfo < Mod::numLfoSources; ++lfo)
+        lfos.add ((int) Mod::lfoRateDestinationFor (lfo));
+    lfos.add ((int) D::MsegRate);
 
     for (const auto destination : { D::FxDriveAmount, D::FxCrushMix, D::FxCombFreq, D::FxPhaserRate, D::FxChorusDepth,
                                     D::FxDelayMix, D::FxDelayFeedback, D::FxSmearMix, D::FxFreezeMix, D::FxReverbMix,
                                     D::FxReverbSize })
-        item (effects, (int) destination);
+        effects.add ((int) destination);
 
     const auto& params = Mod::getParamDestinations();
     const char* const prefixes[] { "osc1_", "osc2_", "sub_", "osc4_", "osc5_", "osc6_" };
@@ -73,25 +177,64 @@ inline void fillDestinations (juce::ComboBox& combo)
     {
         const juce::String id (params[(size_t) i].id);
         const auto destination = Mod::paramDestinationFor (i);
+        const auto module = ModNames::destinationParts (destination).module;
 
-        if (i < Mod::numLegacyParamDestinations)
+        if (id.startsWith ("fx_"))
         {
-            item (id.startsWith ("fx_") ? effects : global, destination);
+            effects.add (destination, id.startsWith ("fx_slot") ? juce::String ("FX SLOT BLEND") : juce::String());
             continue;
         }
 
-        if (id.startsWith ("fm_"))
+        if (i < Mod::numLegacyParamDestinations)
+        {
+            item (global, destination);
+            continue;
+        }
+
+        if (id.startsWith ("fm_") || id == "opeg_key_offset")
         {
             item (fm, destination);
             continue;
         }
 
-        // Operator and PD settings sit with their oscillator; the M4
+        if (module == "OP LFO" || module.startsWith ("LFO "))
+        {
+            lfos.add (destination);
+            continue;
+        }
+
+        if (module == "OP PITCH" || module.contains ("Env"))
+        {
+            envelopes.add (destination);
+            continue;
+        }
+
+        if (module.startsWith ("Macro "))
+        {
+            item (macros, destination);
+            continue;
+        }
+
+        if (module.startsWith ("Filter "))
+        {
+            item (filters, destination);
+            continue;
+        }
+
+        if (module == "Voice" || module == "Resonator")
+        {
+            item (voice, destination);
+            continue;
+        }
+
+        // Operator, PD and pitch settings sit with their oscillator; the
         // physical and keys settings keep their own menu.
         auto placed = false;
         for (int osc = 0; osc < 6 && ! placed; ++osc)
             if (id.startsWith (prefixes[osc])
-                && (id.endsWith ("_warp2_amt") || id.endsWith ("_pd_env_amt") || id.endsWith ("_key_level")))
+                && (id.endsWith ("_warp2_amt") || id.endsWith ("_pd_env_amt") || id.endsWith ("_key_level") || id.contains ("_eg_")
+                    || id.endsWith ("_ratio") || id.endsWith ("_fixed_hz") || id.endsWith ("_spectral_amt") || id.endsWith ("_fb_gain")
+                    || id.endsWith ("_fb_distance") || id.contains ("_sample_")))
             {
                 item (oscillators[(size_t) osc], destination);
                 placed = true;
@@ -102,24 +245,27 @@ inline void fillDestinations (juce::ComboBox& combo)
     }
 
     for (int osc = 0; osc < 6; ++osc)
-        root->addSubMenu ("Oscillator " + juce::String (osc + 1), oscillators[(size_t) osc]);
+        root->addSubMenu ("OSC " + juce::String (osc + 1), oscillators[(size_t) osc]);
 
-    group ("Filters", { D::Filter1Cutoff, D::Filter1Reso, D::Filter1Drive, D::Filter1Env, D::Filter1Fm, D::Filter1Morph,
-                        D::Filter2Cutoff, D::Filter2Reso, D::Filter2Drive, D::Filter2Env, D::Filter2Fm, D::Filter2Morph });
-    group ("Voice", { D::AmpLevel, D::Pan, D::RingMod, D::Drift, D::ResAmount, D::ResDecay, D::ResOffset });
+    root->addSubMenu ("Filters", filters);
+    root->addSubMenu ("Voice", voice);
     root->addSubMenu ("FM", fm);
-    group ("Envelopes", { D::AmpAttack, D::AmpDecay, D::AmpSustain, D::AmpRelease,
-                          D::FeAttack, D::FeDecay, D::FeSustain, D::FeRelease,
-                          D::MeAttack, D::MeDecay, D::MeSustain, D::MeRelease,
-                          D::F2eAttack, D::F2eDecay, D::F2eSustain, D::F2eRelease,
-                          D::E4Attack, D::E4Decay, D::E4Sustain, D::E4Release });
-    group ("LFOs & MSEG", { D::Lfo1Rate, D::Lfo2Rate, D::Lfo3Rate, D::Lfo4Rate, D::Lfo5Rate, D::Lfo6Rate,
-                            D::Lfo7Rate, D::Lfo8Rate, D::Lfo9Rate, D::Lfo10Rate, D::Lfo11Rate, D::Lfo12Rate,
-                            D::Lfo13Rate, D::Lfo14Rate, D::Lfo15Rate, D::Lfo16Rate, D::MsegRate });
-
-    root->addSubMenu ("Effects", effects);
+    root->addSubMenu ("Envelopes", envelopes.build());
+    root->addSubMenu ("LFOs & MSEG", lfos.build());
+    root->addSubMenu ("Macros", macros);
+    root->addSubMenu ("Effects", effects.build());
     root->addSubMenu ("Global", global);
     root->addSubMenu ("Physical & Keys", keys);
+    return rootMenu;
+}
+
+// Fills a combo box with every source, grouped as the knobs' menus group
+// them, by their one name. Item IDs are index + 1 (bind with IdComboAttachment).
+inline void fillSources (juce::ComboBox& combo, const IlanaSynthAudioProcessor& processor, bool withNone)
+{
+    auto* root = combo.getRootMenu();
+    root->clear();
+    ModNames::fillSourceMenu (*root, &processor, nullptr, withNone);
 }
 } // namespace MatrixMenus
 
@@ -136,8 +282,8 @@ public:
           processorRef (p),
           slotIndex (slotIndexIn)
     {
-        setTooltip ("Curve\nDrag up or down to bend how the source maps to the amount.  "
-                    "Click to draw a remap curve.  Double-click to straighten the bend.");
+        setTooltip ("Curve\nDrag up or down to curve how the source maps to the amount.  "
+                    "Click to draw a remap curve.  Double-click to straighten it.");
         attachment.sendInitialUpdate();
     }
 
@@ -310,6 +456,121 @@ private:
     juce::ParameterAttachment attachment;
 };
 
+// Polarity as three segments: + (pushes the knob up), - (pushes it down) and
+// +/- (swings both sides), as Vital and Serum 2 offer. The parameter's Auto
+// (choice 0) follows the source's own range: the segment it gives is
+// outlined rather than filled. Click a segment to fix the polarity; click
+// the fixed one again, or double-click, to go back to Auto.
+// Segments 0, 1, 2 are the parameter's choices Unipolar (1), Negative (3)
+// and Bipolar (2).
+class PolarityToggle : public juce::Component,
+                       public juce::SettableTooltipClient
+{
+public:
+    explicit PolarityToggle (juce::RangedAudioParameter& parameterIn)
+        : attachment (parameterIn, [this] (float value) { choice = juce::roundToInt (value); updateTooltip(); repaint(); if (onChange != nullptr) onChange(); }, nullptr)
+    {
+        attachment.sendInitialUpdate();
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    // What Auto gives the row's source (an LFO swings both ways).
+    void setAutoBipolar (bool bipolar)
+    {
+        if (autoBipolar != bipolar)
+        {
+            autoBipolar = bipolar;
+            updateTooltip();
+            repaint();
+
+            if (onChange != nullptr)
+                onChange();
+        }
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    // Called when the polarity changes (the amount's text follows it).
+    std::function<void()> onChange;
+
+    int getChoice() const { return choice; }
+
+    // Sets the polarity (0 auto, 1 positive, 2 bipolar, 3 negative) as one undo step.
+    void setChoice (int wanted) { attachment.setValueAsCompleteGesture ((float) wanted); }
+    bool isEffectivelyBipolar() const { return choice == 2 || (choice == 0 && autoBipolar); }
+    bool isNegative() const { return choice == 3; }
+
+    // Clicking a segment (0 +, 1 -, 2 +/-); public for the tests.
+    void clickSegment (int segment)
+    {
+        const auto wanted = segment == 0 ? 1 : segment == 1 ? 3 : 2;
+        attachment.setValueAsCompleteGesture ((float) (choice == wanted ? 0 : wanted));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f, 2.5f);
+        IlanaTheme::paintWell (g, bounds, 5.0f);
+        const auto lit = choice == 3 ? 1 : isEffectivelyBipolar() ? 2 : 0;
+        const juce::String names[] { "+", juce::String::fromUTF8 ("\xe2\x88\x92"), juce::String::fromUTF8 ("\xc2\xb1") };
+
+        for (int segment = 0; segment < 3; ++segment)
+        {
+            const auto area = segmentBounds (segment);
+
+            if (segment == lit)
+            {
+                g.setColour (colour.withAlpha (0.85f));
+
+                if (choice == 0)
+                    g.drawRoundedRectangle (area.reduced (1.0f), 4.0f, 1.2f); // Auto: outlined in the source's colour.
+                else
+                    g.fillRoundedRectangle (area.reduced (1.0f), 4.0f);
+            }
+
+            g.setColour (segment == lit ? (choice == 0 ? IlanaTheme::Ui::text : IlanaTheme::Ui::bg) : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            g.drawText (names[segment], area, juce::Justification::centred);
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu() || event.mouseWasDraggedSinceMouseDown() || event.getNumberOfClicks() > 1)
+            return;
+
+        clickSegment (juce::jlimit (0, 2, (int) (event.position.x / (float) juce::jmax (1, getWidth()) * 3.0f)));
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent&) override { attachment.setValueAsCompleteGesture (0.0f); }
+
+private:
+    juce::Rectangle<float> segmentBounds (int segment) const
+    {
+        auto area = getLocalBounds().toFloat().reduced (2.0f, 4.0f);
+        const auto width = area.getWidth() / 3.0f;
+        return area.withX (area.getX() + width * (float) segment).withWidth (width);
+    }
+
+    void updateTooltip()
+    {
+        const auto range = choice == 3 ? juce::String ("Negative: only pushes the knob down")
+                                       : isEffectivelyBipolar() ? juce::String ("Bipolar: swings either side of the knob's value")
+                                                                : juce::String ("Positive: only pushes the knob up");
+        setTooltip ("Polarity\n" + range + (choice == 0 ? juce::String ("  (auto: the source's own range).") : juce::String (".")) +
+                    "\nClick + (up), - (down) or +/- (both sides) to fix it; click the fixed one again, or double-click, for auto.");
+    }
+
+    juce::ParameterAttachment attachment;
+    int choice = 0;
+    bool autoBipolar = false;
+    juce::Colour colour = IlanaTheme::accent();
+};
+
 // One row of the modulation matrix, bound to one slot's parameters.
 class MatrixRow : public juce::Component,
                   public juce::SettableTooltipClient
@@ -319,8 +580,16 @@ public:
     {
         for (int m = 0; m < names.size(); ++m)
         {
+            // As every source is named (ModNames::macroName): "TONE", the
+            // number only when two macros share a name.
             const auto base = "Macro " + juce::String (m + 1);
-            const auto text = names[m] == base ? base : base + " (" + names[m] + ")";
+            auto text = names[m].equalsIgnoreCase (base) || names[m].isEmpty() ? base.toUpperCase() : names[m].toUpperCase();
+
+            if (text != base.toUpperCase())
+                for (int other = 0; other < names.size(); ++other)
+                    if (other != m && names[other].equalsIgnoreCase (names[m]))
+                        text += " (M" + juce::String (m + 1) + ")";
+
             const auto itemId = (int) Mod::macroSourceFor (m) + 1;
 
             for (auto* box : { &source, &via })
@@ -336,32 +605,44 @@ public:
         }
     }
 
+    // An LFO or envelope outside its pool is greyed out in SOURCE and VIA
+    // (kept in the lists, whose positions the attachments use), unless this
+    // row already plays it. The "+" on the LFO and envelope pools adds one.
+    void setSourcesInPatch (const std::vector<bool>& inPatch)
+    {
+        for (auto* box : { &source, &via })
+        {
+            const auto selected = box->getSelectedId();
+
+            for (int item = 2; item <= (int) inPatch.size(); ++item)
+                box->setItemEnabled (item, inPatch[(size_t) item - 1] || item == selected);
+        }
+    }
+
+    bool isSourceItemEnabled (int itemId) const { return source.isItemEnabled (itemId); }
+
     MatrixRow (IlanaSynthAudioProcessor& p, int slotIndexIn)
         : processorRef (p),
           slotIndex (slotIndexIn),
-          curve (*p.apvts.getParameter (p.getModSlotParamId (slotIndexIn, "curve")), p, slotIndexIn)
+          curve (*p.apvts.getParameter (p.getModSlotParamId (slotIndexIn, "curve")), p, slotIndexIn),
+          polarity (*p.apvts.getParameter (p.getModSlotParamId (slotIndexIn, "pol")))
     {
         const auto id = [this] (const char* field) { return processorRef.getModSlotParamId (slotIndex, field); };
 
-        source.addItemList (Mod::getSourceNames(), 1);
-        via.addItemList (Mod::getSourceNames(), 1);
-        via.setTextWhenNothingSelected ("-");
-        // Choice 0 (Polarity::Natural, "Auto" in the parameter) follows the
-        // source's own range; it is shown as what that range is (refresh renames it).
-        polarity.addItemList ({ "Auto", "Unipolar", "Bipolar" }, 1);
+        // Sources by their one name, grouped as everywhere else.
+        MatrixMenus::fillSources (source, p, true);
+        MatrixMenus::fillSources (via, p, true);
+        via.setTextWhenNothingSelected ("none");
         MatrixMenus::fillDestinations (destination);
 
         source.setTooltip ("Source\nWhat moves the destination.");
-        via.setTooltip ("Via\nA second source that scales this routing: e.g. the mod wheel fading an LFO in.  "
+        via.setTooltip ("Via (aux)\nA second source that scales this routing: e.g. the mod wheel fading an LFO in.  "
                         "None leaves the amount as set.");
-        polarity.setTooltip ("Polarity\nAuto keeps the source's own range: LFOs, key, random and MSEG swing both ways (bipolar), "
-                             "envelopes, velocity, macros and the wheel only push one way (unipolar).  "
-                             "Unipolar only pushes one way.  Bipolar swings either side of the knob.");
 
-        // Until a via source is set, VIA is a small button that opens the
-        // same list.
-        viaButton.setButtonText ("+");
-        viaButton.setTooltip ("Via\nScale this routing by a second source (the mod wheel fading an LFO in, say).");
+        viaButton.setQuiet (true); // (no row uses VIA until one says so: setViaExpanded)
+        // Until a via source is set, VIA is an empty dashed "+" (the
+        // destination's "+" style) and opens the same list.
+        viaButton.setTooltip ("Via (aux)\nScale this routing by a second source (the mod wheel fading an LFO in, say).");
         viaButton.onClick = [this]
         {
             via.getRootMenu()->showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&viaButton),
@@ -375,27 +656,48 @@ public:
 
         amount.setSliderStyle (juce::Slider::LinearHorizontal);
         amount.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 16);
-        amount.setTooltip ("Amount\nHow far the destination moves.  Negative values invert.  Double-click to zero.");
+        amount.setTooltip ("Amount\nHow far the destination moves.  Negative values invert.  Double-click to zero.  "
+                           "The bar under it shows what the routing adds right now.");
         amount.setDoubleClickReturnValue (true, 0.0);
 
         bypass.setClickingTogglesState (true);
         bypass.getProperties().set ("switch", true);
         bypass.setTooltip ("Switch this routing on or off without losing its settings.");
 
+        stereo.setClickingTogglesState (true);
+        stereo.setTooltip ("Stereo\nOn: the left and right filters get opposite amounts (the sign flips on the right), "
+                           "so the cutoff spreads across the stereo field.  Works on filter cutoffs.");
+
         remove.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
         remove.setTooltip ("Remove this routing");
         remove.onClick = [this] { processorRef.performEdit ("Remove modulation", [this] { processorRef.clearModSlot (slotIndex); }); };
 
         for (auto* component : std::initializer_list<juce::Component*> { &bypass, &source, &via, &viaButton, &amount, &curve,
-                                                                          &polarity, &destination, &remove })
+                                                                          &polarity, &stereo, &destination, &remove })
             addAndMakeVisible (component);
 
         auto& state = p.apvts;
-        sourceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, id ("src"), source);
-        viaAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, id ("aux"), via);
-        polarityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (state, id ("pol"), polarity);
+        sourceAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("src")), source);
+        viaAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("aux")), via);
         destinationAttachment = std::make_unique<IdComboAttachment> (*state.getParameter (id ("dst")), destination);
         amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, id ("amt"), amount);
+        // The amount reads as the share of the knob's range the route
+        // covers: a bipolar route's 100 % is the whole range (Mod::shownPercent).
+        // Typed numbers mean the same.
+        amount.textFromValueFunction = [this] (double value)
+        {
+            const auto percent = Mod::shownPercent ((float) value, polarity.isEffectivelyBipolar());
+            return (percent > 0 ? "+" : "") + juce::String (percent) + "%";
+        };
+        amount.valueFromTextFunction = [this] (const juce::String& text)
+        {
+            return (double) juce::jlimit (-1.0f, 1.0f, Mod::depthFromShownPercent (text.retainCharacters ("-+0123456789.").getFloatValue(),
+                                                                                    polarity.isEffectivelyBipolar()));
+        };
+        polarity.onChange = [this] { amount.updateText(); };
+        amount.updateText();
+        amount.addMouseListener (this, true); // right-click: polarity and typed amount
+        stereoAttachment = std::make_unique<juce::ButtonParameterAttachment> (*state.getParameter (id ("stereo")), stereo);
         bypassAttachment = std::make_unique<ReverseButtonAttachment> (*state.getParameter (id ("byp")), bypass);
     }
 
@@ -403,6 +705,25 @@ public:
     int getDisplayNumber() const { return displayNumber; }
     bool isDuplicate() const { return duplicateOf.isNotEmpty(); }
     CurveControl& getCurve() { return curve; }
+    PolarityToggle& getPolarity() { return polarity; }
+    juce::ComboBox& getSourceBox() { return source; }
+    juce::ComboBox& getDestinationBox() { return destination; }
+    // Why the routing does nothing now (its module is off), or empty.
+    const juce::String& getIdleReason() const { return idleReason; }
+    float getLiveValue() const { return liveValue; }
+
+    // The "!" of a repeated routing: the page offers to merge it.
+    std::function<void (int slot)> onDuplicateClicked;
+
+    // The row whose remap the dock shows is outlined.
+    void setSelected (bool shouldBeSelected)
+    {
+        if (selected != shouldBeSelected)
+        {
+            selected = shouldBeSelected;
+            repaint();
+        }
+    }
 
     // The row's number in the list (1..n as shown; the slot stays in the
     // tooltip) and the other rows with the same source and destination.
@@ -413,10 +734,7 @@ public:
 
         displayNumber = number;
         duplicateOf = duplicateRows;
-        setTooltip ("Slot " + juce::String (slotIndex + 1)
-                    + (duplicateOf.isNotEmpty() ? "\nSame source and destination as row " + duplicateOf
-                                                      + ": the two add up.  Remove one, or set the depth in one row."
-                                                : juce::String()));
+        updateTooltip();
         repaint();
     }
 
@@ -426,6 +744,7 @@ public:
         if (viaExpanded != shouldExpand)
         {
             viaExpanded = shouldExpand;
+            viaButton.setQuiet (! viaExpanded);
             resized();
         }
     }
@@ -437,52 +756,76 @@ public:
 
         via.setVisible (hasVia);
         viaButton.setVisible (! hasVia);
+        polarity.setAutoBipolar (Mod::isBipolarSource (slot.source));
 
-        // "Auto" says which range it gives this source.
-        const auto autoText = juce::String ("Auto (") + (Mod::isBipolarSource (slot.source) ? "Bipolar" : "Unipolar") + ")";
-
-        if (polarity.getItemText (0) != autoText)
-        {
-            const auto selected = polarity.getSelectedId();
-            polarity.changeItemText (1, autoText);
-            polarity.setSelectedId (selected, juce::dontSendNotification);
-        }
         const auto colour = slot.source != Mod::Source::None ? modSourceColour ((int) slot.source) : IlanaTheme::accent();
 
         if (colour != lastColour)
         {
             lastColour = colour;
+            // The row's switch takes the source's colour, as the design draws
+            // it (the dock's chips and the matrix agree on a source's colour).
+            bypass.getProperties().set ("switchColour", (int) colour.getARGB());
+            bypass.repaint();
+            // SOURCE reads in its source's colour, outlined with it, as the
+            // design draws the row.
+            source.setColour (juce::ComboBox::outlineColourId, colour.withAlpha (0.6f));
+            source.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (colour, 0.12f));
+            source.setColour (juce::ComboBox::textColourId, IlanaTheme::Ui::text.interpolatedWith (colour, 0.5f));
+            source.repaint();
             amount.setColour (juce::Slider::rotarySliderFillColourId, colour);
             curve.setColour (colour);
+            polarity.setColour (colour);
         }
 
         curve.refresh();
-        meterValue = slot.source != Mod::Source::None ? processorRef.getSourceDisplayValue ((int) slot.source) : 0.0f;
+        // An operator's level by its name on the pages (UI review 8, I8-2).
+        ModNames::nameOperatorTrims (destination, processorRef);
+        liveValue = slot.isActive() ? Mod::shape (slot, processorRef.getSourceDisplayValue ((int) slot.source)) * slot.depth : 0.0f;
         active = slot.isActive();
+
+        // A routing into a module that is off can't be heard: the row dims
+        // and says why (UI review 6, S6-15 / V5-20).
+        const auto idle = slot.source != Mod::Source::None ? ModNames::whyDestinationIsIdle (processorRef, slot.destination) : juce::String();
+
+        if (idle != idleReason)
+        {
+            idleReason = idle;
+            destination.setTooltip ("Destination\nWhat gets modulated."
+                                    + (idle.isNotEmpty() ? "\nNo effect now: " + idle + "." : juce::String()));
+            updateTooltip();
+
+            for (auto* component : std::initializer_list<juce::Component*> { &source, &via, &viaButton, &amount, &curve, &polarity, &destination })
+                component->setAlpha (idle.isNotEmpty() ? IlanaTheme::dimmedAlpha : 1.0f);
+        }
+
         repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.0f, 2.0f);
+        const auto idle = idleReason.isNotEmpty();
 
         // Flat row; the source's colour marks its left edge.
-        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active ? 0.04f : 0.0f));
+        // (Every other row a shade lighter: a long list reads in lines, review 12, S12-9.)
+        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active && ! idle ? 0.04f : 0.0f)
+                         .interpolatedWith (juce::Colours::white, displayNumber % 2 == 0 ? 0.025f : 0.0f));
         g.fillRoundedRectangle (bounds, 5.0f);
-        g.setColour (IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
-        g.setColour (lastColour.withAlpha (active ? 0.9f : 0.3f));
+        g.setColour (selected ? lastColour.withAlpha (0.8f) : IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, selected ? 1.5f : 1.0f);
+        g.setColour (lastColour.withAlpha (active && ! idle ? 0.9f : 0.3f));
         g.fillRoundedRectangle (bounds.withWidth (3.0f).reduced (0.0f, 6.0f).translated (1.0f, 0.0f), 1.5f);
 
         // The row number; a second routing of the same source to the same
-        // destination is marked in amber.
-        const auto numberArea = juce::Rectangle<int> (4, 0, 22, getHeight());
+        // destination is marked in amber, and clicking it offers a merge.
+        const auto numberArea = numberBounds();
 
         if (isDuplicate())
         {
-            g.setColour (juce::Colour (0xffffb020).withAlpha (0.22f));
+            g.setColour (amber().withAlpha (numberHover ? 0.4f : 0.22f));
             g.fillRoundedRectangle (numberArea.toFloat().reduced (1.0f, 5.0f), 4.0f);
-            g.setColour (juce::Colour (0xffffb020));
+            g.setColour (amber());
         }
         else
         {
@@ -492,63 +835,141 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         g.drawText (juce::String (displayNumber) + (isDuplicate() ? "!" : ""), numberArea, juce::Justification::centred);
 
-        // Live source meter, bipolar around the middle.
-        const auto meter = juce::Rectangle<float> (meterX, 5.0f, 5.0f, (float) getHeight() - 10.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.08f));
-        g.fillRoundedRectangle (meter, 2.0f);
+        // (No arrow before the destination: the unlabelled mark said nothing
+        // the column heads don't, S7-35. A dimmed row says why in its tooltip.)
+    }
 
-        const auto half = meter.getHeight() * 0.5f;
-        const auto bar = juce::jlimit (0.0f, half, std::abs (meterValue) * half);
-        g.setColour (lastColour.withAlpha (active ? 0.9f : 0.35f));
-        g.fillRect (meterValue >= 0.0f ? juce::Rectangle<float> (meter.getX(), meter.getCentreY() - bar, meter.getWidth(), bar)
-                                       : juce::Rectangle<float> (meter.getX(), meter.getCentreY(), meter.getWidth(), bar));
+    // The live bar: what the routing adds right now, drawn in the amount
+    // slider's track from zero, as wide as the track and brighter than the
+    // amount's own fill, ending in a white tick (Vital's matrix shows the
+    // same; UI review 6, V6-22).
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! active || std::abs (liveValue) < 0.002f)
+            return;
 
-        // Arrow between the amount and the destination.
-        const auto arrowX = (float) destination.getX() - 11.0f;
-        juce::Path arrow;
-        arrow.addTriangle (arrowX, (float) getHeight() * 0.5f - 4.0f, arrowX, (float) getHeight() * 0.5f + 4.0f,
-                           arrowX + 6.0f, (float) getHeight() * 0.5f);
-        g.setColour (lastColour.withAlpha (active ? 0.8f : 0.3f));
-        g.fillPath (arrow);
+        const auto track = amountTrack();
+        const auto zeroX = track.getCentreX();
+        const auto liveX = zeroX + juce::jlimit (-1.0f, 1.0f, liveValue) * track.getWidth() * 0.5f;
+        const auto bar = juce::Rectangle<float>::leftTopRightBottom (juce::jmin (zeroX, liveX), track.getY() - 1.0f,
+                                                                    juce::jmax (zeroX, liveX), track.getBottom() + 1.0f);
+        const auto idle = idleReason.isNotEmpty();
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.6f));
+        g.fillRoundedRectangle (bar.expanded (0.0f, 1.0f), 3.0f);
+        g.setColour (lastColour.interpolatedWith (juce::Colours::white, 0.3f).withAlpha (idle ? 0.35f : 0.95f));
+        g.fillRoundedRectangle (bar, 2.5f);
+        g.setColour (juce::Colours::white.withAlpha (idle ? 0.4f : 0.95f));
+        g.fillRoundedRectangle (juce::Rectangle<float> (2.0f, bar.getHeight() + 6.0f).withCentre ({ liveX, bar.getCentreY() }), 1.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu() || ! (event.originalComponent == &amount || amount.isParentOf (event.originalComponent)))
+            return;
+
+        const auto current = polarity.getChoice();
+        juce::PopupMenu menu;
+        menu.addItem (1, "Polarity: positive (up)", true, current == 1);
+        menu.addItem (2, "Polarity: negative (down)", true, current == 3);
+        menu.addItem (3, "Polarity: bipolar (both sides)", true, current == 2);
+        menu.addItem (4, "Polarity: auto (the source's range)", true, current == 0);
+        menu.addSeparator();
+        menu.addItem (5, "Type an amount...");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&amount),
+                            [safe = juce::Component::SafePointer<MatrixRow> (this)] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+
+                                if (result == 5)
+                                    safe->amount.showTextBox();
+                                else
+                                    safe->polarity.setChoice (result == 1 ? 1 : result == 2 ? 3 : result == 3 ? 2 : 0);
+                            });
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override { setNumberHover (isDuplicate() && numberBounds().contains (event.getPosition())); }
+    void mouseExit (const juce::MouseEvent&) override { setNumberHover (false); }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (isDuplicate() && numberBounds().contains (event.getPosition()) && ! event.mouseWasDraggedSinceMouseDown()
+            && onDuplicateClicked != nullptr)
+            onDuplicateClicked (slotIndex);
     }
 
     // Column layout shared with the header labels. VIA is narrow (a "+")
     // until some row uses it.
     struct Columns
     {
-        static constexpr int number = 28, bypass = 34, meter = 10, source = 142, viaWide = 116, viaNarrow = 26,
-                             amount = 190, curve = 50, polarity = 116, destination = 220, remove = 24, gap = 6;
+        static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 32, viaPill = 32,
+                             amountBase = 190, curve = 50, polarity = 76, stereo = 28, destination = 216, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
+        // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
+        static int amount (bool viaExpanded) { return amountBase + (viaExpanded ? 0 : viaWide - viaNarrow); }
     };
 
     static constexpr int rowHeight = 28;
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (0, 3);
+        // A taller row (few routings fill the page: V8-20) keeps its controls
+        // at their size, centred.
+        auto area = getLocalBounds().withSizeKeepingCentre (getWidth(), juce::jmin (getHeight(), rowHeight + 2)).reduced (0, 3);
         area.removeFromLeft (Columns::number);
         bypass.setBounds (area.removeFromLeft (Columns::bypass).withSizeKeepingCentre (32, 18));
-        area.removeFromLeft (Columns::gap);
-        meterX = (float) area.getX() + 2.0f;
-        area.removeFromLeft (Columns::meter + Columns::gap);
+        area.removeFromLeft (Columns::gap * 2);
         source.setBounds (area.removeFromLeft (Columns::source));
         area.removeFromLeft (Columns::gap);
         const auto viaArea = area.removeFromLeft (Columns::via (viaExpanded));
         via.setBounds (viaArea);
-        viaButton.setBounds (viaArea.withWidth (Columns::viaNarrow));
+        viaButton.setBounds (viaArea.withWidth (juce::jmin (viaArea.getWidth(), Columns::viaPill)).reduced (0, 2));
         area.removeFromLeft (Columns::gap * 2);
-        amount.setBounds (area.removeFromLeft (Columns::amount));
+        amount.setBounds (area.removeFromLeft (Columns::amount (viaExpanded)));
         area.removeFromLeft (Columns::gap);
         curve.setBounds (area.removeFromLeft (Columns::curve));
         area.removeFromLeft (Columns::gap);
         polarity.setBounds (area.removeFromLeft (Columns::polarity));
-        area.removeFromLeft (Columns::gap * 3);
+        area.removeFromLeft (Columns::gap);
+        stereo.setBounds (area.removeFromLeft (Columns::stereo).reduced (0, 2));
+        area.removeFromLeft (Columns::gap * 2);
         destination.setBounds (area.removeFromLeft (Columns::destination));
         area.removeFromLeft (Columns::gap);
         remove.setBounds (area.removeFromLeft (Columns::remove));
     }
 
+    static juce::Colour amber() { return juce::Colour (0xffffb020); }
+
 private:
+    juce::Rectangle<int> numberBounds() const { return { 4, 0, 24, getHeight() }; }
+
+    // The amount slider's track, in row coordinates.
+    juce::Rectangle<float> amountTrack()
+    {
+        const auto layout = amount.getLookAndFeel().getSliderLayout (amount);
+        return layout.sliderBounds.toFloat().translated ((float) amount.getX(), (float) amount.getY())
+            .withSizeKeepingCentre ((float) layout.sliderBounds.getWidth(), 6.0f);
+    }
+
+    void setNumberHover (bool hover)
+    {
+        if (hover != numberHover)
+        {
+            numberHover = hover;
+            setMouseCursor (hover ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            repaint();
+        }
+    }
+
+    void updateTooltip()
+    {
+        setTooltip ("Slot " + juce::String (slotIndex + 1)
+                    + (duplicateOf.isNotEmpty() ? "\nSame source and destination as row " + duplicateOf
+                                                      + ": the two add up.  Click the ! to merge them into one row."
+                                                : juce::String())
+                    + (idleReason.isNotEmpty() ? "\nNo effect now: " + idleReason + "." : juce::String()));
+    }
+
     // The bypass parameter is "off = active", but the button reads as a
     // power switch: lit means the routing is on.
     struct ReverseButtonAttachment
@@ -568,20 +989,23 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove, viaButton;
-    juce::ComboBox source, via, polarity, destination;
+    juce::TextButton bypass, remove, stereo { "ST" };
+    std::unique_ptr<juce::ButtonParameterAttachment> stereoAttachment;
+    DashedAddButton viaButton { "+", "VIA" };
+    juce::ComboBox source, via, destination;
     juce::Slider amount;
     CurveControl curve;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> sourceAttachment, viaAttachment,
-        polarityAttachment;
-    std::unique_ptr<IdComboAttachment> destinationAttachment;
+    PolarityToggle polarity;
+    std::unique_ptr<IdComboAttachment> sourceAttachment, viaAttachment, destinationAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAttachment;
     std::unique_ptr<ReverseButtonAttachment> bypassAttachment;
     juce::Colour lastColour = IlanaTheme::accent();
-    float meterValue = 0.0f;
-    float meterX = 0.0f;
+    juce::String idleReason;
+    float liveValue = 0.0f;
     bool active = false;
     bool viaExpanded = false;
+    bool selected = false;
+    bool numberHover = false;
     int displayNumber = 0;
     juce::String duplicateOf;
 };

@@ -160,12 +160,53 @@ int main (int argc, char** argv)
     // ILANA_NO_OPEN_BYPASS=1: run Filter 2 in full even when it is wide open
     // (to compare against builds from before the bypass).
     Voice::disableOpenFilterBypass = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_OPEN_BYPASS", "").isNotEmpty();
+    // ILANA_NO_RELEASE_SILENCE=1: released voices run to the end of their
+    // release (to compare against builds from before the silence end).
+    Voice::disableReleaseSilence = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_RELEASE_SILENCE", "").isNotEmpty();
+    Voice::disableSlowEnvelopes = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_SLOW_ENVELOPES", "").isNotEmpty();
+    IlanaSynthAudioProcessor::forceVoiceThreads = juce::SystemStats::getEnvironmentVariable ("ILANA_THREADS", "-1").getIntValue();
+    // ILANA_NO_FX_SLEEP=1: the effects run through silence too.
+    IlanaSynthAudioProcessor::disableFxSleep = juce::SystemStats::getEnvironmentVariable ("ILANA_NO_FX_SLEEP", "").isNotEmpty();
 
     IlanaSynthAudioProcessor processor;
     processor.setNonRealtime (true);
     processor.prepareToPlay (48000.0, 256);
 
     const auto names = processor.getFactoryPresetNames();
+
+    // ILANA_PRESET_PARAMS=file: write each factory preset's loaded values
+    // instead (one JSON object per line: name, categories, macro names and
+    // every parameter away from its default), for tools/tag_presets.py.
+    if (const auto paramsPath = juce::SystemStats::getEnvironmentVariable ("ILANA_PRESET_PARAMS", ""); paramsPath.isNotEmpty())
+    {
+        std::ofstream params (paramsPath.toStdString());
+        const auto categories = processor.getFactoryPresetCategories();
+        const auto browse = processor.getAllPresetCategories();
+
+        for (int i = 0; i < names.size(); ++i)
+        {
+            processor.loadFactoryPreset (i);
+            auto* line = new juce::DynamicObject();
+            line->setProperty ("index", i);
+            line->setProperty ("name", names[i]);
+            line->setProperty ("category", categories[i]);
+            line->setProperty ("browse", browse[i]);
+            juce::Array<juce::var> macros;
+            for (int m = 0; m < 4; ++m)
+                macros.add (processor.getMacroName (m));
+            line->setProperty ("macros", macros);
+            auto* values = new juce::DynamicObject();
+            for (auto* parameter : processor.getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                    if (std::abs (ranged->getValue() - ranged->getDefaultValue()) > 1.0e-6f)
+                        values->setProperty (ranged->getParameterID(), ranged->convertFrom0to1 (ranged->getValue()));
+            line->setProperty ("params", juce::var (values));
+            params << juce::JSON::toString (juce::var (line), true).toStdString() << "\n";
+        }
+
+        std::cout << "wrote " << names.size() << " presets' values to " << paramsPath << std::endl;
+        return 0;
+    }
 
     // ILANA_FINGERPRINT_ONLY=a,b: only presets whose names contain one of
     // these (for quick iteration; the filter model rows are always written).

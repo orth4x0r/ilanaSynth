@@ -1,0 +1,707 @@
+// UI review 7, package Q5 (FILTER and FX): checks for its fixes. Included
+// by Snapshot.cpp after its helpers (findAll, findChild, settle, expect,
+// visibleInTree); runFilterFxTests runs from runUiTests.
+#pragma once
+
+#include <set>
+
+void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
+{
+    const auto setParam = [&processor] (const juce::String& id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+    const auto loadNamed = [&processor] (const juce::String& name)
+    {
+        processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf (name)));
+        settle (300);
+    };
+    const auto shownKnob = [&editor] (const juce::String& id) -> KnobControl*
+    {
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                return knob;
+        return nullptr;
+    };
+    const auto shownCombo = [&editor, &processor] (const juce::String& id) -> ComboControl*
+    {
+        const auto name = processor.apvts.getParameter (id)->getName (64);
+        std::vector<ComboControl*> combos;
+        findAll<ComboControl> (editor, combos);
+        for (auto* combo : combos)
+            if (visibleInTree (combo) && combo->getComboBox().getTooltip().startsWith (name + "\n"))
+                return combo;
+        return nullptr;
+    };
+    const auto shownButtons = [&editor] (const juce::String& text)
+    {
+        std::vector<juce::Button*> buttons, matching;
+        findAll<juce::Button> (editor, buttons);
+        for (auto* button : buttons)
+            if (button->getButtonText() == text && visibleInTree (button) && ! button->getBounds().isEmpty())
+                matching.push_back (button);
+        return matching;
+    };
+
+    // PLAY's knobs draw the dial their card gives them: none keeps the inline
+    // layouts' half-size cap after the card grew (ilana's PC test: the
+    // oscillator and SUB + NOISE dials were half the size of the filter's).
+    {
+        loadNamed ("Init");
+        editor.showPage ("MAIN");
+        settle (400);
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        auto checked = 0;
+        juce::String small;
+        for (auto* knob : knobs)
+            if (visibleInTree (knob) && knob->getWidth() > 0 && knob->getDialSize() >= 28)
+            {
+                ++checked;
+                if (knob->getDialRadius() < 0.33f * (float) knob->getDialSize())
+                    small += knob->getParameterId() + " (dial " + juce::String (knob->getDialSize()) + ", radius " + juce::String (knob->getDialRadius(), 1) + ") ";
+            }
+        expect (checked >= 10 && small.isEmpty(), "PLAY's stacked knobs are drawn at their cell's dial size: " + small);
+    }
+
+    // I7-1, S7-1, I7-32, V7-35: SIGNAL FLOW keeps F1 and F2 at a usable
+    // width with a soundboard, strings, WEST and BODY on, serial or
+    // parallel, with a bypass, and with WEST in Filter 2's place; no two
+    // blocks overlap and none leaves the view or runs under BALANCE.
+    {
+        loadNamed ("Felt Hammer Board");
+        editor.showPage ("FILTER");
+        settle (400);
+        SignalFlow* flow = nullptr;
+        std::vector<SignalFlow*> flows;
+        findAll<SignalFlow> (editor, flows);
+        for (auto* candidate : flows)
+            if (visibleInTree (candidate))
+                flow = candidate;
+        // (BALANCE is in the strip too: the one inside the enlarged flow card is the one checked here.)
+        KnobControl* balance = nullptr;
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (editor, knobs);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == "filter_balance" && visibleInTree (knob) && flow != nullptr && flow->getParentComponent() != nullptr
+                    && flow->getParentComponent()->isParentOf (knob))
+                    balance = knob;
+        }
+        expect (flow != nullptr && balance != nullptr, "FILTER shows SIGNAL FLOW and BALANCE");
+
+        const auto check = [&] (const juce::String& what)
+        {
+            if (flow == nullptr || balance == nullptr)
+                return;
+            const auto bounds = flow->getLocalBounds().toFloat();
+            const auto filters = flow->getFilterBlocks();
+            const auto blocks = flow->getBlocks();
+            const auto corner = flow->getLocalArea (balance->getParentComponent(), balance->getBounds()).toFloat();
+            juce::String problems;
+            for (const auto& filter : filters)
+                if (filter.getWidth() < 30.0f || ! bounds.contains (filter))
+                    problems << "filter " << filter.toString() << "; ";
+            for (size_t i = 0; i < blocks.size(); ++i)
+            {
+                if (! bounds.contains (blocks[i].second) || blocks[i].second.intersects (corner))
+                    problems << blocks[i].first << " out of place; ";
+                for (size_t j = i + 1; j < blocks.size(); ++j)
+                    if (blocks[i].second.intersects (blocks[j].second))
+                        problems << blocks[i].first << " / " << blocks[j].first << "; ";
+            }
+            expect (problems.isEmpty(), what + ": SIGNAL FLOW keeps F1 and F2 (30 px or more), no block overlaps another or BALANCE "
+                                            + problems);
+        };
+
+        check ("Felt Hammer Board");
+        for (const auto* id : { "sym_on", "sb_on", "west_on", "res_on" })
+            setParam (id, 1.0f);
+        settle (200);
+        check ("WEST, BODY, strings and soundboard on");
+        setParam ("filters_parallel", 1.0f);
+        setParam ("osc1_route", 3.0f);
+        settle (200);
+        check ("the same in parallel, OSC 1 bypassing the filters");
+        setParam ("west_pos", 1.0f);
+        settle (200);
+        check ("WEST in Filter 2's place");
+        if (flow != nullptr)
+        {
+            juce::StringArray names;
+            for (const auto& block : flow->getBlocks())
+                names.add (block.first);
+            expect (names.contains ("WEST") && ! names.contains ("F2"), "WEST in Filter 2's place is drawn there, F2 isn't ("
+                                                                           + names.joinIntoString (", ") + ")");
+        }
+
+        // While WEST and BODY are off they are stubs, not stages of the chain.
+        setParam ("west_on", 0.0f);
+        setParam ("res_on", 0.0f);
+        settle (200);
+        if (flow != nullptr)
+        {
+            juce::StringArray names;
+            for (const auto& block : flow->getBlocks())
+                names.add (block.first);
+            expect (names.contains ("WEST (off)") && names.contains ("BODY (off)") && names.contains ("F2"),
+                    "switched-off WEST and BODY are stubs off the chain, and Filter 2 runs again (" + names.joinIntoString (", ") + ")");
+        }
+        check ("WEST and BODY off");
+        loadNamed ("Felt Hammer Board");
+    }
+
+    // V7-34, S7-23: a switched-off module draws every control at the off
+    // alpha; S7-24: BODY's menus sit on WEST's menu row.
+    {
+        loadNamed ("Init");
+        editor.showPage ("FILTER");
+        setParam ("west_on", 0.0f);
+        setParam ("res_on", 0.0f);
+        settle (400);
+        const auto offAlpha = FilterColours::offAlpha + 0.01f;
+        auto* fold = shownKnob ("west_fold");
+        auto* amount = shownKnob ("res_amount");
+        auto* decay = shownKnob ("res_decay");
+        (void) offAlpha;
+        const auto offDrawn = fold != nullptr && amount != nullptr && decay != nullptr
+                              && fold->getAlpha() < 0.99f && amount->getAlpha() < 0.99f && decay->getAlpha() < 0.99f; // open, dimmed in place (the design)
+        setParam ("west_on", 1.0f);
+        setParam ("res_on", 1.0f);
+        settle (400);
+        fold = shownKnob ("west_fold");
+        amount = shownKnob ("res_amount");
+        decay = shownKnob ("res_decay");
+        expect (offDrawn && fold != nullptr && amount != nullptr && decay != nullptr
+                    && fold->getAlpha() > 0.99f && amount->getAlpha() > 0.99f && decay->getAlpha() > 0.99f,
+                "WEST and BODY stay open and dimmed while off, and draw every knob in full while on");
+
+        auto* place = shownCombo ("west_pos");
+        auto* bodyType = shownCombo ("body_type");
+        auto* westFold = shownKnob ("west_fold");
+        auto* bodyAmount = shownKnob ("res_amount");
+        expect (place != nullptr && bodyType != nullptr && westFold != nullptr && bodyAmount != nullptr
+                    && editor.getLocalArea (place->getParentComponent(), place->getBounds()).getY()
+                           == editor.getLocalArea (bodyType->getParentComponent(), bodyType->getBounds()).getY()
+                    && editor.getLocalArea (westFold->getParentComponent(), westFold->getBounds()).getY()
+                           == editor.getLocalArea (bodyAmount->getParentComponent(), bodyAmount->getBounds()).getY(),
+                "BODY's menus and knobs line up with WEST's, row for row");
+        expect (place != nullptr && place->getComboBox().getItemText (1) == "Replaces F2",
+                "WEST's PLACE reads \"Replaces F2\" (fits the menu's font)");
+        setParam ("west_on", 0.0f);
+        setParam ("res_on", 0.0f);
+    }
+
+    // V7-37, I7-40, V7-18 / S7-11: BALANCE reads a value; PLAY's TYPE
+    // names a filter as FILTER does; Init's two open filters' markers sit
+    // clearly apart.
+    {
+        expect (describeValue ("filter_balance", 0.0f) == "Even", "BALANCE at the centre reads \"Even\", not \"F1 = F2\"");
+        expect (FilterTypes::shortNames()[FilterType::LowPass] == "Low Pass" && FilterTypes::shortNames()[FilterType::AwZLow] == "Smooth LP"
+                    && FilterTypes::shortNames().size() == FilterType::Count,
+                "PLAY's filter TYPE uses FILTER's names (Low Pass, Smooth LP)");
+        loadNamed ("Init");
+        editor.showPage ("FILTER");
+        settle (300);
+        if (auto* display = findChild<FilterDisplay> (editor); display != nullptr)
+        {
+            const auto markers = display->getMarkerCentres();
+            expect (markers[0].getDistanceFrom (markers[1]) >= 18.0f,
+                    "Init: the two filter markers stand clearly apart (" + juce::String (markers[0].getDistanceFrom (markers[1])) + " px)");
+            expect (! display->isVoiceOff(), "Init: the FILTER response is not marked off");
+        }
+
+        // A DX7 voice has no filter: the response says so (N16-2 / I15-2), as PLAY's note does.
+        loadNamed ("E.PIANO 1 (ROM1A)");
+        editor.showPage ("FILTER");
+        settle (500);
+        if (auto* display = findChild<FilterDisplay> (editor); display != nullptr)
+            expect (display->isVoiceOff(), "a DX7 voice: the FILTER response says FILTER OFF");
+        loadNamed ("Init");
+        settle (200);
+    }
+
+    // The FX page.
+    const auto loadFx = [&] (std::initializer_list<int> types)
+    {
+        auto slot = 1;
+        for (auto type : types)
+            processor.assignFxSlot (slot++, type);
+        for (; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            processor.assignFxSlot (slot, 0);
+        for (int s = 1; s <= IlanaSynthAudioProcessor::numFxSlots; ++s)
+        {
+            setParam ("fx_slot" + juce::String (s) + "_mix", 1.0f);
+            setParam ("fx_slot" + juce::String (s) + "_band", 0.0f);
+        }
+        settle (400);
+    };
+    // (The slot's dry / wet: a MIX knob in the card's row since UI review
+    // 8, S8-6.)
+    const auto shownBlends = [&editor]
+    {
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        return (int) std::count_if (knobs.begin(), knobs.end(), [] (KnobControl* k)
+                                    { return k->getParameterId().startsWith ("fx_slot") && k->getParameterId().endsWith ("_mix")
+                                             && visibleInTree (k) && ! k->getBounds().isEmpty(); });
+    };
+    const auto shownBands = [&editor]
+    {
+        std::vector<juce::ComboBox*> boxes;
+        findAll<juce::ComboBox> (editor, boxes);
+        return (int) std::count_if (boxes.begin(), boxes.end(), [] (juce::ComboBox* b)
+                                    { return visibleInTree (b) && ! b->getBounds().isEmpty() && b->getTooltip().startsWith ("Band:"); });
+    };
+
+    {
+        loadNamed ("Init");
+        editor.showPage ("FX");
+        loadFx ({ 27, 2, 20 }); // Vowel, Drive, OTT: each has its own MIX
+
+        // V7-7, S7-15, I7-38: one dry/wet per card; the band menu only on a
+        // banded slot.
+        expect (shownBlends() == 0 && shownBands() == 0,
+                "cards with their own MIX show no BLEND, and full-band cards no band menu ("
+                    + juce::String (shownBlends()) + " / " + juce::String (shownBands()) + ")");
+        setParam ("fx_slot1_mix", 0.6f);
+        settle (300);
+        const auto blendBelowFull = shownBlends();
+        setParam ("fx_slot1_mix", 1.0f);
+        loadFx ({ 18, 2 }); // Tilt has no MIX
+        expect (blendBelowFull == 1 && shownBlends() == 1, "BLEND shows on an effect without a MIX, and once it is set below 100 %");
+        loadFx ({ 7, 2, 13 });
+        setParam ("fx_slot2_band", 1.0f);
+        setParam ("fx_slot3_band", 3.0f);
+        settle (300);
+        expect (shownBands() == 2, "the two banded slots show their band menus (" + juce::String (shownBands()) + ")");
+
+        // S7-16: one + ADD EFFECT (the tile), not one in the toolbar too.
+        loadFx ({ 7, 13 }); // Chorus (half), Reverb (full)
+        std::vector<FxTypeButton*> titles;
+        findAll<FxTypeButton> (editor, titles);
+        auto chorusRight = 0, reverbRight = 0;
+        for (auto* title : titles)
+        {
+            if (! visibleInTree (title))
+                continue;
+            for (auto* knob : { shownKnob ("fx_chorus_mix"), shownKnob ("fx_reverb_mix") })
+                if (knob != nullptr && knob->getParentComponent() == title->getParentComponent())
+                    (knob->getParameterId() == "fx_chorus_mix" ? chorusRight : reverbRight) = knob->getRight();
+        }
+        auto* stack = titles.empty() ? nullptr : titles.front()->getParentComponent();
+        // (UI review 11, V11-4: one width per effect type, whatever sits next to
+        // it: the displays keep their widths when the order changes.)
+        const auto displayWidths = [&editor]
+        {
+            std::vector<FxDisplay*> displays;
+            findAll<FxDisplay> (editor, displays);
+            std::vector<int> widths;
+            for (auto* d : displays)
+                if (visibleInTree (d))
+                    widths.push_back (d->getWidth());
+            std::sort (widths.begin(), widths.end());
+            return widths;
+        };
+        const auto chorusReverb = displayWidths();
+        loadFx ({ 13, 7 });
+        // (V13-1 supersedes the fixed width: a card fills its row, so a lone card
+        // grows to the full rack; what stays is a readable picture either way.)
+        const auto swapped = displayWidths();
+        expect (stack != nullptr && chorusReverb.size() == 2 && swapped.size() == 2 && chorusReverb.front() >= 150 && swapped.front() >= 150,
+                "an effect's picture stays readable wherever it sits in the chain (Chorus, Reverb in either order: " + juce::String (chorusReverb.front())
+                    + " and " + juce::String (swapped.empty() ? 0 : swapped.front()) + " px at the least)");
+        loadFx ({ 7, 13 });
+        expect (shownButtons ("+ ADD").size() == 1, "the rack has one + ADD, in its top bar");
+
+        // V7-29, S7-16: OUTPUT follows the last card instead of the page's foot.
+        loadFx ({ 27, 2, 20 });
+        juce::Component* softClip = nullptr;
+        std::vector<ToggleControl*> toggles;
+        findAll<ToggleControl> (editor, toggles);
+        for (auto* toggle : toggles)
+            if (visibleInTree (toggle) && toggle->getTooltip().startsWith (processor.apvts.getParameter ("master_clip")->getName (64)))
+                softClip = toggle;
+        expect (softClip != nullptr && softClip->getParentComponent() != nullptr
+                    && softClip->getBottom() <= softClip->getParentComponent()->getHeight(),
+                "OUTPUT sits inside the page (the rows grow into spare height, V9-3)");
+
+        // V7-22, V7-43: CHAIN 1 / 2 (not a second A/B), the header's dice for the chain.
+        std::vector<DiceFxButton*> dice;
+        findAll<DiceFxButton> (editor, dice);
+        expect (shownButtons ("CHAIN 1").size() == 1 && shownButtons ("CHAIN 2").size() == 1 && shownButtons ("RACK A").empty()
+                    && dice.size() == 1 && dice.front()->getButtonText() == "RANDOMISE FX" && dice.front()->getTooltip().startsWith ("Randomise FX"),
+                "the FX toolbar has CHAIN 1 / CHAIN 2 and a RANDOMISE FX button (I14-9)");
+
+        // N16-4: the toolbar keeps the 12 px gutter the other pages have (it ran to the window's edge).
+        expect (dice.size() == 1 && dice.front()->getParentComponent() != nullptr
+                    && dice.front()->getRight() <= dice.front()->getParentComponent()->getWidth() - 12,
+                "RANDOMISE FX keeps a 12 px gutter at the window's right edge (N16-4)");
+
+        // N16-1: a one-effect rack's add area is a small target with suggested next effects, not a 500 px hole.
+        {
+            loadFx ({ 13 });
+            std::vector<DashedAddButton*> addButtons;
+            findAll<DashedAddButton> (editor, addButtons);
+            DashedAddButton* addTarget = nullptr;
+            for (auto* candidate : addButtons)
+                if (candidate->getButtonText().contains ("ADD EFFECT") && visibleInTree (candidate))
+                    addTarget = candidate;
+            std::vector<FxSuggestTile*> allSuggestions, suggestions;
+            findAll<FxSuggestTile> (editor, allSuggestions);
+            for (auto* tile : allSuggestions)
+                if (visibleInTree (tile))
+                    suggestions.push_back (tile);
+            auto overlap = false, holdsReverb = false;
+            for (size_t i = 0; i < suggestions.size(); ++i)
+            {
+                holdsReverb = holdsReverb || suggestions[i]->getType() == 13;
+                const auto a = editor.getLocalArea (suggestions[i], suggestions[i]->getLocalBounds());
+                if (addTarget != nullptr && a.intersects (editor.getLocalArea (addTarget, addTarget->getLocalBounds())))
+                    overlap = true;
+                for (size_t j = i + 1; j < suggestions.size(); ++j)
+                    overlap = overlap || a.intersects (editor.getLocalArea (suggestions[j], suggestions[j]->getLocalBounds()));
+            }
+            expect (addTarget != nullptr && addTarget->getHeight() <= 120 && suggestions.size() >= 3 && ! overlap && ! holdsReverb,
+                    "a one-effect rack's + ADD EFFECT target is at most 120 px and carries 3 or more suggested next effects that do not overlap it or the effect already in ("
+                        + juce::String (addTarget != nullptr ? addTarget->getHeight() : -1) + " px, " + juce::String ((int) suggestions.size()) + " tiles)");
+            loadFx ({ 7, 13 });
+        }
+
+        // N16-3: every effect has a picture (none is left as a sentence in a well).
+        {
+            auto missing = juce::String();
+            for (int type = 1; type <= IlanaSynthAudioProcessor::numFxTypes; ++type)
+                if (! FxDisplay::hasDisplay (type) && type != 16 && type != 29)
+                    missing << type << " ";
+            expect (missing.isEmpty(), "every effect type draws a picture on its card (without: " + missing + ")");
+        }
+
+        // Design round 2: SERIES / PARALLEL is a working switch bound to
+        // fx_routing (series by default), a click is one undo step, the
+        // parameter drives the switch back, and the rail turns into a
+        // ladder (the input's bus down the left, x = 13 in the rail).
+        {
+            auto series = shownButtons ("SERIES"), parallel = shownButtons ("PARALLEL");
+            const auto routing = [&processor] { return processor.apvts.getRawParameterValue ("fx_routing")->load(); };
+            expect (series.size() == 1 && parallel.size() == 1, "the FX top bar has one SERIES and one PARALLEL button");
+            if (series.size() == 1 && parallel.size() == 1)
+            {
+                auto* page = series.front()->getParentComponent();
+                const auto busPixels = [page]
+                {
+                    const auto image = page->createComponentSnapshot (page->getLocalBounds(), true, 1.0f);
+                    const auto green = IlanaTheme::oscColour (2);
+                    auto count = 0;
+                    for (int y = 80; y < juce::jmin (image.getHeight(), 400); ++y)
+                    {
+                        const auto pixel = image.getPixelAt (13, y);
+                        if (std::abs (pixel.getFloatRed() - green.getFloatRed()) + std::abs (pixel.getFloatGreen() - green.getFloatGreen())
+                                + std::abs (pixel.getFloatBlue() - green.getFloatBlue()) < 0.45f && pixel.getFloatGreen() > 0.3f)
+                            ++count;
+                    }
+                    return count;
+                };
+                loadFx ({ 27, 2, 20 });
+                const auto startsSeries = routing() < 0.5f && series.front()->getToggleState() && ! parallel.front()->getToggleState();
+                const auto seriesBus = busPixels();
+                parallel.front()->onClick();
+                settle (200);
+                const auto clicked = routing() > 0.5f && parallel.front()->getToggleState() && ! series.front()->getToggleState();
+                const auto parallelBus = busPixels();
+                processor.getUndoManager().undo();
+                settle (200);
+                const auto undone = routing() < 0.5f && series.front()->getToggleState();
+                setParam ("fx_routing", 1.0f);
+                settle (200);
+                const auto followsParameter = parallel.front()->getToggleState() && ! series.front()->getToggleState();
+                series.front()->onClick();
+                settle (200);
+                expect (startsSeries && clicked && undone && followsParameter && routing() < 0.5f,
+                        "SERIES / PARALLEL: series by default, a click sets fx_routing, undo puts it back, the switch follows the parameter");
+                expect (parallelBus > 4 * juce::jmax (1, seriesBus) && parallelBus > 60,
+                        "PARALLEL draws the rail as a ladder: the input's bus runs down the rail's left ("
+                            + juce::String (parallelBus) + " bus pixels against " + juce::String (seriesBus) + " in series)");
+                expect (parallel.front()->getTooltip().startsWith ("Parallel") && series.front()->getTooltip().startsWith ("Series")
+                            && parallel.front()->getDescription().isNotEmpty(),
+                        "SERIES / PARALLEL have tooltips and accessible descriptions");
+            }
+        }
+
+        // V7-42: the dice never puts one effect in two slots.
+        auto duplicates = 0;
+        for (int roll = 0; roll < 30; ++roll)
+        {
+            processor.randomizeFxChain();
+            std::set<int> seen;
+            for (int s = 1; s <= IlanaSynthAudioProcessor::numFxSlots; ++s)
+                if (const auto type = (int) processor.apvts.getRawParameterValue ("fx_slot" + juce::String (s))->load(); type > 0)
+                    duplicates += seen.insert (type).second ? 0 : 1;
+        }
+        expect (duplicates == 0, "30 rolls of the FX dice put no effect in two slots (" + juce::String (duplicates) + ")");
+
+        // I7-39: FX knobs wear their family's colour.
+        loadFx ({ 13, 2 });
+        auto* size = shownKnob ("fx_reverb_size");
+        auto* amount = shownKnob ("fx_drive_amount");
+        expect (size != nullptr && amount != nullptr
+                    && size->getSlider().findColour (juce::Slider::rotarySliderFillColourId) == fxColour (13)
+                    && amount->getSlider().findColour (juce::Slider::rotarySliderFillColourId) == fxColour (2),
+                "FX knobs take their family's colour (reverb blue, drive orange)");
+
+        // I7-28: the reverb card switches to its Airwindows model in place,
+        // titled REVERB either way; the library offers the model beside it.
+        std::vector<FxEngineChip*> switches;
+        findAll<FxEngineChip> (editor, switches);
+        FxEngineChip* reverbSwitch = nullptr;
+        for (auto* candidate : switches)
+            if (visibleInTree (candidate) && reverbSwitch == nullptr && candidate->getTooltip().contains ("Reverb"))
+                reverbSwitch = candidate;
+        expect (reverbSwitch != nullptr, "the reverb row has a BUILT-IN / AIRWINDOWS engine tag that swaps the model");
+        if (reverbSwitch != nullptr && reverbSwitch->onClick != nullptr)
+        {
+            reverbSwitch->onClick();
+            settle (400);
+            const auto type = (int) processor.apvts.getRawParameterValue ("fx_slot1")->load();
+            juce::String title;
+            titles.clear();
+            findAll<FxTypeButton> (editor, titles);
+            for (auto* button : titles)
+                if (visibleInTree (button) && button->getTooltip().startsWith ("Slot 1:"))
+                    title = button->getTooltip();
+            expect (type == 34 && title.contains ("Spaces"), "the model switch puts Airwindows' reverb (Spaces) in the same slot");
+        }
+        FxLibraryView library ([] (int) { return -1; }, [] (int) {});
+        auto* aw = library.findButton (34);
+        auto* more = library.findButton (30);
+        expect (aw != nullptr && aw->getKind() == FxLibraryButton::Kind::airwindowsModel && aw->getTooltip().contains ("Reverb")
+                    && more != nullptr && more->getKind() == FxLibraryButton::Kind::more && fxTwinOf (13) == 34 && fxTwinOf (34) == 13,
+                "the library offers Spaces as Reverb's Airwindows model and the all-in-one module as More Airwindows");
+
+        // ilana's PC test: the picker a card's type button opens is drawn at
+        // the editor's zoom (it was half size, its text about 7 px, in the
+        // unscaled window), fits the window at 100 % and 75 %, and a pick from
+        // it swaps that slot's effect (undo puts it back).
+        {
+            const auto slotType = [&processor] (int slot) { return (int) processor.apvts.getRawParameterValue ("fx_slot" + juce::String (slot))->load(); };
+            const auto findPicker = [&editor]() -> FxLibraryView*
+            {
+                std::vector<FxLibraryView*> views;
+                findAll<FxLibraryView> (editor, views);
+                for (auto* view : views)
+                    if (view->getName() == "FX LIBRARY" && visibleInTree (view))
+                        return view;
+                return nullptr;
+            };
+            const auto closePicker = [&findPicker]
+            {
+                if (auto* view = findPicker())
+                    if (auto* box = view->findParentComponentOfClass<juce::CallOutBox>())
+                        box->dismiss();
+                settle (300);
+            };
+            const auto openFromTitle = [&editor] (int slot)
+            {
+                std::vector<FxTypeButton*> buttons;
+                findAll<FxTypeButton> (editor, buttons);
+                for (auto* button : buttons)
+                    if (visibleInTree (button) && button->getTooltip().startsWith ("Slot " + juce::String (slot) + ":") && button->onClick != nullptr)
+                    {
+                        button->onClick();
+                        settle (80); // (a call-out closes itself within 200 ms under xvfb)
+                        return true;
+                    }
+                return false;
+            };
+
+            auto* top = editor.getTopLevelComponent();
+            const auto before = top->getBounds();
+            for (const auto reduced : { false, true })
+            {
+                if (reduced)
+                    top->setSize (795, 540);
+                settle (300);
+                loadFx ({ 32, 13 }); // Tape, Reverb
+                const auto opened = openFromTitle (1);
+                auto* picker = findPicker();
+                const auto zoom = (float) editor.getHeight() / 720.0f;
+                const auto shown = picker != nullptr ? editor.getLocalArea (picker, picker->getLocalBounds()) : juce::Rectangle<int>();
+                auto* tape = picker != nullptr ? picker->findButton (32) : nullptr;
+                expect (opened && picker != nullptr && picker->getReplacingSlot() == 0
+                            && std::abs ((float) shown.getWidth() - (float) picker->getWidth() * zoom) < 3.0f
+                            && editor.getLocalBounds().contains (shown) && tape != nullptr && tape->getHeight() >= 26
+                            && tape->getInRackSlot() == 0,
+                        juce::String ("FX: TAPE's type button opens the effect picker for slot 1 at the editor's zoom, inside the window ")
+                            + (reduced ? "at 75 %" : "at 100 %") + " (" + shown.toString() + ", zoom " + juce::String (zoom, 2) + ")");
+
+                if (! reduced && picker != nullptr)
+                {
+                    // A pick replaces the slot's effect, one undo step.
+                    if (auto* chorus = picker->findButton (7))
+                        chorus->triggerClick();
+                    settle (400);
+                    const auto replaced = slotType (1) == 7 && slotType (2) == 13 && findPicker() == nullptr;
+                    processor.getUndoManager().undo();
+                    settle (300);
+                    expect (replaced && slotType (1) == 32,
+                            "FX: picking CHORUS from TAPE's picker puts a chorus in slot 1 (reverb stays in 2), closes it, and undo brings TAPE back");
+
+                    // An effect another slot holds becomes a second instance
+                    // with its own settings (step 17); undo brings TAPE back.
+                    openFromTitle (1);
+                    if (auto* again = findPicker())
+                        if (auto* reverb = again->findButton (13))
+                            reverb->triggerClick();
+                    settle (400);
+                    const auto second = slotType (1) == 13 && slotType (2) == 13
+                                        && (processor.isFxInstance (0) || processor.isFxInstance (1));
+                    processor.getUndoManager().undo();
+                    settle (300);
+                    expect (second && slotType (1) == 32 && slotType (2) == 13,
+                            "FX: picking an effect another slot holds adds a second instance of it, and undo brings the old effect back");
+                    closePicker();
+
+                    // REMOVE EFFECT empties the slot.
+                    openFromTitle (1);
+                    if (auto* again = findPicker())
+                        again->getRemoveButton().triggerClick();
+                    settle (400);
+                    expect (slotType (1) == 0 && slotType (2) == 13, "FX: the picker's REMOVE EFFECT takes the slot's effect out");
+                }
+                closePicker();
+            }
+            top->setBounds (before);
+            settle (300);
+            loadFx ({});
+        }
+
+        // I7-28: the all-in-one Airwindows card has a display.
+        loadFx ({ 30 });
+        std::vector<FxDisplay*> displays;
+        findAll<FxDisplay> (editor, displays);
+        expect (std::count_if (displays.begin(), displays.end(), [] (FxDisplay* d) { return visibleInTree (d); }) == 1,
+                "the all-in-one Airwindows card shows its algorithm's picture");
+        loadFx ({});
+    }
+
+    // Step 17 follow-ups (ilana's PC test, 2026-10-11).
+    {
+        loadNamed ("Init");
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        processor.addFxEffect (9);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_delay_sync", 0.0f);
+        setParam ("fx_delay_time", 300.0f);
+        const auto second = processor.addFxEffect (9); // a copy of these settings
+        setParam ("fx_delay_time", 120.0f);           // (the new one is in front)
+        editor.showPage ("FX");
+        settle (500);
+
+        // Every instance gets a full card: its own TIME knob, showing its
+        // own value, and a turn of it writes that instance only (one undo step).
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        std::vector<KnobControl*> times;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "fx_delay_time" && visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                times.push_back (knob);
+        const auto other = second == 0 ? 1 : 0;
+        float before = 0.0f;
+        processor.getFxInstanceValue (other, "fx_delay_time", before);
+        KnobControl* instanceKnob = nullptr;
+        for (auto* knob : times)
+            if (std::abs (knob->getSlider().getValue() - (double) before) < 0.5)
+                instanceKnob = knob;
+        expect (times.size() == 2 && instanceKnob != nullptr && std::abs (before - 300.0f) < 0.5f,
+                "FX: both Delay instances show a full card with their own TIME (" + juce::String ((int) times.size()) + " knobs, the other at "
+                    + juce::String (before) + " ms)");
+        if (instanceKnob != nullptr)
+        {
+            auto& slider = instanceKnob->getSlider();
+            slider.startedDragging();
+            slider.setValue (450.0, juce::sendNotificationSync);
+            slider.stoppedDragging();
+            settle (200);
+            float after = 0.0f;
+            processor.getFxInstanceValue (other, "fx_delay_time", after);
+            const auto front = processor.apvts.getParameter ("fx_delay_time");
+            const auto frontValue = front->convertFrom0to1 (front->getValue());
+            processor.getUndoManager().undo();
+            settle (300);
+            float undone = 0.0f;
+            processor.getFxInstanceValue (other, "fx_delay_time", undone);
+            expect (std::abs (after - 450.0f) < 0.5f && std::abs (frontValue - 120.0f) < 0.5f && std::abs (undone - 300.0f) < 0.5f
+                        && std::abs (instanceKnob->getSlider().getValue() - 300.0) < 0.5,
+                    "FX: turning an instance card's knob sets that instance only, and undo puts it back (" + juce::String (after) + ", front "
+                        + juce::String (frontValue) + ", undone " + juce::String (undone) + ")");
+        }
+
+        // Picking PATCHER in the routing row goes straight to the cables.
+        juce::Button* routingPatcher = nullptr;
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == "PATCHER" && button->getRadioGroupId() != 0 && visibleInTree (button))
+                    routingPatcher = button;
+        }
+        if (routingPatcher != nullptr)
+            routingPatcher->triggerClick();
+        settle (400);
+        auto* view = findChild<PatchCableView> (editor);
+        expect (routingPatcher != nullptr && processor.isFxPatcherOn() && view != nullptr && visibleInTree (view),
+                "FX: picking PATCHER routing on RACK turns it on and opens the cable view");
+
+        // A loop cable selected: LEVEL and DELAY knobs under the canvas set it.
+        if (view != nullptr)
+        {
+            auto graph = processor.getFxPatchGraph();
+            PatchGraph::NodeId a = 0, b = 0;
+            for (const auto& node : graph.nodes())
+                if (! node.isFixed())
+                    (a == 0 ? a : b) = node.id;
+            graph.connect ({ b, 0 }, { a, 0 });
+            processor.setFxPatchGraph (graph);
+            settle (300);
+            const auto loop = processor.getFxPatchGraph().findCable ({ b, 0 }, { a, 0 });
+            view->selectCable (loop);
+            settle (300);
+            KnobControl* level = nullptr;
+            KnobControl* delay = nullptr;
+            std::vector<KnobControl*> all;
+            findAll<KnobControl> (editor, all);
+            for (auto* knob : all)
+                if (visibleInTree (knob) && ! knob->getBounds().isEmpty())
+                    (knob->getParameterId() == "loop_level" ? level : knob->getParameterId() == "loop_delay" ? delay : knob) = knob;
+            const auto startLevel = level != nullptr ? level->getSlider().getValue() : -1.0;
+            if (level != nullptr && delay != nullptr)
+            {
+                level->getSlider().startedDragging();
+                level->getSlider().setValue (45.0, juce::sendNotificationSync);
+                level->getSlider().stoppedDragging();
+                delay->getSlider().startedDragging();
+                delay->getSlider().setValue (250.0, juce::sendNotificationSync);
+                delay->getSlider().stoppedDragging();
+                settle (300);
+            }
+            const auto set = processor.getFxPatchGraph().cables();
+            const auto index = processor.getFxPatchGraph().findCable ({ b, 0 }, { a, 0 });
+            expect (level != nullptr && delay != nullptr && std::abs (startLevel - 20.0) < 0.5 && index >= 0
+                        && std::abs (set[(size_t) index].gain - 0.45f) < 1.0e-3f && std::abs (set[(size_t) index].delayMs - 250.0f) < 0.5f,
+                    "FX: a selected loop shows LEVEL (new at 20 %) and DELAY knobs that set the cable (" + juce::String (startLevel) + ")");
+            processor.getUndoManager().undo();
+            settle (300);
+            const auto back = processor.getFxPatchGraph();
+            const auto backIndex = back.findCable ({ b, 0 }, { a, 0 });
+            expect (backIndex >= 0 && std::abs (back.cables()[(size_t) backIndex].delayMs) < 0.5f && std::abs (back.cables()[(size_t) backIndex].gain - 0.45f) < 1.0e-3f,
+                    "FX: undo takes back one loop knob turn");
+        }
+        editor.showPage ("FX");
+    }
+    loadNamed ("Init");
+}

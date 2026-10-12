@@ -3,8 +3,12 @@
 //
 // usage: ilanaRefHost <plugin.vst3> <output folder> <name> [note:velocity ...]
 //        ilanaRefHost --presets <plugin.vst3> <preset folder> <output folder>
+//        ilanaRefHost --train <ilanaSynth.vst3> <preset folder>...
 // The second form loads each .vital preset and renders the preset critic's
 // test phrases (see tools/preset_critic.py), as reference renders.
+// The third plays every .ilanapreset in the folders (and the init sound)
+// through ilanaSynth, writing nothing: the training run of a profile-guided
+// build (tools/pgo-windows.ps1).
 // Each note is held for 4 s and released for 1 s at 48 kHz, written as
 // <name>.v<velocity>.n<note>.wav (mono, 24-bit). The default notes are
 // 40, 60 and 84 at velocities 40 and 120.
@@ -274,11 +278,97 @@ namespace presets
     }
 }
 
+namespace train
+{
+    // JUCE's VST3 host wraps the plugin's own state (for ilanaSynth, the
+    // preset's XML in JUCE's binary form) as base64 in IComponent.
+    bool loadIlanaPreset (juce::AudioPluginInstance& plugin, const juce::File& file)
+    {
+        auto preset = juce::XmlDocument::parse (file);
+        juce::MemoryBlock hostState;
+        plugin.getStateInformation (hostState);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (hostState.getData(), (int) hostState.getSize());
+        auto* component = xml != nullptr ? xml->getChildByName ("IComponent") : nullptr;
+        if (preset == nullptr || component == nullptr)
+            return false;
+        juce::MemoryBlock chunk;
+        juce::AudioProcessor::copyXmlToBinary (*preset, chunk);
+        component->deleteAllTextElements();
+        component->addTextElement (chunk.toBase64Encoding());
+        juce::MemoryBlock newState;
+        juce::AudioProcessor::copyXmlToBinary (*xml, newState);
+        plugin.setStateInformation (newState.getData(), (int) newState.getSize());
+        return true;
+    }
+
+    // What playing looks like: a pedalled run, a held chord, a few fast
+    // repeats, then the release. Returns the peak level.
+    float play (juce::AudioPluginInstance& plugin)
+    {
+        auto peak = 0.0f;
+        std::vector<presets::NoteEvent> events;
+        for (int i = 0; i < 16; ++i)
+            events.push_back ({ i * 0.12, i * 0.12 + 0.1, 48 + (i * 5) % 24, 50 + (i * 17) % 70 });
+        for (const auto note : { 48, 55, 60, 64, 67, 72 })
+            events.push_back ({ 2.2, 4.2, note, 90 });
+        for (int i = 0; i < 6; ++i)
+            events.push_back ({ 4.5 + i * 0.08, 4.5 + i * 0.08 + 0.05, 62, 110 });
+        const int channels = juce::jmax (2, plugin.getTotalNumOutputChannels());
+        juce::AudioBuffer<float> buffer (channels, blockSize);
+        const auto totalBlocks = (int) (7.0 * sampleRate / blockSize);
+        for (int block = 0; block < totalBlocks; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+            const auto start = block * blockSize;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 127), 0);
+            if (start <= (int) (2.0 * sampleRate) && (int) (2.0 * sampleRate) < start + blockSize)
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 64, 0), (int) (2.0 * sampleRate) - start);
+            for (const auto& event : events)
+            {
+                const auto on = (int) std::llround (event.on * sampleRate);
+                const auto off = (int) std::llround (event.off * sampleRate);
+                if (on >= start && on < start + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, event.note, (juce::uint8) event.velocity), on - start);
+                if (off >= start && off < start + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, event.note), off - start);
+            }
+            plugin.processBlock (buffer, midi);
+            peak = juce::jmax (peak, buffer.getMagnitude (0, blockSize));
+        }
+        idle (plugin, (int) (2.0 * sampleRate / blockSize), false);
+        return peak;
+    }
+
+    int run (juce::AudioPluginInstance& plugin, const juce::StringArray& folders)
+    {
+        std::cout << "init sound: peak " << play (plugin) << std::endl;
+        int count = 0;
+        for (const auto& folder : folders)
+            for (const auto& file : juce::File (folder).findChildFiles (juce::File::findFiles, true, "*.ilanapreset"))
+            {
+                if (! loadIlanaPreset (plugin, file))
+                {
+                    std::cout << "could not load " << file.getFileName() << std::endl;
+                    continue;
+                }
+                idle (plugin, 20, false);
+                const auto peak = play (plugin);
+                std::cout << "played " << file.getFileNameWithoutExtension() << ": peak " << peak << std::endl;
+                ++count;
+            }
+        std::cout << "trained on " << count << " presets and the init sound" << std::endl;
+        return 0;
+    }
+}
+
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juce;
     const auto presetMode = argc >= 5 && juce::String (argv[1]) == "--presets";
-    if (presetMode)
+    const auto trainMode = argc >= 3 && juce::String (argv[1]) == "--train";
+    if (presetMode || trainMode)
     {
         juce::VST3PluginFormat vst3;
         juce::OwnedArray<juce::PluginDescription> types;
@@ -297,6 +387,15 @@ int main (int argc, char* argv[])
         plugin->prepareToPlay (sampleRate, blockSize);
         plugin->setNonRealtime (true);
         idle (*plugin, 300);
+        if (trainMode)
+        {
+            juce::StringArray folders;
+            for (int i = 3; i < argc; ++i)
+                folders.add (juce::String (argv[i]));
+            const auto result = train::run (*plugin, folders);
+            plugin->releaseResources();
+            return result;
+        }
         if (juce::String (argv[3]) == "--inspect")
         {
             juce::MemoryBlock state;

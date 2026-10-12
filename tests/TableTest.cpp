@@ -26,6 +26,7 @@
 #include "dsp/UnisonBank.h"
 #include "dsp/Voice.h"
 #include "dsp/Wavetable.h"
+#include "dsp/TableFFT.h"
 #include "dsp/WavetableOscillator.h"
 #include "SamplingProfiler.h"
 
@@ -54,6 +55,27 @@ void checkTiming (bool condition, const juce::String& message)
         return;
     }
     check (condition, message);
+}
+
+// Route polarity (2026-10-10): Negative is Unipolar turned over, and the
+// amount reads as the share of the range a route covers.
+void runPolarityTests()
+{
+    Mod::Slot slot;
+    slot.source = Mod::Source::Lfo1; // swings both ways
+    slot.destination = 1;
+    slot.depth = 0.5f;
+    const auto unipolar = [&slot] (Mod::Polarity polarity, float value) { slot.polarity = polarity; return Mod::shape (slot, value); };
+    check (std::abs (unipolar (Mod::Polarity::Unipolar, 1.0f) - 1.0f) < 1.0e-6f && std::abs (unipolar (Mod::Polarity::Unipolar, -1.0f)) < 1.0e-6f,
+           "Unipolar maps an LFO's -1..1 to 0..1");
+    check (std::abs (unipolar (Mod::Polarity::Negative, 1.0f) + 1.0f) < 1.0e-6f && std::abs (unipolar (Mod::Polarity::Negative, -1.0f)) < 1.0e-6f
+               && std::abs (unipolar (Mod::Polarity::Negative, 0.0f) + 0.5f) < 1.0e-6f,
+           "Negative maps an LFO's -1..1 to 0..-1");
+    slot.source = Mod::Source::AmpEnv; // rises 0..1
+    check (std::abs (unipolar (Mod::Polarity::Negative, 0.75f) + 0.75f) < 1.0e-6f, "Negative turns an envelope over");
+    check (Mod::visualDepth (slot) < 0.0f && Mod::storedDepth (slot, -0.4f) > 0.0f, "a Negative route reads as a negative depth");
+    check (Mod::shownPercent (0.5f, true) == 100 && Mod::shownPercent (0.5f, false) == 50 && std::abs (Mod::depthFromShownPercent (100.0f, true) - 0.5f) < 1.0e-6f,
+           "a bipolar 100% is half the stored depth: the whole range");
 }
 
 void runMipmapTests()
@@ -691,9 +713,9 @@ void runPhysicalStringTest()
     };
 
     const auto legacy = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
-    const auto stiff = render (1.0f, 0.0f, 0.0f, 1.0f, 0.0f, false);
-    const auto pickup = render (0.0f, 0.5f, 0.0f, 1.0f, 0.0f, false);
-    const auto excitation = render (0.0f, 0.0f, 0.5f, 1.0f, 0.0f, false);
+    const auto stiff = render (0.74f, 0.0f, 0.0f, 1.0f, 0.0f, false); // allpass -0.7: the partials sit well inside the search window
+    const auto pickup = render (0.0f, 1.0f, 0.0f, 1.0f, 0.0f, false); // 1 = the middle: the 2nd harmonic's notch
+    const auto excitation = render (0.0f, 0.0f, 1.0f, 1.0f, 0.0f, false);
     const auto soft = render (0.0f, 0.0f, 0.0f, 0.0f, 0.25f, false);
     const auto hard = render (0.0f, 0.0f, 0.0f, 1.0f, 0.25f, false);
     const auto slapped = render (0.0f, 0.0f, 0.0f, 1.0f, 0.0f, true);
@@ -1904,6 +1926,7 @@ void runParameterStressTest()
             }
 
             ranged->setValueNotifyingHost (ranged->getDefaultValue());
+            renderIsBounded(); // let the smoothed master/FX ramps settle before the next parameter
         }
     }
 
@@ -2867,7 +2890,7 @@ void runVoiceModeTests()
 
 // Phase 2: warps, unison, per-voice LFOs, the extended matrix.
 float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int blocks, double& centroid,
-                             std::vector<float>* capture = nullptr)
+                             std::vector<float>* capture = nullptr, int velocity = 100)
 {
     juce::AudioBuffer<float> buffer (2, 512);
     std::vector<float> samples;
@@ -2879,7 +2902,7 @@ float renderPeakAndCentroid (IlanaSynthAudioProcessor& processor, int note, int 
         juce::MidiBuffer midi;
 
         if (block == 0)
-            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
 
         processor.processBlock (buffer, midi);
         peak = juce::jmax (peak, buffer.getMagnitude (0, 512));
@@ -2956,6 +2979,216 @@ void runWarpTests()
     }
 }
 
+void runPerVoiceSpectralTest()
+{
+    // A patch (user) table takes spectral warps too, not only the factory tables.
+    {
+        const auto render = [] (bool warped)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.setNonRealtime (true);
+            processor.setUserTable (0, WavetableDoc::fromFactory (10));
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_table", (float) TableFactory::getNumFactoryTables());
+            setParam (processor, "osc1_spectral", warped ? (float) SpectralWarp::LowPass : 0.0f);
+            setParam (processor, "osc1_spectral_amt", 0.8f);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            renderPeakAndCentroid (processor, 45, 40, centroid);
+            return centroid;
+        };
+
+        const auto plain = render (false);
+        const auto warped = render (true);
+        check (warped < plain * 0.9,
+               "a spectral warp works on a patch table (centroid " + juce::String (plain, 0) + " -> " + juce::String (warped, 0) + " Hz)");
+    }
+
+    // A velocity route into SPEC AMT is worked out per voice: a hard note and a soft note morph differently.
+    const auto render = [] (int velocity, bool routed)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 10.0f);
+        setParam (processor, "osc1_spectral", (float) SpectralWarp::LowPass);
+        setParam (processor, "osc1_spectral_amt", 0.0f);
+
+        if (routed)
+        {
+            setParam (processor, "mod1_src", (float) Mod::Source::Velocity);
+            setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_spectral_amt"));
+            setParam (processor, "mod1_amt", 0.8f);
+        }
+
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        renderPeakAndCentroid (processor, 45, 40, centroid, nullptr, velocity);
+        return centroid;
+    };
+
+    const auto soft = render (20, true);
+    const auto hard = render (127, true);
+    const auto plain = render (127, false);
+    check (hard < soft * 0.9 && hard < plain * 0.9,
+           "a velocity route into SPEC AMT morphs each note by its own amount (centroid soft " + juce::String (soft, 0)
+               + " Hz, hard " + juce::String (hard, 0) + " Hz, unrouted " + juce::String (plain, 0) + " Hz)");
+}
+
+void runStereoModulationTest()
+{
+    // A stereo route on a filter cutoff opens one side and closes the other; the same route unflagged moves both alike.
+    const auto sideDifference = [] (bool stereo)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "f1_cutoff", 400.0f);
+        setParam (processor, "mod1_src", (float) Mod::Source::Velocity);
+        setParam (processor, "mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        setParam (processor, "mod1_amt", 1.0f);
+        setParam (processor, "mod1_stereo", stereo ? 1.0f : 0.0f);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto left = 0.0, right = 0.0;
+
+        for (int block = 0; block < 40; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block > 10)
+                for (int i = 0; i < 512; ++i)
+                {
+                    left += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+                    right += (double) buffer.getSample (1, i) * buffer.getSample (1, i);
+                }
+        }
+
+        check (std::isfinite (left) && std::isfinite (right) && left + right > 0.0, "stereo-routed filter renders audio");
+        return std::abs (std::log ((left + 1.0e-9) / (right + 1.0e-9)));
+    };
+
+    const auto off = sideDifference (false);
+    const auto on = sideDifference (true);
+    check (on > off + 0.3,
+           "a stereo cutoff route makes the left and right levels differ (log ratio off " + juce::String (off, 2)
+               + ", on " + juce::String (on, 2) + ")");
+}
+
+void runPerVoiceLfoSpectralTest()
+{
+    // An LFO that retriggers per note, routed into SPEC AMT, morphs each note from its own start; a free LFO does not.
+    const auto brightness = [] (bool retrig, int delayBlocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 10.0f);
+        setParam (processor, "osc1_spectral", (float) SpectralWarp::LowPass);
+        setParam (processor, "osc1_spectral_amt", 0.4f);
+        setParam (processor, "lfo1_rate", 2.0f);
+        setParam (processor, "lfo1_retrig", retrig ? 1.0f : 0.0f);
+        setParam (processor, "mod1_src", (float) Mod::Source::Lfo1);
+        setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_spectral_amt"));
+        setParam (processor, "mod1_amt", 0.9f);
+        processor.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        auto energy = 0.0, change = 0.0;
+
+        for (int block = 0; block < delayBlocks + 60; ++block)
+        {
+            buffer.clear();
+            juce::MidiBuffer midi;
+
+            if (block == delayBlocks)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0);
+
+            processor.processBlock (buffer, midi);
+
+            if (block >= delayBlocks + 40)
+                for (int i = 1; i < 512; ++i)
+                {
+                    const auto x = (double) buffer.getSample (0, i), d = x - buffer.getSample (0, i - 1);
+                    energy += x * x;
+                    change += d * d;
+                }
+        }
+
+        return std::sqrt (change / juce::jmax (1.0e-12, energy));
+    };
+
+    const auto retrigGap = std::abs (brightness (true, 0) - brightness (true, 23)) / brightness (true, 0);
+    const auto freeGap = std::abs (brightness (false, 0) - brightness (false, 23)) / brightness (false, 0);
+    check (retrigGap < 0.05 && freeGap > 0.1,
+           "a retriggered LFO into SPEC AMT morphs from each note's start (late-note gap retrig " + juce::String (retrigGap, 3)
+               + ", free " + juce::String (freeGap, 3) + ")");
+}
+
+void runAudioImportModesTest()
+{
+    // Vocode: each frame's harmonics follow the audio spectrum at that point (bin 100 early, bin 300 late).
+    {
+        std::vector<float> audio (16384);
+        for (size_t i = 0; i < audio.size(); ++i)
+        {
+            const auto bin = i < audio.size() / 2 ? 100.0 : 300.0;
+            audio[i] = (float) std::sin (2.0 * juce::MathConstants<double>::pi * bin * (double) i / 2048.0);
+        }
+
+        std::vector<std::vector<float>> frames;
+        Wavetable::vocode (audio, frames);
+        check (frames.size() == 32, "vocode makes 32 frames");
+
+        const auto peakHarmonic = [] (const std::vector<float>& frame)
+        {
+            TableFFT fft (11);
+            std::vector<std::complex<float>> in (2048), out (2048);
+            for (size_t i = 0; i < 2048; ++i)
+                in[i] = frame[i];
+            fft.perform (in.data(), out.data(), false);
+            int best = 1;
+            for (int k = 1; k < 1024; ++k)
+                if (std::abs (out[(size_t) k]) > std::abs (out[(size_t) best]))
+                    best = k;
+            return best;
+        };
+
+        if (frames.size() == 32)
+        {
+            const auto early = peakHarmonic (frames.front()), late = peakHarmonic (frames.back());
+            check (std::abs (early - 100) <= 2 && std::abs (late - 300) <= 2,
+                   "vocode frames follow the spectrum (peak harmonic " + juce::String (early) + " -> " + juce::String (late) + ")");
+            auto peak = 0.0f;
+            for (const auto v : frames[10])
+                peak = juce::jmax (peak, std::abs (v));
+            check (peak > 0.85f && peak < 0.95f, "vocode frames are normalised");
+        }
+    }
+
+    // Time slice: equal slices in time order, each squeezed to one cycle.
+    {
+        std::vector<float> audio (32 * 500);
+        for (size_t i = 0; i < audio.size(); ++i)
+            audio[i] = (float) i / (float) audio.size();
+
+        std::vector<std::vector<float>> frames;
+        Wavetable::timeSlice (audio, frames);
+        check (frames.size() == 32 && frames[0].size() == 2048, "time slice makes 32 frames of 2048");
+
+        if (frames.size() == 32)
+            check (std::abs (frames[16][0] - 0.5f) < 0.01f && frames[31][0] > frames[1][0],
+                   "time slice frames follow the file in time order");
+    }
+}
+
 void runUnisonTests()
 {
     // 16 voices render, and blend 0 leaves only the centre voice(s).
@@ -2994,6 +3227,91 @@ void runUnisonTests()
 
         return std::sqrt (side / juce::jmax (1.0e-12, mid));
     };
+
+    // Every stack mode renders bounded audio; the interval stacks change the sound.
+    {
+        const auto render = [] (int mode)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_unison", 5.0f);
+            setParam (processor, "osc1_detune", 10.0f);
+            setParam (processor, "osc1_uni_mode", (float) mode);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+            return std::make_pair (peak, centroid);
+        };
+
+        const auto classic = render (UnisonMode::Classic);
+        auto all = true, different = true;
+
+        for (int mode = UnisonMode::CenterDrop; mode < UnisonMode::Count; ++mode)
+        {
+            const auto result = render (mode);
+            all = all && std::isfinite (result.first) && result.first > 0.02f && result.first < 4.0f;
+            different = different && std::abs (result.second - classic.second) > 1.0;
+        }
+
+        check (all, "every appended unison stack mode renders bounded audio");
+        check (different, "the appended unison stack modes change the sound against Classic");
+    }
+
+    // Frame and warp spreads change a stack's sound, stay bounded, and do nothing at 0 or with one voice.
+    {
+        const auto render = [] (int voices, const char* spreadId, float spread)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_unison", (float) voices);
+            setParam (processor, "osc1_detune", 10.0f);
+            setParam (processor, "osc1_table", 6.0f);
+            setParam (processor, "osc1_frame", 0.5f);
+            setParam (processor, "osc1_warp", 7.0f);
+            setParam (processor, "osc1_warp_amt", 0.3f);
+            setParam (processor, spreadId, spread);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            const auto peak = renderPeakAndCentroid (processor, 45, 40, centroid);
+            return std::make_pair (peak, centroid);
+        };
+
+        for (const auto* id : { "osc1_uni_frame", "osc1_uni_warp" })
+        {
+            const auto off = render (5, id, 0.0f);
+            const auto on = render (5, id, 1.0f);
+            const auto single = render (1, id, 1.0f);
+            const auto singleOff = render (1, id, 0.0f);
+            check (std::isfinite (on.first) && on.first > 0.02f && on.first < 4.0f && std::abs (on.second - off.second) > 1.0,
+                   juce::String (id) + " changes a five-voice stack and stays bounded (centroid "
+                       + juce::String (off.second, 0) + " -> " + juce::String (on.second, 0) + " Hz)");
+            check (std::abs (single.second - singleOff.second) < 0.5,
+                   juce::String (id) + " leaves a single voice alone");
+        }
+    }
+
+    // Scale quantise: C major snaps note 61 (C#) to C or D, so the pitch moves by a semitone from the plain note.
+    {
+        const auto frequencyOf = [] (int scale, int note)
+        {
+            IlanaSynthAudioProcessor processor;
+            setParam (processor, "sub_on", 0.0f);
+            setParam (processor, "osc1_table", 0.0f);
+            setParam (processor, "osc1_scale", (float) scale);
+            processor.prepareToPlay (48000.0, 512);
+            double centroid = 0.0;
+            renderPeakAndCentroid (processor, note, 40, centroid);
+            return centroid;
+        };
+
+        const auto plain = frequencyOf (0, 61);
+        const auto snapped = frequencyOf (1, 61);
+        const auto inKey = frequencyOf (1, 60);
+        const auto inKeyPlain = frequencyOf (0, 60);
+        check (std::abs (snapped - plain) > 1.0 && std::abs (inKey - inKeyPlain) < 0.5,
+               "an oscillator's scale snap moves an out-of-key note and leaves an in-key one (61: "
+                   + juce::String (plain, 0) + " -> " + juce::String (snapped, 0) + " Hz)");
+    }
 
     const auto full16 = widthOf (16, 1.0f, UnisonMode::Classic);
     const auto blend0 = widthOf (15, 0.0f, UnisonMode::Classic);
@@ -3597,6 +3915,77 @@ void runArpHostStopTests()
                                     + juce::String (silentBlocks + loudBlocks) + " blocks without voices)");
     }
 }
+// Review 6: the arp's step lanes. At their defaults a render is the same as
+// without them; GATE 0 rests a step, a lower VELOCITY plays softer, ARP
+// STEPS 1 repeats the first step's lane values.
+void runArpLaneTests()
+{
+    const auto render = [] (const std::function<void (IlanaSynthAudioProcessor&)>& setUp, double& energy, int& silentBlocks)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        set ("arp_on", 1.0f);
+        set ("arp_div", 4.0f);
+        setUp (processor);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        energy = 0.0;
+        silentBlocks = 0;
+
+        for (int block = 0; block < 400; ++block)
+        {
+            juce::MidiBuffer midi;
+
+            if (block == 0)
+                for (auto note : { 60, 64, 67 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+
+            if (block > 20)
+            {
+                energy += buffer.getRMSLevel (0, 0, 256);
+                silentBlocks += buffer.getMagnitude (0, 256) < 1.0e-5f ? 1 : 0;
+            }
+        }
+    };
+    const auto setAll = [] (IlanaSynthAudioProcessor& processor, const char* prefix, float value)
+    {
+        for (int step = 1; step <= 16; ++step)
+            if (auto* parameter = processor.apvts.getParameter (prefix + juce::String (step)))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    double plain = 0.0, defaults = 0.0, rests = 0.0, soft = 0.0, firstRest = 0.0;
+    int silentPlain = 0, silentDefaults = 0, silentRests = 0, silentSoft = 0, silentFirst = 0;
+    render ([] (IlanaSynthAudioProcessor&) {}, plain, silentPlain);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor)
+            {
+                setAll (processor, "arp_vel", 100.0f);
+                setAll (processor, "arp_len", 1.0f);
+                setAll (processor, "arp_pitch", 0.0f);
+            }, defaults, silentDefaults);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_len", 0.0f); }, rests, silentRests);
+    render ([&setAll] (IlanaSynthAudioProcessor& processor) { setAll (processor, "arp_vel", 15.0f); }, soft, silentSoft);
+    render ([] (IlanaSynthAudioProcessor& processor)
+            {
+                processor.apvts.getParameter ("arp_steps")->setValueNotifyingHost (processor.apvts.getParameter ("arp_steps")->convertTo0to1 (1.0f));
+                processor.apvts.getParameter ("arp_len1")->setValueNotifyingHost (0.0f);
+            }, firstRest, silentFirst);
+
+    check (plain > 0.1 && std::abs (plain - defaults) < 1.0e-9 * plain,
+           "the arp's lanes at their defaults render the same as before (" + juce::String (plain, 4) + ")");
+    check (rests < plain * 1.0e-3, "GATE 0 on every arp step rests them all (" + juce::String (rests, 6) + ")");
+    check (soft < plain * 0.9 && soft > 0.0, "a low arp VELOCITY lane plays softer (" + juce::String (soft / plain, 3) + " of the level)");
+    check (firstRest < plain * 1.0e-3, "ARP STEPS 1 repeats step 1's lane values: its rest silences every step");
+}
+
 // Releasing every key must silence the Scale Random arpeggiator, including
 // with note spray, chords, high notes and releases mid-step.
 void runScaleRandomReleaseTest()
@@ -5462,7 +5851,7 @@ void runM4Tests()
         {
             auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (id));
             check (choice != nullptr && choice->getAllValueStrings().size() >= 7
-                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Hammer (classic)"
+                       && choice->getAllValueStrings()[4] == "Bow" && choice->getAllValueStrings()[5] == "Bright Hammer"
                        && choice->getAllValueStrings()[6] == "Osc In",
                    juce::String (id) + " appends Hammer and Osc In after Bow");
         }
@@ -7057,7 +7446,8 @@ void runM6PhaseDistortionTests()
     }
 
     // Old patches: warp modes keep their indices; PD extras default off.
-    check (Warp::getNames()[9] == "Ring" && Warp::getNames()[10] == "PD Saw" && Warp::Count == 16,
+    check (Warp::getNames()[9] == "Ring" && Warp::getNames()[10] == "PD Saw" && Warp::getNames()[16] == "Formant"
+               && Warp::getNames()[17] == "Squeeze" && Warp::Count == 18,
            "PD warps are appended after the existing warp modes");
     check (processor.apvts.getRawParameterValue ("osc1_warp2")->load() == 0.0f
                && processor.apvts.getRawParameterValue ("osc1_pd_env")->load() == 0.0f
@@ -8456,11 +8846,19 @@ void timedRun (const char* name, Suite&& suite)
 #include "PlanTests.inc"
 #include "TuningTests.inc"
 #include "OperatorEgTests.inc"
+#include "OscModeTests.inc"
 #include "AirwindowsTests.inc"
 #include "VocoderTests.inc"
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
+#include "SampleTempoTests.inc"
 #include "SplitterTests.inc"
+#include "ParallelFxTests.inc"
+#include "PatchGraphTests.inc"
+#include "FxPatcherTests.inc"
+#include "TensionEnvTests.inc"
+#include "OscRoutingTests.inc"
+#include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
 #include "DemoRender.inc"
@@ -8599,6 +8997,216 @@ void runLibraryBench()
               << " %, mean " << juce::String (sum / (double) values.size(), 2) << " %" << std::endl;
     for (size_t i = 0; i < juce::jmin<size_t> (10, results.size()); ++i)
         std::cout << "  slowest " << results[i].second << ": " << juce::String (results[i].first, 2) << " %" << std::endl;
+}
+
+// ILANA_BODY_BENCH=1: a Physical patch (ILANA_BODY_BENCH_PRESET, default
+// Felt Hammer Board) with the BODY on, each body type and STRING TO BODY
+// coupling mode in turn, at 44.1 kHz in 512-sample blocks: "held" holds
+// ILANA_BODY_BENCH_VOICES (default 12) notes for 2 s and releases them for
+// 2 s; "clip" plays that chord for 0.4 s every 0.5 s for 6 s, as a looped
+// clip does. Prints ms per block, % of one core, the voices sounding and the
+// output peak (and any non-finite samples). ILANA_BODY_BENCH_TYPE / _COUPLING
+// pick one case, _AMOUNT sets body_coupling (0.5), _SET="id=value,..." sets
+// more parameters (real values), _AS_IS plays the preset unchanged, _ONSET
+// times one note's rise per type, _ALL ranks every preset by Shell's cost,
+// _SECONDS sets the held run's length (4), _CLIP_ONLY skips it, _DUMP=<dir>
+// writes each run's output as raw floats. Voices are counted with their
+// body tails (getRenderingVoiceCount).
+void runBodyBench()
+{
+    IlanaSynthAudioProcessor processor;
+    const auto blockSize = 512;
+    processor.prepareToPlay (44100.0, blockSize);
+    const auto names = processor.getFactoryPresetNames();
+    const auto presetName = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_PRESET", "Felt Hammer Board");
+    const auto voices = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_VOICES", "12").getIntValue();
+    const auto onlyType = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_TYPE", "-1").getIntValue();
+    const auto onlyCoupling = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_COUPLING", "-1").getIntValue();
+    const auto keepPreset = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_AS_IS", "").isNotEmpty();
+    const auto index = names.indexOf (presetName);
+    if (index < 0)
+    {
+        std::cout << "no preset " << presetName << std::endl;
+        return;
+    }
+    const auto set = [&processor] (const char* id, float value)
+    {
+        if (auto* param = processor.apvts.getParameter (id))
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+    };
+    const juce::StringArray types { "Classic", "Bar", "Plate", "Bell", "Shell" };
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    const auto run = [&] (const juce::String& label, bool clip)
+    {
+        processor.panic();
+        buffer.clear();
+        juce::MidiBuffer silence;
+        processor.processBlock (buffer, silence);
+        const auto seconds = clip ? 6.0 : juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SECONDS", "4").getDoubleValue();
+        const auto blocks = (int) (44100.0 * seconds / blockSize);
+        auto elapsed = 0.0, slowest = 0.0, voiceSum = 0.0;
+        auto peakVoices = 0, nonFinite = 0, lastSounding = -1;
+        // ILANA_BODY_BENCH_DUMP=<folder>: each run's output as raw floats.
+        std::unique_ptr<juce::FileOutputStream> dump;
+        if (const auto folder = juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_DUMP", ""); folder.isNotEmpty())
+        {
+            const auto file = juce::File (folder).getChildFile (label.replaceCharacter (' ', '_') + (clip ? "_clip" : "_held") + ".f32");
+            file.deleteFile();
+            dump = std::make_unique<juce::FileOutputStream> (file);
+        }
+        auto outPeak = 0.0f;
+        for (int block = 0; block < blocks; ++block)
+        {
+            juce::MidiBuffer midi;
+            const auto t0 = (double) block * blockSize / 44100.0, t1 = t0 + blockSize / 44100.0;
+            const auto inBlock = [&] (double t) { return t >= t0 && t < t1 ? juce::jlimit (0, blockSize - 1, (int) ((t - t0) * 44100.0)) : -1; };
+            for (double t = 0.0; t < seconds; t += clip ? 0.5 : 100.0)
+            {
+                if (const auto on = inBlock (t); on >= 0)
+                    for (int v = 0; v < voices; ++v)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 40 + v * 3, (juce::uint8) 100), on);
+                if (const auto off = inBlock (t + (clip ? 0.4 : 2.0)); off >= 0)
+                    for (int v = 0; v < voices; ++v)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, 40 + v * 3), off);
+            }
+            buffer.clear();
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, midi);
+            const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+            elapsed += ms;
+            slowest = juce::jmax (slowest, ms);
+            if (dump != nullptr)
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    dump->write (buffer.getReadPointer (ch), sizeof (float) * (size_t) blockSize);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    const auto x = buffer.getSample (ch, i);
+                    if (! std::isfinite (x))
+                        ++nonFinite;
+                    else
+                        outPeak = juce::jmax (outPeak, std::abs (x));
+                }
+            const auto rendering = processor.getRenderingVoiceCount();
+            if (rendering > 0)
+                lastSounding = block;
+            voiceSum += rendering;
+            peakVoices = juce::jmax (peakVoices, rendering);
+        }
+        const auto perBlock = elapsed / blocks;
+        std::cout << "body " << label << (clip ? " clip" : " held") << ": " << juce::String (perBlock, 3)
+                  << " ms/block, " << juce::String (100.0 * perBlock / (1000.0 * blockSize / 44100.0), 1)
+                  << " % of one core, slowest " << juce::String (slowest, 2) << " ms, voices "
+                  << juce::String (voiceSum / blocks, 1) << " (peak " << peakVoices << ")"
+                  << (clip ? juce::String() : ", last voice ends " + juce::String ((lastSounding + 1) * blockSize / 44100.0 - 2.0, 2) + " s after release")
+                  << ", out peak "
+                  << juce::String (outPeak, 3) << (nonFinite > 0 ? ", NON-FINITE " + juce::String (nonFinite) : juce::String()) << std::endl;
+    };
+    // ILANA_BODY_BENCH_ALL=1: every factory preset with the BODY on, 6 notes
+    // held 1 s, Bar / Plate / Bell / Shell; prints Shell's time against the
+    // others' mean, the worst first.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_ALL", "").isNotEmpty())
+    {
+        std::vector<std::pair<double, juce::String>> rows;
+        juce::AudioBuffer<float> one (2, blockSize);
+        for (int preset = 0; preset < names.size(); ++preset)
+        {
+            double ms[5] {};
+            for (int type = 1; type < 5; ++type)
+            {
+                processor.loadFactoryPreset (preset);
+                set ("res_on", 1.0f);
+                set ("body_type", (float) type);
+                processor.panic();
+                const auto blocks = (int) (44100.0 / blockSize);
+                for (int block = 0; block < blocks; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0)
+                        for (int v = 0; v < 6; ++v)
+                            midi.addEvent (juce::MidiMessage::noteOn (1, 48 + v * 4, (juce::uint8) 100), 0);
+                    one.clear();
+                    const auto start = juce::Time::getMillisecondCounterHiRes();
+                    processor.processBlock (one, midi);
+                    ms[type] += juce::Time::getMillisecondCounterHiRes() - start;
+                }
+            }
+            const auto others = (ms[1] + ms[2] + ms[3]) / 3.0;
+            rows.push_back ({ ms[4] / juce::jmax (1.0e-6, others), names[preset] + ": shell " + juce::String (ms[4], 1) + " ms, bar "
+                                                                      + juce::String (ms[1], 1) + ", plate " + juce::String (ms[2], 1)
+                                                                      + ", bell " + juce::String (ms[3], 1) });
+        }
+        std::sort (rows.begin(), rows.end(), [] (const auto& a, const auto& b) { return a.first > b.first; });
+        for (size_t i = 0; i < juce::jmin<size_t> (25, rows.size()); ++i)
+            std::cout << juce::String (rows[i].first, 2) << "x  " << rows[i].second << std::endl;
+        return;
+    }
+    // ILANA_BODY_BENCH_ONSET=1: one note (C4) per body type, 2 s; the time
+    // its 512-sample RMS takes to reach half (-6 dB) of its peak.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_ONSET", "").isNotEmpty())
+    {
+        for (int type = 0; type < 5; ++type)
+        {
+            processor.loadFactoryPreset (index);
+            set ("res_on", 1.0f);
+            set ("body_type", (float) type);
+            for (const auto& pair : juce::StringArray::fromTokens (
+                     juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SET", ""), ",", ""))
+                if (pair.contains ("="))
+                    set (pair.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(),
+                         pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            processor.panic();
+            std::vector<float> rms;
+            for (int block = 0; block < (int) (2.0 * 44100.0 / blockSize); ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                rms.push_back (buffer.getRMSLevel (0, 0, blockSize));
+            }
+            const auto peak = *std::max_element (rms.begin(), rms.end());
+            const auto peakAt = (int) (std::max_element (rms.begin(), rms.end()) - rms.begin());
+            auto half = 0;
+            while (half < (int) rms.size() && rms[(size_t) half] < 0.5f * peak)
+                ++half;
+            std::cout << "onset " << types[type] << ": -6 dB at " << juce::String (half * blockSize / 44.1, 0) << " ms, peak at "
+                      << juce::String (peakAt * blockSize / 44.1, 0) << " ms, peak rms " << juce::String (peak, 3) << std::endl;
+        }
+        return;
+    }
+    if (keepPreset)
+    {
+        processor.loadFactoryPreset (index);
+        run (presetName, false);
+        processor.loadFactoryPreset (index);
+        run (presetName, true);
+        return;
+    }
+    for (int coupling = 0; coupling < 4; ++coupling)
+        for (int type = 0; type < 5; ++type)
+        {
+            if ((onlyType >= 0 && type != onlyType) || (onlyCoupling >= 0 && coupling != onlyCoupling))
+                continue;
+            for (const auto clip : { false, true })
+            {
+                if (! clip && juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_CLIP_ONLY", "").isNotEmpty())
+                    continue;
+                processor.loadFactoryPreset (index);
+                set ("res_on", 1.0f);
+                set ("body_type", (float) type);
+                set ("body_coupling_mode", (float) coupling);
+                if (coupling > 0)
+                    set ("body_coupling", juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_AMOUNT", "0.5").getFloatValue());
+                for (const auto& pair : juce::StringArray::fromTokens (
+                         juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH_SET", ""), ",", ""))
+                    if (pair.contains ("="))
+                        set (pair.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(),
+                             pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+                run (types[type] + " coupling " + juce::String (coupling), clip);
+            }
+        }
 }
 
 // ILANA_OPEN_FILTER_CHECK=1: the gain of Filter 2's default (Low Pass wide
@@ -8820,6 +9428,12 @@ int main()
         return 0;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BODY_BENCH", "").isNotEmpty())
+    {
+        runBodyBench();
+        return 0;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH", "").isNotEmpty())
     {
         runLibraryBench();
@@ -8915,6 +9529,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OSCMODE_TEST", "").isNotEmpty())
+    {
+        runOscModeTests();
+        std::cout << (failures == 0 ? "OSC MODE TESTS PASSED" : "OSC MODE TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_OPEG_TEST", "").isNotEmpty())
     {
         runOperatorEgTests();
@@ -8936,6 +9557,41 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_NOISE_TEST", "").isNotEmpty())
+    {
+        runNoiseTests();
+        std::cout << (failures == 0 ? "NOISE TESTS PASSED" : "NOISE TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_GRAPH_TEST", "").isNotEmpty())
+    {
+        runPatchGraphTests();
+        std::cout << (failures == 0 ? "GRAPH TESTS PASSED" : "GRAPH TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OSC_ROUTING_TEST", "").isNotEmpty())
+    {
+        runOscRoutingTests (true);
+        std::cout << (failures == 0 ? "OSC ROUTING TESTS PASSED" : "OSC ROUTING TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_FX_PATCHER_TEST", "").isNotEmpty())
+    {
+        runFxPatcherTests();
+        std::cout << (failures == 0 ? "FX PATCHER TESTS PASSED" : "FX PATCHER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_PARALLEL_FX_TEST", "").isNotEmpty())
+    {
+        runParallelFxTests();
+        std::cout << (failures == 0 ? "PARALLEL FX TESTS PASSED" : "PARALLEL FX TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_SPLITTER_TEST", "").isNotEmpty())
     {
         runSplitterTests();
@@ -8954,6 +9610,20 @@ int main()
     {
         runClipTests();
         std::cout << (failures == 0 ? "CLIP TESTS PASSED" : "CLIP TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_TENSIONENV_TEST", "").isNotEmpty())
+    {
+        runTensionEnvTests();
+        std::cout << (failures == 0 ? "TENSIONENV TESTS PASSED" : "TENSIONENV TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SAMPLE_TEMPO_TEST", "").isNotEmpty())
+    {
+        runSampleTempoTests();
+        std::cout << (failures == 0 ? "SAMPLE TEMPO TESTS PASSED" : "SAMPLE TEMPO TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -9182,6 +9852,7 @@ int main()
     {
         runScaleRandomReleaseTest();
         runArpHostStopTests();
+        runArpLaneTests();
         std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -9252,6 +9923,7 @@ int main()
 
     std::cout << "ilanaSynth table tests" << std::endl;
 
+    timedRun ("runPolarityTests", [] { runPolarityTests(); });
     timedRun ("runMipmapTests", [] { runMipmapTests(); });
     timedRun ("runAliasTests", [] { runAliasTests(); });
     timedRun ("runLoaderTest", [] { runLoaderTest(); });
@@ -9282,6 +9954,10 @@ int main()
     timedRun ("runVoiceModeTests", [] { runVoiceModeTests(); });
     timedRun ("runWarpTests", [] { runWarpTests(); });
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
+    timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
+    timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
+    timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
+    timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });
     timedRun ("runMatrixTests", [] { runMatrixTests(); });
     timedRun ("runStaleModulationTest", [] { runStaleModulationTest(); });
@@ -9316,6 +9992,7 @@ int main()
     timedRun ("runPhysicalPatchMigrationTest", [] { runPhysicalPatchMigrationTest(); });
     timedRun ("runScaleRandomReleaseTest", [] { runScaleRandomReleaseTest(); });
     timedRun ("runArpHostStopTests", [] { runArpHostStopTests(); });
+    timedRun ("runArpLaneTests", [] { runArpLaneTests(); });
     timedRun ("runM4Tests", [] { runM4Tests(); });
     timedRun ("runM5DeepFmTests", [] { runM5DeepFmTests(); });
     timedRun ("runM6PhaseDistortionTests", [] { runM6PhaseDistortionTests(); });
@@ -9338,11 +10015,19 @@ int main()
     timedRun ("runPlanTests", [] { runPlanTests(); });
     timedRun ("runTuningTests", [] { runTuningTests(); });
     timedRun ("runOperatorEgTests", [] { runOperatorEgTests(); });
+    timedRun ("runOscModeTests", [] { runOscModeTests(); });
     timedRun ("runAirwindowsTests", [] { runAirwindowsTests(); });
     timedRun ("runVocoderTests", [] { runVocoderTests(); });
     timedRun ("runFilterOverhaulTests", [] { runFilterOverhaulTests(); });
     timedRun ("runMultiSampleTests", [] { runMultiSampleTests(); });
+    timedRun ("runTensionEnvTests", [] { runTensionEnvTests(); });
+    timedRun ("runSampleTempoTests", [] { runSampleTempoTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
+    timedRun ("runParallelFxTests", [] { runParallelFxTests(); });
+    timedRun ("runPatchGraphTests", [] { runPatchGraphTests (false); });
+    timedRun ("runFxPatcherTests", [] { runFxPatcherTests(); });
+    timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
+    timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });
 

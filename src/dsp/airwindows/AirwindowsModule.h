@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -33,6 +34,7 @@ public:
     void prepare (double newSampleRate, int maxBlockSize)
     {
         sampleRate = newSampleRate;
+        lastMix = std::numeric_limits<float>::quiet_NaN();
         dry.assign ((size_t) std::max (1, maxBlockSize), {});
 
         for (auto& instance : instances)
@@ -45,6 +47,7 @@ public:
     {
         if (current != nullptr)
             current->reset();
+        lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
     // Makes the algorithm's instance ahead of use (the message thread), so
@@ -93,7 +96,12 @@ public:
 
         mix = std::clamp (mix, 0.0f, 1.0f);
 
-        if (mix >= 0.9999f || dry.empty())
+        // MIX eases across the block from the last one (no step at the block edge).
+        const auto mixFrom = std::isfinite (lastMix) ? lastMix : mix;
+        const auto mixStep = numSamples > 0 ? (mix - mixFrom) / (float) numSamples : 0.0f;
+        lastMix = mix;
+
+        if ((mix >= 0.9999f && mixFrom >= 0.9999f) || dry.empty())
         {
             current->process (left, right, numSamples);
             return;
@@ -110,8 +118,9 @@ public:
 
             for (int i = 0; i < n; ++i)
             {
-                left[start + i] = dry[(size_t) i][0] + (left[start + i] - dry[(size_t) i][0]) * mix;
-                right[start + i] = dry[(size_t) i][1] + (right[start + i] - dry[(size_t) i][1]) * mix;
+                const auto mixNow = mixFrom + mixStep * (float) (start + i);
+                left[start + i] = dry[(size_t) i][0] + (left[start + i] - dry[(size_t) i][0]) * mixNow;
+                right[start + i] = dry[(size_t) i][1] + (right[start + i] - dry[(size_t) i][1]) * mixNow;
             }
 
             start += n;
@@ -122,6 +131,7 @@ private:
     std::vector<std::atomic<Algorithm*>> instances; // owned; made when first chosen
     Algorithm* current = nullptr;
     int currentIndex = -1;
+    float lastMix = std::numeric_limits<float>::quiet_NaN(); // MIX of the last block (eased from)
     double sampleRate = 44100.0;
     std::vector<std::array<float, 2>> dry;
 };

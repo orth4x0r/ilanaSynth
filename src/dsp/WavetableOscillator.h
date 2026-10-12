@@ -36,13 +36,16 @@ enum
     PdRes1,
     PdRes2,
     PdRes3,
+    // Appended after the PD family: a windowed formant and a centre squeeze.
+    Formant,
+    Squeeze,
     Count
 };
 
 inline juce::StringArray getNames()
 {
     return { "Off", "Sync", "Bend +", "Bend -", "PWM", "Mirror", "Asym", "Quantize", "FM", "Ring",
-             "PD Saw", "PD Square", "PD Pulse", "PD Res I", "PD Res II", "PD Res III" };
+             "PD Saw", "PD Square", "PD Pulse", "PD Res I", "PD Res II", "PD Res III", "Formant", "Squeeze" };
 }
 
 inline bool isPhaseWarp (int mode) { return mode >= Sync && mode <= Quantize; }
@@ -50,7 +53,8 @@ inline bool isPhaseDistortion (int mode) { return mode >= PdSaw && mode <= PdRes
 inline bool isResonance (int mode) { return mode >= PdRes1 && mode <= PdRes3; }
 
 // The oscillator applies these itself (FM and Ring need another oscillator).
-inline bool isOscillatorWarp (int mode) { return isPhaseWarp (mode) || isPhaseDistortion (mode); }
+inline bool isShaper (int mode) { return mode == Formant || mode == Squeeze; }
+inline bool isOscillatorWarp (int mode) { return isPhaseWarp (mode) || isPhaseDistortion (mode) || isShaper (mode); }
 
 // The second stage of the PD chain offers only the warps an oscillator can
 // apply on its own: every mode except FM and Ring.
@@ -96,6 +100,8 @@ inline double harmonicStretch (int mode, float amount)
         case PdRes1:
         case PdRes2:
         case PdRes3:    return pdResonance ((double) amount);
+        case Formant:   return 1.0 + (double) amount * 15.0;
+        case Squeeze:   return 1.0 + (double) amount * 7.0;
         default:        return 1.0;
     }
 }
@@ -149,6 +155,17 @@ inline double apply (int mode, float amount, double phase, bool& silent)
             const auto steps = std::exp2 (1.0 + (1.0 - a) * 8.0);
             return fastFloor (phase * steps) / steps;
         }
+
+        case Formant:
+        {
+            // The cycle plays 1..16 times faster; applyStage fades it with a window.
+            const auto p = phase * (1.0 + a * 15.0);
+            return p - fastFloor (p);
+        }
+
+        case Squeeze:
+            // The middle of the cycle runs faster and the ends hold still.
+            return juce::jlimit (0.0, 1.0, 0.5 + (phase - 0.5) * (1.0 + a * 7.0));
 
         default:
             return phase;
@@ -277,6 +294,7 @@ public:
         int frame0 = 0;
         int frame1 = 0;
         float frac = 0.0f;
+        float position = 0.0f; // 0..1, kept so a spread can offset it per unison voice
     };
 
     static FrameRead frameReadFor (const Wavetable* table, float position) noexcept
@@ -287,6 +305,7 @@ public:
             return read;
 
         const auto numFrames = table->getNumFrames();
+        read.position = position;
         const auto scaled = juce::jlimit (0.0f, 1.0f, position) * (float) (numFrames - 1);
         read.frame0 = (int) scaled;
         read.frame1 = juce::jmin (read.frame0 + 1, numFrames - 1);
@@ -375,7 +394,19 @@ public:
             return Warp::applyPhaseDistortion (mode, amount, phase, gain);
         }
 
-        return Warp::apply (mode, amount, phase, silent);
+        const auto warped = Warp::apply (mode, amount, phase, silent);
+
+        // Formant fades each cycle in and out (a Hann window, fully in
+        // from a quarter of the knob up) so the shifted waves join smoothly.
+        if (mode == Warp::Formant)
+        {
+            const auto depth = juce::jmin (1.0, (double) juce::jlimit (0.0f, 1.0f, amount) * 4.0);
+            gain = (float) (1.0 - depth * (0.5 + 0.5 * std::cos (juce::MathConstants<double>::twoPi * phase)));
+        }
+        else
+            gain = 1.0f;
+
+        return warped;
     }
 
 private:

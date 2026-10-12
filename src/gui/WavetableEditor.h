@@ -710,6 +710,8 @@ private:
         juce::PopupMenu menu;
         menu.addItem (1, "Open wavetable file (Serum, Vital, ilanaSynth...)");
         menu.addItem (2, "Make a wavetable from any audio (resynthesis)...");
+        menu.addItem (3, "Vocode: harmonics follow the audio's spectrum over time...");
+        menu.addItem (4, "Time slice: cut the audio into equal slices, one cycle each...");
         juce::Component::SafePointer<WavetableEditor> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&importButton), [safe] (int result)
         {
@@ -718,7 +720,10 @@ private:
             safe->chooser = std::make_unique<juce::FileChooser> ("Import a wavetable",
                                                                  juce::File::getSpecialLocation (juce::File::userMusicDirectory),
                                                                  "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
-            const auto mode = result == 2 ? Wavetable::LoadMode::Resynthesize : Wavetable::LoadMode::Automatic;
+            const auto mode = result == 2 ? Wavetable::LoadMode::Resynthesize
+                              : result == 3 ? Wavetable::LoadMode::Vocode
+                              : result == 4 ? Wavetable::LoadMode::TimeSlice
+                                            : Wavetable::LoadMode::Automatic;
             safe->chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                         [safe, mode] (const juce::FileChooser& chooser)
             {

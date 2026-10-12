@@ -7,6 +7,8 @@
 #include "../PluginProcessor.h"
 #include "../dsp/MultiSample.h"
 #include "../Presets.h"
+#include "../PresetNames.h"
+#include "../PresetTags.h"
 #include "../PresetTrims.h"
 #include "../PresetVoicing.h"
 #include "../gui/ParamInfo.h"
@@ -16,6 +18,11 @@
 #include "../dsp/TableFactory.h"
 #include "../dsp/FmAlgorithms.h"
 #include "../dsp/Voice.h"
+#include "PatchGraphRunner.h"
+#include "PatchGraphState.h"
+
+// The FX patcher's silence skip: how long an effect type sounds on (FxPatcher.cpp).
+int fxTailSamples (const PatchGraph::CompiledNode& node, double sampleRate);
 
 #include <cmath>
 #include <memory>
@@ -70,6 +77,7 @@ juce::String envelopePrefix (int env)
 }
 
 constexpr int numVoices = 32;
+constexpr int numSpareVoices = 8;
 
 juce::StringArray getSyncDivisionNames()
 {
@@ -146,6 +154,10 @@ void sanitiseBuffer (juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             const auto value = data[i];
+            if (! std::isfinite (value))
+                IlanaSynthAudioProcessor::sanitisedNonFinite.fetch_add (1, std::memory_order_relaxed);
+            else if (std::abs (value) > limit)
+                IlanaSynthAudioProcessor::sanitisedClamped.fetch_add (1, std::memory_order_relaxed);
             data[i] = std::isfinite (value) ? juce::jlimit (-limit, limit, value) : 0.0f;
         }
     }

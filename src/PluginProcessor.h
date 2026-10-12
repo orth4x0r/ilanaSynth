@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <utility>
 
@@ -23,13 +25,16 @@
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Evolve.h"
+#include "dsp/FmAlgorithms.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
+#include "dsp/FilterUnit.h"
 #include "dsp/SympatheticStrings.h"
 #include "dsp/AcousticKeys.h"
 #include "dsp/Modulation.h"
 #include "dsp/OscillatorIds.h"
+#include "dsp/VoiceRouting.h"
 #include "dsp/airwindows/AirwindowsModule.h"
 #include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
@@ -39,6 +44,9 @@
 #include "dsp/WavetableDoc.h"
 #include "TuningState.h"
 #include "ClipState.h"
+#include "processor/FxPatch.h"
+
+namespace PatchGraph { class Graph; class Runner; }
 
 class IlanaSynthAudioProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater
@@ -54,7 +62,13 @@ public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
     static constexpr int numUserSlots = 16;
     static constexpr int numFxSlots = 10;
-    static constexpr int numFxTypes = 41; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories
+    // Tests: keep the effects running through silence (no rack sleep).
+    inline static bool disableFxSleep = false;
+    // Tests: how often the effects' safety net caught a non-finite sample (reset to 0) or one beyond +-16 (clamped).
+    inline static std::atomic<long> sanitisedNonFinite { 0 }, sanitisedClamped { 0 };
+    // Tests: -1 follows MULTI-CORE, 0 one core, 1 several.
+    inline static int forceVoiceThreads = -1;
+    static constexpr int numFxTypes = 42; // 30: Airwindows, 31: Vocoder, 32-41: Airwindows categories, 42: Filter
 
     EqSettings getEqSettings() const;
     static constexpr int numLfos = Mod::numLfoSources;
@@ -64,23 +78,31 @@ public:
     // M8.1: each LFO's output B follows, from channel numLfos + 2.
     static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
     static constexpr int numLfoChannels = 2 * numLfos + 2;
-    static constexpr int maxDestinations = 512;
+    static constexpr int maxDestinations = 1024;
 
     float getFxMod (Mod::Destination destination, float depth) const
     {
         return modDisplayValues[(size_t) destination].load() * depth;
     }
-    float getCompGainReduction() const { return compGainReduction.load(); }
+    float getCompGainReduction() const;
     // Display only (the FX cards' meters): the limiter's deepest gain in the
     // last block, and OTT's LOW / MID / HIGH gains at the block's end.
-    float getLimiterGainReduction() const { return limiterGainReduction.load(); }
-    float getOttBandGain (int band) const { return ottBandGain[(size_t) juce::jlimit (0, 2, band)].load(); }
+    float getLimiterGainReduction() const;
+    float getOttBandGain (int band) const;
+    // FREEZE's spectrum (the held one while HOLD is on) for its card's picture.
+    void getFreezeBands (std::array<float, SpectralFreeze::numBands>& out) const;
     float getFxSlotCpu (int slot) const { return fxSlotCpu[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    // What a slot did to the signal in the last blocks: its input and output
+    // levels (RMS, linear, smoothed), both 0 while the slot is empty or
+    // bypassed. A reading for the rack's signal rail only; it never touches
+    // the audio.
+    float getFxSlotInLevel (int slot) const { return fxSlotIn[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
+    float getFxSlotOutLevel (int slot) const { return fxSlotOut[(size_t) juce::jlimit (0, numFxSlots - 1, slot)].load(); }
     // Puts a module type into an FX slot and switches on the module's own
     // enable flag, so a freshly added effect is audible straight away.
     void assignFxSlot (int slot, int type);
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
-    void preloadAirwindows (int algorithm) { airwindowsModule.preload (algorithm); }
+    void preloadAirwindows (int algorithm);
     void preloadAirwindowsCategory (int category, int choice);
     void randomizeFxChain();
     bool saveFxChainToFile (const juce::File& file);
@@ -115,6 +137,12 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+   #if JUCE_LINUX || JUCE_BSD
+    // Keeps the VST3 host's run loop alive; see HostRunLoopKeepAlive in
+    // PluginProcessor.cpp.
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &hostRunLoopKeepAlive; }
+   #endif
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     const Wavetable* getWavetable (int index) const { return getTableForChoice (index); }
@@ -135,6 +163,8 @@ public:
 
     // M8.3: the loudest voice's WEST gate conductance, for the card.
     float getWestGateLevel() const { return westGateDisplay.load(); }
+    // The vocoder's band levels as it last ran (FX display; 0 while idle).
+    float getVocoderBandLevel (int band) const;
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
     // The spectrally warped table an oscillator is playing, for display
@@ -213,8 +243,24 @@ public:
     // an empty string is a macro with no name.
     juce::StringArray getFactoryMacroNames (int factoryIndex) const;
     juce::StringArray getAllPresetNames() const;
+    // The browser's view of every preset (factory, then user files): its
+    // category (DX7 voices under the kind of sound they are), its tags
+    // (factory presets from src/PresetTags.h, written by
+    // tools/tag_presets.py), and the DX7 bank it comes from ("" when it isn't
+    // a DX7 voice: ROM1A..., or an imported bank's folder).
     juce::StringArray getAllPresetCategories() const;
     juce::StringArray getAllPresetTags() const;
+    juce::StringArray getAllPresetBanks() const;
+    // For each preset, the earlier one it repeats parameter for parameter
+    // (the ROM cartridges carry some DX7 voices twice), or -1.
+    juce::Array<int> getPresetRepeats() const;
+    // Who made a preset and what its author says about it (user presets
+    // carry what Save As asked for; factory presets name their source).
+    struct PresetInfo
+    {
+        juce::String author, comment;
+    };
+    PresetInfo getPresetInfo (int index) const;
     bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
     void loadPresetByIndex (int index);
@@ -223,7 +269,7 @@ public:
     // from user preset files for the browser. Message thread only.
     static juce::StringArray getPresetCategoryChoices()
     {
-        return { "Bass", "Lead", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
+        return { "Bass", "Lead", "Brass", "Wind", "Pluck", "Pad", "Keys", "Chords", "Arp", "Drone", "FX", "Other" };
     }
 
     void setPresetMeta (const juce::String& category, const juce::String& tags)
@@ -232,6 +278,14 @@ public:
         apvts.state.setProperty ("presetTags", tags, nullptr);
     }
 
+    void setPresetInfo (const juce::String& author, const juce::String& comment)
+    {
+        apvts.state.setProperty ("presetAuthor", author, nullptr);
+        apvts.state.setProperty ("presetComment", comment, nullptr);
+    }
+
+    juce::String getPresetAuthor() const { return apvts.state.getProperty ("presetAuthor").toString(); }
+    juce::String getPresetComment() const { return apvts.state.getProperty ("presetComment").toString(); }
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
@@ -246,6 +300,8 @@ public:
                                     std::array<juce::String, 4>& macroNames);
     static void applyPresetTrims (const char* presetName, const juce::String& category,
                                   std::vector<std::pair<juce::String, float>>& values);
+    // MASTER's value in a preset's values moves to output_trim (review 6).
+    static void moveLevelToTrim (std::vector<std::pair<juce::String, float>>& values);
     bool savePresetToFile (const juce::File& file);
     bool loadPresetFromFile (const juce::File& file);
 
@@ -279,13 +335,42 @@ public:
 
     static void migrateLegacyOsc3 (const std::function<float (const juce::String&, float)>& get,
                                    const std::function<void (const juce::String&, float)>& set);
+    // Before the FM / DX7 type (2026-10-06) an operator was a Wavetable
+    // oscillator tuned by ratio or fixed Hz, or on the Operator EG: such an
+    // oscillator becomes FM / DX7 (OscMode::fmOperator), which renders the
+    // same. Works on stored values (get falls back to the default); returns
+    // how many oscillators moved. Idempotent.
+    // The string and exciter knobs were rescaled so each has a clear effect
+    // across its travel (see tools/knob_audit.py); this moves a saved patch's
+    // old values to the new scales so it keeps its sound. Returns how many
+    // values it changed.
+    static int migrateStringKnobs (const std::function<float (const juce::String&, float)>& get,
+                                   const std::function<void (const juce::String&, float)>& set);
+    static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
+                                     const std::function<void (const juce::String&, float)>& set);
+    // The same on the live parameters (after a bounce or a factory preset).
+    void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);
     void clearModSlot (int slotIndex);
+    // Two slots routing the same source to the same destination (with the
+    // same via, polarity, curve and bypass, and no drawn remap) play as one
+    // slot with the depths added, so they can be merged without changing
+    // the sound. canMergeModSlots says why not when they can't be (they
+    // differ, or the sum would pass 100%). mergeModSlots folds `from` into
+    // `into`; mergeDuplicateModSlots merges every such pair (factory presets
+    // load merged) and returns how many slots it freed. Message thread.
+    bool canMergeModSlots (int into, int from, juce::String* reason = nullptr) const;
+    bool mergeModSlots (int into, int from);
+    int mergeDuplicateModSlots();
     void setModSlotValue (int slotIndex, const juce::String& field, float value);
     juce::String getModSlotParamId (int slotIndex, const juce::String& field) const;
 
     static constexpr int scopeSize = 4096;
     void copyScopeData (float* left, float* right, int numSamples) const;
+    // The same window, but ending part-way into the newest block by the time
+    // since that block arrived (one block behind at most): the scope moves
+    // smoothly at the display's rate however large the host's buffer is.
+    void copyScopeDataSmooth (float* left, float* right, int numSamples) const;
 
     static constexpr int lfoDrawSteps = 64;
     void setLfoCustomPoint (int lfoIndex, int step, float value);
@@ -295,6 +380,16 @@ public:
     static constexpr int curveShape = 8;
     LfoCurve getLfoCurve (int lfoIndex) const;
     void setLfoCurve (int lfoIndex, const LfoCurve& curve);
+
+    // The old four-point MSEG module (UI review 9, I9-2): a looping, routed
+    // MSEG that no oscillator plays as its ENVELOPE becomes an LFO drawn the
+    // same (SHAPE › MSEG, its four points, its RATE) with its routes, so a
+    // patch has one MSEG editor. Patch loads run it; the LFO is the first
+    // free one whose random draws nothing else hears (LFO 1-4 share a
+    // generator with the Clocked S&H and the gate). legacyMsegTargetLfo is
+    // that LFO, or -1 when the MSEG stays a module. Message thread.
+    int legacyMsegTargetLfo() const;
+    bool moveLegacyMsegToLfo();
 
     // A drawn remap curve per mod slot (Vital's per-route remap). A straight
     // line from -1 to 1 is off; the slot then shapes as before.
@@ -309,15 +404,31 @@ public:
 
     void triggerPreviewNote (int midiNote, bool isOn, float velocity = 0.7f);
     void panic() { synth.allNotesOff (0, false); }
+
+    // A whole patch's parameters swapped in under playing notes (the A/B
+    // button): the next block's first sample continues from the last one's
+    // (the step is cancelled, then eased out over 2 ms) instead of jumping.
+    // Call it after the new values are in.
+    void easeNextBlock() { easeStep = true; }
     float getCpuUsage() const { return cpuUsage.load(); }
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
-    // For views that animate with the playing (the PHYSICAL page): notes
+    // For views that animate with the playing (a Physical oscillator's string): notes
     // started so far, and the last block's peak (not reset by reading).
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
     float getOutputPeak() const { return outputLevelDisplay.load(); }
     int getActiveVoiceCount() const { return activeVoiceCount.load(); }
+    // Voices still rendering, tails included (getActiveVoiceCount counts only
+    // those with their envelopes up). Audio thread or tests only.
+    int getRenderingVoiceCount() const
+    {
+        auto count = 0;
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (synth.getVoice (i)->isVoiceActive())
+                ++count;
+        return count;
+    }
 
     // Changes whenever something the editor draws may have changed: any
     // parameter, an edit to data that isn't a parameter (LFO curves and
@@ -376,6 +487,10 @@ public:
     float getEnvMonitorFilter2() const { return envMonitorFilter2.load(); }
     float getEnvMonitorMod() const { return envMonitorMod.load(); }
     float getEnvMonitorEnv4() const { return envMonitorEnv4.load(); }
+    // The Operator Env of the loudest voice: seconds since its note began
+    // and since its key was let go (-1: held, or no such note).
+    float getOpEnvMonitorSeconds() const { return monitorOpEnvSeconds.load(); }
+    float getOpEnvMonitorRelease() const { return monitorOpEnvRelease.load(); }
     float getEnvMonitorExtra (int index) const { return envMonitorExtra[(size_t) juce::jlimit (0, 10, index)].load(); }
     // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
     // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
@@ -404,17 +519,36 @@ public:
     int getRevealVersion() const { return revealVersion.load(); }
     // Shows an oscillator and switches it on, as adding one should sound.
     void addOscillator (int index);
+    // Adds it as that type: FM / DX7 starts as a sine operator tuned by
+    // ratio on the Operator EG (a DX7 operator's init state).
+    void addOscillator (int index, int mode);
     void removeOscillator (int index);
+    // Sets an oscillator's type (OscMode). Leaving FM / DX7 drops what only
+    // an operator has, so the new type's card shows everything that plays:
+    // TUNING goes back to semitones, and a Wavetable leaves the Operator EG
+    // for the Amp Env. Choosing FM / DX7 changes nothing else (the same
+    // sound, with the operator's controls). Message thread; wrap it in
+    // performEdit for one undo step.
+    void setOscillatorMode (int index, int mode);
     bool isOscillatorShown (int index) const;
 
     // M5: sets the FM matrix and the operators' outputs to one of the
     // FmAlgorithms (adding the operators it needs). Existing routes keep
     // their amounts. Message thread.
     void applyFmAlgorithm (int index);
+    // The same for the DX7's algorithm 1-32 (all six operators), which the
+    // FM page then names.
+    void applyDx7Algorithm (int number);
     // The algorithm the current routing matches, or -1.
     int findMatchingFmAlgorithm() const;
+    // The DX7 algorithm (1-32) the routing is, or 0: six operators on, the
+    // DX7's routes and carriers, its feedback operator or none.
+    int findMatchingDx7Algorithm() const;
     // [source][target] FM parameter id, 0-based.
     static juce::String fmRouteId (int source, int target);
+private:
+    void applyFmRouting (const FmAlgorithms::Algorithm& algorithm, int dx7Number);
+public:
     // An operator's sounding ratio after SNAP (for display).
     double getSnappedRatio (int osc) const;
     // Added to the patch, or routed in the matrix (message thread).
@@ -450,6 +584,82 @@ public:
     bool loadUserSample (int oscIndex, const juce::File& file);
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
     void processEffects (juce::AudioBuffer<float>& buffer);
+    void processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer);
+    void processEffectsParallel (juce::AudioBuffer<float>& buffer);
+    void runFxSlot (int slot, juce::AudioBuffer<float>& buffer);
+    bool isFxSlotActive (int index);
+    void clearFxSlotMeters (int index);
+    // Roadmap step A: the rack as a patch graph (PatchGraphState.h,
+    // rackGraph) and the rack run through a compiled graph instead of the
+    // fixed loop. Not on the audio path yet: the tests and ilanaFxCpuBench
+    // use them to show a graph renders the fixed rack sample for sample and
+    // what it costs; step 17 switches the audio path over.
+    PatchGraph::Graph getFxRackGraph();
+    void processEffectsGraph (juce::AudioBuffer<float>& buffer, PatchGraph::Runner& runner);
+
+    //==========================================================================
+    // Roadmap step 17: the FX patcher and effect instances (FxPatch.h,
+    // FxPatcher.cpp). Message thread unless noted; the editor wraps each
+    // user action in performEdit, so the parameters and this data undo
+    // together.
+    //==========================================================================
+    // Roadmap step 16: reroutable oscillators (OscRouting.cpp). The cables
+    // live in parameters (route_cables, cable_*), so presets, undo and chain
+    // files carry them like any other setting. Message thread; the caller
+    // wraps a user action in performEdit.
+    bool areRouteCablesOn() const;
+    // The cables as saved (the default chain until the first cable edit).
+    VoiceRouting::Patch getRoutePatch() const;
+    // The fixed chain (the _route menus, SERIAL / PARALLEL, WEST's
+    // position) as cables: what the page shows while the cables are off.
+    VoiceRouting::Patch getChainAsCables() const;
+    // Writes the cables and the switch (and switches WEST on when a cable
+    // now goes into it).
+    void setRouteCables (const VoiceRouting::Patch& patch, bool on);
+
+    FxPatchData::Patch getFxPatch() const;
+    void setFxPatch (const FxPatchData::Patch& patch);
+    bool isFxPatcherOn() const;
+    // On: the slots become the patcher graph's nodes; the first time, the
+    // graph is the rack as it is (so turning it on changes nothing heard).
+    void setFxPatcherOn (bool on);
+    // A new effect in the first empty slot, wired in after the last one (on
+    // the graph, in front of OUTPUT). A type the rack already has becomes a
+    // new instance of it: a copy of its settings, on its own engine, with its
+    // card in front. Returns the slot index, or -1 when every slot is in use.
+    int addFxEffect (int type);
+    // Takes a slot's effect out (its node too, the cables around it joined up).
+    void removeFxEffect (int slotIndex);
+    // Puts this instance's settings on its type's controls (the one in front
+    // before keeps its settings as its own copy).
+    void focusFxInstance (int slotIndex);
+    // Whether this slot has its own engine and settings.
+    bool isFxInstance (int slotIndex) const;
+    // Whether this slot's card holds its type's controls (false: another
+    // instance's card is in front and this one plays its own copy).
+    bool isFxSlotInFront (int slotIndex) const;
+    // A duplicate that shared its type's settings (older patches) gets its
+    // own engine and its own copy of the settings.
+    void makeFxInstance (int slotIndex);
+    // Swaps two slots, with their instance data, engines and graph nodes.
+    void swapFxSlots (int a, int b);
+    // One of an instance's own settings (a slot whose card isn't in front:
+    // the RACK shows it on the instance's own card). False: no such value.
+    bool getFxInstanceValue (int slotIndex, const juce::String& id, float& value) const;
+    void setFxInstanceValue (int slotIndex, const juce::String& id, float value);
+    // The graph the patcher shows (a copy) and a change to it from the view.
+    PatchGraph::Graph getFxPatchGraph() const;
+    void setFxPatchGraph (const PatchGraph::Graph& graph);
+    // The patcher's shortest loop delay in milliseconds (one render chunk).
+    float getFxLoopLatencyMs() const;
+    // The loop guard on the loop cable from -> to (node id, port): 1 while
+    // it isn't holding the loop, under 1 while the loop rings by itself and
+    // is held at 0 dB (PatchGraphRunner.h).
+    float getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const;
+    // Tests: the rack's plan (what the audio thread runs) is current.
+    bool isFxRackPlanCurrent();
+    // Tests / tools: compile now what the audio thread would wait for.
+    void compileFxPlansNow();
     // Puts audio on an oscillator's sample slot. An embedded sample (a
     // bounce) is saved inside the patch; a file-backed one by its path.
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
@@ -469,7 +679,22 @@ public:
         bool muteOthers = true;     // the other oscillators switched off after
         int note = 60, velocity = 100;
         double holdSeconds = 2.0, tailSeconds = 2.0;
+        // Roadmap step 41: a multisample. One render per note on the grid
+        // (noteLow, noteLow + spacing, ... up to noteHigh) and per velocity
+        // layer, each becoming a zone of one embedded multisample on the
+        // target oscillator. All the renders share one gain, so the
+        // loudness between notes and layers is what the patch played.
+        bool multi = false;
+        int noteLow = 36, noteHigh = 84, spacing = 3, velocityLayers = 1;
+
+        // The root notes of the grid and the velocities of the layers.
+        std::vector<int> multiNotes() const;
+        std::vector<int> multiVelocities() const;
+        int numCaptures() const { return (int) (multiNotes().size() * multiVelocities().size()); }
     };
+    // Embedded multisamples stay under this many bytes of 16-bit audio (the
+    // patch carries them): about 3 minutes of mono at 48 kHz.
+    static constexpr juce::int64 maxMultisampleBytes = 17 * 1024 * 1024;
     enum class BounceState { Idle, Rendering, Done, Failed };
     // Message thread. False if a bounce is already running.
     bool startBounce (const BounceRequest& request);
@@ -481,6 +706,8 @@ public:
     static std::shared_ptr<SampleData> renderBounce (const juce::ValueTree& state, const BounceRequest& request,
                                                      std::atomic<float>* progress = nullptr,
                                                      const std::atomic<bool>* cancel = nullptr);
+    static juce::AudioBuffer<float> playOneNote (const juce::ValueTree& state, int note, int velocity, double holdSeconds, double tailSeconds,
+                                                 const std::function<void (float)>& progress, const std::atomic<bool>* cancel);
     // Puts a render on the target oscillator (message thread).
     bool applyBounce (const BounceRequest& request, std::shared_ptr<SampleData> audio, juce::String& message);
 
@@ -512,6 +739,7 @@ private:
     // straight line.
     struct PatchData
     {
+        std::shared_ptr<const FxPatchData::Patch> fx;
         std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> draws {};
         std::array<LfoCurve, (size_t) numLfos> curves;
         std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
@@ -548,6 +776,7 @@ private:
         const char* id = nullptr;
         std::uint32_t hash = 0;
         const std::atomic<float>* value = nullptr;
+        int index = -1;        // in paramCacheIds (an FX instance's own values are kept by it)
         int destination = -1;
         bool discrete = false; // a choice, int or bool: read back rounded
         float fallback = 0.0f; // the default, read in place of a non-finite value
@@ -585,41 +814,11 @@ private:
     float getRawParam (const ParamRef& ref) const;
     const ParamCacheEntry* findParam (const char* id) const;
     float readParam (const ParamCacheEntry& entry) const;
+    // The calling thread's FX instance values (see readParam); returns the old ones.
+    static const float* swapFxParamValues (const float* values) noexcept;
     const Wavetable* getTableForChoice (int choiceIndex) const;
     void renderLfos (int numSamples, const juce::MidiBuffer& midiMessages);
     float staticSourceValue (int sourceIndex) const;
-    void processAmp (juce::AudioBuffer<float>& buffer);
-    void processDrive (juce::AudioBuffer<float>& buffer);
-    void processCrush (juce::AudioBuffer<float>& buffer);
-    void processCompressor (juce::AudioBuffer<float>& buffer);
-    void processComb (juce::AudioBuffer<float>& buffer);
-    void processPhaser (juce::AudioBuffer<float>& buffer);
-    void processChorus (juce::AudioBuffer<float>& buffer);
-    void processHaas (juce::AudioBuffer<float>& buffer);
-    void processDelay (juce::AudioBuffer<float>& buffer);
-    void processStutter (juce::AudioBuffer<float>& buffer);
-    void processSmear (juce::AudioBuffer<float>& buffer);
-    void processFreeze (juce::AudioBuffer<float>& buffer);
-    void processReverb (juce::AudioBuffer<float>& buffer);
-    void processFlanger (juce::AudioBuffer<float>& buffer);
-    void processDimension (juce::AudioBuffer<float>& buffer);
-    void processGate (juce::AudioBuffer<float>& buffer);
-    void processTapeStop (juce::AudioBuffer<float>& buffer);
-    void processTilt (juce::AudioBuffer<float>& buffer);
-    void processUtility (juce::AudioBuffer<float>& buffer);
-    void processAirwindows (juce::AudioBuffer<float>& buffer);
-    void processVocoder (juce::AudioBuffer<float>& buffer);
-    void processOtt (juce::AudioBuffer<float>& buffer);
-    void processLimiter (juce::AudioBuffer<float>& buffer);
-    void processWidener (juce::AudioBuffer<float>& buffer);
-    void processTremolo (juce::AudioBuffer<float>& buffer);
-    void processFreqShift (juce::AudioBuffer<float>& buffer);
-    void processRingMod (juce::AudioBuffer<float>& buffer);
-    void processOctaver (juce::AudioBuffer<float>& buffer);
-    void processVowel (juce::AudioBuffer<float>& buffer);
-    void processFeedback (juce::AudioBuffer<float>& buffer);
-    void processEq (juce::AudioBuffer<float>& buffer);
-    void processSlot (int type, juce::AudioBuffer<float>& buffer);
     juce::String captureFxChain();
     juce::ValueTree buildFullState();
     void applyFullState (const juce::ValueTree& state);
@@ -652,6 +851,11 @@ private:
     juce::Random pseqRandom { 16180 };
     long long engineStepCount = 0;
     std::array<ParamRef, 16> pseqChanceIds, pseqRangeIds, pseqRatchetIds;
+    // The arp's step lanes (review 6): velocity, gate and transpose per step
+    // over ARP STEPS steps. At their defaults (100, 100 %, 0) every step plays
+    // as before.
+    std::array<ParamRef, 16> arpVelocityIds, arpLengthIds, arpPitchIds;
+    ParamRef arpStepsRef { "arp_steps" };
     void addEuclidExciterHits (juce::MidiBuffer& midi, int numSamples);
     // Clip sequencer: plays the current clip into the synth's MIDI.
     void processClip (juce::MidiBuffer& midi, int numSamples);
@@ -670,16 +874,6 @@ private:
     double euclidExciterPhase = 0.0;
     long long euclidExciterLastStep = -1;
 
-    int crushCounter = 0;
-    float crushHold[2] { 0.0f, 0.0f };
-    float delayDampState[2] { 0.0f, 0.0f };
-
-    juce::AudioBuffer<float> stutterBuffer;
-    int stutterLength = 0;
-    int stutterWrite = 0;
-    int stutterRead = 0;
-    bool stutterRecording = false;
-    bool stutterWasOn = false;
 
     std::vector<std::shared_ptr<Wavetable>> userTables;
     std::array<std::shared_ptr<Wavetable>, (size_t) (numUserSlots * 3)> retiredTables;
@@ -706,16 +900,13 @@ private:
         inTriggerRef { "in_trigger" }, inThresholdRef { "in_threshold" }, inNoteRef { "in_note" },
         inAttackRef { "in_attack" }, inReleaseRef { "in_release" };
     ParamRef tuningOnRef { "tuning_on" };
-    // The Airwindows module (FX type 30): only the chosen algorithm runs.
-    airwindows::Module airwindowsModule;
-    ParamRef awAlgoRef { "fx_aw_algo" }, awMixRef { "fx_aw_mix" };
-    std::array<ParamRef, airwindows::Module::numKnobs> awKnobRefs { ParamRef ("fx_aw_p1"), ParamRef ("fx_aw_p2"),
-        ParamRef ("fx_aw_p3"), ParamRef ("fx_aw_p4"), ParamRef ("fx_aw_p5") };
-    std::vector<float> airwindowsMonoRight;
+    ParamRef masterRef { "master" }, outputTrimRef { "output_trim" };
+    ParamRef fxRoutingRef { "fx_routing" };
+    ParamRef multiCoreRef { "multi_core" };
+    ParamRef sustainVoicesRef { "sustain_voices" };
     // The Airwindows category modules (FX types 32-41), one engine each;
     // their refs: algo, p1..p5, mix.
     static constexpr int numAwCategories = 10;
-    std::array<airwindows::Module, numAwCategories> awCategoryModules;
     static std::array<std::array<ParamRef, 7>, numAwCategories> makeAwCategoryRefs()
     {
         std::array<std::array<ParamRef, 7>, numAwCategories> refs;
@@ -729,15 +920,6 @@ private:
         }
         return refs;
     }
-    std::array<std::array<ParamRef, 7>, numAwCategories> awCategoryRefs = makeAwCategoryRefs();
-    void processAirwindowsCategory (juce::AudioBuffer<float>& buffer, int category);
-    // The vocoder (FX type 31).
-    Vocoder vocoder;
-    std::vector<float> vocoderModulator;
-    ParamRef vocSourceRef { "fx_voc_source" }, vocBandsRef { "fx_voc_bands" }, vocWidthRef { "fx_voc_width" },
-        vocAttackRef { "fx_voc_attack" }, vocReleaseRef { "fx_voc_release" }, vocFormantRef { "fx_voc_formant" },
-        vocUnvoicedRef { "fx_voc_unvoiced" }, vocRateRef { "fx_voc_rate" }, vocLevelRef { "fx_voc_level" },
-        vocMixRef { "fx_voc_mix" };
     juce::AudioBuffer<float> liveDry;       // the input as it came in (for DRY)
     std::vector<float> liveVoice, liveEnvVoice; // at the voice rate, after INPUT GAIN
     SampleData liveHistory;                 // the last few seconds, for live grains
@@ -756,6 +938,7 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    std::atomic<bool> easeStep { false };
     // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
     std::atomic<bool> exciterLevelMatch { true };
     void updateExciterLevelMatch (bool savedWithMatch);
@@ -770,6 +953,8 @@ public:
 
 private:
     float lastOutput[2] {}, declick[2] {};
+    bool fxAsleep = false;
+    int fxSilentSamples = 0;
     std::array<std::array<std::array<float, 2>, 2>, 2> dcBlock {}; // [before/after the effects][channel][x, y]
     void cutPatchTails();
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
@@ -780,7 +965,7 @@ private:
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
 
     // Parameter IDs built once, so the audio thread never allocates strings.
-    struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass; };
+    struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass, stereo; };
     struct ModSlotRaw
     {
         std::atomic<float>* src = nullptr;
@@ -790,6 +975,7 @@ private:
         std::atomic<float>* polarity = nullptr;
         std::atomic<float>* aux = nullptr;
         std::atomic<float>* bypass = nullptr;
+        std::atomic<float>* stereo = nullptr;
     };
     std::array<ModSlotRaw, (size_t) Mod::maxSlots> modSlotRaw;
     std::array<ModSlotIds, (size_t) Mod::maxSlots> modSlotIds;
@@ -800,7 +986,7 @@ private:
         std::array<ParamRef, LfoSimInfo::numParams> sim;
         ParamRef smooth, axis, trigger, loop, seed, stereo, fire;
     };
-    struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route; };
+    struct OscShapeIds { ParamRef warp, warpAmount, unisonMode, unisonBlend, route, frameSpread, warpSpread, scale, scaleRoot; };
     std::array<OscShapeIds, OscillatorIds::count> oscShapeIds;
     // M5/M6 operator and phase-distortion settings.
     struct OperatorIds
@@ -810,7 +996,7 @@ private:
     std::array<OperatorIds, OscillatorIds::count> operatorIds;
     std::array<ParamRef, OscillatorIds::count> fmNoiseIds;
     // DAHDSR extras and rate key scaling for ENV 1..16.
-    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate; };
+    struct EnvelopeExtraIds { ParamRef delay, hold, keyRate, attackCurve, decayCurve, releaseCurve; };
     std::array<EnvelopeExtraIds, 16> envelopeExtraIds;
     std::array<ParamRef, Mseg::numPoints> msegLevelIds, msegTimeIds;
     // ENV 6..16's ADSR, curve and velocity.
@@ -835,6 +1021,7 @@ private:
     std::array<ParamRef, 16> tapStepIds;
     std::array<ParamRef, 16> gateStepIds;
     std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
+    std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
     std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;
@@ -846,6 +1033,9 @@ private:
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
     std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock
+    // The last encoding of each embedded sample (gzip of a multisample takes
+    // a second), reused while the oscillator holds the same audio.
+    std::array<std::pair<std::shared_ptr<SampleData>, juce::ValueTree>, (size_t) numSampleOscs> encodedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
     bool samplesReloadPending = false;
@@ -856,7 +1046,7 @@ private:
     struct UserPresetMeta
     {
         juce::int64 modified = -1;
-        juce::String category, tags;
+        juce::String category, tags, author, comment;
     };
 
     const UserPresetMeta& getUserPresetMeta (const juce::File& file) const;
@@ -952,6 +1142,8 @@ private:
 
     std::vector<float> scopeLeft, scopeRight;
     std::atomic<int> scopeWritePos { 0 };
+    std::atomic<int> scopeBlockSamples { 0 };
+    std::atomic<double> scopeBlockMs { 0.0 };
     mutable juce::SpinLock scopeLock;
 
     std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> lfoCustom {};
@@ -1001,6 +1193,9 @@ private:
     std::atomic<float> envMonitorFilter2 { 0.0f };
     std::atomic<float> envMonitorMod { 0.0f };
     std::atomic<float> envMonitorEnv4 { 0.0f };
+    // The loudest voice's Operator Env LFO and pitch envelope (review 6).
+    std::atomic<float> monitorOpLfo { 0.0f }, monitorOpPitch { 0.0f };
+    std::atomic<float> monitorOpEnvSeconds { -1.0f }, monitorOpEnvRelease { -1.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<float>, 16> envMonitorPositions {};
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
@@ -1016,9 +1211,14 @@ private:
     std::atomic<unsigned> paramEpoch { 0 }, liveEpoch { 0 }, dataEpoch { 0 }, sampleEpoch { 0 };
     ParamEpoch paramEpochListener { paramEpoch };
 
-    juce::dsp::Chorus<float> chorus;
-    juce::dsp::Phaser<float> phaser;
-    juce::dsp::Convolution convolution;
+   #if JUCE_LINUX || JUCE_BSD
+    struct HostRunLoopKeepAlive final : juce::VST3ClientExtensions
+    {
+        void setIHostApplication (Steinberg::FUnknown* host) override;
+    };
+    HostRunLoopKeepAlive hostRunLoopKeepAlive;
+   #endif
+
     juce::dsp::Oversampling<float> oversampler2x { 2, 1,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false };
     juce::dsp::Oversampling<float> oversampler4x { 2, 2,
@@ -1027,15 +1227,6 @@ private:
     int wantedOversamplingFactor() const;
     juce::dsp::Oversampling<float>& activeOversampler() { return oversamplingFactor.load() == 4 ? oversampler4x : oversampler2x; }
     juce::MidiBuffer scaledMidiBuffer;
-    std::atomic<bool> reverbIrLoaded { false };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 96000 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> combLine { 96000 };
-    juce::Reverb reverb;
-
-    GranularPitchShift tapeShift[2];
-    GranularPitchShift shimmerShift[2];
-    GranularSmear smear[2];
-    SpectralFreeze freeze[2];
     Mseg mseg;
     SympatheticStrings sympatheticStrings;
     bool sympatheticWasOn = false;
@@ -1049,37 +1240,14 @@ private:
     std::array<bool, 128> pedalHeldNotes {};
     void processAcousticKeys (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi);
 
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> haasLine { 4800 };
-    float compEnvelope[2] { 0.0f, 0.0f };
-    float ampLowState[2] { 0.0f, 0.0f };
-    float ampHighState[2] { 0.0f, 0.0f };
-
-    double wowPhase = 0.0;
     double clockShPhase = 0.0;
     float clockShValue = 0.0f;
 
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> flangerLine { 4800 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> dimLine { 9600 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> springComb { 4800 };
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> feedbackLine { 9600 };
-    float feedbackState[2] {};
-    double stutterPosition = 0.0;
-    float stutterRate = 1.0f;
     std::array<std::atomic<float>, numFxSlots> fxSlotCpu {};
+    std::array<std::atomic<float>, numFxSlots> fxSlotIn {}, fxSlotOut {};
     juce::String chainA, chainB;
     bool chainBValid = false;
     bool showingChainA = true;
-    double flangerPhase = 0.0;
-    double dimPhase = 0.0;
-    double tremoloPhase = 0.0;
-    double shifterPhase = 0.0;
-    double ringPhase = 0.0;
-    double gatePhase = 0.0;
-    float gateEnvelope = 1.0f;
-    juce::uint16 gateRandomMask = 0xFFFF;
-    int gateCycleCount = 8;
-    int gateLastStep = -1;
-    std::atomic<int> gateDisplayStep { -1 };
     std::atomic<int> engineDisplayStep { -1 };
     std::atomic<int> euclidDisplayStep { -1 };
     std::atomic<double> hostPpq { 0.0 };
@@ -1091,7 +1259,7 @@ private:
 public:
     // Pattern built-ins as step levels (for the editor and the Custom copy).
     static float gatePatternLevel (int pattern, int step);
-    int getGateDisplayStep() const { return gateDisplayStep.load(); }
+    int getGateDisplayStep() const;
 
     // The note engine's current step number (arp, probability sequencer or
     // Euclid), or -1 while no key is held. For the Generative card's playhead.
@@ -1107,25 +1275,107 @@ public:
     int pickArpNoteForTest (int mode, int octaves) { return selectArpNote (mode, octaves); }
 
 private:
-    float tapeStopRate = 1.0f;
-    juce::AudioBuffer<float> tapeStopBuffer;
-    int tapeStopWrite = 0;
-    double tapeStopRead = 0.0;
-    float tapeStopLagFade = 1.0f; // 1 = playing the lagging tape; fades to 0 to rejoin live
-    float tiltLowState[2] {};
-    float tiltHighState[2] {};
-    float ottLowState[2][2] {};
-    float ottHighState[2][2] {};
-    float ottEnvelope[2][3] {};
-    float limiterEnvelope[2] {};
-    float shifterAllpass[2] {};
-    float shifterDelay[2] {};
-    float gatedReverbEnvelope = 0.0f;
-    float duckEnvelope = 0.0f;
-    GranularPitchShift octaverShift[2];
-    Biquad eqBands[2][3];
-    Svf vowelFilters[2][3];
+    // Knobs read once a block (an effect's MIX, a slot's blend, MASTER) are
+    // eased across the block from where the last block ended, so a knob move
+    // or a host's automation step is a ramp, not a step at the block edge. A
+    // steady knob gives its value exactly (the ramp's start is its end), so
+    // nothing changes while nothing moves. Reset with a patch change.
+    struct BlockRamp
+    {
+        float last = std::numeric_limits<float>::quiet_NaN();
+        float from = 0.0f, step = 0.0f;
+
+        void begin (float target, int numSamples) noexcept
+        {
+            from = std::isfinite (last) ? last : target;
+            step = numSamples > 0 ? (target - from) / (float) numSamples : 0.0f;
+            last = target;
+        }
+        float at (int i) const noexcept { return from + step * (float) i; }
+        bool moving() const noexcept { return step != 0.0f; }
+        void reset() noexcept { last = std::numeric_limits<float>::quiet_NaN(); }
+    };
+    enum class FxRamp
+    {
+        DriveMix, CrushMix, CombMix, DelayMix, StutterMix, SmearMix, CompMix, HaasMix, FlangerMix, DimMix, GateMix,
+        TapeStopMix, OttMix, WidthMix, ShifterMix, RingMix, OctaverMix, VowelMix, FeedbackMix,
+        DriveAmount, FoldAmount, DelayTimeL, DelayTimeR, AmpDrive, AmpLevel, CompMakeup, HaasDelay, TiltLow, TiltHigh,
+        UtilGain, LimitCeiling, Count
+    };
+    std::array<BlockRamp, (size_t) numFxSlots> slotBlendRamps;
+    BlockRamp masterRamp;
+    void resetBlockRamps() noexcept
+    {
+        resetFxEngineRamps();
+        for (auto& ramp : slotBlendRamps)
+            ramp.reset();
+        masterRamp.reset();
+    }
+
     juce::AudioBuffer<float> fxScratch;
+    // Roadmap step 17: the effects' memory lives in engines (FxEngine.h).
+    // fxMain is the rack's shared one (one set per effect type, as always);
+    // a slot that is its own instance of an effect runs on its own engine.
+    class FxEngine;
+    std::unique_ptr<FxEngine> fxMain;
+    std::array<std::atomic<FxEngine*>, (size_t) numFxSlots> slotEngines {}; // null: the shared engine
+    FxEngine& engineForSlot (int slotIndex) const;
+    void resetFxEngineRamps() noexcept;
+    void prepareFxEngines (double sampleRate, int samplesPerBlock);
+    void resetFxEngines();
+    // The engine an effect type's card shows (its meters and pictures).
+    const FxEngine& displayEngine (int type) const;
+    int fxEngineBlockSize = 512;
+
+    // Roadmap step 17: the FX patch (FxPatcher.cpp).
+    std::shared_ptr<const FxPatchData::Patch> fxPatch = std::make_shared<FxPatchData::Patch>(); // under stateLock off the message thread
+    std::array<std::unique_ptr<FxEngine>, (size_t) numFxSlots> ownedEngines;
+    std::array<std::unique_ptr<std::vector<float>>, (size_t) numFxSlots> ownedValues;
+    std::array<std::atomic<const float*>, (size_t) numFxSlots> slotValues {};
+    struct RetiredFx
+    {
+        juce::uint32 when = 0;
+        std::unique_ptr<FxEngine> engine;
+        std::unique_ptr<std::vector<float>> values;
+    };
+    std::vector<RetiredFx> retiredFx;
+    juce::CriticalSection fxEditLock; // the patch's edits (message thread, or a host's state load)
+    void publishFxPatch (FxPatchData::Patch patch);
+    juce::String fxSlotLabel (int slotIndex) const;
+    void retireFx (std::unique_ptr<FxEngine> engine, std::unique_ptr<std::vector<float>> values);
+    void freeRetiredFx (bool all);
+    void applyFxPatchRuntime();
+    void reconcileFxPatch();
+    std::vector<std::pair<juce::String, float>> snapshotFxParams (int type) const;
+    void writeFxParams (const std::vector<std::pair<juce::String, float>>& values);
+    const std::vector<juce::String>& fxParamIds (int type) const;
+    mutable std::array<std::vector<juce::String>, (size_t) numFxTypes + 1> fxParamIdCache;
+    std::unique_ptr<PatchGraph::Runner> fxRackRunner, fxPatchRunner;
+    juce::SpinLock fxCompileLock; // the rack runner's publish: message thread or an offline render
+    std::atomic<bool> fxRackCompileWanted { false }, fxReconcileWanted { false };
+    std::uint64_t fxRackSignature();
+    void compileFxRackPlan (std::uint64_t signature);
+    void compileFxPatchPlan();
+    void processEffectsFixed (juce::AudioBuffer<float>& buffer);
+    void processEffectsPatched (juce::AudioBuffer<float>& buffer);
+    ParamRef fxPatcherRef { "fx_patcher" };
+    // The ROUTING cables, compiled when they change (a few dozen
+    // operations, no allocation, so the audio thread does it: rule B1's
+    // "per patch, not per sample").
+    const VoiceRouting::Table& currentRoutingTable();
+    ParamRef routeCablesRef { "route_cables" };
+    std::array<ParamRef, VoiceRouting::numCableParams> cableRefs { "cable_osc1", "cable_osc2", "cable_osc3", "cable_osc4", "cable_osc5",
+                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west" };
+    VoiceRouting::Table routingTable;
+    std::uint64_t routingSignature = ~(std::uint64_t) 0;
+    struct FxSlotTypeListener : juce::AudioProcessorParameter::Listener
+    {
+        explicit FxSlotTypeListener (IlanaSynthAudioProcessor& p) : processor (p) {}
+        void parameterValueChanged (int, float) override;
+        void parameterGestureChanged (int, bool) override {}
+        IlanaSynthAudioProcessor& processor;
+    };
+    FxSlotTypeListener fxSlotTypeListener { *this };
     // FX splitters: a slot set to a band processes only that part of the
     // signal (Linkwitz-Riley crossovers, or mid/side) and the rest passes
     // around it, so an untouched band sums back exactly.
@@ -1141,11 +1391,11 @@ private:
     };
     std::array<SplitFilter, (size_t) numFxSlots> fxSplit;
     juce::AudioBuffer<float> fxBand;
-    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend);
-    juce::AudioBuffer<float> reverbScratch;
-    std::atomic<float> compGainReduction { 1.0f };
-    std::atomic<float> limiterGainReduction { 1.0f };
-    std::array<std::atomic<float>, 3> ottBandGain { 1.0f, 1.0f, 1.0f };
+    // PARALLEL routing: the rack's input, and one branch's copy of it.
+    juce::AudioBuffer<float> fxParallelIn, fxBranch;
+    void processSlotBand (int slot, int type, int band, juce::AudioBuffer<float>& buffer, bool solo, float blend, float blendFrom);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IlanaSynthAudioProcessor)
 };
+
+#include "processor/FxEngine.h"

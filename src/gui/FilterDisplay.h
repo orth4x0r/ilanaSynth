@@ -5,12 +5,16 @@
 
 #include <array>
 #include <complex>
+#include <optional>
 #include <vector>
 
 #include "../PluginProcessor.h"
 #include "../dsp/FilterUnit.h"
+#include "../dsp/WestCoastTuning.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
+#include "FilterWidgets.h"
 
 class FilterDisplay : public juce::Component,
                       public juce::SettableTooltipClient,
@@ -27,8 +31,7 @@ public:
         fftOutput.assign (fftSize, {});
 
         setMouseCursor (juce::MouseCursor::UpDownLeftRightResizeCursor);
-        setTooltip ("Drag a marker (or anywhere on the graph): left / right sets the cutoff, up / down the resonance. "
-                    "The solid curve and markers are the settings; the faint ones follow the modulation.");
+        setTooltip (defaultTip());
         startTimerHz (30);
     }
 
@@ -42,8 +45,21 @@ public:
 
     void replayAppear() override { appear = 0.0f; }
 
+    // A DX7 voice has no filter: the response says so (N16-2 / I15-2), as
+    // PLAY's FILTER OFF note does. The curves step back.
+    void setVoiceOff (bool off)
+    {
+        if (voiceOff != off)
+        {
+            voiceOff = off;
+            repaint();
+        }
+    }
+    bool isVoiceOff() const { return voiceOff; }
+
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("filter");
         // Smoothing and decay steps (tuned at 30 Hz) since the last paint,
         // however long ago that was.
         {
@@ -61,6 +77,18 @@ public:
 
         const auto plot = bounds.reduced (10.0f, 12.0f);
 
+        // A graph this size carries a full grid: every 1-2-5 step of the
+        // frequency axis named, the dB steps labelled (N16-4); the small
+        // ones (PLAY's) keep the three decades.
+        const auto big = bounds.getHeight() >= 150.0f && bounds.getWidth() >= 400.0f;
+
+        if (big)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.035f));
+            for (const auto frequency : { 50.0, 200.0, 500.0, 2000.0, 5000.0 })
+                g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (plot.getX() + (float) frequencyToX (frequency) * plot.getWidth()).withY (plot.getY()));
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         for (const auto frequency : { 100.0, 1000.0, 10000.0 })
@@ -72,11 +100,17 @@ public:
         // The frequency axis, named as on the scope.
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (const auto& [frequency, name] : { std::pair<double, const char*> { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } })
+        const std::vector<std::pair<double, const char*>> frequencyNames = big
+            ? std::vector<std::pair<double, const char*>> { { 50.0, "50" }, { 100.0, "100" }, { 200.0, "200" }, { 500.0, "500" }, { 1000.0, "1k" },
+                                                            { 2000.0, "2k" }, { 5000.0, "5k" }, { 10000.0, "10k" } }
+            : std::vector<std::pair<double, const char*>> { { 100.0, "100" }, { 1000.0, "1k" }, { 10000.0, "10k" } };
+        for (const auto& [frequency, name] : frequencyNames)
         {
             const auto x = plot.getX() + (float) frequencyToX (frequency) * plot.getWidth();
             g.drawText (name, juce::Rectangle<float> (x + 3.0f, bounds.getBottom() - 13.0f, 30.0f, 11.0f), juce::Justification::centredLeft);
         }
+        if (big)
+            g.drawText ("Hz", juce::Rectangle<float> (plot.getRight() - 26.0f, bounds.getBottom() - 13.0f, 26.0f, 11.0f), juce::Justification::centredRight);
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         g.setColour (juce::Colours::white.withAlpha (0.05f));
@@ -84,6 +118,7 @@ public:
         for (const auto db : { -36.0, -24.0, -12.0, 0.0, 12.0 })
         {
             const auto y = plot.getY() + (float) dbToY (db) * plot.getHeight();
+            g.setColour (juce::Colours::white.withAlpha (db == 0.0 && big ? 0.1f : 0.05f));
             g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withY (y));
         }
 
@@ -98,17 +133,49 @@ public:
             drawCurve (g, plot, 0, filterColour (0), true);
         }
 
-        drawCurve (g, plot, 1, filterColour (1), false);
+        if (! filter2Replaced())
+            drawCurve (g, plot, 1, filterColour (1), false);
         drawCurve (g, plot, 0, filterColour (0), false);
+
+        // WEST's low-pass gate, dashed, where it is open now (or fully
+        // struck while nothing plays): UI review 6, I6-16.
+        if (readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_mode")) != 2)
+            drawWestCurve (g, plot);
 
         const auto markers = markerCentres (plot);
 
         for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
-            if (isModulated (filterIndex))
+            if (isModulated (filterIndex) && ! (filterIndex == 1 && filter2Replaced()))
                 drawModMarker (g, plot, filterIndex, markers[(size_t) filterIndex], filterColour (filterIndex));
 
-        drawMarker (g, plot, markers[1], 1, filterColour (1));
+        if (! filter2Replaced())
+            drawMarker (g, plot, markers[1], 1, filterColour (1));
         drawMarker (g, plot, markers[0], 0, filterColour (0));
+
+        if (big)
+            for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
+                if (! (filterIndex == 1 && filter2Replaced()))
+                    drawReadout (g, plot, markers[(size_t) filterIndex], filterIndex);
+
+        // The dB scale, on small plates over the curves so a curve never runs through a number.
+        if (big)
+        {
+            const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+            g.setFont (tiny);
+            for (const auto db : { -36.0, -24.0, -12.0, 0.0, 12.0 })
+            {
+                const auto y = plot.getY() + (float) dbToY (db) * plot.getHeight();
+                const auto text = (db > 0.0 ? "+" : "") + juce::String ((int) db) + (db == 0.0 ? " dB" : "");
+                const auto width = juce::GlyphArrangement::getStringWidth (tiny, text) + 1.0f;
+                g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+                g.fillRoundedRectangle (juce::Rectangle<float> (plot.getX() + 1.0f, y - 12.0f, width + 4.0f, 11.0f), 2.0f);
+                g.setColour (IlanaTheme::Ui::text3);
+                g.drawText (text, juce::Rectangle<float> (plot.getX() + 3.0f, y - 12.0f, 40.0f, 11.0f), juce::Justification::centredLeft);
+            }
+        }
+
+        if (voiceOff)
+            drawVoiceOff (g, bounds);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
@@ -126,7 +193,7 @@ public:
         auto best = -1;
         auto bestDistance = 1.0e9f;
 
-        for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
+        for (int filterIndex = 0; filterIndex < (filter2Replaced() ? 1 : 2); ++filterIndex)
         {
             const auto marker = markers[(size_t) filterIndex];
             const auto distance = marker.getDistanceFrom (position) < 24.0f
@@ -143,24 +210,124 @@ public:
         return best;
     }
 
+    // A filter whose settings pass everything: its response stays within
+    // 1.5 dB of flat up to 5 kHz (a Low Pass open at 20 kHz) and nothing
+    // pulls its cutoff down (ENV AMT below 0, KEY TRK, a route). Its curve
+    // and card are dimmed, as an off module's would be (UI review 8, V8-39).
+    // `idleMacrosIgnored`: a route from a macro that sits at 0 now pulls nothing
+    // (PLAY's DX7 note, I14-3: the voices' DARKEN macro routes to Filter 1).
+    static bool isPassThrough (const IlanaSynthAudioProcessor& p, int filterIndex, bool idleMacrosIgnored = false)
+    {
+        const juce::String prefix (filterIndex == 0 ? "f1" : "f2");
+        const auto read = [&p, &prefix] (const char* suffix)
+        {
+            const auto* value = p.apvts.getRawParameterValue (prefix + suffix);
+            return value != nullptr ? value->load() : 0.0f;
+        };
+
+        if (read ("_env") < -0.001f || std::abs (read ("_keytrack")) > 0.001f || std::abs (read ("_fm")) > 0.001f)
+            return false;
+
+        const auto cutoffDestination = (int) (filterIndex == 0 ? Mod::Destination::Filter1Cutoff : Mod::Destination::Filter2Cutoff);
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto routing = p.readModSlot (slot);
+            if (routing.destination == cutoffDestination && routing.source != Mod::Source::None && std::abs (routing.depth) > 1.0e-4f)
+            {
+                const auto macro = Mod::macroIndexFor (routing.source);
+                const auto* macroValue = macro >= 0 ? p.apvts.getRawParameterValue ("macro" + juce::String (macro + 1)) : nullptr;
+                if (! (idleMacrosIgnored && macroValue != nullptr && macroValue->load() < 0.001f))
+                    return false;
+            }
+        }
+
+        const auto cutoff = (double) juce::jlimit (20.0f, 20000.0f, read ("_cutoff"));
+        const auto type = (int) read ("_type");
+        for (int i = 0; i <= 24; ++i)
+        {
+            const auto frequency = 20.0 * std::pow (250.0, i / 24.0);
+            const auto h = FilterType::response (type, read ("_slope") > 0.5f, (double) read ("_reso"),
+                                                 std::complex<double> (0.0, frequency / cutoff),
+                                                 juce::jlimit (0.0, 1.0, (double) read ("_morph")), cutoff);
+            if (std::abs (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) > 1.5)
+                return false;
+        }
+        return true;
+    }
+
+    // The ring of a modulated cutoff, where it is drawn now (or nothing),
+    // for the tooltip and the UI test.
+    std::optional<juce::Point<float>> getModRingCentre (int filterIndex) const
+    {
+        const auto plot = plotBounds();
+        if (! isModulated (filterIndex))
+            return {};
+        const auto set = markerCentres (plot)[(size_t) filterIndex];
+        const auto live = modRingCentre (plot, filterIndex, set);
+        if (live.getDistanceFrom (set) < 2.0f)
+            return {};
+        return live;
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        // The hollow ring is named where it is (UI review 6, S6-21).
+        juce::String tip = defaultTip();
+        for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
+            if (const auto ring = getModRingCentre (filterIndex); ring.has_value() && ring->getDistanceFrom (event.position) < markerSize)
+                tip = "Filter " + juce::String (filterIndex + 1) + "'s cutoff as modulated right now (the ring follows the "
+                      "modulation; the solid marker " + juce::String (filterIndex + 1) + " is where its knob is set).";
+        setTooltip (tip);
+    }
+
 private:
     static constexpr float markerSize = 10.0f;
+    // Markers stay this far inside the plot's edges (S6-21).
+    static constexpr float markerInset = 14.0f;
 
-    static juce::Colour filterColour (int filterIndex) { return filterIndex == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
+    static juce::String defaultTip()
+    {
+        return "Drag across the graph to set the nearest filter's cutoff, up or down for its resonance. "
+               "Each numbered marker sits on its filter's response at the cutoff; a faint curve and a hollow ring (tied "
+               "to its marker) show the cutoff as modulated now. A dashed curve is WEST's low-pass gate.";
+    }
+
+    static juce::Colour filterColour (int filterIndex) { return FilterColours::filter (filterIndex); }
+
+    // WEST in Filter 2's place: Filter 2 isn't in the path.
+    // (Not while the ROUTING cables decide: there WEST is its own stage.)
+    bool filter2Replaced() const
+    {
+        return readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_pos")) == 1 && readParam ("route_cables") < 0.5f;
+    }
 
     juce::Rectangle<float> plotBounds() const { return getLocalBounds().toFloat().reduced (10.0f, 12.0f); }
 
-    // A marker's place before it is kept inside the plot: x from the cutoff
-    // (as set, or with the live modulation), y from the resonance.
+    // A filter's own level at its cutoff: the response's peak within a
+    // quarter octave of it (a notch's or a comb's dip at the exact cutoff
+    // would put the marker on the floor), in the plot's dB.
+    float markerDb (int filterIndex, bool withMod) const
+    {
+        const auto cutoff = cutoffOf (filterIndex, withMod);
+        auto peak = -1.0e9;
+        for (int i = -4; i <= 4; ++i)
+            peak = juce::jmax (peak, 20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (response (filterIndex, cutoff * std::exp2 (0.0625 * i), withMod)))));
+        return (float) peak;
+    }
+
+    // A marker's place before it is kept inside the plot: x at the cutoff
+    // (as set, or with the live modulation), y on the filter's own response
+    // there (UI review 6, V6-18 / S6-21: a filter open at 20 kHz sits high
+    // on the right, not in the corner).
     juce::Point<float> rawMarker (juce::Rectangle<float> plot, int filterIndex, bool withMod) const
     {
         return { plot.getX() + (float) frequencyToX (cutoffOf (filterIndex, withMod)) * plot.getWidth(),
-                 resoToY (plot, readParam (filterIndex == 0 ? "f1_reso" : "f2_reso")) };
+                 plot.getY() + (float) dbToY (markerDb (filterIndex, withMod)) * plot.getHeight() };
     }
 
     std::array<juce::Point<float>, 2> markerCentres (juce::Rectangle<float> plot) const
     {
-        const auto inside = plot.reduced (markerSize * 0.5f + 1.0f);
+        const auto inside = plot.reduced (markerSize * 0.5f + markerInset);
         std::array<juce::Point<float>, 2> centres;
 
         for (int filterIndex = 0; filterIndex < 2; ++filterIndex)
@@ -170,18 +337,30 @@ private:
                                               juce::jlimit (inside.getY(), inside.getBottom(), raw.y) };
         }
 
-        // Overlapping markers fan apart across (filter 1 on the left when
-        // the cutoffs are equal), the pair kept inside the plot.
+        // Overlapping markers fan apart up and down, each kept on its own
+        // cutoff's line (filter 1 above when they are level), the pair kept
+        // inside the plot: side by side they still read as one blob at
+        // 20 kHz (V7-18, UI review 8, V8-9).
         auto& a = centres[0];
         auto& b = centres[1];
-        const auto gap = markerSize + 3.0f;
+        const auto gap = markerSize + 8.0f;
 
-        if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap)
+        if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced() && inside.getHeight() < gap * 1.5f)
         {
+            // (A graph too short to stack them, PLAY's: side by side, with a
+            // clear gap.)
+            const auto wide = markerSize + 24.0f;
             const auto firstLeft = cutoffOf (0, false) <= cutoffOf (1, false);
-            const auto middle = juce::jlimit (inside.getX() + gap * 0.5f, inside.getRight() - gap * 0.5f, (a.x + b.x) * 0.5f);
-            a.x = middle + (firstLeft ? -gap : gap) * 0.5f;
-            b.x = middle + (firstLeft ? gap : -gap) * 0.5f;
+            const auto middle = juce::jlimit (inside.getX() + wide * 0.5f, inside.getRight() - wide * 0.5f, (a.x + b.x) * 0.5f);
+            a.x = middle + (firstLeft ? -wide : wide) * 0.5f;
+            b.x = middle + (firstLeft ? wide : -wide) * 0.5f;
+        }
+        else if (std::abs (a.x - b.x) < gap && std::abs (a.y - b.y) < gap && ! filter2Replaced())
+        {
+            const auto firstAbove = a.y <= b.y + 0.5f;
+            const auto middle = juce::jlimit (inside.getY() + gap * 0.5f, inside.getBottom() - gap * 0.5f, (a.y + b.y) * 0.5f);
+            a.y = middle + (firstAbove ? -gap : gap) * 0.5f;
+            b.y = middle + (firstAbove ? gap : -gap) * 0.5f;
         }
 
         return centres;
@@ -196,9 +375,6 @@ private:
 
     void timerCallback() override
     {
-        // The glow pulses only while notes sound.
-        if (processorRef.getActiveVoiceCount() > 0)
-            pulse += 0.09f * frameTicks();
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         const auto falling = decaying() && juce::Time::getMillisecondCounterHiRes() - lastLiveMs < 4000.0;
@@ -206,7 +382,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
-        if (isShowing() && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -260,16 +436,38 @@ private:
                                      juce::jlimit (0.0, 1.0, morph), cutoff);
     }
 
-    // Marker height <-> resonance, shared by drawing and dragging so the
-    // marker stays under the mouse.
-    static float resoToY (juce::Rectangle<float> plot, float reso)
+    // WEST's gate: the vactrol's 2-pole low-pass (dsp/WestCoast.h) at the
+    // live conductance, or fully open while nothing plays.
+    void drawWestCurve (juce::Graphics& g, juce::Rectangle<float> plot)
     {
-        return plot.getBottom() - (0.08f + juce::jlimit (0.0f, 1.0f, reso) * 0.8f) * plot.getHeight();
-    }
+        const auto& t = WestCoastTuning::get();
+        const auto live = juce::jlimit (0.0f, 1.0f, processorRef.getWestGateLevel());
+        const auto c = (double) (processorRef.getActiveVoiceCount() > 0 ? live : 1.0f);
+        const auto cutoff = (double) t.closedHz * std::pow ((double) t.openHz / (double) t.closedHz, std::pow (c, (double) t.cutoffCurve));
+        const auto damping = 2.0 * (1.0 - 0.9 * (double) juce::jlimit (0.0f, 1.0f, readParam ("west_res"))) * 0.7071;
+        const auto width = juce::jmax (2, (int) plot.getWidth());
+        juce::Path path;
+        for (int x = 0; x < width; x += 2)
+        {
+            const std::complex<double> s (0.0, xToFrequency ((double) x / (double) (width - 1)) / cutoff);
+            const auto h = 1.0 / (s * s + damping * s + 1.0);
+            const auto y = plot.getY() + (float) dbToY (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) * plot.getHeight();
+            if (x == 0)
+                path.startNewSubPath (plot.getX() + (float) x, y);
+            else
+                path.lineTo (plot.getX() + (float) x, y);
+        }
+        juce::Path dashed;
+        const float dashes[] { 5.0f, 4.0f };
+        juce::PathStrokeType (1.4f).createDashedStroke (dashed, path, dashes, 2);
+        g.setColour (FilterColours::west().withAlpha (0.85f));
+        g.fillPath (dashed);
 
-    static float yToReso (juce::Rectangle<float> plot, float y)
-    {
-        return juce::jlimit (0.0f, 1.0f, ((plot.getBottom() - y) / plot.getHeight() - 0.08f) / 0.8f);
+        // Named at its knee.
+        const auto kneeX = plot.getX() + (float) frequencyToX (juce::jlimit (40.0, 12000.0, cutoff)) * plot.getWidth();
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText ("WEST", juce::Rectangle<float> (kneeX - 44.0f, plot.getY() + (float) dbToY (0.0) * plot.getHeight() - 15.0f, 40.0f, 12.0f),
+                    juce::Justification::centredRight);
     }
 
     // The response as set (solid, glowing), or with the modulation (faint).
@@ -307,21 +505,27 @@ private:
 
         if (withMod)
         {
-            g.setColour (colour.withAlpha (parallel ? 0.22f : 0.3f));
-            g.strokePath (path, juce::PathStrokeType (1.2f));
+            // The modulated shadow: the same round-capped trace, thinner and faint.
+            IlanaTrace::paintTrace (g, path, colour.withAlpha (parallel ? 0.22f : 0.3f), 1.2f);
             return;
         }
 
-        g.setColour (colour.withAlpha ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse))));
-        g.strokePath (path, juce::PathStrokeType (parallel ? 4.0f : 5.0f));
+        // A filter that passes everything draws quietly (V8-39). The look is
+        // the oscillator, LFO and envelope displays' (DisplayStyle.h): one
+        // 1.6 px round trace and a soft fill under the filter that ends the
+        // chain (F1 alone, or both in series); parallel is thinner so the
+        // two read as a pair.
+        const auto open = (isPassThrough (processorRef, filterIndex) ? 0.45f : 1.0f) * (voiceOff ? 0.5f : 1.0f);
 
-        g.setColour (colour.withAlpha (parallel ? 0.55f : 0.95f));
-        g.strokePath (path, juce::PathStrokeType (parallel ? 1.2f : 1.8f));
+        if (! parallel && filterIndex == 0)
+            IlanaTrace::paintArea (g, path, colour.withAlpha (open), plot.getBottom(), plot.getX(), plot.getRight());
+
+        IlanaTrace::paintTrace (g, path, colour.withAlpha (open * (parallel ? 0.7f : 1.0f)), parallel ? 1.2f : IlanaTrace::width);
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot)
     {
-        processorRef.copyScopeData (scopeL.data(), scopeR.data(), fftSize);
+        processorRef.copyScopeDataSmooth (scopeL.data(), scopeR.data(), fftSize);
         const auto sampleRate = juce::jmax (8000.0, processorRef.getCurrentSampleRate());
 
         for (int i = 0; i < fftSize; ++i)
@@ -386,6 +590,48 @@ private:
         g.fillPath (path);
     }
 
+    // "F1  3.2 kHz  ·  RESO 35%" beside a marker: its cutoff and resonance in
+    // numbers, on the side with room.
+    void drawReadout (juce::Graphics& g, juce::Rectangle<float> plot, juce::Point<float> centre, int filterIndex) const
+    {
+        const auto cutoff = readParam (filterIndex == 0 ? "f1_cutoff" : "f2_cutoff");
+        const auto reso = readParam (filterIndex == 0 ? "f1_reso" : "f2_reso");
+        const auto hz = cutoff >= 1000.0f ? juce::String (cutoff / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (cutoff)) + " Hz";
+        const auto text = "F" + juce::String (filterIndex + 1) + "  " + hz + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  RESO ")) + juce::String (juce::roundToInt (reso * 100.0f)) + "%";
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+        const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 12.0f;
+        const auto onLeft = centre.x + markerSize + 6.0f + width > plot.getRight();
+        auto box = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y });
+        box = box.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, box.getY()));
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.72f));
+        g.fillRoundedRectangle (box, 7.0f);
+        g.setColour (filterColour (filterIndex).withAlpha (0.5f));
+        g.drawRoundedRectangle (box.reduced (0.5f), 7.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (font);
+        IlanaTheme::drawFitted (g, text, box.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
+    }
+
+    // "FILTER OFF · a DX7 voice has no filter": a plate over the dimmed curves.
+    void drawVoiceOff (juce::Graphics& g, juce::Rectangle<float> bounds) const
+    {
+        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.5f));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        const auto plate = juce::Rectangle<float> (juce::jmin (bounds.getWidth() - 40.0f, 520.0f), juce::jmin (bounds.getHeight() - 8.0f, 58.0f)).withCentre (bounds.getCentre());
+        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.94f));
+        g.fillRoundedRectangle (plate, 8.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (plate.reduced (0.5f), 8.0f, 1.0f);
+        auto inner = plate.reduced (12.0f, 6.0f).toNearestInt();
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        IlanaTheme::drawFitted (g, juce::String ("FILTER OFF") + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + "a DX7 voice has no filter",
+                                inner.removeFromTop (inner.getHeight() / 2 + 2), juce::Justification::centred, 1);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        IlanaTheme::drawFitted (g, "Turn a CUTOFF down to bring one in.", inner, juce::Justification::centred, 1);
+    }
+
     // The set value: a solid, numbered marker (the one you drag; its height
     // is the resonance), with a faint line at its cutoff to the curve's
     // corner.
@@ -406,12 +652,16 @@ private:
 
     // Where the modulation has the cutoff right now: a faint ring on the set
     // marker's line, tied to it by a thin stroke.
+    juce::Point<float> modRingCentre (juce::Rectangle<float> plot, int filterIndex, juce::Point<float> setCentre) const
+    {
+        const auto inside = plot.reduced (markerSize * 0.5f + markerInset);
+        return { juce::jlimit (inside.getX(), inside.getRight(), rawMarker (plot, filterIndex, true).x), setCentre.y };
+    }
+
     void drawModMarker (juce::Graphics& g, juce::Rectangle<float> plot, int filterIndex, juce::Point<float> setCentre,
                         juce::Colour colour) const
     {
-        const auto inside = plot.reduced (markerSize * 0.5f + 1.0f);
-        const juce::Point<float> live (juce::jlimit (inside.getX(), inside.getRight(), rawMarker (plot, filterIndex, true).x),
-                                       setCentre.y);
+        const auto live = modRingCentre (plot, filterIndex, setCentre);
 
         if (live.getDistanceFrom (setCentre) < 2.0f)
             return;
@@ -420,6 +670,8 @@ private:
         g.drawLine ({ setCentre, live }, 1.0f);
         g.setColour (colour.withAlpha (0.55f));
         g.drawEllipse (juce::Rectangle<float> (markerSize - 1.0f, markerSize - 1.0f).withCentre (live), 1.3f);
+        // (No "MOD" word: it landed on the curve or a marker wherever the
+        // modulation took it, V7-18 / S7-11. The ring's tooltip names it.)
     }
 
     // Drag anywhere on the graph: the nearest filter's marker follows the
@@ -431,6 +683,8 @@ private:
         endGestures();
         draggingFilter = filterAt (event.position);
         dragOffset = {};
+        dragStartY = event.position.y;
+        dragStartReso = draggingFilter >= 0 ? readParam (draggingFilter == 0 ? "f1_reso" : "f2_reso") : 0.0f;
 
         if (draggingFilter >= 0)
         {
@@ -464,7 +718,9 @@ private:
         const auto position = mouse + dragOffset;
         const auto proportion = (double) juce::jlimit (0.0f, 1.0f, (position.x - plot.getX()) / plot.getWidth());
         const auto frequency = juce::jlimit (20.0, 20000.0, xToFrequency (proportion));
-        const auto reso = yToReso (plot, position.y);
+        // The marker rides on the response, so up and down move the
+        // resonance from where it was: the plot's height is the whole range.
+        const auto reso = juce::jlimit (0.0f, 1.0f, dragStartReso + (dragStartY - mouse.y) / juce::jmax (40.0f, plot.getHeight() * 0.8f));
 
         setParameter (draggingFilter == 0 ? "f1_cutoff" : "f2_cutoff", (float) frequency);
         setParameter (draggingFilter == 0 ? "f1_reso" : "f2_reso", reso);
@@ -499,7 +755,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     int draggingFilter = -1;
     juce::Point<float> dragOffset; // a grabbed marker's set place minus the mouse
-    float pulse = 0.0f;
+    float dragStartY = 0.0f, dragStartReso = 0.0f;
     float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
     double lastPaintMs = 0.0, lastLiveMs = 0.0;
 
@@ -513,6 +769,7 @@ private:
     }
     IlanaAnim::ChangeGate changeGate;
     float appear = 1.0f;
+    bool voiceOff = false;
 
     static constexpr int fftSize = 2048;
     juce::dsp::FFT fft { 11 };

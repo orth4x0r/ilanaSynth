@@ -153,6 +153,188 @@ void runLoadVoiceTest()
     const auto out = play (processor, 60, 1.0, 0.5);
     check (peak (out, 0, out.size()) > 0.01f, "operator EG: a loaded DX7 voice plays");
 }
+
+// Renders a note on a DX7 preset, with `during` called on each block's MIDI
+// (to move the wheel, say) and `edit` once at `editAt` seconds.
+std::vector<float> playEdited (IlanaSynthAudioProcessor& processor, double seconds,
+                               const std::function<void (int, juce::MidiBuffer&)>& during = {},
+                               const std::function<void()>& edit = {}, double editAt = 0.0)
+{
+    processor.prepareToPlay (sr, 256);
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 256);
+    const auto editBlock = (int) (editAt * sr / 256);
+    for (int block = 0; block < (int) (seconds * sr / 256); ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+        if (during != nullptr)
+            during (block, midi);
+        if (edit != nullptr && block == editBlock)
+            edit();
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+        for (int i = 0; i < 256; ++i)
+            out.push_back (buffer.getSample (0, i));
+    }
+    return out;
+}
+
+float difference (const std::vector<float>& a, const std::vector<float>& b)
+{
+    auto worst = 0.0f;
+    for (size_t i = 0; i < juce::jmin (a.size(), b.size()); ++i)
+        worst = juce::jmax (worst, std::abs (a[i] - b[i]));
+    return worst;
+}
+
+int presetIndex (const juce::String& name)
+{
+    return IlanaSynthAudioProcessor().getFactoryPresetNames().indexOf (name);
+}
+
+// UI review 6: every DX7 voice names its algorithm (the stored number
+// matches its routing), and each of the 32 sets the routing it names.
+void runDx7AlgorithmTest()
+{
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (sr, 256);
+    const auto names = processor.getFactoryPresetNames();
+    auto voices = 0, matched = 0;
+    juce::String firstMiss;
+    for (int index = 0; index < names.size(); ++index)
+    {
+        if (! names[index].contains ("(ROM") && ! names[index].contains ("(BANK"))
+            continue;
+        processor.loadFactoryPreset (index);
+        const auto stored = juce::roundToInt (read (processor, OperatorEg::dx7AlgorithmId));
+        if (stored <= 0)
+            continue;
+        ++voices;
+        if (processor.findMatchingDx7Algorithm() == stored)
+            ++matched;
+        else if (firstMiss.isEmpty())
+            firstMiss = names[index] + " (stored " + juce::String (stored) + ", matched "
+                        + juce::String (processor.findMatchingDx7Algorithm()) + ")";
+    }
+    check (voices >= 32 && matched == voices, "operator EG: every DX7 voice lights its algorithm (" + juce::String (matched) + " of "
+                                                  + juce::String (voices) + (firstMiss.isNotEmpty() ? ", first miss " + firstMiss : juce::String()) + ")");
+
+    const auto epiano = presetIndex ("E.PIANO 1 (ROM1A)");
+    if (epiano < 0)
+        return;
+    auto allSet = true;
+    juce::String miss;
+    for (int number = 1; number <= 32; ++number)
+    {
+        processor.loadFactoryPreset (epiano);
+        processor.applyDx7Algorithm (number);
+        const auto found = processor.findMatchingDx7Algorithm();
+        if (found != number && miss.isEmpty())
+            miss = juce::String (number) + " matched " + juce::String (found);
+        allSet = allSet && found == number
+                 && juce::roundToInt (read (processor, OperatorEg::dx7AlgorithmId)) == number
+                 && juce::roundToInt (read (processor, "osc6_fb_type")) == FmFeedback::Dx7;
+    }
+    check (allSet, "operator EG: each DX7 algorithm sets its routing, keeps DX7 feedback, and is found again" + (miss.isNotEmpty() ? " (" + miss + ")" : juce::String()));
+
+    // Review 7 (I7-9): the feedback level moves with the algorithm. STRINGS 1
+    // has feedback 7 (50%) on OSC 2 under algorithm 2; algorithm 1 puts it
+    // on OSC 6, and back on 2 it is 50% on OSC 2 again.
+    if (const auto strings = presetIndex ("STRINGS 1 (ROM1A)"); strings >= 0)
+    {
+        processor.loadFactoryPreset (strings);
+        const auto before = read (processor, "fm_fb2");
+        processor.applyDx7Algorithm (1);
+        const auto moved = read (processor, "fm_fb6");
+        processor.applyDx7Algorithm (2);
+        const auto back = read (processor, "fm_fb2");
+        check (before > 0.4f && std::abs (moved - before) < 1.0e-4f && std::abs (back - before) < 1.0e-4f,
+               "operator EG: changing the algorithm keeps the feedback level (" + juce::String (before, 3) + " -> "
+                   + juce::String (moved, 3) + " -> " + juce::String (back, 3) + ")");
+    }
+}
+
+// Turning a knob while a note sounds moves the Operator Env at once, as
+// on a DX7; touching nothing renders the same note twice.
+void runLiveEditTest()
+{
+    const auto epiano = presetIndex ("E.PIANO 1 (ROM1A)");
+    if (epiano < 0)
+        return;
+    IlanaSynthAudioProcessor a, b, c;
+    for (auto* processor : { &a, &b, &c })
+        processor->loadFactoryPreset (epiano);
+    const auto plain = playEdited (a, 1.5);
+    const auto again = playEdited (b, 1.5);
+    const auto edited = playEdited (c, 1.5, {}, [&c]
+    {
+        for (const auto* id : { "osc1_eg_out", "osc3_eg_out", "osc5_eg_out" })
+            setParam (c, id, 60.0f);
+    }, 0.5);
+    check (difference (plain, again) == 0.0f, "operator EG: the same note renders the same");
+    check (difference (plain, edited) > 0.01f && peak (edited, (size_t) (1.2 * sr), (size_t) (1.5 * sr)) < peak (plain, (size_t) (1.2 * sr), (size_t) (1.5 * sr)),
+           "operator EG: lowering the carriers' LEVEL while a note holds lowers it at once");
+}
+
+// The wheel and pressure add vibrato on a DX7 voice, as on the hardware,
+// and do nothing until moved (the voice's own LFO depth is untouched).
+void runWheelTest()
+{
+    const auto index = presetIndex ("E.PIANO 1 (ROM1A)");
+    if (index < 0)
+        return;
+    IlanaSynthAudioProcessor still, atZero, moved, pressed;
+    for (auto* processor : { &still, &atZero, &moved, &pressed })
+        processor->loadFactoryPreset (index);
+    const auto wheel = [] (int value)
+    {
+        return [value] (int block, juce::MidiBuffer& midi)
+        {
+            if (block == 1)
+                midi.addEvent (juce::MidiMessage::controllerEvent (1, 1, value), 0);
+        };
+    };
+    const auto plain = playEdited (still, 2.0);
+    const auto zero = playEdited (atZero, 2.0, wheel (0));
+    const auto full = playEdited (moved, 2.0, wheel (127));
+    const auto pressure = playEdited (pressed, 2.0, [] (int block, juce::MidiBuffer& midi)
+    {
+        if (block == 1)
+            midi.addEvent (juce::MidiMessage::channelPressureChange (1, 127), 0);
+    });
+    check (difference (plain, zero) == 0.0f, "operator EG: the wheel at rest leaves a DX7 voice as it was");
+    check (difference (plain, full) > 0.001f, "operator EG: the wheel adds vibrato to a DX7 voice ("
+                                                  + juce::String (difference (plain, full)) + ")");
+    check (difference (plain, pressure) > 0.001f, "operator EG: pressure adds vibrato to a DX7 voice ("
+                                                      + juce::String (difference (plain, pressure)) + ")");
+}
+
+// The Op LFO and Op Pitch Env are modulation sources like any other.
+void runSourcesTest()
+{
+    const auto index = presetIndex ("E.PIANO 1 (ROM1A)");
+    if (index < 0)
+        return;
+    IlanaSynthAudioProcessor plain, routed;
+    for (auto* processor : { &plain, &routed })
+    {
+        processor->loadFactoryPreset (index);
+        setParam (*processor, "opeg_lfo_speed", 70.0f);
+    }
+    const auto destination = Mod::getDestinationNames().indexOf ("Osc1 Level");
+    setParam (routed, "mod16_src", (float) (int) Mod::Source::OpLfo);
+    setParam (routed, "mod16_dst", (float) destination);
+    setParam (routed, "mod16_amt", 1.0f);
+    const auto names = Mod::getSourceNames();
+    check (names[(int) Mod::Source::OpLfo] == "Op LFO" && names[(int) Mod::Source::OpPitchEnv] == "Op Pitch Env",
+           "operator EG: Op LFO and Op Pitch Env are named sources");
+    check (destination > 0 && difference (playEdited (plain, 1.0), playEdited (routed, 1.0)) > 0.001f,
+           "operator EG: the Op LFO modulates a destination through the matrix");
+    for (const auto* name : { "Osc1 OP ENV Level", "Osc6 OP ENV Attack", "OP LFO Rate", "OP LFO Pitch Depth", "OP PITCH Peak" })
+        check (Mod::getDestinationNames().contains (name), juce::String ("operator EG: \"") + name + "\" is a destination");
+}
 } // namespace OperatorEgTests
 
 void runOperatorEgTests()
@@ -160,4 +342,8 @@ void runOperatorEgTests()
     OperatorEgTests::runOldDx7PatchTest();
     OperatorEgTests::runPlainPatchTest();
     OperatorEgTests::runLoadVoiceTest();
+    OperatorEgTests::runDx7AlgorithmTest();
+    OperatorEgTests::runLiveEditTest();
+    OperatorEgTests::runWheelTest();
+    OperatorEgTests::runSourcesTest();
 }

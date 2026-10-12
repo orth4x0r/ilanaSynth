@@ -4,8 +4,14 @@
 
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 #include "ParamControls.h"
 
+// A modulation source in the bar under the pages: its colour and its full
+// name (never a code: a crowded bar groups chips instead, see
+// ModSourceGroupChip). Drag it onto a knob to modulate the knob; hover to
+// light the knobs it drives (and, after a moment, see where it goes); click
+// to keep them lit.
 class ModSourceChip : public juce::Component,
                       public juce::SettableTooltipClient,
                       private IlanaAnim::FrameTimer
@@ -18,7 +24,7 @@ public:
         if (isMouseOver (true))
             highlightedModSource() = 0;
 
-        if (pinnedModSource() == index)
+        if (pinnedModSource() == index && ! keepsPinOnDelete)
             pinnedModSource() = 0;
     }
 
@@ -26,83 +32,183 @@ public:
         : name (sourceName),
           index (sourceIndex)
     {
-        setTooltip (sourceName + "\nDrag onto any knob to modulate it.  Knobs it already modulates light up while you hover; click to keep them lit, click again to clear.");
+        // The Operator Env's own sources say what they are (review 12, I12-14).
+        const auto own = sourceName == "OP PITCH" ? juce::String ("\nThe DX7 pitch envelope: the operator voice's own, shared by its six operators.")
+                         : sourceName == "OP LFO" ? juce::String ("\nThe DX7 LFO: the operator voice's own, with pitch and amp depth.")
+                                                  : juce::String();
+        setTooltip (ModNames::source (sourceIndex) + own + "\nDrag onto any knob to modulate it.  Click to edit it here, over any page "
+                                                     "(the knobs it drives stay lit while it is open).  The number is how many knobs it moves.");
         startTimerHz (30);
     }
 
     const juce::String& getSourceName() const { return name; }
     int getSourceIndex() const { return index; }
 
-    // A short name ("E6") for when the row is crowded; the tooltip keeps the
-    // full one.
-    void setShortName (const juce::String& text) { shortName = text; }
-    const juce::String& getShortName() const { return shortName.isNotEmpty() ? shortName : name; }
-    bool isCompact() const { return compact; }
-    void setCompact (bool shouldBeCompact)
+    // A chip in a group's tray is rebuilt each time the tray opens; its pin
+    // outlives it.
+    void setKeepsPinOnDelete (bool shouldKeep) { keepsPinOnDelete = shouldKeep; }
+
+    // The width the chip needs for its name (the bar shares out the rest).
+    static float widthFor (const juce::String& text)
     {
-        if (compact != shouldBeCompact)
-        {
-            compact = shouldBeCompact;
-            repaint();
-        }
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true), text) + 28.0f;
+    }
+
+    // (plus room for an LFO's "OUT 2" sub-chip when it has one).
+    static constexpr float secondOutputRoom = 34.0f;
+    float getNaturalWidth() const { return widthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
+
+    // The width the bar plans with: the name measured the same way at every
+    // zoom (the font unsnapped, with room for the snapping to round up), so
+    // the bar folds alike at 75 % and 100 % (V7-39).
+    static float layoutWidthFor (const juce::String& text)
+    {
+        return layoutTextWidth (text) + 28.0f;
+    }
+    float getLayoutWidth() const { return layoutWidthFor (name) + (hasSecondOutput != nullptr && hasSecondOutput() ? secondOutputRoom : 0.0f); }
+
+    static float layoutTextWidth (const juce::String& text)
+    {
+        constexpr auto height = IlanaTheme::TextSize::minInteractive * 1.06f;
+        const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withHeight (height));
+        return std::ceil (juce::GlyphArrangement::getStringWidth (font, text));
     }
 
     // The source's live value (LFO position, envelope level, wheel...); the
     // chip glows with it. Optional.
     std::function<float()> valueProvider;
 
+    // A click opens the source's pop-out editor (the dock, 2026-10-09);
+    // without it a click pins the source, as before.
+    std::function<void (ModSourceChip&)> onClick;
+
+    // How many knobs the source moves now: drawn in its dot. Optional.
+    std::function<int()> routeCount;
+
+    // An LFO whose shape has a second output: a small "OUT 2" at the chip's
+    // right end drags that output instead (spelt out, not a bare "B" that
+    // read as an A/B state: UI review 9, V9-20). Optional.
+    std::function<bool()> hasSecondOutput;
+    int secondIndex = 0;
+
+    // The "OUT 2" sub-chip's bounds, empty while there is none (the UI test reads it).
+    juce::Rectangle<float> getSecondOutputBounds() const
+    {
+        if (hasSecondOutput == nullptr || ! hasSecondOutput())
+            return {};
+
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        return { bounds.getRight() - secondOutputRoom, bounds.getY() + 3.0f, secondOutputRoom - 3.0f, bounds.getHeight() - 6.0f };
+    }
+
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat().reduced (1.5f);
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
         const auto colour = modSourceColour (index);
-        const auto radius = juce::jmin (5.0f, bounds.getHeight() * 0.3f);
+        const auto radius = bounds.getHeight() * 0.5f; // a full pill, as in the mockup
         const auto glow = juce::jlimit (0.0f, 1.0f, activity);
         const auto pinned = isPinned();
         const auto lit = juce::jmax (hover, glow, pinned ? 1.0f : 0.0f);
 
-        // Grey chips; the source's colour is only a dot, which glows while
-        // the source is moving something.
-        if (lit > 0.02f)
-            IlanaTheme::paintGlow (g, bounds, radius, colour, 0.9f * hover + 0.8f * glow);
-
-        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f * hover + 0.1f * glow));
+        // The sheet's chip (.chip): ink 2, a hairline, a 7 px dot in the
+        // source's colour; pinned (.chip.on) the colour at 22 % with a 70 %
+        // rim. The dot breathes while the source is moving something.
+        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (colour, juce::jmax (0.06f * hover + 0.08f * glow, pinned ? 0.22f : 0.0f)));
         g.fillRoundedRectangle (bounds, radius);
-        g.setColour (IlanaTheme::Ui::line.interpolatedWith (colour, 0.7f * lit));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, pinned ? 2.0f : 1.0f);
+        g.setColour (pinned ? colour.withAlpha (0.7f) : IlanaTheme::Ui::line.interpolatedWith (colour, 0.6f * juce::jmax (hover, glow)));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
-
-        // A crowded row's short chips carry their colour as a bar under the
-        // name instead of a dot beside it, so the name keeps the width.
-        if (compact)
+        // The live value as a faint trace across the chip (its last second
+        // or so), so a moving source reads as moving before it is hovered.
+        if (traceFilled > 1 && *std::max_element (trace_.begin(), trace_.end()) > 0.01f)
         {
-            const auto bar = juce::Rectangle<float> (bounds.getWidth() - 10.0f, 2.5f)
-                                 .withCentre ({ bounds.getCentreX(), bounds.getBottom() - 3.5f });
-            g.setColour (colour.withAlpha (0.7f + 0.3f * glow));
-            g.fillRoundedRectangle (bar, 1.25f);
-            g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-            g.drawFittedText (getShortName(), getLocalBounds().reduced (2, 0).withTrimmedBottom (2),
-                              juce::Justification::centred, 1, 0.8f);
-            return;
+            const auto plot = bounds.reduced (radius * 0.6f, 4.0f).withTrimmedLeft (12.0f);
+            juce::Path trace;
+            for (int i = 0; i < traceFilled; ++i)
+            {
+                const auto value = trace_[(size_t) ((tracePos - traceFilled + i + (int) trace_.size()) % (int) trace_.size())];
+                const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (trace_.size() - 1);
+                const auto y = plot.getBottom() - plot.getHeight() * juce::jlimit (0.0f, 1.0f, value);
+                if (i == 0)
+                    trace.startNewSubPath (x, y);
+                else
+                    trace.lineTo (x, y);
+            }
+            g.setColour (colour.withAlpha (0.28f));
+            g.strokePath (trace, juce::PathStrokeType (1.4f));
         }
 
-        const auto gripX = bounds.getX() + 1.0f;
-        const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ gripX + 14.0f, bounds.getCentreY() });
-        g.setColour (colour.withAlpha (0.25f + 0.35f * glow));
-        g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        // The dot: a plain one at rest, as the design draws it; with the
+        // number of knobs it moves in it once it drives any; a halo while it
+        // moves something.
+        const auto routes = routeCount != nullptr ? routeCount() : 0;
+        const auto dotSize = routes > 0 ? 15.0f : 7.0f;
+        const auto dot = juce::Rectangle<float> (dotSize, dotSize).withCentre ({ bounds.getX() + 10.0f + (routes > 0 ? 1.5f : 0.0f), bounds.getCentreY() });
+        if (glow > 0.02f)
+        {
+            g.setColour (colour.withAlpha (0.35f * glow));
+            g.fillEllipse (dot.expanded (1.5f + 2.0f * glow));
+        }
         g.setColour (colour);
         g.fillEllipse (dot);
+        if (routes > 0)
+        {
+            g.setColour (IlanaTheme::Ui::header);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText (juce::String (routes), dot, juce::Justification::centred);
+        }
 
+        const auto second = getSecondOutputBounds();
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
-        g.drawFittedText (name, getLocalBounds().withTrimmedLeft (juce::roundToInt (gripX + 19.0f)).withTrimmedRight (3),
-                          juce::Justification::centred, 1, 0.85f);
+        IlanaTheme::drawFitted (g, name, getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + (routes > 0 ? 21.5f : 18.5f)))
+                                    .withTrimmedRight (second.isEmpty() ? 5 : (int) secondOutputRoom + 4),
+                          juce::Justification::centred, 1);
+
+        if (! second.isEmpty())
+        {
+            const auto hot = highlightedModSource() == secondIndex;
+            g.setColour (colour.withAlpha (hot ? 0.35f : 0.15f));
+            g.fillRoundedRectangle (second, 3.0f);
+            g.setColour (colour.withAlpha (0.8f));
+            g.drawRoundedRectangle (second.reduced (0.5f), 3.0f, 1.0f);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.drawText ("OUT 2", second, juce::Justification::centred);
+        }
     }
 
-    void mouseEnter (const juce::MouseEvent&) override { highlightedModSource() = index; }
+    // Over the "OUT 2" sub-chip the tooltip names it as the shape's second
+    // output (UI review 8, S8-16 / V8-28: a bare "B" read as an A/B state).
+    juce::String getTooltip() override { return tooltipAt (getMouseXYRelative().toFloat()); }
+
+    juce::String tooltipAt (juce::Point<float> position)
+    {
+        if (getSecondOutputBounds().contains (position))
+            return ModNames::source (secondIndex) + "\nThis shape's second output; the chip itself drags its first. "
+                                                    "Drag OUT 2 onto a knob to modulate that knob with it.";
+        return juce::SettableTooltipClient::getTooltip();
+    }
+
+    // Which output the mouse is over: the "OUT 2" sub-chip's, or the chip's own.
+    int sourceAt (juce::Point<float> position) const
+    {
+        return getSecondOutputBounds().contains (position) ? secondIndex : index;
+    }
+
+    void mouseEnter (const juce::MouseEvent& event) override { highlightedModSource() = sourceAt (event.position); }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        if (highlightedModSource() != sourceAt (event.position))
+        {
+            highlightedModSource() = sourceAt (event.position);
+            repaint();
+        }
+    }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (highlightedModSource() == index)
+        if (highlightedModSource() == index || (secondIndex != 0 && highlightedModSource() == secondIndex))
             highlightedModSource() = 0;
     }
 
@@ -118,18 +224,25 @@ public:
     void mouseUp (const juce::MouseEvent& event) override
     {
         if (! event.mouseWasDraggedSinceMouseDown() && ! event.mods.isPopupMenu() && getLocalBounds().contains (event.getPosition()))
-            togglePinned();
+        {
+            if (onClick != nullptr)
+                onClick (*this);
+            else
+                togglePinned();
+        }
     }
 
-    void mouseDrag (const juce::MouseEvent&) override
+    void mouseDrag (const juce::MouseEvent& event) override
     {
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (getLocalBounds(), true, 1.0f);
+                const auto second = getSecondOutputBounds();
+                const auto dragsSecond = second.contains (event.mouseDownPosition);
+                auto image = createComponentSnapshot (dragsSecond ? second.toNearestInt() : getLocalBounds(), true, 1.0f);
                 image.multiplyAllAlphas (0.75f);
-                container->startDragging ("modsource:" + juce::String (index), this,
+                container->startDragging ("modsource:" + juce::String (dragsSecond ? secondIndex : index), this,
                                           juce::ScaledImage (image), true);
             }
         }
@@ -138,7 +251,7 @@ public:
 private:
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         auto changed = false;
@@ -151,15 +264,45 @@ private:
             changed = true;
         }
 
+        if (const auto second = hasSecondOutput != nullptr && hasSecondOutput(); second != showsSecond)
+        {
+            showsSecond = second;
+            changed = true;
+        }
+
         if (std::abs (hover - target) >= 0.005f)
         {
             hover = IlanaAnim::approach (hover, target, 0.22f, frameTicks());
             changed = true;
         }
 
+        // Resting on the chip (not dragging it) shows where the source goes.
+        const auto resting = isMouseOver() && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
+        if (resting && hoverRest < 0.6f && (hoverRest += frameSeconds()) >= 0.6f && modHoverHooks().showSource != nullptr)
+            modHoverHooks().showSource (*this, index);
+        else if (! resting)
+            hoverRest = 0.0f;
+
         if (valueProvider != nullptr)
         {
             const auto value = std::abs (valueProvider());
+
+            // The trace: one point every other frame (about 1.3 s across).
+            if ((traceTick = (traceTick + 1) % 2) == 0)
+            {
+                const auto last = trace_[(size_t) ((tracePos + (int) trace_.size() - 1) % (int) trace_.size())];
+                trace_[(size_t) tracePos] = juce::jlimit (0.0f, 1.0f, value);
+                tracePos = (tracePos + 1) % (int) trace_.size();
+                traceFilled = juce::jmin ((int) trace_.size(), traceFilled + 1);
+                changed = changed || std::abs (last - value) > 0.002f || value > 0.002f;
+            }
+
+            if (routeCount != nullptr)
+                if (const auto routes = routeCount(); routes != shownRoutes)
+                {
+                    shownRoutes = routes;
+                    changed = true;
+                }
             const auto next = IlanaAnim::approach (activity, juce::jlimit (0.0f, 1.0f, value), 0.35f, frameTicks());
 
             if (std::abs (next - activity) > 0.01f)
@@ -173,10 +316,264 @@ private:
             repaint();
     }
 
-    juce::String name, shortName;
+    juce::String name;
     int index = 0;
-    bool compact = false;
-    bool wasPinned = false;
+    bool wasPinned = false, keepsPinOnDelete = false;
+    bool showsSecond = false;
     float hover = 0.0f;
     float activity = 0.0f;
+    float hoverRest = 0.0f;
+    std::array<float, 40> trace_ {};
+    int tracePos = 0, traceFilled = 0, traceTick = 0, shownRoutes = -1;
+};
+
+// When a region of the bar can't fit every chip (the LFOs, the envelopes,
+// the performance sources), it folds its last chips into one chip at its
+// end, "+4", with a dot per source in its colour (one look for all three:
+// the region says which group). Hover or click it to open a tray of those
+// chips above it; they drag and pin like any other.
+class ModSourceGroupChip : public juce::Component,
+                           public juce::SettableTooltipClient,
+                           private IlanaAnim::FrameTimer
+{
+public:
+    explicit ModSourceGroupChip (const juce::String& groupName) : group (groupName)
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        startTimerHz (30);
+    }
+
+    // Opens (or closes) the tray of this group's chips.
+    std::function<void (ModSourceGroupChip&)> onOpen;
+
+    void setSources (const std::vector<int>& newSources)
+    {
+        if (newSources == sources)
+            return;
+
+        sources = newSources;
+        juce::StringArray names;
+        for (const auto source : sources)
+            names.add (ModNames::sourceUpper (source));
+        setTooltip (group + ": " + names.joinIntoString (",  ") + "\nHover or click to show them; drag one onto a knob to modulate it.");
+        repaint();
+    }
+
+    const std::vector<int>& getSources() const { return sources; }
+    juce::String getLabel() const { return juce::String ((int) sources.size()) + " MORE"; }
+    const juce::String& getGroupName() const { return group; }
+    float getNaturalWidth() const { return widthFor ({}, (int) sources.size()); }
+
+    float getLayoutWidth() const { return layoutWidthFor ({}, (int) sources.size()); }
+    static float layoutWidthFor (const juce::String&, int count)
+    {
+        return ModSourceChip::layoutTextWidth (juce::String (count) + " MORE") + extraWidth;
+    }
+
+    // Room beside the "+N": its members' dots at the left, where a chip's dot
+    // sits, and the caret at the right, with a chip's padding round them.
+    static constexpr float extraWidth = 46.0f;
+
+    // The width a group chip of n sources needs.
+    static float widthFor (const juce::String&, int count)
+    {
+        return (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true),
+                                                                 juce::String (count) + " MORE")
+               + extraWidth;
+    }
+
+    void setOpen (bool shouldBeOpen)
+    {
+        if (open != shouldBeOpen)
+        {
+            open = shouldBeOpen;
+            repaint();
+        }
+    }
+
+    bool isOpen() const { return open; }
+
+    // A pill like the source chips (design: the dock's chips), its members'
+    // colours as a small stack of dots where a chip's dot sits, then "+N"
+    // and a caret.
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto radius = bounds.getHeight() * 0.5f;
+        const auto lit = juce::jmax (hover, open ? 1.0f : 0.0f);
+
+        g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.05f * lit));
+        g.fillRoundedRectangle (bounds, radius);
+        g.setColour (IlanaTheme::Ui::line.interpolatedWith (IlanaTheme::Ui::text2, 0.6f * lit));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+
+        const auto count = juce::jmin ((int) sources.size(), 3);
+        const auto pitch = 4.5f;
+        for (int i = count - 1; i >= 0; --i)
+        {
+            const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getX() + 10.0f + pitch * (float) i, bounds.getCentreY() });
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillEllipse (dot.expanded (1.0f));
+            g.setColour (modSourceColour (sources[(size_t) i]));
+            g.fillEllipse (dot);
+        }
+
+        auto text = getLocalBounds().withTrimmedLeft (juce::roundToInt (bounds.getX() + 10.0f + pitch * (float) juce::jmax (0, count - 1) + 8.0f))
+                        .withTrimmedRight (6);
+        const auto caret = text.removeFromRight (10).toFloat();
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
+        g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, lit));
+        IlanaTheme::drawFitted (g, getLabel(), text, juce::Justification::centred, 1);
+
+        juce::Path down;
+        const auto c = caret.getCentre();
+        down.addTriangle (c.x - 3.0f, c.y - 1.5f, c.x + 3.0f, c.y - 1.5f, c.x, c.y + 2.0f);
+        g.fillPath (down);
+    }
+
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (! event.mouseWasDraggedSinceMouseDown() && getLocalBounds().contains (event.getPosition()) && onOpen != nullptr)
+            onOpen (*this);
+    }
+
+private:
+    void timerCallback() override
+    {
+        if (! IlanaAnim::showing (*this))
+            return;
+
+        const auto target = isMouseOver() ? 1.0f : 0.0f;
+
+        if (std::abs (hover - target) >= 0.005f)
+        {
+            hover = IlanaAnim::approach (hover, target, 0.22f, frameTicks());
+            repaint();
+        }
+
+        // Resting on it opens the tray (a click opens it at once).
+        if (isMouseOver() && ! open && (rest += frameSeconds()) > 0.3f && onOpen != nullptr)
+        {
+            rest = 0.0f;
+            onOpen (*this);
+        }
+        else if (! isMouseOver())
+        {
+            rest = 0.0f;
+        }
+    }
+
+    juce::String group;
+    std::vector<int> sources;
+    bool open = false;
+    float hover = 0.0f, rest = 0.0f;
+};
+
+// The tray a group chip opens: its sources as full chips, in a row above
+// the bar (more rows when long). Closes a moment after the mouse leaves it
+// and its group chip, never in the middle of a drag.
+class ModSourceTray : public juce::Component,
+                      private IlanaAnim::FrameTimer
+{
+public:
+    std::function<std::unique_ptr<ModSourceChip> (int source)> makeChip;
+
+    void openFor (ModSourceGroupChip& groupChip)
+    {
+        if (owner != nullptr)
+            owner->setOpen (false);
+
+        owner = &groupChip;
+        owner->setOpen (true);
+        chips.clear();
+
+        for (const auto source : groupChip.getSources())
+            if (makeChip != nullptr)
+                if (auto chip = makeChip (source))
+                {
+                    chip->setKeepsPinOnDelete (true);
+                    addAndMakeVisible (*chip);
+                    chips.push_back (std::move (chip));
+                }
+
+        layout();
+        leaveSeconds = 0.0f;
+        setVisible (true);
+        toFront (false);
+        startTimerHz (30);
+    }
+
+    void close()
+    {
+        if (owner != nullptr)
+            owner->setOpen (false);
+
+        owner = nullptr;
+        setVisible (false);
+        stopTimer();
+        chips.clear();
+    }
+
+    bool isOpenFor (const ModSourceGroupChip& groupChip) const { return isVisible() && owner.getComponent() == &groupChip; }
+    const std::vector<std::unique_ptr<ModSourceChip>>& getChips() const { return chips; }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.28f));
+        g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f), 7.0f);
+        g.setColour (IlanaTheme::Ui::panel);
+        g.fillRoundedRectangle (bounds, 7.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds, 7.0f, 1.0f);
+    }
+
+private:
+    static constexpr int chipHeight = 24, pad = 6, perRow = 6;
+
+    void layout()
+    {
+        auto* parent = getParentComponent();
+
+        if (parent == nullptr || owner == nullptr || chips.empty())
+            return;
+
+        const auto rows = ((int) chips.size() + perRow - 1) / perRow;
+        auto widest = 0.0f;
+        for (auto& chip : chips)
+            widest = juce::jmax (widest, chip->getNaturalWidth());
+
+        const auto columns = juce::jmin ((int) chips.size(), perRow);
+        const auto chipWidth = (int) std::ceil (widest) + 4;
+        const auto width = columns * chipWidth + pad * 2;
+        const auto height = rows * chipHeight + pad * 2;
+        const auto anchor = parent->getLocalArea (owner.getComponent(), owner->getLocalBounds());
+        // Over its chip, starting at the chip's left edge (V7-6), kept on screen.
+        const auto x = juce::jlimit (6, juce::jmax (6, parent->getWidth() - width - 6), anchor.getX() - pad);
+        setBounds (x, anchor.getY() - height - 3, width, height);
+
+        for (int i = 0; i < (int) chips.size(); ++i)
+            chips[(size_t) i]->setBounds (pad + (i % perRow) * chipWidth, pad + (i / perRow) * chipHeight, chipWidth, chipHeight);
+    }
+
+    void timerCallback() override
+    {
+        if (owner == nullptr || ! owner->isVisible())
+        {
+            close();
+            return;
+        }
+
+        auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this);
+        const auto dragging = container != nullptr && container->isDragAndDropActive();
+
+        if (dragging || isMouseOver (true) || owner->isMouseOver (true))
+            leaveSeconds = 0.0f;
+        else if ((leaveSeconds += frameSeconds()) > 0.4f)
+            close();
+    }
+
+    juce::Component::SafePointer<ModSourceGroupChip> owner;
+    std::vector<std::unique_ptr<ModSourceChip>> chips;
+    float leaveSeconds = 0.0f;
 };

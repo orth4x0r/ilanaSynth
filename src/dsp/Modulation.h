@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include <array>
+#include <utility>
 #include <cmath>
 #include <vector>
 
@@ -47,6 +48,9 @@ enum class Source
     VectorX, VectorY,
     // Macros 5-8 (appended after the review; 1-4 keep their indices).
     Macro5, Macro6, Macro7, Macro8,
+    // Review 6: the Operator Env's own LFO and pitch envelope (the DX7's),
+    // per voice, -1..1; 0 while no oscillator plays the Operator Env.
+    OpLfo, OpPitchEnv,
     Count
 };
 
@@ -113,7 +117,8 @@ inline bool isBipolarSource (Source source)
             return true;
         default:
             return (source >= Source::Lfo5 && source <= Source::Lfo16)
-                   || (source >= Source::Lfo1B && source <= Source::Lfo16B);
+                   || (source >= Source::Lfo1B && source <= Source::Lfo16B)
+                   || source == Source::OpLfo || source == Source::OpPitchEnv;
         // (VectorX / VectorY run 0..1.)
     }
 }
@@ -129,6 +134,7 @@ inline bool isPerVoiceSource (Source source)
     {
         case Source::ModEnv: case Source::FilterEnv: case Source::AmpEnv: case Source::Velocity:
         case Source::KeyTrack: case Source::Random: case Source::Env4: case Source::FilterEnv2:
+        case Source::OpLfo: case Source::OpPitchEnv:
             return true;
         default:
             return false;
@@ -361,7 +367,7 @@ inline const std::vector<ParamDestination>& getParamDestinations()
     static const bool extended = []
     {
         static std::vector<juce::String> storage;
-        storage.reserve (512);
+        storage.reserve (2048);
         const auto add = [] (const juce::String& id, const juce::String& name)
         {
             storage.push_back (id);
@@ -469,6 +475,129 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         // is rebuilt on the spectral worker (SpectralCache, 64 steps).
         for (int osc = 0; osc < 6; ++osc)
             add (juce::String (prefixes[osc]) + "_spectral_amt", "Osc" + juce::String (osc + 1) + " Spectral Amount");
+
+        // Review 6 (append only): the Operator Env, so its main knobs take
+        // modulation like every other envelope's. Read at block rate into
+        // the voice the engine plays; a sounding note follows the change.
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " OP ENV ";
+            add (prefix + "_eg_out", name + "Level");
+            // Review 7: times, as the knobs read them (a positive amount
+            // lengthens the stage; the processor turns it into a slower rate).
+            add (prefix + "_eg_r1", name + "Attack");
+            add (prefix + "_eg_r4", name + "Release");
+        }
+        add ("opeg_lfo_speed", "OP LFO Rate");
+        add ("opeg_lfo_pmd", "OP LFO Pitch Depth");
+        add ("opeg_lfo_amd", "OP LFO Amp Depth");
+        add ("opeg_pitch_l1", "OP PITCH Peak");
+
+        // Review 7 (append only): every other knob that draws a ring takes
+        // a source too (I7-5). All are plain parameters read at block rate,
+        // as above; counts, seeds, notes and step lengths stay unmodulated
+        // and their knobs say so.
+        using Pair = std::pair<const char*, const char*>;
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " OP ENV ";
+            for (const auto& [suffix, label] : { Pair { "_eg_r2", "Decay 1" }, Pair { "_eg_r3", "Decay 2" },
+                                                 Pair { "_eg_l1", "Peak" }, Pair { "_eg_l2", "Mid" },
+                                                 Pair { "_eg_l3", "Sustain" }, Pair { "_eg_l4", "End" },
+                                                 Pair { "_eg_rate_key", "Key Rate" }, Pair { "_eg_break", "Scale Key" },
+                                                 Pair { "_eg_ldepth", "Low Depth" }, Pair { "_eg_rdepth", "High Depth" },
+                                                 Pair { "_eg_ams", "Amp Mod" }, Pair { "_eg_vel", "Velocity" } })
+                add (prefix + suffix, name + label);
+        }
+        for (const auto& [id, label] : { Pair { "opeg_pitch_r1", "OP PITCH Attack" }, Pair { "opeg_pitch_r2", "OP PITCH Decay 1" },
+                                         Pair { "opeg_pitch_r3", "OP PITCH Decay 2" }, Pair { "opeg_pitch_r4", "OP PITCH Release" },
+                                         Pair { "opeg_pitch_l2", "OP PITCH Mid" }, Pair { "opeg_pitch_l3", "OP PITCH Sustain" },
+                                         Pair { "opeg_pitch_l4", "OP PITCH End" }, Pair { "opeg_lfo_delay", "OP LFO Delay" },
+                                         Pair { "opeg_lfo_pms", "OP LFO Pitch Sens" }, Pair { "opeg_key_offset", "OP ENV Scale Shift" } })
+            add (id, label);
+
+        // The LFOs' shape knobs (chaos, physics), smoothing, stereo offset
+        // and start phase.
+        for (int lfo = 1; lfo <= 16; ++lfo)
+        {
+            const auto prefix = "lfo" + juce::String (lfo);
+            const auto name = "LFO" + juce::String (lfo) + " ";
+            for (int param = 1; param <= 6; ++param)
+                add (prefix + "_p" + juce::String (param), name + "Shape " + juce::String (param));
+            add (prefix + "_phys_a", name + "Physics A");
+            add (prefix + "_phys_b", name + "Physics B");
+            add (prefix + "_smooth", name + "Smooth");
+            add (prefix + "_stereo", name + "Stereo");
+            add (prefix + "_phase", name + "Start Phase");
+        }
+
+        for (int macro = 1; macro <= 8; ++macro)
+        {
+            add ("macro" + juce::String (macro) + "_evolve", "Macro " + juce::String (macro) + " Evolve");
+            add ("macro" + juce::String (macro) + "_evolve_rate", "Macro " + juce::String (macro) + " Evolve Rate");
+        }
+
+        // The Airwindows modules: the all-in-one (type 30), then the ten
+        // category modules in Categories.h order.
+        for (const auto* module : { "aw", "awtape", "awsat", "awverb", "awdelay", "awmod", "awdyn", "aweq", "awcons",
+                                    "awlofi", "awstereo" })
+        {
+            const auto prefix = "fx_" + juce::String (module);
+            for (int knob = 1; knob <= 5; ++knob)
+                add (prefix + "_p" + juce::String (knob), "Airwindows " + juce::String (module) + " " + juce::String (knob));
+            add (prefix + "_mix", "Airwindows " + juce::String (module) + " Mix");
+        }
+
+        // The envelopes' other stages and settings: the five classic ones
+        // (the filter envelope's velocity is filter_velocity), then ENV 6-16.
+        for (const auto* env : { "amp", "fe", "f2e", "me", "e4" })
+            for (const auto* field : { "delay", "hold", "curve", "keyrate", "velocity" })
+                add (juce::String (env) == "fe" && juce::String (field) == "velocity" ? juce::String ("filter_velocity")
+                                                                                      : juce::String (env) + "_" + field,
+                     juce::String (env) + " Env " + field);
+        for (int env = 6; env <= 16; ++env)
+            for (const auto* field : { "attack", "decay", "sustain", "release", "delay", "hold", "curve", "keyrate", "velocity" })
+                add ("env" + juce::String (env) + "_" + field, "Env" + juce::String (env) + " " + field);
+        add ("f1_keytrack", "Filter1 Key Track");
+        add ("f2_keytrack", "Filter2 Key Track");
+        add ("res_keytrack", "Resonator Key Track");
+
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_ratio", name + "Ratio");
+            add (prefix + "_fixed_hz", name + "Fixed Freq");
+            add (prefix + "_grain_spread", name + "Grain Spread");
+            add (prefix + "_sample_fade_in", name + "Sample Fade In");
+            add (prefix + "_sample_fade_out", name + "Sample Fade Out");
+            add (prefix + "_string_pick_hardness", name + "Pick Hardness");
+            add (prefix + "_string_pick_pos", name + "Pick Position");
+            add (prefix + "_string_pickup", name + "Pickup Position");
+            add (prefix + "_fb_distance", name + "Feedback Distance");
+        }
+
+        add ("voice_spread", "Voice Spread");
+        add ("unison_random", "Unison Random");
+        add ("west_res", "West Resonance");
+        add ("fx_eq_low_freq", "EQ Low Freq");
+        add ("fx_eq_high_freq", "EQ High Freq");
+        add ("fx_eq_mid_q", "EQ Mid Q");
+        add ("sym_amount", "Sympathetic Amount");
+        add ("sym_decay", "Sympathetic Decay");
+        add ("vec_rate", "Vector Path Rate");
+        add ("vec_drift", "Vector Wander");
+        add ("vec_drift_rate", "Vector Wander Rate");
+        add ("spray_strum_time", "Spray Strum Time");
+        add ("spray_velocity", "Spray Velocity");
+        // FX type 42, FILTER (append only).
+        add ("fx_filter_cutoff", "Filter FX Cutoff");
+        add ("fx_filter_reso", "Filter FX Reso");
+        add ("fx_filter_drive", "Filter FX Drive");
+        add ("fx_filter_morph", "Filter FX Morph");
+        add ("fx_filter_spread", "Filter FX Spread");
         return true;
     }();
     juce::ignoreUnused (extended);
@@ -547,7 +676,8 @@ enum class Polarity
 {
     Natural = 0,   // the source's own range (LFOs swing, envelopes rise)
     Unipolar,      // 0..1: only pushes the knob one way
-    Bipolar        // -1..1: swings either side of the knob
+    Bipolar,       // -1..1: swings either side of the knob
+    Negative       // 0..-1: only pushes the knob down (appended: 2026-10-10)
 };
 
 struct Slot
@@ -559,6 +689,10 @@ struct Slot
     Polarity polarity = Polarity::Natural;
     Source aux = Source::None;
     bool bypass = false;
+    // On a filter cutoff: the left channel moves by the amount and the right by minus it.
+    bool stereo = false;
+    // Set by the processor when a source or via of this route is an LFO that runs per voice (retrigger or key track).
+    bool perVoiceLfo = false;
     // The slot's drawn remap curve (Vital's per-route remap): remapSize + 1
     // values in -1..1 over the source's range, or nullptr for a straight line.
     const float* remap = nullptr;
@@ -569,16 +703,79 @@ struct Slot
     }
 };
 
+// The spectral warp amounts are parameter destinations, but a route fed by a
+// per-note source (an envelope, velocity, key track, random) is worked out per
+// voice, so every voice morphs by its own amount. Returns the oscillator
+// (0-5) whose SPEC AMT the destination is, or -1.
+inline int spectralOscFor (int destination)
+{
+    static const auto first = []
+    {
+        std::array<int, 6> ids {};
+        const char* prefixes[] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+        for (int osc = 0; osc < 6; ++osc)
+            ids[(size_t) osc] = destinationForParamId (juce::String (prefixes[osc]) + "_spectral_amt");
+        return ids;
+    }();
+
+    for (int osc = 0; osc < 6; ++osc)
+        if (first[(size_t) osc] > 0 && first[(size_t) osc] == destination)
+            return osc;
+
+    return -1;
+}
+
 // M6b: 64 slots. Slots 1-32 keep their parameter IDs; 33-64 are appended.
 constexpr int maxSlots = 64;
 constexpr int remapSize = 256;
+
+// Stereo routes into a filter cutoff are summed per voice into two internal
+// destinations just past the explicit ones (never stored in a patch): the
+// left channel gets +sum, the right -sum. Returns the internal index
+// (Count or Count + 1) for a stereo slot on Filter 1 / 2 Cutoff, else -1.
+constexpr int numStereoDestinations = 2;
+inline int stereoTargetFor (const Slot& slot)
+{
+    if (! slot.stereo)
+        return -1;
+
+    return slot.destination == (int) Destination::Filter1Cutoff ? (int) Destination::Count
+         : slot.destination == (int) Destination::Filter2Cutoff ? (int) Destination::Count + 1 : -1;
+}
+
+// A route into a spectral amount that the voices evaluate themselves.
+inline bool isVoiceSpectralSlot (const Slot& slot)
+{
+    return spectralOscFor (slot.destination) >= 0 && (slot.perVoiceLfo || isPerVoiceSource (slot.source) || isPerVoiceSource (slot.aux));
+}
+
+// How the interface reads a route's amount (2026-10-10). A bipolar route
+// swings `depth` either side of the knob, so it covers twice that of the
+// knob's whole range: the amount shown is the share of the range the swing
+// covers from end to end, so a bipolar 100 % sweeps the knob from its
+// minimum to its maximum (it used to take 50 % to do that). A one-way route
+// shows its depth as it is. Nothing stored or heard changes.
+inline bool isBipolarRoute (const Slot& slot)
+{
+    return slot.polarity == Polarity::Bipolar || (slot.polarity == Polarity::Natural && isBipolarSource (slot.source));
+}
+
+inline int shownPercent (float depth, bool bipolar) { return (int) std::lround (depth * (bipolar ? 200.0f : 100.0f)); }
+inline float depthFromShownPercent (float percent, bool bipolar) { return percent / (bipolar ? 200.0f : 100.0f); }
+
+// The depth as the rings and bars draw it: a Negative route points down, so
+// its stored (positive) depth reads as a negative one.
+inline float visualDepth (const Slot& slot) { return slot.polarity == Polarity::Negative ? -slot.depth : slot.depth; }
+inline float storedDepth (const Slot& slot, float visual) { return slot.polarity == Polarity::Negative ? -visual : visual; }
 
 // Shapes a raw source value by the slot's polarity and curve.
 inline float shape (const Slot& slot, float value)
 {
     const auto bipolarSource = isBipolarSource (slot.source);
+    const auto negative = slot.polarity == Polarity::Negative;
 
-    if (slot.polarity == Polarity::Unipolar && bipolarSource)
+    // Negative is Unipolar turned over: the same 0..1, then minus.
+    if ((slot.polarity == Polarity::Unipolar || negative) && bipolarSource)
         value = 0.5f * (value + 1.0f);
     else if (slot.polarity == Polarity::Bipolar && ! bipolarSource)
         value = 2.0f * value - 1.0f;
@@ -602,7 +799,7 @@ inline float shape (const Slot& slot, float value)
         value = bipolar ? y : 0.5f * (y + 1.0f);
     }
 
-    return value;
+    return negative ? -value : value;
 }
 
 // Aux ("via") sources scale a slot's amount, always as 0..1.
@@ -631,6 +828,8 @@ inline juce::StringArray getSourceNames()
     names.add ("Vector Y");
     for (int macro = 5; macro <= 8; ++macro)
         names.add ("Macro " + juce::String (macro));
+    names.add ("Op LFO");
+    names.add ("Op Pitch Env");
     return names;
 }
 

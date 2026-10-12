@@ -1,8 +1,12 @@
 #pragma once
 
+#include <map>
+#include <string>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -107,6 +111,256 @@ inline juce::uint64 mouseSignature (const juce::Component& component)
 inline juce::uint64 phaseSignature (float phase, int salt)
 {
     return (juce::uint64) (juce::uint32) juce::roundToInt (phase * 512.0f) * (0x100000001b3ull + (juce::uint64) salt * 2654435761ull);
+}
+
+// Diagnostics: paint() calls per component kind, counted only while a tool
+// (ilanaSnapshot --fps) has switched it on. One branch when off.
+inline bool& paintStatsOn() { static bool on = false; return on; }
+inline std::map<std::string, int>& paintStats() { static std::map<std::string, int> counts; return counts; }
+inline void countPaint (const char* name)
+{
+    if (paintStatsOn())
+        ++paintStats()[name];
+}
+
+// The audio thread publishes a display value once per block (a host buffer
+// of 1024 samples is 43 times a second, 2048 is 21). A picture that jumps to
+// each new value moves at that rate however often it is repainted. This
+// glides from the last shown value to each new one over the time between
+// the last two publications (one block of delay at most), so motion follows
+// the display's refresh. `circular` values (a phase 0..1) take the short way
+// round the wrap; `snapBack` is how far a value may fall before it is taken
+// as a restart (an envelope's new note) and jumped to; a negative published
+// value (nothing playing) is always jumped to.
+class BlockSmoother
+{
+public:
+    float get (float published, bool circular = false, float snapBack = 1.0e9f) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        // First look, or not looked at for a while (a hidden view): show the
+        // published value as it is.
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0)
+        {
+            target = published;
+            from = shown = published;
+            span = 0.0f;
+            changeMs = now;
+        }
+
+        lastCallMs = now;
+
+        if (published != target)
+        {
+            const auto measured = juce::jlimit (2.0, 60.0, now - changeMs);
+            interval = changeMs > 0.0 ? 0.6 * interval + 0.4 * measured : measured;
+            changeMs = now;
+            from = shown;
+            auto delta = published - from;
+
+            if (circular)
+            {
+                if (delta < -0.5f) delta += 1.0f;
+                else if (delta > 0.5f) delta -= 1.0f;
+            }
+            else if (published < 0.0f || from < 0.0f || delta < -snapBack)
+            {
+                from = published;
+                delta = 0.0f;
+            }
+
+            target = published;
+            span = delta;
+        }
+
+        const auto t = (float) juce::jlimit (0.0, 1.0, (now - changeMs) / interval);
+        shown = from + span * t;
+
+        if (circular)
+            shown -= std::floor (shown);
+
+        return shown;
+    }
+
+private:
+    mutable float target = -1.0e9f, from = 0.0f, span = 0.0f, shown = 0.0f;
+    mutable double changeMs = 0.0, interval = 12.0, lastCallMs = 0.0;
+};
+
+
+// A looping phase (0..1) published once per audio block, shown smoothly.
+// BlockSmoother glides from the last value to the new one over the last
+// block's length, so the dot always trailed by a block and moved in
+// uneven steps when blocks were large or late (ilana, 2026-10-10). This
+// one dead-reckons instead: from each published phase it runs on at the
+// LFO's own rate, and eases onto the next published value, so the dot
+// moves at the real speed at the display's frame rate whatever the
+// buffer size.
+class PhaseTracker
+{
+public:
+    float get (float published, double hz) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+            shown = published;
+        }
+        else if (published != lastPublished)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+        }
+
+        const auto frame = (float) juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0);
+        lastCallMs = now;
+
+        const auto ahead = juce::jlimit (0.0, 0.12, (now - publishedAtMs) / 1000.0);
+        const auto predicted = (float) std::fmod (lastPublished + juce::jlimit (0.0, 200.0, hz) * ahead, 1.0);
+        auto delta = predicted - shown;
+
+        if (delta < -0.5f) delta += 1.0f;
+        else if (delta > 0.5f) delta -= 1.0f;
+
+        // Close to the prediction: ease onto it (30 ms); far (a retrigger,
+        // a rate jump): go there.
+        shown += std::abs (delta) > 0.3f ? delta : delta * (1.0f - std::exp (-frame / 0.03f));
+        shown -= std::floor (shown);
+        return shown;
+    }
+
+private:
+    mutable float lastPublished = 0.0f, shown = 0.0f;
+    mutable double publishedAtMs = 0.0, lastCallMs = 0.0;
+};
+
+// An envelope's playhead published once per block as stage + fraction of
+// the stage (0 delay, 1 attack, 2 hold, 3 decay, 4 sustain, 5 release; -1
+// idle). Shown by running on in time through the stages' real lengths, so a
+// 2 ms attack crosses the screen in 2 ms and a 3 s decay in 3 s (the
+// BlockSmoother moved between two published positions at an even pace,
+// whatever the stages' lengths). `seconds` holds the four stage lengths
+// then the release, and the dot rests at the sustain until the next
+// published position says the key is up.
+class EnvTracker
+{
+public:
+    float get (float published, const std::array<float, 5>& seconds) const
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (published < 0.0f)
+        {
+            lastCallMs = now;
+            lastPublished = -1.0f;
+            shown = -1.0f;
+            return -1.0f;
+        }
+
+        const auto frame = (float) juce::jlimit (0.0, 0.05, (now - lastCallMs) / 1000.0);
+
+        if (lastCallMs <= 0.0 || now - lastCallMs > 150.0 || shown < 0.0f)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+            shown = published;
+        }
+        else if (published != lastPublished)
+        {
+            lastPublished = published;
+            publishedAtMs = now;
+        }
+
+        lastCallMs = now;
+        const auto predicted = advance (lastPublished, (float) juce::jlimit (0.0, 0.12, (now - publishedAtMs) / 1000.0), seconds);
+
+        // In the same stage: ease onto the prediction (30 ms); in another
+        // (the prediction ran on, or a new note): go there.
+        if ((int) predicted == (int) shown)
+            shown += (predicted - shown) * (1.0f - std::exp (-frame / 0.03f));
+        else
+            shown = predicted;
+
+        return shown;
+    }
+
+private:
+    static float advance (float position, float dt, const std::array<float, 5>& seconds)
+    {
+        auto stage = (int) position;
+        auto fraction = position - (float) stage;
+
+        if (stage >= 4 && stage != 5)
+            return position;
+
+        while (dt > 0.0f)
+        {
+            if (stage == 4)
+                return 4.0f;
+
+            const auto length = stage == 5 ? seconds[4] : seconds[(size_t) stage];
+            const auto left = juce::jmax (0.0f, 1.0f - fraction) * length;
+
+            if (length <= 1.0e-5f || dt >= left)
+            {
+                dt -= left;
+                fraction = 0.0f;
+
+                if (stage == 5)
+                    return 5.999f;
+
+                ++stage;
+            }
+            else
+            {
+                fraction += dt / length;
+                dt = 0.0f;
+            }
+        }
+
+        return (float) stage + juce::jmin (fraction, 0.999f);
+    }
+
+    mutable float lastPublished = -1.0f, shown = -1.0f;
+    mutable double publishedAtMs = 0.0, lastCallMs = 0.0;
+};
+
+
+// juce::Component::isShowing() asks the window system whether the window is
+// hidden or minimised, a round trip to the X server on Linux and a system
+// call elsewhere, and hundreds of knobs and switches ask it on every frame.
+// This walks the cheap visibility flags itself and asks the window at most
+// every 40 ms.
+inline bool showing (const juce::Component& component)
+{
+    for (const auto* c = &component; c != nullptr; c = c->getParentComponent())
+    {
+        if (! c->isVisible())
+            return false;
+
+        if (c->isOnDesktop())
+        {
+            static const juce::Component* cachedTop = nullptr;
+            static double cachedAt = -1.0e9;
+            static bool cachedShown = false;
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+
+            if (cachedTop != c || now - cachedAt > 40.0)
+            {
+                cachedTop = c;
+                cachedAt = now;
+                cachedShown = c->isShowing();
+            }
+
+            return cachedShown;
+        }
+    }
+
+    return false;
 }
 
 class FrameTimer;
@@ -314,10 +568,10 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
 
     const auto smallW = juce::jmax (2, (int) ((float) snapshot.getWidth() * scale));
     const auto smallH = juce::jmax (2, (int) ((float) snapshot.getHeight() * scale));
-    auto small = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
+    auto shrunk = snapshot.rescaled (smallW, smallH, juce::Graphics::mediumResamplingQuality);
 
     {
-        juce::Image::BitmapData data (small, juce::Image::BitmapData::readWrite);
+        juce::Image::BitmapData data (shrunk, juce::Image::BitmapData::readWrite);
         const auto passes = juce::jlimit (1, 3, (int) std::round (radius));
 
         for (int pass = 0; pass < passes; ++pass)
@@ -357,6 +611,6 @@ inline juce::Image blurredSnapshot (juce::Component& source, float radius, float
         }
     }
 
-    return small.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
+    return shrunk.rescaled (snapshot.getWidth(), snapshot.getHeight(), juce::Graphics::mediumResamplingQuality);
 }
 } // namespace IlanaAnim

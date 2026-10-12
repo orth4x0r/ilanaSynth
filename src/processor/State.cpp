@@ -4,6 +4,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 {
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
+    state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 3, nullptr);
     state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
@@ -86,7 +87,19 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         }
         if (data != nullptr)
         {
-            auto tree = encodeSample (*data);
+            juce::ValueTree tree;
+            {
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                if (encodedSamples[(size_t) i].first == data)
+                    tree = encodedSamples[(size_t) i].second;
+            }
+            if (! tree.isValid())
+            {
+                tree = encodeSample (*data);
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                encodedSamples[(size_t) i] = { data, tree };
+            }
+            tree = tree.createCopy();
             tree.setProperty ("osc", i, nullptr);
             samples.appendChild (tree, nullptr);
         }
@@ -96,6 +109,12 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 
     tuningState.saveTo (state);
     clipState.saveTo (state);
+
+    // The FX patcher's part (roadmap step 17): only when there is one, so a
+    // patch that uses none saves as it always did.
+    state.removeChild (state.getChildWithName (FxPatchData::patchTag), nullptr);
+    if (const auto fx = getFxPatch(); ! fx.isDefault())
+        state.appendChild (FxPatchData::toValueTree (fx), nullptr);
 
     // (The old DX7 mode's "Dx7" child is never written: a DX7 voice is
     // ordinary parameters now.)
@@ -202,8 +221,19 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
     if (! juce::isPositiveAndBelow (index, FmAlgorithms::count()))
         return;
 
-    const auto& algorithm = FmAlgorithms::all()[(size_t) index];
+    applyFmRouting (FmAlgorithms::all()[(size_t) index], 0);
+}
 
+void IlanaSynthAudioProcessor::applyDx7Algorithm (int number)
+{
+    if (number < 1 || number > 32)
+        return;
+
+    applyFmRouting (FmAlgorithms::dx7 (number), number);
+}
+
+void IlanaSynthAudioProcessor::applyFmRouting (const FmAlgorithms::Algorithm& algorithm, int dx7Number)
+{
     // One undo step for the whole routing.
     undoManager.beginNewTransaction ("FM algorithm: " + juce::String (algorithm.name));
 
@@ -221,6 +251,36 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
             }
         }
     };
+    const auto read = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+
+    // A patch on the Operator Env (a DX7 voice) keeps the DX7's terms: new
+    // routes at 100% (each modulator's OUTPUT sets the depth) and new
+    // feedback of the type its feedback already uses (DX7 if none); other
+    // patches start routes gently and feedback Filtered (UI review 6, I6-11).
+    // The feedback moves with the algorithm, as a DX7's FEEDBACK does: the
+    // strongest loop the patch had (amount and type) goes to the new
+    // algorithm's feedback operator (review 7, I7-9).
+    auto operatorEnv = false;
+    auto feedbackType = -1;
+    auto feedbackAmount = 0.0f;
+    for (int op = 0; op < OscillatorIds::count; ++op)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) op]);
+        if (! isOscillatorShown (op))
+            continue;
+        operatorEnv = operatorEnv || juce::roundToInt (read (prefix + "_amp_env")) == OperatorEg::envelopeChoice;
+        if (const auto amount = read (fmRouteId (op, op)); amount > 0.001f && amount > feedbackAmount)
+        {
+            feedbackAmount = amount;
+            feedbackType = juce::roundToInt (read (prefix + "_fb_type"));
+        }
+    }
+    if (feedbackType < 0)
+        feedbackType = operatorEnv ? FmFeedback::Dx7 : FmFeedback::Filtered;
 
     for (int op = 0; op < algorithm.numOperators; ++op)
         if (! isOscillatorShown (op) || apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() < 0.5f)
@@ -236,16 +296,64 @@ void IlanaSynthAudioProcessor::applyFmAlgorithm (int index)
                 set (id, 0.0f);
             else if (current < 0.001f)
             {
-                set (id, source == target ? FmAlgorithms::defaultFeedbackAmount : FmAlgorithms::defaultRouteAmount);
-                // New feedback starts Filtered (calm at high amounts); feedback
-                // the patch already had keeps its type.
                 if (source == target)
-                    set (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type", (float) FmFeedback::Filtered);
+                    set (id, feedbackAmount > 0.001f ? feedbackAmount
+                             : operatorEnv          ? FmAlgorithms::operatorEnvFeedbackAmount
+                                                    : FmAlgorithms::defaultFeedbackAmount);
+                else
+                    set (id, operatorEnv ? FmAlgorithms::operatorEnvRouteAmount : FmAlgorithms::defaultRouteAmount);
+                // Feedback the patch already had keeps its type.
+                if (source == target)
+                    set (juce::String (OscillatorIds::prefixes[(size_t) source]) + "_fb_type", (float) feedbackType);
             }
         }
 
     for (int op = 0; op < algorithm.numOperators; ++op)
         set (oscCoreIds[(size_t) op].out, FmAlgorithms::isCarrier (algorithm, op) ? 1.0f : 0.0f);
+
+    set (OperatorEg::dx7AlgorithmId, (float) dx7Number);
+}
+
+int IlanaSynthAudioProcessor::findMatchingDx7Algorithm() const
+{
+    // All six operators, the DX7's routes and carriers. Feedback may be
+    // missing (a DX7 voice at feedback 0) but not elsewhere. Algorithms that
+    // differ only in their feedback loop then match alike: the number the
+    // routing was set from (a .syx voice, a click) breaks the tie.
+    for (int op = 0; op < OscillatorIds::count; ++op)
+        if (! isOscillatorShown (op) || apvts.getRawParameterValue (oscCoreIds[(size_t) op].on)->load() < 0.5f)
+            return 0;
+
+    const auto* stored = apvts.getRawParameterValue (OperatorEg::dx7AlgorithmId);
+    const auto preferred = stored != nullptr ? juce::roundToInt (stored->load()) : 0;
+    auto first = 0;
+
+    for (int number = 1; number <= 32; ++number)
+    {
+        const auto& algorithm = FmAlgorithms::dx7 (number);
+        auto matches = true;
+
+        for (int source = 0; source < OscillatorIds::count && matches; ++source)
+            for (int target = 0; target < OscillatorIds::count && matches; ++target)
+            {
+                const auto on = apvts.getRawParameterValue (fmRouteId (source, target))->load() > 0.001f;
+                matches = source == target ? (! on || algorithm.feedbackOperator == source)
+                                           : on == FmAlgorithms::hasRoute (algorithm, source, target);
+            }
+
+        for (int op = 0; op < OscillatorIds::count && matches; ++op)
+            matches = (apvts.getRawParameterValue (oscCoreIds[(size_t) op].out)->load() > 0.5f)
+                      == FmAlgorithms::isCarrier (algorithm, op);
+
+        if (! matches)
+            continue;
+        if (number == preferred)
+            return number;
+        if (first == 0)
+            first = number;
+    }
+
+    return first;
 }
 
 int IlanaSynthAudioProcessor::findMatchingFmAlgorithm() const
@@ -295,13 +403,15 @@ bool IlanaSynthAudioProcessor::isLfoShown (int index) const
     if (isRevealed (Module::Lfo, index))
         return true;
 
+    // Routed by its A or its B output.
     const auto source = Mod::lfoSourceFor (index);
+    const auto sourceB = Mod::lfoBSourceFor (index);
 
     for (int slot = 0; slot < Mod::maxSlots; ++slot)
     {
         const auto routing = readModSlot (slot);
 
-        if (routing.destination != 0 && (routing.source == source || routing.aux == source))
+        if (routing.destination != 0 && (routing.source == source || routing.aux == source || routing.source == sourceB || routing.aux == sourceB))
             return true;
     }
 
@@ -343,13 +453,167 @@ void IlanaSynthAudioProcessor::removeOscillator (int index)
     setRevealed (Module::Oscillator, index, false);
 }
 
+int IlanaSynthAudioProcessor::migrateStringKnobs (const std::function<float (const juce::String&, float)>& get,
+                                                 const std::function<void (const juce::String&, float)>& set)
+{
+    auto changed = 0;
+
+    for (const auto* prefixText : OscillatorIds::prefixes)
+    {
+        const juce::String prefix (prefixText);
+        const auto excite = juce::roundToInt (get (prefix + "_excite", 0.0f));
+        const auto remap = [&] (const char* suffix, const std::function<float (float)>& convert)
+        {
+            const auto id = prefix + suffix;
+            const auto old = get (id, 0.0f);
+
+            if (old == 0.0f)
+                return;
+
+            const auto converted = juce::jlimit (0.0f, 1.0f, convert (old));
+
+            if (converted != old)
+            {
+                set (id, converted);
+                ++changed;
+            }
+        };
+
+        // A position only mirrors past the middle of the string: the knob
+        // now spans bridge to middle (the Piano already did, and its strike
+        // keeps its scale; the bow clamped at the middle).
+        const auto folded = [] (float v) { return 2.0f * juce::jmin (v, 1.0f - v); };
+        const auto clamped = [] (float v) { return juce::jmin (1.0f, 2.0f * v); };
+
+        if (excite != 7 && excite != 8 && excite != 9)
+            remap ("_string_excite_pos", excite == 4 ? std::function<float (float)> (clamped) : std::function<float (float)> (folded));
+
+        remap ("_string_pick_pos", folded);
+        remap ("_string_pickup", folded);
+
+        // The plucked string's stiffness (an allpass of coefficient -0.7 at
+        // full) now reaches -0.95; the Piano's and the hammer's stiffness
+        // keep their own scale.
+        if (excite != 4 && excite != 5 && excite != 9)
+            remap ("_string_stiffness", [] (float v) { return v * 0.7f / 0.95f; });
+
+        // REGISTER's key scale doubled and its steps doubled again.
+        remap ("_register", [] (float v) { return v * 0.25f; });
+        // COUPLE grew 30-fold and takes the square, for finer low settings.
+        remap ("_couple", [] (float v) { return std::sqrt (v / 30.0f); });
+        // RATTLE lost its threshold and BUZZ's contact came down.
+        remap ("_fret_rattle", [] (float v) { return v * 0.12f; });
+        remap ("_bridge_buzz", [] (float v) { return v * 0.25f; });
+    }
+
+    return changed;
+}
+
+int IlanaSynthAudioProcessor::migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
+                                                   const std::function<void (const juce::String&, float)>& set)
+{
+    auto moved = 0;
+
+    for (const auto* prefixText : OscillatorIds::prefixes)
+    {
+        const juce::String prefix (prefixText);
+
+        if (juce::roundToInt (get (prefix + "_mode", 0.0f)) != OscMode::wavetable)
+            continue;
+
+        const auto tuned = juce::roundToInt (get (prefix + "_tune", (float) OscTuning::Semitones)) != OscTuning::Semitones;
+        const auto onOperatorEg = juce::roundToInt (get (prefix + "_amp_env", 0.0f)) == OperatorEg::envelopeChoice;
+
+        if (tuned || onOperatorEg)
+        {
+            set (prefix + "_mode", (float) OscMode::fmOperator);
+            ++moved;
+        }
+    }
+
+    return moved;
+}
+
+void IlanaSynthAudioProcessor::migrateOperatorModes()
+{
+    migrateOperatorModes ([this] (const juce::String& id, float fallback)
+                          {
+                              const auto* value = apvts.getRawParameterValue (id);
+                              return value != nullptr ? value->load() : fallback;
+                          },
+                          [this] (const juce::String& id, float value)
+                          {
+                              if (auto* parameter = apvts.getParameter (id))
+                                  parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+                          });
+}
+
+void IlanaSynthAudioProcessor::setOscillatorMode (int index, int mode)
+{
+    if (index < 0 || index >= OscillatorIds::count || mode < 0 || mode >= OscMode::count)
+        return;
+
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+    const auto set = [this, &prefix] (const char* suffix, float value)
+    {
+        if (auto* parameter = apvts.getParameter (prefix + suffix))
+        {
+            const auto normalised = parameter->convertTo0to1 (value);
+            if (parameter->getValue() != normalised)
+                parameter->setValueNotifyingHost (normalised);
+        }
+    };
+
+    if (mode != OscMode::fmOperator)
+    {
+        set ("_tune", (float) OscTuning::Semitones);
+        const auto* envelope = apvts.getRawParameterValue (prefix + "_amp_env");
+        if (mode == OscMode::wavetable && envelope != nullptr && juce::roundToInt (envelope->load()) == OperatorEg::envelopeChoice)
+            set ("_amp_env", 0.0f);
+    }
+
+    set ("_mode", (float) mode);
+}
+
+void IlanaSynthAudioProcessor::addOscillator (int index, int mode)
+{
+    if (index < 0 || index >= OscillatorIds::count)
+        return;
+
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+    const auto set = [this, &prefix] (const char* suffix, float value)
+    {
+        if (auto* parameter = apvts.getParameter (prefix + suffix))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    };
+
+    if (mode == OscMode::fmOperator)
+    {
+        set ("_table", 8.0f); // Sine
+        set ("_frame", 0.0f);
+        set ("_tune", (float) OscTuning::Ratio);
+        set ("_amp_env", (float) OperatorEg::envelopeChoice);
+        set ("_mode", (float) OscMode::fmOperator);
+    }
+    else
+        setOscillatorMode (index, mode);
+
+    addOscillator (index);
+}
+
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     liveRetrigger = true;
     patchCut = true;
     auto state = stateIn.createCopy();
+    if (state.hasProperty ("presetName")) // a factory preset renamed since the session was saved
+        state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
     tuningState.loadFrom (state); // no Tuning child: 12-TET
     clipState.loadFrom (state);   // no Clips child: no clips
+    // No FxPatch child: no instances, no patcher graph. Applied after the
+    // parameters (below), which it is checked against.
+    const auto fxPatchLoaded = FxPatchData::fromValueTree (state.getChildWithName (FxPatchData::patchTag));
+    state.removeChild (state.getChildWithName (FxPatchData::patchTag), nullptr);
     {
         // Pre-mask M3b states saved a count of revealed envelopes.
         auto envMask = (int) state.getProperty ("envRevealMask", defaultRevealMask);
@@ -700,7 +964,55 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
             }
         }
 
+    // A patch saved before the string knobs were rescaled keeps its sound.
+    if ((int) state.getProperty ("stringSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateStringKnobs ([&find] (const juce::String& id, float fallback)
+                            {
+                                const auto child = find (id);
+                                return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                            },
+                            [&find] (const juce::String& id, float value)
+                            {
+                                if (auto child = find (id); child.isValid())
+                                    child.setProperty ("value", value, nullptr);
+                            });
+        state.setProperty ("stringSchema", 2, nullptr);
+    }
+
+    // An operator saved before the FM / DX7 type loads as one (it renders
+    // the same: the type only picks its card).
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateOperatorModes ([&find] (const juce::String& id, float fallback)
+                              {
+                                  const auto child = find (id);
+                                  return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                              },
+                              [&find] (const juce::String& id, float value)
+                              {
+                                  if (auto child = find (id); child.isValid())
+                                      child.setProperty ("value", value, nullptr);
+                              });
+    }
+
     apvts.replaceState (state);
+    setFxPatch (fxPatchLoaded);
+    // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
+    moveLegacyMsegToLfo();
     updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
 }
 
@@ -800,6 +1112,10 @@ IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData()
         data.remaps[(size_t) slot] = getModRemap (slot);
 
     data.clips = clipState.getAll();
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        data.fx = fxPatch;
+    }
     return data;
 }
 
@@ -838,6 +1154,9 @@ bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchDat
     if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
         return false;
 
+    if (a.fx != b.fx && (a.fx == nullptr || b.fx == nullptr || ! FxPatchData::samePatch (*a.fx, *b.fx)))
+        return false;
+
     for (size_t i = 0; i < a.curves.size(); ++i)
         if (! sameCurve (a.curves[i], b.curves[i]))
             return false;
@@ -870,6 +1189,9 @@ void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const Pa
         clipState.setAll (data.clips);
         clipsEdited();
     }
+
+    if (data.fx != nullptr && (reference.fx == nullptr || ! FxPatchData::samePatch (*data.fx, *reference.fx)))
+        setFxPatch (*data.fx);
 }
 
 // One gesture's change to the data: undo puts back what it was before,
@@ -970,6 +1292,12 @@ juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
             const auto count = clip.notes.size();
             add (&count, sizeof (count));
         }
+    }
+
+    if (data.fx != nullptr && ! data.fx->isDefault())
+    {
+        const auto text = FxPatchData::toValueTree (*data.fx).toXmlString();
+        add (text.toRawUTF8(), text.getNumBytesAsUTF8());
     }
 
     hashedDataEpoch = epoch;

@@ -11,6 +11,7 @@
 #include "IlanaLookAndFeel.h"
 #include "LfoSimView.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 
 class LfoDisplay : public juce::Component,
                    public juce::SettableTooltipClient,
@@ -25,10 +26,10 @@ public:
           traceColour (traceColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into a Curve with the same points and edit it.  "
-                    "Draw: drag to draw.  Steps: drag to set steps.  Curve: click to add points, drag them, "
-                    "drag the dot on a line to bend it, double-click to delete.  GRID (top right) sets the snap; "
-                    "right-click for shapes.");
+        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into an MSEG with the same points and edit it.  "
+                    "Draw: drag to draw.  Steps: drag across the steps to set them.  MSEG: click to add points, drag them, "
+                    "drag the dot on a line to curve it, double-click to delete.  GRID (top right) sets the snap; "
+                    "right-click for shapes.  The value shows while you drag; the ruler under the graph is one cycle.");
 
         juce::Random random (lfoIndex * 1234 + 7);
 
@@ -48,6 +49,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        IlanaAnim::countPaint ("lfo");
         const auto bounds = getLocalBounds().toFloat();
 
         g.setOpacity (juce::jlimit (0.0f, 1.0f, appear));
@@ -59,7 +61,7 @@ public:
             g.fillRoundedRectangle (bounds.expanded (4.0f), 8.0f);
         }
 
-        IlanaTheme::paintWell (g, bounds, 6.0f);
+        IlanaTheme::paintWell (g, wellArea(), 6.0f);
 
         if (const auto simShape = (int) readParam ("_shape"); LfoSimShapes::isSim (simShape))
         {
@@ -67,7 +69,15 @@ public:
             return;
         }
 
-        const auto plot = bounds.reduced (10.0f, 14.0f);
+        if ((int) readParam ("_shape") == LfoShapes::Steps)
+        {
+            paintSteps (g, wellArea());
+            return;
+        }
+
+        const auto plot = plotArea();
+        if (! LfoShapes::isPhysics ((int) readParam ("_shape")))
+            paintTimeRuler (g, plot);
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.42f;
         const auto shape = (int) readParam ("_shape");
@@ -103,7 +113,7 @@ public:
             for (int x = 0; x < (int) plot.getWidth(); ++x)
             {
                 const auto phase = (double) x / (double) plot.getWidth() * cycles;
-                const auto step = juce::jlimit (0, stepsPerCycle * 2 - 1, (int) (phase * (double) stepsPerCycle));
+                const auto step = juce::jlimit (0, stepsPerCycle - 1, (int) (phase * (double) stepsPerCycle));
                 const auto value = sampleHoldPreview[(size_t) step];
                 const auto y = centreY - value * halfHeight;
                 const auto px = plot.getX() + (float) x;
@@ -204,10 +214,9 @@ public:
             }
         }
 
-        g.setColour (traceColour);
-        g.strokePath (path, juce::PathStrokeType (1.6f));
+        IlanaTrace::paintTrace (g, path, traceColour);
 
-        auto phase = (double) processorRef.getLfoPhase (index);
+        auto phase = (double) phaseSmoother.get (processorRef.getLfoPhase (index), currentRate());
         auto value = 0.0f;
 
         // Count whole cycles so the physics dot can walk the longer trace.
@@ -217,7 +226,9 @@ public:
 
         if (isSampleHold)
         {
-            const auto step = juce::jlimit (0, stepsPerCycle * 2 - 1, (int) (phase * 2.0 * (double) stepsPerCycle));
+            // The same eight steps the trace draws (it used to count sixteen,
+            // so the dot read held values the graph never shows).
+            const auto step = juce::jlimit (0, stepsPerCycle - 1, (int) (phase * (double) stepsPerCycle));
             value = sampleHoldPreview[(size_t) step];
         }
         else if (isSteps)
@@ -260,15 +271,81 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.9f));
         g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
 
+        // The value scale and the live reading (N16-4: one line in a big well):
+        // +1 / 0 / -1 against the centre line, and where the dot is now.
+        std::vector<std::pair<juce::String, float>> scaleLabels;
+        if (plot.getHeight() > 120.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (const auto [level, name] : { std::pair<float, const char*> { 1.0f, "+1" }, { 0.0f, "0" }, { -1.0f, "-1" } })
+            {
+                const auto y = centreY - level * halfHeight;
+                if (level != 0.0f)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.05f));
+                    g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre ({ plot.getCentreX(), y }));
+                }
+                scaleLabels.push_back ({ name, y });
+            }
+            const auto readout = juce::String ("PHASE ") + juce::String (phase - std::floor (phase), 2) + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  VALUE "))
+                                 + (value >= 0.0f ? "+" : "") + juce::String (value, 2);
+            g.setColour (traceColour.interpolatedWith (juce::Colours::white, 0.35f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, readout, juce::Rectangle<float> (wellArea().getX() + 12.0f, wellArea().getY() + 4.0f, 190.0f, 12.0f).toNearestInt(),
+                                    juce::Justification::centredLeft, 1);
+        }
+
         if (shape == IlanaSynthAudioProcessor::curveShape)
+        {
             paintCurveHandles (g, plot, centreY, halfHeight);
+
+            // The dragged point's place, or the segment's curve, beside it.
+            if (dragPoint >= 0 && dragPoint < (int) curve.points.size() && isMouseButtonDown())
+            {
+                const auto& point = curve.points[(size_t) dragPoint];
+                paintReadout (g, pointToScreen (point), "POINT  " + juce::String (juce::roundToInt (point.x * 100.0f)) + "%  "
+                                                            + (point.y >= 0.0f ? "+" : "") + juce::String (point.y, 2), plot);
+            }
+            else if (dragTension >= 0 && dragTension + 1 < (int) curve.points.size() && isMouseButtonDown())
+            {
+                const auto tension = curve.points[(size_t) dragTension].tension;
+                paintReadout (g, tensionHandle (dragTension), "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2), plot);
+            }
+        }
+
+        // The value scale last, on small plates just inside the graph's left edge: a node
+        // or a trace at the edge never covers it.
+        {
+            const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+            g.setFont (tiny);
+            for (const auto& [name, y] : scaleLabels)
+            {
+                const auto width = juce::GlyphArrangement::getStringWidth (tiny, name) + 1.0f;
+                const juce::Rectangle<float> box (plot.getX() + 10.0f, y - 12.0f, 24.0f, 11.0f);
+                g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
+                g.fillRoundedRectangle (box.withWidth (width + 4.0f).translated (-2.0f, 0.0f), 2.0f);
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+                g.drawText (name, box, juce::Justification::centredLeft);
+            }
+        }
 
         // The snap grid's own control, on the graph wherever a drag makes
         // (or will make) a curve.
         if (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape))
-            IlanaTheme::paintPill (g, gridChipBounds(), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
+        {
+            // A menu, not a label: the pill ends in a chevron (V10-20).
+            const auto chip = gridChipBounds();
+            IlanaTheme::paintPill (g, chip.withTrimmedRight (6.0f), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
                                    traceColour, shape == IlanaSynthAudioProcessor::curveShape && gridDivisions > 0,
-                                   gridChipBounds().contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
+                                   chip.contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
+            juce::Path chevron;
+            const auto at = juce::Point<float> (chip.getRight() - 9.0f, chip.getCentreY());
+            chevron.startNewSubPath (at.x - 3.0f, at.y - 1.5f);
+            chevron.lineTo (at.x, at.y + 1.5f);
+            chevron.lineTo (at.x + 3.0f, at.y - 1.5f);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.strokePath (chevron, juce::PathStrokeType (1.3f));
+        }
 
         // What a drag does on a preset wave, and what just happened after one.
         juce::String hint;
@@ -276,12 +353,12 @@ public:
 
         if (convertHint > 0.0f)
         {
-            hint = "now a Curve with the same points (undo puts the " + convertedFrom + " back)";
+            hint = "now an MSEG with the same points (undo puts the " + convertedFrom + " back)";
             hintAlpha = juce::jmin (1.0f, convertHint * 2.0f);
         }
         else if (convertsToCurve (shape) && isMouseOver())
         {
-            hint = "drag to edit: the wave becomes a Curve";
+            hint = "drag to edit: the wave becomes an MSEG";
             hintAlpha = 0.8f;
         }
 
@@ -383,7 +460,7 @@ public:
 
     juce::Rectangle<float> gridChipBounds() const
     {
-        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (70.0f).reduced (6.0f, 3.0f);
+        return getLocalBounds().toFloat().removeFromTop (22.0f).removeFromRight (84.0f).reduced (6.0f, 3.0f);
     }
 
     void showGridMenu()
@@ -416,6 +493,14 @@ private:
     {
         const auto shape = (int) readParam ("_shape");
         pendingConvert = false;
+        pendingOutputDrag = -1;
+
+        // A simulated shape's output tags drag its outputs onto knobs.
+        if (LfoSimShapes::isSim (shape))
+        {
+            pendingOutputDrag = outputTagAt (event.position);
+            return;
+        }
 
         if ((shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
         {
@@ -452,6 +537,18 @@ private:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (pendingOutputDrag >= 0)
+        {
+            if (event.getDistanceFromDragStart() >= 4)
+                if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this); container != nullptr && ! container->isDragAndDropActive())
+                {
+                    const auto source = pendingOutputDrag == 1 ? Mod::lfoBSourceFor (index) : Mod::lfoSourceFor (index);
+                    pendingOutputDrag = -1;
+                    container->startDragging ("modsource:" + juce::String ((int) source), this);
+                }
+            return;
+        }
+
         if (pendingConvert)
         {
             // Seeded with the wave's points, then this drag edits the curve
@@ -511,7 +608,86 @@ private:
 private:
     // ---- Curve shape editing --------------------------------------------
 
-    juce::Rectangle<float> plotArea() const { return getLocalBounds().toFloat().reduced (10.0f, 14.0f); }
+    // The well frames the graph; the ruler (one cycle's time, or the step
+    // numbers) sits under it, outside the frame, as on the envelope graphs
+    // (UI review 7, S7-26 / I7-29). A simulated shape draws its own scope
+    // in the whole area.
+    static constexpr float rulerHeight = 14.0f;
+
+    juce::Rectangle<float> wellArea() const
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        return LfoSimShapes::isSim ((int) readParam ("_shape")) ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
+    }
+
+    juce::Rectangle<float> plotArea() const { return wellArea().reduced (10.0f, 14.0f); }
+
+    // One cycle's ruler under the graph: its time at RATE in Hz, or note
+    // values while SYNC is on, at the quarters.
+    void paintTimeRuler (juce::Graphics& g, juce::Rectangle<float> plot) const
+    {
+        const auto rulerY = (float) getHeight() - rulerHeight;
+        const auto synced = readParam ("_sync") > 0.5f;
+        juce::StringArray labels;
+
+        if (synced)
+        {
+            const auto* division = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1) + "_div");
+            const auto name = division != nullptr ? division->getCurrentValueAsText() : juce::String ("1/4");
+            const auto denominator = name.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+            const auto plain = name.startsWith ("1/") && denominator > 0 && name.containsOnly ("0123456789/");
+            for (int quarter = 0; quarter <= 4; ++quarter)
+            {
+                if (quarter == 0)
+                    labels.add ("0");
+                else if (quarter == 4)
+                    labels.add (name);
+                else if (plain)
+                {
+                    // quarter / (4 * denominator), reduced.
+                    auto top = quarter, bottom = 4 * denominator;
+                    while (top % 2 == 0 && bottom % 2 == 0)
+                        top /= 2, bottom /= 2;
+                    labels.add (juce::String (top) + "/" + juce::String (bottom));
+                }
+                else
+                    labels.add (quarter == 2 ? juce::String (juce::CharPointer_UTF8 ("\xc2\xbd")) : juce::String());
+            }
+        }
+        else
+        {
+            const auto rate = juce::jmax (0.001f, readParam ("_rate"));
+            for (int quarter = 0; quarter <= 4; ++quarter)
+            {
+                const auto seconds = (double) quarter * 0.25 / (double) rate;
+                labels.add (quarter == 0 ? juce::String ("0 ms")
+                                         : seconds < 1.0 ? juce::String (juce::roundToInt (seconds * 1000.0)) + " ms"
+                                                         : juce::String (seconds, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + " s");
+            }
+        }
+
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (font);
+        auto lastRight = -1.0e9f;
+        for (int quarter = 0; quarter <= 4; ++quarter)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) quarter / 4.0f;
+            g.setColour (juce::Colours::white.withAlpha (quarter == 0 || quarter == 4 ? 0.0f : 0.04f));
+            g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
+            const auto& text = labels[quarter];
+            if (text.isEmpty())
+                continue;
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 4.0f;
+            const auto left = juce::jlimit (0.0f, (float) getWidth() - width, x - width * 0.5f);
+            if (left < lastRight + 6.0f)
+                continue;
+            lastRight = left + width;
+            g.setColour (juce::Colours::white.withAlpha (0.18f));
+            g.fillRect (juce::Rectangle<float> (1.0f, 3.0f).withPosition (x, rulerY - 1.0f));
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (text, juce::Rectangle<float> (left, rulerY + 2.0f, width, 12.0f), juce::Justification::centred);
+        }
+    }
 
     juce::Point<float> pointToScreen (const LfoCurve::Point& point) const
     {
@@ -659,7 +835,7 @@ private:
         juce::PopupMenu menu;
 
         if (converting)
-            menu.addItem (400, "Edit as a curve (same points)");
+            menu.addItem (400, "Edit as an MSEG (same points)");
 
         menu.addSubMenu ("Load shape", shapes);
         menu.addSubMenu ("Snap to grid", grid);
@@ -763,8 +939,20 @@ private:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("click: add   drag: move   dot on a line: bend   double-click: delete   right-click: shapes",
-                    getLocalBounds().reduced (10, 2).removeFromBottom (12), juce::Justification::centredLeft);
+        // The whole hint at any width: the longest wording that fits (nothing cut).
+        const auto hintBox = wellArea().toNearestInt().reduced (10, 2).removeFromBottom (12);
+        const auto hintFont = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        juce::String hint;
+        for (const auto* wording : { "click: add   drag: move   dot on a line: curve   double-click: delete   right-click: shapes",
+                                     "click: add   drag: move   dot: curve   double-click: delete   right-click: shapes",
+                                     "click: add   drag: move   dot: curve   double-click: delete",
+                                     "click: add   drag: move   double-click: delete" })
+        {
+            hint = wording;
+            if (juce::GlyphArrangement::getStringWidth (hintFont, hint) <= (float) hintBox.getWidth())
+                break;
+        }
+        IlanaTheme::drawFitted (g, hint, hintBox, juce::Justification::centredLeft, 1);
     }
 
     // Simulated physics output across physicsCycles cycles, one value per
@@ -813,7 +1001,7 @@ private:
 
     void setCustomPoint (juce::Point<float> position)
     {
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+        const auto plot = plotArea();
 
         if (plot.getWidth() <= 1.0f)
             return;
@@ -829,12 +1017,13 @@ private:
 
     void setStepPoint (juce::Point<float> position)
     {
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f, 14.0f);
+        const auto plot = plotArea();
 
         if (plot.getWidth() <= 1.0f)
             return;
 
         const auto step = juce::jlimit (0, 15, (int) ((position.x - plot.getX()) / plot.getWidth() * 16.0f));
+        draggedStep = step;
 
         if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1)
                                                               + "_step" + juce::String (step + 1)))
@@ -854,6 +1043,107 @@ private:
         repaint();
     }
 
+    // Steps (UI review 6, V6-20 / I6-20: the LFO's own step editor, no
+    // second copy on another page): sixteen bars from the centre line, the
+    // one playing lit, numbered every four, the dragged one's value beside it.
+    void paintSteps (juce::Graphics& g, juce::Rectangle<float> bounds)
+    {
+        const auto plot = bounds.reduced (10.0f, 14.0f);
+        const auto centreY = plot.getCentreY();
+        const auto halfHeight = plot.getHeight() * 0.42f;
+        const auto stepWidth = plot.getWidth() / 16.0f;
+        const auto playing = juce::jlimit (0, 15, (int) (phaseSmoother.get (processorRef.getLfoPhase (index), currentRate()) * 16.0f));
+        // The step under the mouse lights as well, as an arp lane's does.
+        const auto mouse = getMouseXYRelative().toFloat();
+        const auto hovered = isMouseOver() && plot.getWidth() > 1.0f
+                                 ? juce::jlimit (0, 15, (int) ((mouse.x - plot.getX()) / plot.getWidth() * 16.0f)) : -1;
+
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
+        for (const auto level : { -1.0f, -0.5f, 0.5f, 1.0f })
+            g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), centreY - level * halfHeight));
+        g.setColour (juce::Colours::white.withAlpha (0.1f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre ({ plot.getCentreX(), centreY }));
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+
+        for (int step = 0; step < 16; ++step)
+        {
+            const auto value = readParam (("_step" + juce::String (step + 1)).toRawUTF8());
+            const auto x = plot.getX() + (float) step * stepWidth;
+            const auto y = centreY - value * halfHeight;
+            const auto lit = step == playing || step == draggedStep || step == hovered;
+
+            g.setColour (traceColour.withAlpha (lit ? 0.95f : 0.6f));
+            g.fillRect (juce::Rectangle<float> (x + 1.5f, juce::jmin (y, centreY), juce::jmax (1.0f, stepWidth - 3.0f),
+                                                juce::jmax (1.5f, std::abs (y - centreY))));
+
+            if (step > 0)
+            {
+                g.setColour (juce::Colours::white.withAlpha (step % 4 == 0 ? 0.14f : 0.05f));
+                g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withPosition (x, plot.getY()));
+            }
+
+            // Every step numbered on the ruler under the graph, as the arp's
+            // lanes are (UI review 7, I7-29); every fourth where they crowd.
+            if (stepWidth >= 16.0f || step % 4 == 0)
+            {
+                g.setColour (step % 4 == 0 || lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+                g.drawText (juce::String (step + 1), juce::Rectangle<float> (x, (float) getHeight() - rulerHeight + 2.0f, stepWidth, 12.0f),
+                            juce::Justification::centred);
+            }
+        }
+
+        if (draggedStep >= 0)
+        {
+            const auto value = readParam (("_step" + juce::String (draggedStep + 1)).toRawUTF8());
+            paintReadout (g, { plot.getX() + ((float) draggedStep + 0.5f) * stepWidth, centreY - value * halfHeight },
+                          "STEP " + juce::String (draggedStep + 1) + "  " + (value >= 0.0f ? "+" : "") + juce::String (value, 2), plot);
+        }
+    }
+
+    // A value shown beside what is being dragged (every curve editor does
+    // this the same way).
+    void paintReadout (juce::Graphics& g, juce::Point<float> anchor, const juce::String& text, juce::Rectangle<float> area) const
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 14.0f;
+        auto box = juce::Rectangle<float> (width, 17.0f).withCentre ({ anchor.x, anchor.y - 18.0f });
+        if (box.getY() < area.getY())
+            box.setY (anchor.y + 10.0f);
+        box.setX (juce::jlimit (area.getX(), juce::jmax (area.getX(), area.getRight() - width), box.getX()));
+        g.setColour (juce::Colours::black.withAlpha (0.7f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (traceColour.interpolatedWith (juce::Colours::white, 0.3f));
+        g.setFont (font);
+        g.drawText (text, box, juce::Justification::centred);
+    }
+
+    // Which output tag (0 A, 1 B) of a simulated shape's scope is under
+    // `position`, or -1.
+    int outputTagAt (juce::Point<float> position) const
+    {
+        const auto settings = processorRef.readLfoSimSettings (index);
+        const auto& info = LfoSimInfo::get (settings.shape);
+        const auto scope = LfoSimPreview::scopeArea (getLocalBounds().toFloat().reduced (10.0f, 8.0f), settings.shape);
+
+        for (const auto outputB : { false, true })
+            if (LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (info, settings.axis, outputB), outputB).contains (position))
+                return outputB ? 1 : 0;
+
+        return -1;
+    }
+
+public:
+    // For the UI test: where a simulated shape's output tag sits (0 A, 1 B).
+    juce::Rectangle<float> getOutputTagBounds (int output) const
+    {
+        const auto settings = processorRef.readLfoSimSettings (index);
+        const auto scope = LfoSimPreview::scopeArea (getLocalBounds().toFloat().reduced (10.0f, 8.0f), settings.shape);
+        return LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (LfoSimInfo::get (settings.shape), settings.axis, output == 1),
+                                               output == 1);
+    }
+
+private:
     static float valueFromY (float y, juce::Rectangle<float> plot)
     {
         const auto halfHeight = juce::jmax (1.0f, plot.getHeight() * 0.42f);
@@ -863,6 +1153,8 @@ private:
     void mouseUp (const juce::MouseEvent&) override
     {
         pendingConvert = false;
+        pendingOutputDrag = -1;
+        draggedStep = -1;
 
         if (gestureParameter != nullptr)
         {
@@ -886,7 +1178,7 @@ private:
         if (simulating)
             simPreview.advance (processorRef.readLfoSimSettings (index), currentRate(), elapsed);
 
-        if (isShowing() && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (processorRef.getLfoPhase (index), index))))
+        if (IlanaAnim::showing (*this) && (simulating || hinting || appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ IlanaAnim::phaseSignature (phaseSmoother.get (processorRef.getLfoPhase (index), currentRate()), index))))
             repaint();
     }
 
@@ -927,6 +1219,8 @@ private:
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
     bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
+    int pendingOutputDrag = -1;        // a press on a simulated shape's output tag (0 A, 1 B)
+    int draggedStep = -1;              // the step being set, for its readout
     juce::Point<float> downPosition;
     float convertHint = 0.0f;          // the "now a Curve" note, fading
     juce::String convertedFrom;
@@ -938,5 +1232,6 @@ private:
     double lastPhase = 0.0;
     int cycleCount = 0;
     LfoSimPreview simPreview;
+    IlanaAnim::PhaseTracker phaseSmoother; // the published phase, run on between audio blocks
     double lastTimerMs = juce::Time::getMillisecondCounterHiRes();
 };

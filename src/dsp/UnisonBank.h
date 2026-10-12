@@ -120,6 +120,21 @@ public:
             updateStretch();
     }
 
+    // Per-voice spreads: each lane's frame position and warp amount drift
+    // across the stack by up to half the range either way (0 = off). The lane
+    // positions (-1..1) come with the lane count from setWeights.
+    void setSpreads (float newFrameSpread, float newWarpSpread)
+    {
+        frameSpread = juce::jlimit (0.0f, 1.0f, newFrameSpread);
+        const auto clamped = juce::jlimit (0.0f, 1.0f, newWarpSpread);
+
+        if (clamped != warpSpread)
+        {
+            warpSpread = clamped;
+            updateStretch();
+        }
+    }
+
     void resetPhase (int lane, double newPhase) { phase[lane] = toFixed (newPhase - fastFloor (newPhase)); }
     float getPhase (int lane) const { return (float) ((double) phase[lane] * phaseToDouble); }
     bool lane0Wrapped() const { return wrapped; }
@@ -130,6 +145,10 @@ public:
     {
         count = juce::jlimit (0, maxLanes, count);
         numGroups = (count + laneWidth - 1) / laneWidth;
+        numLanesInUse = count;
+
+        for (int lane = 0; lane < maxLanes; ++lane)
+            lanePosition[lane] = count > 1 ? (float) lane / (float) (count - 1) * 2.0f - 1.0f : 0.0f;
 
         for (int lane = 0; lane < maxLanes; ++lane)
         {
@@ -143,12 +162,82 @@ public:
     // One output sample. phaseModulation is in cycles and shared by every
     // lane; rate bends the frequency (through-zero and exponential FM, 1 is
     // the plain pitch); oversample runs two half steps and averages them.
+    // render() for one voice with no warp and no oversampling, its checks
+    // made once for a run of samples: the rows to read, then renderSingle()
+    // per sample (the same operations as render()'s one-voice path).
+    struct SingleRead
+    {
+        const float* row0 = nullptr;
+        const float* row1 = nullptr;
+        float frac = 0.0f;
+        bool lerp = false;
+    };
+
+    bool canRenderSingle (bool oversample) const
+    {
+        return table != nullptr && table->getNumFrames() > 0 && sampleRate > 0.0 && numGroups > 0 && numLanesInUse == 1
+               && ! oversample && ! ((warpMode != Warp::Off && warpAmount > 0.0f) || (warpMode2 != Warp::Off && warpAmount2 > 0.0f));
+    }
+
+    SingleRead singleRead (const WavetableOscillator::FrameRead& frames) const
+    {
+        SingleRead read;
+        read.lerp = frames.frac > 0.0f && frames.frame1 != frames.frame0;
+        read.row0 = rows[0][frames.frame0];
+        read.row1 = read.lerp ? rows[0][frames.frame1] : nullptr;
+        read.frac = frames.frac;
+        return read;
+    }
+
+    Sums renderSingle (const SingleRead& rows0, double phaseModulation, double rate) noexcept
+    {
+        Sums out;
+        const auto modulation = toFixed (phaseModulation - fastFloor (phaseModulation));
+        const auto stepScale = rate * 1.0;
+        const auto lane0Step = incrementCycles[0] * stepScale;
+        const auto step = stepScale == 1.0 ? increment[0] : toFixedStep (lane0Step - fastFloor (lane0Step));
+        constexpr auto scale = 1.0f / (float) (1 << fractionBits);
+
+        const auto before = phase[0];
+        const auto read = before + modulation;
+        const auto index = (int) (read >> (32 - frameBits));
+        const auto f = (float) (std::int32_t) (read & ((1u << fractionBits) - 1u)) * scale;
+        const auto* row0 = rows0.row0;
+        auto y0 = row0[index], y1 = row0[index + 1], y2 = row0[index + 2], y3 = row0[index + 3];
+
+        if (rows0.lerp)
+        {
+            const auto* next = rows0.row1 + index;
+            y0 = y0 + (next[0] - y0) * rows0.frac;
+            y1 = y1 + (next[1] - y1) * rows0.frac;
+            y2 = y2 + (next[2] - y2) * rows0.frac;
+            y3 = y3 + (next[3] - y3) * rows0.frac;
+        }
+
+        const auto c1 = 0.5f * (y2 - y0);
+        const auto c2 = (y0 + (y2 + y2)) - 0.5f * (5.0f * y1 + y3);
+        const auto c3 = 0.5f * (3.0f * (y1 - y2) + (y3 - y0));
+        auto value = c2 + f * c3;
+        value = c1 + f * value;
+        value = y1 + f * value;
+
+        out.mono += value * weightMono[0];
+        out.left += value * weightLeft[0];
+        out.right += value * weightRight[0];
+        phase[0] = before + step;
+        wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < before);
+        return out;
+    }
+
     Sums render (double phaseModulation, const WavetableOscillator::FrameRead& frames, double rate, bool oversample)
     {
         Sums out;
 
         if (table == nullptr || table->getNumFrames() == 0 || sampleRate <= 0.0 || numGroups == 0)
             return out;
+
+        if (numLanesInUse > 1 && (frameSpread > 0.0f || warpSpread > 0.0f))
+            return renderSpread (phaseModulation, frames, rate, oversample);
 
         const auto modulation = toFixed (phaseModulation - fastFloor (phaseModulation));
         const auto warping = (warpMode != Warp::Off && warpAmount > 0.0f)
@@ -167,6 +256,60 @@ public:
         const auto plainStep = stepScale == 1.0;
         const std::uint32_t* steps = increment;
 
+        const auto lane0Step = incrementCycles[0] * stepScale;
+        const auto substeps = oversample ? 2 : 1;
+
+        // One voice (every FM operator, most oscillators): lane 0 alone, the
+        // same operations in the same order as the vector path, without the
+        // three silent lanes (their phases are left where they are).
+        if (numLanesInUse == 1 && ! warping)
+        {
+            const auto step = plainStep ? increment[0] : toFixedStep (lane0Step - fastFloor (lane0Step));
+            const auto* row0 = rows[0][frames.frame0];
+            const auto* row1 = lerpFrames ? rows[0][frames.frame1] : nullptr;
+            constexpr auto scale = 1.0f / (float) (1 << fractionBits);
+
+            for (int sub = 0; sub < substeps; ++sub)
+            {
+                const auto before = phase[0];
+                const auto read = before + modulation;
+                const auto index = (int) (read >> (32 - frameBits));
+                const auto f = (float) (std::int32_t) (read & ((1u << fractionBits) - 1u)) * scale;
+                auto y0 = row0[index], y1 = row0[index + 1], y2 = row0[index + 2], y3 = row0[index + 3];
+
+                if (lerpFrames)
+                {
+                    const auto* next = row1 + index;
+                    y0 = y0 + (next[0] - y0) * frames.frac;
+                    y1 = y1 + (next[1] - y1) * frames.frac;
+                    y2 = y2 + (next[2] - y2) * frames.frac;
+                    y3 = y3 + (next[3] - y3) * frames.frac;
+                }
+
+                const auto c1 = 0.5f * (y2 - y0);
+                const auto c2 = (y0 + (y2 + y2)) - 0.5f * (5.0f * y1 + y3);
+                const auto c3 = 0.5f * (3.0f * (y1 - y2) + (y3 - y0));
+                auto value = c2 + f * c3;
+                value = c1 + f * value;
+                value = y1 + f * value;
+
+                out.mono += value * weightMono[0];
+                out.left += value * weightLeft[0];
+                out.right += value * weightRight[0];
+                phase[0] = before + step;
+                wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < before);
+            }
+
+            if (oversample)
+            {
+                out.mono *= 0.5f;
+                out.left *= 0.5f;
+                out.right *= 0.5f;
+            }
+
+            return out;
+        }
+
         if (! plainStep)
         {
             for (int lane = 0; lane < numLanes; ++lane)
@@ -177,9 +320,6 @@ public:
 
             steps = scaledIncrement;
         }
-
-        const auto lane0Step = incrementCycles[0] * stepScale;
-        const auto substeps = oversample ? 2 : 1;
 
        #if ILANA_UNISON_SSE
         auto accMono = _mm_setzero_ps();
@@ -323,6 +463,81 @@ public:
     }
 
 private:
+    // The unison stack with a frame or warp spread: one lane at a time, as the
+    // scalar branch of render() does, each lane reading its own frame pair and
+    // warping by its own amount. (Not the hot path: only stacks that use a
+    // spread come here.)
+    Sums renderSpread (double phaseModulation, const WavetableOscillator::FrameRead& frames, double rate, bool oversample)
+    {
+        Sums out;
+        const auto modulation = toFixed (phaseModulation - fastFloor (phaseModulation));
+        const auto stepScale = rate * (oversample ? 0.5 : 1.0);
+        const auto substeps = oversample ? 2 : 1;
+        const auto lane0Step = incrementCycles[0] * stepScale;
+        const auto warping = warpMode != Warp::Off || warpMode2 != Warp::Off;
+
+        for (int sub = 0; sub < substeps; ++sub)
+        {
+            const auto lane0Before = phase[0];
+
+            for (int lane = 0; lane < numLanesInUse; ++lane)
+            {
+                auto laneFrames = frames;
+
+                if (frameSpread > 0.0f)
+                    laneFrames = WavetableOscillator::frameReadFor (table, frames.position + 0.5f * frameSpread * lanePosition[lane]);
+
+                std::int32_t index;
+                float fraction, gain = 1.0f;
+
+                if (warping)
+                {
+                    const auto amount = juce::jlimit (0.0f, 1.0f, warpAmount + 0.5f * warpSpread * lanePosition[lane]);
+                    warpedRead (phase[lane] + modulation, amount, index, fraction, gain);
+                }
+                else
+                {
+                    const auto read = phase[lane] + modulation;
+                    index = (std::int32_t) (read >> (32 - frameBits));
+                    fraction = (float) (read & ((1u << fractionBits) - 1u)) / (float) (1 << fractionBits);
+                }
+
+                const auto* taps = rows[lane][laneFrames.frame0] + index;
+                float y[4] { taps[0], taps[1], taps[2], taps[3] };
+
+                if (laneFrames.frac > 0.0f && laneFrames.frame1 != laneFrames.frame0)
+                {
+                    const auto* next = rows[lane][laneFrames.frame1] + index;
+                    for (int k = 0; k < 4; ++k)
+                        y[k] += (next[k] - y[k]) * laneFrames.frac;
+                }
+
+                const auto c1 = 0.5f * (y[2] - y[0]);
+                const auto c2 = y[0] + 2.0f * y[2] - 0.5f * (5.0f * y[1] + y[3]);
+                const auto c3 = 0.5f * (3.0f * (y[1] - y[2]) + y[3] - y[0]);
+                const auto value = (y[1] + fraction * (c1 + fraction * (c2 + fraction * c3))) * gain;
+
+                out.mono += value * weightMono[lane];
+                out.left += value * weightLeft[lane];
+                out.right += value * weightRight[lane];
+
+                const auto step = incrementCycles[lane] * stepScale;
+                phase[lane] += stepScale == 1.0 ? increment[lane] : toFixedStep (step - fastFloor (step));
+            }
+
+            wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < lane0Before);
+        }
+
+        if (oversample)
+        {
+            out.mono *= 0.5f;
+            out.left *= 0.5f;
+            out.right *= 0.5f;
+        }
+
+        return out;
+    }
+
     static constexpr int frameBits = 11; // 2^11 = Wavetable::frameSize
     static constexpr int fractionBits = 32 - frameBits;
     static constexpr double phaseToDouble = 1.0 / 4294967296.0;
@@ -357,12 +572,18 @@ private:
     // The warp chain on one lane, exactly as WavetableOscillator runs it.
     void warpedRead (std::uint32_t fixedPhase, std::int32_t& index, float& fraction, float& gain) const
     {
+        warpedRead (fixedPhase, warpAmount, index, fraction, gain);
+    }
+
+    // The same with the first stage's amount given (a spread moves it per lane).
+    void warpedRead (std::uint32_t fixedPhase, float amount1, std::int32_t& index, float& fraction, float& gain) const
+    {
         auto modulatedPhase = (double) fixedPhase * phaseToDouble;
         auto silent = false;
         gain = 1.0f;
 
-        if (warpMode != Warp::Off && warpAmount > 0.0f)
-            modulatedPhase = WavetableOscillator::applyStage (warpMode, warpAmount, modulatedPhase, silent, gain);
+        if (warpMode != Warp::Off && amount1 > 0.0f)
+            modulatedPhase = WavetableOscillator::applyStage (warpMode, amount1, modulatedPhase, silent, gain);
 
         if (warpMode2 != Warp::Off && warpAmount2 > 0.0f && ! silent)
         {
@@ -446,7 +667,9 @@ private:
 
     void updateStretch()
     {
-        stretch = warpMode != Warp::Off ? Warp::harmonicStretch (warpMode, warpAmount) : 1.0;
+        // A warp spread raises some voices' amounts: size the table level for the top one.
+        const auto topAmount = juce::jmin (1.0f, warpAmount + 0.5f * warpSpread);
+        stretch = warpMode != Warp::Off ? Warp::harmonicStretch (warpMode, topAmount) : 1.0;
 
         if (warpMode2 != Warp::Off)
             stretch *= Warp::harmonicStretch (warpMode2, warpAmount2);
@@ -484,9 +707,13 @@ private:
     double sampleRate = 44100.0;
     double stretch = 1.0;
     int numGroups = 0;
+    int numLanesInUse = 0;
     int warpMode = Warp::Off;
     float warpAmount = 0.0f;
     int warpMode2 = Warp::Off;
     float warpAmount2 = 0.0f;
+    float frameSpread = 0.0f;
+    float warpSpread = 0.0f;
+    float lanePosition[maxLanes] {};
     bool wrapped = false;
 };

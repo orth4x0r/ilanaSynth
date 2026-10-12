@@ -4,7 +4,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
-    const auto addFloat = [&layout] (const juce::String& id, const juce::String& name, float min, float max,
+    // Hosts show the oscillators as the pages do, "OSC 1 Level" (UI review
+    // 8, I8-40); the names below keep the shorter "Osc1" spelling.
+    const auto hostName = [] (juce::String name)
+    {
+        for (int osc = 1; osc <= 6; ++osc)
+            name = name.replace ("Osc" + juce::String (osc), "OSC " + juce::String (osc));
+        return name;
+    };
+
+    const auto addFloat = [&layout, hostName] (const juce::String& id, const juce::String& name, float min, float max,
                                      float def, float skew = 1.0f, float interval = 0.0f)
     {
         // Continuous unless a step is asked for: a fixed step of a thousandth
@@ -12,7 +21,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         // moved in 20 Hz steps, comb tunings sat cents off).
         const juce::NormalisableRange<float> range (min, max, juce::jmax (0.0f, interval), skew);
         layout.add (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID { id, 1 }, name, range, def,
+            juce::ParameterID { id, 1 }, hostName (name), range, def,
             juce::AudioParameterFloatAttributes()
                 .withStringFromValueFunction ([id] (float value, int) { return describeValue (id, value); })
                 // Typed values ("97 %", "250 ms", "1.2 kHz"): the number, read in
@@ -106,10 +115,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // Integer parameters use the same value text as the others (units, note
     // names, "3 strings"), which ParamInfo already describes for them.
-    const auto addInt = [&layout] (const juce::String& id, const juce::String& name, int min, int max, int def)
+    const auto addInt = [&layout, hostName] (const juce::String& id, const juce::String& name, int min, int max, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { id, 1 }, name, min, max, def,
+            juce::ParameterID { id, 1 }, hostName (name), min, max, def,
             juce::AudioParameterIntAttributes()
                 .withStringFromValueFunction ([id] (int value, int) { return describeValue (id, (float) value); })
                 .withValueFromStringFunction ([id, min, max] (const juce::String& text)
@@ -148,10 +157,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                 })));
     };
 
-    const auto addBool = [&layout] (const juce::String& id, const juce::String& name, bool def)
+    const auto addBool = [&layout, hostName] (const juce::String& id, const juce::String& name, bool def)
     {
         layout.add (std::make_unique<juce::AudioParameterBool> (
-            juce::ParameterID { id, 1 }, name, def));
+            juce::ParameterID { id, 1 }, hostName (name), def));
     };
 
     // Choices (modes, types, sources, destinations, shapes, FX slots) are not
@@ -159,13 +168,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // list that grows in an update would move recorded lanes to other
     // entries. Saved states keep the index and load unchanged; the knobs,
     // switches and macros stay automatable.
-    const auto addChoice = [&layout] (const juce::String& id, const juce::String& name,
+    const auto addChoice = [&layout, hostName] (const juce::String& id, const juce::String& name,
                                       const juce::StringArray& choices, int def)
     {
         layout.add (std::make_unique<juce::AudioParameterChoice> (
-            juce::ParameterID { id, 1 }, name, choices, def,
+            juce::ParameterID { id, 1 }, hostName (name), choices, def,
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
     };
+
+    // The oscillator types; FM / DX7 is appended (OscMode, OscillatorIds.h).
+    juce::StringArray oscModeChoices;
+    for (const auto* modeName : OscMode::names)
+        oscModeChoices.add (modeName);
 
     // OSC 1 and 2 retain their original parameter order and defaults.
     for (int osc = 0; osc < 2; ++osc)
@@ -191,6 +205,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("spectral_amt"), name + " Spectral Amount", 0.0f, 1.0f, 0.5f);
         addChoice (id ("uni_mode"), name + " Unison Mode", UnisonMode::getNames(), 0);
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
+        addFloat (id ("uni_frame"), name + " Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+        addFloat (id ("uni_warp"), name + " Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+        addChoice (id ("scale"), name + " Scale Quantize", Scales::getNames(), 0);
+        addChoice (id ("scale_root"), name + " Scale Root", Scales::getRootNames(), 0);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
     }
 
@@ -205,7 +223,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_shape", "Sub Shape", { "Sine", "Square", "Saw" }, 0);
     addChoice ("sub_octave", "Sub Octave", { "-1 Oct", "-2 Oct" }, 0);
     addChoice ("subosc_route", "Sub + Noise Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_mode", "Osc3 Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+    addChoice ("sub_mode", "Osc3 Mode", oscModeChoices, 0);
     addChoice ("osc1_sample_factory", "Osc1 Sample Source",
                { "User File", "Metal Hit", "Vocal Ah", "Sub Tone", "Vinyl Loop", "Noise Rise" }, 0);
     addChoice ("osc2_sample_factory", "Osc2 Sample Source",
@@ -226,8 +244,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("sub_spectral_amt", "Osc3 Spectral Amount", 0.0f, 1.0f, 0.5f);
     addChoice ("sub_uni_mode", "Osc3 Unison Mode", UnisonMode::getNames(), 0);
     addFloat ("sub_uni_blend", "Osc3 Unison Blend", 0.0f, 1.0f, 1.0f);
+    addFloat ("sub_uni_frame", "Osc3 Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+    addFloat ("sub_uni_warp", "Osc3 Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+    addChoice ("sub_scale", "Osc3 Scale Quantize", Scales::getNames(), 0);
+    addChoice ("sub_scale_root", "Osc3 Scale Root", Scales::getRootNames(), 0);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -301,7 +323,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // Global
     addFloat ("amp_velocity", "Amp Velocity", 0.0f, 1.0f, 0.3f);
     addFloat ("filter_velocity", "Filter Velocity", 0.0f, 1.0f, 0.5f);
-    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.35f);
+    addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.13f); // (skew 0.13: 10 ms sits at half the travel; most glides are 0-10 ms, the longer ones effects)
     addFloat ("bend_range", "Bend Range", 0.0f, 24.0f, 2.0f, 1.0f, 1.0f);
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
 
@@ -367,8 +389,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const auto prefix = "osc" + juce::String (osc);
 
-        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", oscModeChoices, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -412,8 +434,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("arp_chance", "Arp Chance", 0.0f, 1.0f, 1.0f);
 
     // Generative: scale snapping and note spray
-    addChoice ("gen_scale", "Scale", Scales::getNames(), 0);
-    addChoice ("gen_root", "Scale Root", Scales::getRootNames(), 0);
+    // Named apart from the Scala tuning's scale (review 6, I6-30); the IDs stay.
+    addChoice ("gen_scale", "Snap To Key", Scales::getNames(), 0);
+    addChoice ("gen_root", "Key Root", Scales::getRootNames(), 0);
     addBool ("sym_on", "Sympathetic Strings", false);
     addFloat ("sym_amount", "Sympathetic Amount", 0.0f, 1.0f, 0.5f);
     addFloat ("sym_decay", "Sympathetic Decay", 0.0f, 1.0f, 0.75f);
@@ -476,7 +499,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_dst", name + " Dst", destinationNames, 0);
         addFloat (prefix + "_amt", name + " Amt", -1.0f, 1.0f, 0.0f);
         addFloat (prefix + "_curve", name + " Curve", -1.0f, 1.0f, 0.0f);
-        addChoice (prefix + "_pol", name + " Polarity", { "Auto", "Unipolar", "Bipolar" }, 0);
+        addChoice (prefix + "_pol", name + " Polarity", { "Auto", "Unipolar", "Bipolar", "Negative" }, 0);
         addChoice (prefix + "_aux", name + " Via", sourceNames, 0);
         addBool (prefix + "_byp", name + " Bypass", false);
     };
@@ -497,7 +520,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                                       "Octaver", "Vowel", "Feedback", "EQ", "Airwindows", "Vocoder",
                                       // 32-41: the Airwindows category modules (append only)
                                       "AW Tape", "AW Saturation", "AW Reverb", "AW Delay", "AW Modulation",
-                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo" };
+                                      "AW Dynamics", "AW EQ", "AW Console", "AW Lo-Fi", "AW Stereo",
+                                      // 42: the synth's filters as an effect (append only)
+                                      "Filter" };
     for (int slot = 0; slot < numFxSlots; ++slot)
     {
         addChoice ("fx_slot" + juce::String (slot + 1), "FX Slot " + juce::String (slot + 1),
@@ -604,6 +629,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("fx_drive_amount", "Drive Amount", 1.0f, 20.0f, 3.0f);
     addFloat ("fx_drive_mix", "Drive Mix", 0.0f, 1.0f, 1.0f);
     addFloat ("fx_fold", "Fold", 0.0f, 1.0f, 0.0f);
+    addChoice ("fx_drive_type", "Drive Type", { "Soft Clip", "Hard Clip" }, 0);
+    addChoice ("fx_fold_type", "Fold Type", { "Linear", "Sine" }, 0);
     addBool ("fx_drive_on", "Drive On", true);
 
     addBool ("fx_crush_on", "Crush On", false);
@@ -677,7 +704,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc);
         const auto id = [&prefix] (const char* suffix) { return prefix + "_" + suffix; };
         addBool (id ("on"), name + " On", false);
-        addChoice (id ("mode"), name + " Mode", { "Wavetable", "Physical", "Sample", "Granular", "Live" }, 0);
+        addChoice (id ("mode"), name + " Mode", oscModeChoices, 0);
         addChoice (id ("table"), name + " Table", getOscTableChoices(), 0);
         addFloat (id ("frame"), name + " Frame", 0.0f, 1.0f, 0.0f);
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, 0.6f);
@@ -693,9 +720,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("spectral_amt"), name + " Spectral Amount", 0.0f, 1.0f, 0.5f);
         addChoice (id ("uni_mode"), name + " Unison Mode", UnisonMode::getNames(), 0);
         addFloat (id ("uni_blend"), name + " Unison Blend", 0.0f, 1.0f, 1.0f);
+        addFloat (id ("uni_frame"), name + " Unison Frame Spread", 0.0f, 1.0f, 0.0f);
+        addFloat (id ("uni_warp"), name + " Unison Warp Spread", 0.0f, 1.0f, 0.0f);
+        addChoice (id ("scale"), name + " Scale Quantize", Scales::getNames(), 0);
+        addChoice (id ("scale_root"), name + " Scale Root", Scales::getRootNames(), 0);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Hammer (classic)", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -742,10 +773,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     juce::StringArray ampEnvelopeChoices;
     // Labels only; the saved value is the index, so naming the first five is safe.
     for (int env = 1; env <= 16; ++env)
-        ampEnvelopeChoices.add (env == 1 ? "Amp Env" : env == 2 ? "Filter Env" : env == 3 ? "F2 Env"
-                                : env == 4 ? "Mod Env" : "Env " + juce::String (env));
+        // Upper case, as the chips and tabs name them (review 7, V7-36).
+        ampEnvelopeChoices.add (env == 1 ? "AMP ENV" : env == 2 ? "FILT ENV" : env == 3 ? "FILT 2 ENV"
+                                : env == 4 ? "MOD ENV" : "ENV " + juce::String (env));
     ampEnvelopeChoices.add ("MSEG"); // M5: appended, index 16
-    ampEnvelopeChoices.add ("Op EG"); // appended, index 17: the Operator EG (OperatorEgParams.h)
+    ampEnvelopeChoices.add ("OP ENV"); // appended, index 17: the Operator Env (OperatorEgParams.h), upper case as its neighbours
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
         const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
@@ -920,7 +952,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("vec_x", "Vector X", 0.0f, 1.0f, 0.5f);
     addFloat ("vec_y", "Vector Y", 0.0f, 1.0f, 0.5f);
     {
-        const juce::StringArray oscillators { "Osc 1", "Osc 2", "Osc 3", "Osc 4", "Osc 5", "Osc 6" };
+        const juce::StringArray oscillators { "OSC 1", "OSC 2", "OSC 3", "OSC 4", "OSC 5", "OSC 6" };
         const char* corners[] { "a", "b", "c", "d" };
         for (int c = 0; c < 4; ++c)
             addChoice (juce::String ("vec_") + corners[c], "Vector Corner " + juce::String::charToString ((juce::juce_wchar) ('A' + c)), oscillators, c);
@@ -1052,7 +1084,136 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                         "Osc" + juce::String (osc + 1) + " " + field.name);
     for (const auto& field : OperatorEg::voiceFields())
         addEgField (field, field.suffix, field.name);
-    addInt (OperatorEg::keyOffsetId, "Op EG Key Offset", -24, 24, 0);
+    addInt (OperatorEg::keyOffsetId, "OP ENV Scale Shift", -24, 24, 0);
+
+    // Review 6 (appended): the DX7 algorithm the FM routing came from (a
+    // .syx voice, or a click on the grid's DX7 page), 0 for none. Display
+    // only: DX7 algorithms 1-2, 3-4 and 5-6 share a routing here and differ
+    // only in where the feedback goes, so this names the one it was.
+    {
+        juce::StringArray algorithmNames { "None" };
+        for (int algorithm = 1; algorithm <= 32; ++algorithm)
+            algorithmNames.add ("DX7 " + juce::String (algorithm));
+        addChoice (OperatorEg::dx7AlgorithmId, "DX7 Algorithm", algorithmNames, 0);
+    }
+
+    // The arp's step lanes (review 6): how many steps loop, and each step's
+    // velocity, gate (a share of GATE; 0 rests) and transpose. The defaults
+    // play every step as before.
+    addInt ("arp_steps", "Arp Steps", 1, 16, 16);
+    for (int step = 1; step <= 16; ++step)
+    {
+        const auto n = juce::String (step);
+        addInt ("arp_vel" + n, "Arp Velocity " + n, 1, 127, 100);
+        addFloat ("arp_len" + n, "Arp Step Gate " + n, 0.0f, 2.0f, 1.0f);
+        addInt ("arp_pitch" + n, "Arp Transpose " + n, -12, 12, 0);
+    }
+
+    // The preset's own output level (review 6, master level): factory loads
+    // put their level here so MASTER reads 0 dB on every factory preset.
+    // Added to MASTER in dB; not shown on any page, not automatable, and 0
+    // (as in every older patch) leaves the output as it was.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "output_trim", 1 }, "Preset Level", juce::NormalisableRange<float> (-60.0f, 12.0f, 0.1f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction ([] (float value, int) { return describeValue ("output_trim", value); })
+            .withAutomatable (false)));
+
+    // UI review 6 (V5-18): each envelope's attack, decay and release bend on
+    // their own, added to its CURVE. 0 bends them alike, as before.
+    for (int env = 0; env < 16; ++env)
+    {
+        const auto prefix = envelopePrefix (env);
+        const auto name = "ENV " + juce::String (env + 1);
+        addFloat (prefix + "_acurve", name + " Attack Curve", -1.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_dcurve", name + " Decay Curve", -1.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_rcurve", name + " Release Curve", -1.0f, 1.0f, 0.0f);
+    }
+
+    // Review 7 (I7-4): the reverb leaves the dry signal as it is and adds its
+    // wet on top, so a reverb at MIX 0 passes the dry signal exactly (the DX7
+    // voices' SPACE macro opens it). Off, as in every older patch: the dry
+    // follows MIX as before.
+    addBool ("fx_reverb_keep_dry", "Reverb Keep Dry", false);
+
+    // Review 8 (V8-15): the heard noise's colour (SUB + NOISE), on the FM
+    // noise's scale. White, as in every older patch.
+    addFloat ("noise_color", "Noise Colour", 0.0f, 1.0f, 1.0f);
+
+    // Design round 2: the FX rack's routing. SERIES (each effect feeds the
+    // next one) as in every older patch; PARALLEL (every effect hears the
+    // rack's input, their outputs averaged; see processEffectsParallel).
+    addChoice ("fx_routing", "FX Routing", { "Series", "Parallel" }, 0);
+
+    // CPU round 7: the voices render on several cores (the same sound; off
+    // renders them on one, as before).
+    addBool ("multi_core", "Multi-Core Voices", true);
+
+    // At most this many voices ring on after their key is up (released or
+    // held by the pedal); past it the oldest fade out. Off as before.
+    addChoice ("sustain_voices", "Sustain Voices", { "Off", "4", "6", "8", "12", "16" }, 0);
+
+    // Vital parity: a stereo route into a filter cutoff moves the left and
+    // right channels in opposite directions. Off, as in every older patch.
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        addBool ("mod" + juce::String (slot) + "_stereo", "Mod" + juce::String (slot) + " Stereo", false);
+
+    // The compact SUB and NOISE cards on PLAY: NOISE has its own switch (on,
+    // as before: its level alone decided) and six colours (White is the old
+    // noise), and SUB has its own COLOUR (0, the plain wave, as before; the
+    // old noise_color stays as the noise's tone control, now off the card).
+    addBool ("noise_on", "Noise On", true);
+    addChoice ("noise_type", "Noise Type", { "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
+    addFloat ("sub_colour", "Sub Colour", 0.0f, 1.0f, 0.0f);
+
+    // Roadmap step 17: the FX PATCHER. On, the rack's slots run as the nodes
+    // of the patcher's cable graph (FxPatch.h) instead of SERIES / PARALLEL.
+    // Off, as in every older patch.
+    addBool ("fx_patcher", "FX Patcher", false);
+
+    // Roadmap step 16: reroutable oscillators. On, the FILTER tab's ROUTING
+    // cables decide where each source goes (F1, F2, WEST, OUT, any mix) and
+    // in which order the stages run (dsp/VoiceRouting.h); off, as in every
+    // older patch, the fixed chain (the _route menus, SERIAL / PARALLEL,
+    // WEST's position). Each cable_* holds one source's or stage's
+    // destinations as a mask; the defaults are today's default chain.
+    addBool ("route_cables", "Routing Cables", false);
+    {
+        juce::StringArray masks;
+        for (int mask = 0; mask < 16; ++mask)
+            masks.add (VoiceRouting::maskNames()[mask]);
+        const auto defaults = VoiceRouting::defaultPatch();
+        for (int source = 0; source < VoiceRouting::numSources; ++source)
+            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks, defaults.source[(size_t) source]);
+        for (int stage = 0; stage < VoiceRouting::numStages; ++stage)
+            addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + stage), VoiceRouting::cableParamName (VoiceRouting::numSources + stage),
+                       masks, defaults.stage[(size_t) stage]);
+    }
+
+    // FX type 42, FILTER (ilana 2026-10-11: feed an effect back into a
+    // filter): any of the voice filters (FilterType, dsp/FilterUnit.h) run
+    // once on the rack's stereo signal, so a PATCH loop can go through one.
+    // SPREAD opens the left side and closes the right, up to an octave apart.
+    addChoice ("fx_filter_type", "Filter FX Type", FilterType::getNames(), FilterType::LowPass);
+    addChoice ("fx_filter_slope", "Filter FX Slope", { "12 dB", "24 dB" }, 0);
+    addFloat ("fx_filter_cutoff", "Filter FX Cutoff", 20.0f, 20000.0f, 2000.0f, 0.25f);
+    addFloat ("fx_filter_reso", "Filter FX Reso", 0.0f, 1.0f, 0.3f);
+    addFloat ("fx_filter_drive", "Filter FX Drive", 1.0f, 10.0f, 1.0f);
+    addFloat ("fx_filter_morph", "Filter FX Morph", 0.0f, 1.0f, 0.0f);
+    addFloat ("fx_filter_spread", "Filter FX Spread", 0.0f, 1.0f, 0.0f);
+
+    // Roadmap step 40: a sample follows the host tempo. SYNC names the
+    // sample's own tempo: its BPM, or its played region's length in beats or
+    // bars (4/4); STRETCH keeps the pitch apart from the speed (Repitch: one
+    // rate, as before). Off, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_sync", name + " Sample Sync", SampleTempo::syncNames(), 0);
+        addFloat (prefix + "_sample_bpm", name + " Sample BPM", 40.0f, 240.0f, 120.0f);
+        addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch" }, 0);
+    }
 
     return layout;
 }

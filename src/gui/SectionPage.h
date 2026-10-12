@@ -13,6 +13,7 @@
 // MATRIX, for example), picked with a segmented switch whose lit pill
 // slides to the chosen page.
 class SectionSwitcher : public juce::Component,
+                        public juce::SettableTooltipClient,
                         private IlanaAnim::FrameTimer
 {
 public:
@@ -38,6 +39,25 @@ public:
 
     int getSelected() const { return selected; }
 
+    // A page with nothing to edit in this patch greys its switch, with the
+    // reason as the tooltip (it still opens). An empty reason clears it.
+    void setItemDimmed (int index, const juce::String& reason)
+    {
+        if (index < 0)
+            return;
+
+        while (dimReasons.size() <= index)
+            dimReasons.add ({});
+
+        if (dimReasons[index] != reason)
+        {
+            dimReasons.set (index, reason);
+            repaint();
+        }
+    }
+
+    bool isItemDimmed (int index) const { return dimReasons[index].isNotEmpty(); }
+
     int getIdealWidth() const
     {
         auto width = 6;
@@ -52,36 +72,40 @@ public:
     {
         using namespace IlanaTheme;
 
+        // The mockup's segmented control: a dark rim of 8 px corners, the
+        // chosen segment a raised tile (no glow), the others quiet grey.
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        const auto radius = bounds.getHeight() * 0.5f;
-        g.setColour (Ui::panel);
-        g.fillRoundedRectangle (bounds, radius);
+        g.setColour (Ui::header);
+        g.fillRoundedRectangle (bounds, 8.0f);
         g.setColour (Ui::line);
-        g.drawRoundedRectangle (bounds, radius, 1.0f);
+        g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
 
-        // The lit pill sits between segments while it slides.
+        // The lit tile sits between segments while it slides.
         const auto lower = juce::jlimit (0, items.size() - 1, (int) std::floor (pill));
         const auto upper = juce::jlimit (0, items.size() - 1, lower + 1);
         const auto t = pill - (float) lower;
         const auto a = segmentBounds (lower), b = segmentBounds (upper);
         const auto lit = juce::Rectangle<float> (a.getX() + (b.getX() - a.getX()) * t, a.getY(),
-                                                 a.getWidth() + (b.getWidth() - a.getWidth()) * t, a.getHeight()).reduced (2.0f);
+                                                 a.getWidth() + (b.getWidth() - a.getWidth()) * t, a.getHeight()).reduced (0.0f, 2.0f);
 
-        paintGlow (g, lit, lit.getHeight() * 0.5f, accent(), 1.0f);
-        g.setColour (Ui::raised.interpolatedWith (accent(), 0.3f));
-        g.fillRoundedRectangle (lit, lit.getHeight() * 0.5f);
-        g.setColour (accent().withAlpha (0.8f));
-        g.drawRoundedRectangle (lit, lit.getHeight() * 0.5f, 1.0f);
+        g.setColour (Ui::track); // (the sheet's .seg b.on: ink 4 with a 7 % white rim)
+        g.fillRoundedRectangle (lit, 6.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.drawRoundedRectangle (lit.reduced (0.5f), 6.0f, 1.0f);
 
-        g.setFont (font (TextSize::minInteractive, true));
+        g.setFont (font (TextSize::minInteractive, true).withKerningFactor (0.08f));
 
         for (int i = 0; i < items.size(); ++i)
         {
             const auto closeness = 1.0f - juce::jlimit (0.0f, 1.0f, std::abs (pill - (float) i));
-            auto colour = Ui::text2.interpolatedWith (juce::Colours::white, closeness);
+            auto colour = Ui::text3.interpolatedWith (Ui::text, closeness);
 
-            if (i == hover && i != selected)
-                colour = colour.interpolatedWith (Ui::text, 0.6f);
+            // (The hover fades in and out: the shared animator.)
+            const auto hovered = fade (*this, 100 + i, i == hover && i != selected ? 1.0f : 0.0f, FadeRate::hover);
+            colour = colour.interpolatedWith (Ui::text, 0.6f * hovered);
+
+            if (isItemDimmed (i) && i != selected)
+                colour = colour.withMultipliedAlpha (0.4f);
 
             g.setColour (colour);
             g.drawText (items[i], segmentBounds (i), juce::Justification::centred);
@@ -95,6 +119,7 @@ public:
         if (index != hover)
         {
             hover = index;
+            setTooltip (index >= 0 ? dimReasons[index] : juce::String());
             repaint();
         }
     }
@@ -121,7 +146,7 @@ public:
 private:
     static int segmentWidth (const juce::String& item)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true)), item) + 26;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true).withKerningFactor (0.08f)), item) + 22;
     }
 
     juce::Rectangle<float> segmentBounds (int index) const
@@ -157,7 +182,7 @@ private:
         repaint();
     }
 
-    juce::StringArray items;
+    juce::StringArray items, dimReasons;
     int selected = 0, hover = -1;
     float pill = 0.0f;
 };

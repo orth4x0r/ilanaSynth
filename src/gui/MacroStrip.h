@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "ModNames.h"
 #include "ParamControls.h"
 #include "AnimationUtils.h"
 
@@ -32,6 +33,8 @@ public:
         knob.setCompact (true);
         addAndMakeVisible (knob);
         parameter = p.apvts.getParameter (parameterID);
+        if (macroIndex >= 0)
+            knob.setIsSourceKnob(); // a macro is a source, not a target
 
         if (macroIndex >= 0)
         {
@@ -51,10 +54,13 @@ public:
             };
             addChildComponent (nameEditor);
 
-            setTooltip (title + "\nTurn to sweep everything this macro is routed to.  Drag its name onto any knob "
-                                "to route it there.  Double-click the name to rename it.");
+            setTooltip ("Turn to sweep everything this macro is routed to; rest on it to see where it goes.  "
+                        "Drag its name onto any knob to route it there.  Double-click the name to rename it.");
             setMouseCursor (juce::MouseCursor::DraggingHandCursor);
         }
+
+        if (macroIndex >= 0)
+            refreshTargets();
 
         startPollingHz (60); // follows its value, no animation of its own
     }
@@ -89,24 +95,120 @@ public:
 
         if (! nameEditor.isBeingEdited())
         {
-            g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            g.drawText (title.toUpperCase(), text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft, true);
+            auto nameArea = text.removeFromTop (text.getHeight() / 2);
+
+            // A target whose module is off (a reverb mix with the reverb
+            // switched off) can't be heard: a small amber warning sign after
+            // the name says so, its tooltip which (V7-28), and the macro's
+            // card (rest on it) the same.
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f); // (the sheet's .mk b)
+            const auto name = title.toUpperCase();
+            const auto markWidth = evolving ? 16 : 0;
+            const auto nameWidth = juce::jmin (nameArea.getWidth() - markWidth,
+                                               juce::GlyphArrangement::getStringWidthInt (font, name) + 1);
+            // A macro routed nowhere reads quietly, so the preset's own
+            // macros stand out (V8-37).
+            const auto quiet = macroIndex >= 0 && ! isAssigned();
+            g.setColour (hover ? IlanaTheme::Ui::text : quiet ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text2);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, name, nameArea.removeFromLeft (nameWidth), juce::Justification::bottomLeft, 1);
+
+            // An evolving macro carries a small drift wave after its name
+            // (its EVOLVE is on its card).
+            if (evolving)
+            {
+                const auto capHeight = juce::Font (font).getAscent() * 0.72f;
+                const auto wave = juce::Rectangle<float> ((float) nameArea.getX() + 4.0f,
+                                                          (float) nameArea.getBottom() - juce::Font (font).getDescent() - capHeight,
+                                                          11.0f, capHeight);
+                juce::Path path;
+                for (int i = 0; i <= 12; ++i)
+                {
+                    const auto t = (float) i / 12.0f;
+                    const auto point = juce::Point<float> (wave.getX() + t * wave.getWidth(),
+                                                           wave.getCentreY() - std::sin (t * juce::MathConstants<float>::twoPi) * wave.getHeight() * 0.4f);
+                    if (i == 0)
+                        path.startNewSubPath (point);
+                    else
+                        path.lineTo (point);
+                }
+                g.setColour (modSourceColour ((int) Mod::macroSourceFor (macroIndex)));
+                g.strokePath (path, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                nameArea.removeFromLeft (16);
+            }
+
+            markBounds = {};
         }
         else
         {
             text.removeFromTop (text.getHeight() / 2);
         }
 
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, false, true)); // a live value
-        g.drawText (valueText(), text, juce::Justification::topLeft, true);
+        assignBounds = {};
+
+        if (macroIndex >= 0 && ! isAssigned())
+        {
+            // Nothing to move yet: "+ ASSIGN" in the second line, where the
+            // other states put their text, so every tile has one shape
+            // (V15-17). It adds a routing from this macro in the matrix
+            // (review 9, I9-20), so macros 5-8 need no drag.
+            const juce::String label ("+ ASSIGN");
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+            const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 2);
+            assignBounds = text.withWidth (width).expanded (3, 1).getIntersection (getLocalBounds());
+            const auto over = hover && assignBounds.contains (getMouseXYRelative());
+            g.setColour (over ? IlanaTheme::accent() : hover ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, label, text, juce::Justification::topLeft, 1);
+            return;
+        }
+
+        // The second line, as in the dock mockup: "→ 2" (how many things the
+        // macro moves) while it rests, its value while the mouse is on it;
+        // MASTER shows its level. A macro with targets that can't be heard
+        // says so there in the warning colour, "1 OFF" (its tooltip which, V7-28;
+        // I14-8: the count, not a bare "OFF").
+        if (macroIndex >= 0 && idleTargets > 0)
+        {
+            g.setColour (juce::Colour (0xffffb020));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+            const auto warning = juce::String (idleTargets) + " OFF";
+            IlanaTheme::drawFitted (g, warning, text, juce::Justification::topLeft, 1);
+            if (hover && markBounds.contains (getMouseXYRelative()))
+                g.fillRect (text.getX(), text.getY() + 12, juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning)), 1);
+            markBounds = text.withWidth (juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning) + 2))
+                             .expanded (3).getIntersection (getLocalBounds());
+            return;
+        }
+
+        const auto routed = macroIndex >= 0 && routedTargets > 0 && ! hover;
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (routed ? IlanaTheme::font (IlanaTheme::TextSize::label)
+                          : IlanaTheme::font (IlanaTheme::TextSize::label, false, true)); // a live value (the sheet's .mk i: 500)
+        g.drawText (routed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + juce::String (routedTargets) : valueText(),
+                    text, juce::Justification::topLeft, true);
+    }
+
+    // Whether the macro moves anything: a routing, or its own EVOLVE.
+    bool isAssigned() const { return routedTargets > 0 || evolving; }
+    bool isEvolving() const { return evolving; }
+
+    // With every macro idle, only the first keeps its + ASSIGN showing; the
+    // others show it on hover, so four identical pills read as one
+    // (review 11, S11-9).
+    void setQuietAssign (bool quiet)
+    {
+        if (quiet != quietAssign)
+        {
+            quietAssign = quiet;
+            repaint();
+        }
     }
 
     void resized() override
     {
         auto area = getLocalBounds();
-        knob.setBounds (area.removeFromLeft (juce::jmin (area.getHeight() + 4, 52)));
+        knob.setBounds (area.removeFromLeft (knobBox));
 
         auto text = textArea();
         nameEditor.setBounds (text.removeFromTop (text.getHeight() / 2).withTrimmedRight (10));
@@ -122,15 +224,51 @@ public:
         repaint();
     }
 
-    void mouseExit (const juce::MouseEvent&) override
+    void mouseExit (const juce::MouseEvent& event) override
     {
+        // (Moving onto the knob inside isn't leaving.)
+        if (getLocalBounds().contains (event.getEventRelativeTo (this).getPosition()))
+            return;
+
         hover = false;
+        overAssign = false;
+        hoverRest = 0.0f;
 
         if (macroIndex >= 0 && highlightedModSource() == (int) Mod::macroSourceFor (macroIndex))
             highlightedModSource() = 0;
 
         repaint();
     }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto over = (! assignBounds.isEmpty() && assignBounds.contains (event.getPosition()))
+                          || (! markBounds.isEmpty() && markBounds.contains (event.getPosition()));
+
+        if (over != overAssign)
+        {
+            overAssign = over;
+            setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::DraggingHandCursor);
+            repaint();
+        }
+    }
+
+    // + ASSIGN: add a routing from this macro (the editor opens the matrix).
+    void mouseUp (const juce::MouseEvent& event) override
+    {
+        if (macroIndex >= 0 && ! assignBounds.isEmpty() && ! event.mouseWasDraggedSinceMouseDown()
+            && assignBounds.contains (event.getPosition()) && onAssign != nullptr)
+            onAssign (macroIndex);
+        // "1 OFF": opens that route in the matrix (I15-9).
+        else if (macroIndex >= 0 && idleTargets > 0 && firstIdleSlot >= 0 && ! markBounds.isEmpty()
+                 && ! event.mouseWasDraggedSinceMouseDown() && markBounds.contains (event.getPosition())
+                 && ModNames::openMatrixRow() != nullptr)
+            ModNames::openMatrixRow() (firstIdleSlot);
+    }
+
+    // The + ASSIGN button's bounds (empty while the macro moves something).
+    juce::Rectangle<int> getAssignBounds() const { return assignBounds; }
+    std::function<void (int macro)> onAssign;
 
     void mouseDoubleClick (const juce::MouseEvent&) override
     {
@@ -162,13 +300,97 @@ public:
     }
 
     KnobControl& getKnob() { return knob; }
+    int getMacroIndex() const { return macroIndex; }
+    // How many of the macro's targets can't be heard now (their module is
+    // off); the tests.
+    int getNumIdleTargets() const { return idleTargets; }
+    // The warning sign's bounds (empty while every target can be heard).
+    juce::Rectangle<int> getIdleMarkBounds() const { return markBounds; }
+
+    // A macro with targets that can't be heard says which first (its
+    // warning sign means this).
+    juce::String getTooltip() override
+    {
+        const auto base = juce::SettableTooltipClient::getTooltip();
+        if (macroIndex < 0 || idleTargets == 0 || idleText.isEmpty())
+            return base;
+        // The title says what is wrong in words, the next line which targets
+        // and why (review 9, I9-12: the sign alone was a bare triangle).
+        const auto name = processorRef.getMacroName (macroIndex).toUpperCase();
+        const auto title = idleTargets >= routedTargets ? name + ": no effect now"
+                                                         : name + ": " + juce::String (idleTargets) + " of " + juce::String (routedTargets)
+                                                               + " targets have no effect now";
+        return title + "\n" + idleText + ". Click the count to open the route." + (base.isNotEmpty() ? "  " + base : juce::String());
+    }
+
+    // Opens the macro's card: where it goes, with warnings (hover does it
+    // after a short rest).
+    void openCard()
+    {
+        if (macroIndex >= 0 && modHoverHooks().showSource != nullptr)
+            modHoverHooks().showSource (*this, (int) Mod::macroSourceFor (macroIndex));
+    }
 
 private:
+    // The knob's cell (the ring inside is 8 px smaller: a 30 px dial).
+    static constexpr int knobBox = 38;
+
     juce::Rectangle<int> textArea() const
     {
         auto area = getLocalBounds();
-        area.removeFromLeft (juce::jmin (area.getHeight() + 4, 52) + 2);
-        return area.reduced (0, 6);
+        area.removeFromLeft (knobBox + 2);
+        return area.reduced (0, 3);
+    }
+
+public:
+    // Reads the macro's routings and EVOLVE again (the timer does it a few
+    // times a second; the tests call it).
+    void refreshTargets()
+    {
+        juce::String text;
+        const auto idle = countIdleTargets (text);
+        idleText = text;
+        auto routed = 0;
+        for (int i = 0; i < Mod::maxSlots; ++i)
+        {
+            const auto slot = processorRef.readModSlot (i);
+            routed += slot.source == Mod::macroSourceFor (macroIndex) && slot.destination != 0 ? 1 : 0;
+        }
+        const auto* evolve = processorRef.apvts.getRawParameterValue ("macro" + juce::String (macroIndex + 1) + "_evolve");
+        const auto nowEvolving = evolve != nullptr && evolve->load() > 0.0005f;
+        if (idle != idleTargets || routed != routedTargets || nowEvolving != evolving)
+        {
+            idleTargets = idle;
+            routedTargets = routed;
+            evolving = nowEvolving;
+            knob.setAlpha (isAssigned() ? 1.0f : 0.55f);
+            repaint();
+        }
+    }
+
+private:
+    int countIdleTargets (juce::String& text)
+    {
+        const auto source = Mod::macroSourceFor (macroIndex);
+        auto count = 0;
+        text.clear();
+        firstIdleSlot = -1;
+
+        for (int i = 0; i < Mod::maxSlots; ++i)
+        {
+            const auto slot = processorRef.readModSlot (i);
+
+            if (slot.source == source && slot.isActive())
+                if (const auto why = ModNames::whyDestinationIsIdle (processorRef, slot.destination); why.isNotEmpty())
+                {
+                    if (firstIdleSlot < 0)
+                        firstIdleSlot = i;
+                    text << (count > 0 ? "; " : "") << ModNames::destination (slot.destination, processorRef) << " (" << why << ")";
+                    ++count;
+                }
+        }
+
+        return count;
     }
 
     juce::String valueText() const
@@ -183,6 +405,23 @@ private:
     {
         if (nameEditor.isVisible() && ! nameEditor.isBeingEdited())
             nameEditor.setVisible (false);
+
+        if (macroIndex >= 0)
+        {
+            // Resting on the macro (not turning it) opens its card.
+            const auto resting = isMouseOver (true) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
+            if (resting && hoverRest < 0.35f && (hoverRest += frameSeconds()) >= 0.35f)
+                openCard();
+            else if (! resting)
+                hoverRest = 0.0f;
+
+            // Its targets and idle targets, a few times a second.
+            if ((idleCheck += frameSeconds()) > 0.4f)
+            {
+                idleCheck = 0.0f;
+                refreshTargets();
+            }
+        }
 
         const auto value = parameter != nullptr ? parameter->getValue() : 0.0f;
 
@@ -200,5 +439,43 @@ private:
     juce::String defaultTitle;
     int macroIndex = -1;
     float lastValue = -1.0f;
-    bool hover = false;
+    float hoverRest = 0.0f, idleCheck = 1.0f;
+    int idleTargets = 0, routedTargets = -1, firstIdleSlot = -1;
+    bool evolving = false;
+    juce::String idleText;
+    juce::Rectangle<int> markBounds;
+    bool hover = false, overAssign = false, quietAssign = false;
+    juce::Rectangle<int> assignBounds;
+};
+
+// GLIDE as a row in the VOICES menu (it left the bottom strip to make room
+// for all eight macros): its name, a slider and the time. Turning it leaves
+// the menu open.
+class GlideMenuItem : public juce::PopupMenu::CustomComponent
+{
+public:
+    explicit GlideMenuItem (IlanaSynthAudioProcessor& p)
+        : juce::PopupMenu::CustomComponent (false),
+          slider (p.apvts, "glide")
+    {
+        addAndMakeVisible (slider);
+    }
+
+    void getIdealSize (int& idealWidth, int& idealHeight) override
+    {
+        idealWidth = 280;
+        idealHeight = 30;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        g.drawText ("Glide", getLocalBounds().withTrimmedLeft (12).withWidth (60), juce::Justification::centredLeft);
+    }
+
+    void resized() override { slider.setBounds (getLocalBounds().withTrimmedLeft (72).reduced (4, 4)); }
+
+private:
+    ValueSliderControl slider;
 };

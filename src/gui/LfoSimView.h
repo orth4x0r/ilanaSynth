@@ -87,6 +87,16 @@ public:
 
     void trigger (const LfoSimSettings& settings) { sim.trigger (settings, 7); }
 
+    // Output A's recent history as a rolling picture for a small card:
+    // phase 0 is the oldest point, 1 the newest (what the dot sits on).
+    float historyAt (double phase) const
+    {
+        const auto index = juce::jlimit (0, historySize - 1, (int) (phase * (double) historySize));
+        return historyA[(size_t) ((head + index) % historySize)];
+    }
+
+    float latestA() const { return lastA; }
+
     // What outputs A and B carry, spelled out ("X axis", "impacts"), following
     // OUTPUT A's axis on the attractors (B is the next axis; Mix puts X and Z
     // on A, Y on B).
@@ -121,14 +131,40 @@ public:
     void paint (juce::Graphics& g, juce::Rectangle<float> area, const LfoSimSettings& settings, juce::Colour colour) const
     {
         const auto& info = LfoSimInfo::get (settings.shape);
-        auto scene = LfoSimShapes::isRandom (settings.shape) ? juce::Rectangle<float>()
-                                                             : area.removeFromLeft (juce::jmin (area.getWidth() * 0.45f, area.getHeight() * 1.25f));
+        const auto scene = sceneArea (area, settings.shape);
         if (! scene.isEmpty())
-        {
             paintScene (g, scene.reduced (6.0f), settings, colour);
-            area.removeFromLeft (8.0f);
-        }
-        paintScope (g, area, colour, info);
+        paintScope (g, scopeArea (area, settings.shape), colour, info);
+    }
+
+    // The picture's two parts: the object or attractor on the left (none
+    // for the random shapes) and the scope of outputs A and B.
+    static juce::Rectangle<float> sceneArea (juce::Rectangle<float> area, int shape)
+    {
+        return LfoSimShapes::isRandom (shape) ? juce::Rectangle<float>()
+                                              : area.removeFromLeft (juce::jmin (area.getWidth() * 0.45f, area.getHeight() * 1.25f));
+    }
+
+    static juce::Rectangle<float> scopeArea (juce::Rectangle<float> area, int shape)
+    {
+        const auto scene = sceneArea (area, shape);
+        return scene.isEmpty() ? area : area.withTrimmedLeft (scene.getWidth() + 8.0f);
+    }
+
+    // The scope's "OUT 1: ..." and "OUT 2: ..." tags along its top, which drag the
+    // LFO's two outputs onto knobs (UI review 6, I6-24).
+    static juce::Rectangle<float> outputTagBounds (juce::Rectangle<float> scope, const juce::String& text, bool outputB)
+    {
+        const auto width = juce::jmin (scope.getWidth() * 0.5f - 4.0f,
+                                       (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), text) + 14.0f);
+        auto row = scope.removeFromTop (16.0f);
+        return outputB ? row.removeFromRight (width) : row.removeFromLeft (width);
+    }
+
+    static juce::String outputTagText (const LfoSimInfo::Shape& info, int axis, bool outputB)
+    {
+        const auto names = outputNames (info, axis);
+        return outputB ? "OUT 2: " + names.second : "OUT 1: " + names.first; // spelt out (UI review 9, V9-20)
     }
 
 private:
@@ -145,13 +181,21 @@ private:
 
     void paintScope (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, const LfoSimInfo::Shape& info) const
     {
-        const auto labels = area.removeFromTop (14.0f);
-        const auto names = outputNames (info, lastAxis);
+        // The two outputs as tags, outlined like chips: each drags its output.
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (colour);
-        g.drawText ("Output A: " + names.first, labels, juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.drawText ("Output B: " + names.second, labels, juce::Justification::centredRight);
+        for (const auto outputB : { false, true })
+        {
+            const auto text = outputTagText (info, lastAxis, outputB);
+            const auto tag = outputTagBounds (area, text, outputB);
+            const auto tagColour = outputB ? IlanaTheme::Ui::text2 : colour;
+            g.setColour (IlanaTheme::Ui::bg.withAlpha (0.6f));
+            g.fillRoundedRectangle (tag, 7.0f);
+            g.setColour (tagColour.withAlpha (0.55f));
+            g.drawRoundedRectangle (tag.reduced (0.5f), 7.0f, 1.0f);
+            g.setColour (tagColour);
+            IlanaTheme::drawFitted (g, text, tag.reduced (7.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
+        }
+        area.removeFromTop (18.0f);
 
         const auto centre = area.getCentreY();
         const auto half = area.getHeight() * 0.45f;
@@ -174,8 +218,8 @@ private:
             return path;
         };
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.strokePath (trace (historyB), juce::PathStrokeType (1.1f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.strokePath (trace (historyB), juce::PathStrokeType (1.2f));
         g.setColour (colour);
         g.strokePath (trace (historyA), juce::PathStrokeType (1.7f));
 
@@ -209,13 +253,13 @@ private:
         const auto count = (int) trail.size();
         for (int i = 1; i < count; ++i)
         {
-            const auto alpha = 0.08f + 0.8f * (float) i / (float) count;
+            const auto alpha = (dots ? 0.3f : 0.12f) + 0.7f * (float) i / (float) count;
             g.setColour (colour.withAlpha (alpha));
             const auto p1 = map (project (trail[(size_t) i]));
             if (dots)
-                g.fillEllipse (juce::Rectangle<float> (2.2f, 2.2f).withCentre (p1));
+                g.fillEllipse (juce::Rectangle<float> (3.6f, 3.6f).withCentre (p1));
             else
-                g.drawLine ({ map (project (trail[(size_t) i - 1])), p1 }, 1.2f);
+                g.drawLine ({ map (project (trail[(size_t) i - 1])), p1 }, 1.6f);
         }
         g.setColour (juce::Colours::white);
         g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (map (project (trail.back()))));
@@ -290,13 +334,24 @@ private:
             case Pendulum:
             {
                 const auto pivot = juce::Point<float> (box.getCentreX(), box.getY() + 12.0f);
-                const auto length = box.getHeight() - 30.0f;
+                // (Short enough that a full sideways swing stays inside the box.)
+                const auto length = juce::jmax (20.0f, juce::jmin (box.getHeight() - 30.0f, box.getWidth() * 0.5f - 12.0f));
+                juce::Graphics::ScopedSaveState keepInside (g);
+                g.reduceClipRegion (box.getSmallestIntegerContainer());
                 const auto angle = (float) st[0];
                 const auto bob = pivot + juce::Point<float> (std::sin (angle), std::cos (angle)) * length;
-                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.setColour (juce::Colours::white.withAlpha (0.2f));
                 g.drawLine ({ pivot, pivot + juce::Point<float> (0.0f, length) }, 1.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.7f));
-                g.drawLine ({ pivot, bob }, 2.0f);
+                // Where the bob has been: its trail along the arc, fading.
+                const auto count = (int) trail.size();
+                for (int i = 0; i < count; ++i)
+                {
+                    const auto at = pivot + juce::Point<float> (std::sin ((float) trail[(size_t) i].x), std::cos ((float) trail[(size_t) i].x)) * length;
+                    g.setColour (colour.withAlpha (0.08f + 0.6f * (float) i / (float) count));
+                    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre (at));
+                }
+                g.setColour (juce::Colours::white.withAlpha (0.85f));
+                g.drawLine ({ pivot, bob }, 2.2f);
                 g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (pivot));
                 g.setColour (colour);
                 g.fillEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (bob));
@@ -310,8 +365,15 @@ private:
                 const auto massY = restY + (float) st[0] * travel;
                 g.setColour (juce::Colours::white.withAlpha (0.35f));
                 g.fillRect (box.getCentreX() - 20.0f, top - 2.0f, 40.0f, 2.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.setColour (juce::Colours::white.withAlpha (0.2f));
                 g.drawHorizontalLine ((int) (restY + (float) value (3) * travel), box.getX() + 8.0f, box.getRight() - 8.0f);
+                // The mass's recent places, a fading column beside it.
+                const auto count = (int) trail.size();
+                for (int i = 0; i < count; i += 2)
+                {
+                    g.setColour (colour.withAlpha (0.05f + 0.5f * (float) i / (float) count));
+                    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ box.getCentreX() + 26.0f + 0.04f * (float) (count - i), restY + (float) trail[(size_t) i].x * travel }));
+                }
                 juce::Path coil;
                 coil.startNewSubPath (box.getCentreX(), top);
                 constexpr int turns = 9;

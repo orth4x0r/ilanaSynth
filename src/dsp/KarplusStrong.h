@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <xmmintrin.h>
+#endif
+
 #include <juce_core/juce_core.h>
 
 #include <array>
@@ -54,6 +58,7 @@ public:
     void prepare (double newSampleRate)
     {
         sampleRate = newSampleRate;
+        loopSetupDirty = true;
 
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
@@ -69,8 +74,8 @@ public:
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
+        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
         resetHorizontal();
@@ -85,6 +90,7 @@ public:
     {
         electric.setFrequency (hz);
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
+        loopSetupDirty = true;
         piano.setNote (hz, juce::roundToInt (69.0 + 12.0 * std::log2 (juce::jmax (1.0, hz) / 440.0)));
         updateHammerFeedback();
         updatePianoDispersion();
@@ -93,6 +99,7 @@ public:
     void setParams (Excite newExcite, float newSustainLevel, float newDamping, float newDecay)
     {
         excite = newExcite;
+        loopSetupDirty = true;
         if (isElectric())
             electric.setModel (excite == Excite::Tine ? ElectricPiano::Model::Tine : ElectricPiano::Model::Reed);
         updateDispersionDelay();
@@ -101,6 +108,7 @@ public:
         decay = juce::jlimit (0.0f, 1.0f, newDecay);
 
         lowpassCoefficient = 1.0f - damping * 0.96f;
+        loopSetupDirty = true;
         feedback = 0.90f + decay * 0.0995f;
         updateHammerFeedback();
         updatePianoDispersion();
@@ -125,12 +133,17 @@ public:
                             float newPickHardness, float newPickPosition, bool newSlap)
     {
         stiffness = juce::jlimit (0.0f, 1.0f, newStiffness);
-        pickupPosition = juce::jlimit (0.0f, 1.0f, newPickup);
-        excitationPosition = juce::jlimit (0.0f, 1.0f, newExcitationPosition);
+        loopSetupDirty = true;
+        // The three positions are fractions of the string: past the middle a
+        // position only mirrors the first half, so the knob's whole travel
+        // covers bridge (0) to middle (1) and the fraction is half of it.
+        pickupPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newPickup);
+        excitationPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newExcitationPosition);
         pickHardness = juce::jlimit (0.0f, 1.0f, newPickHardness);
-        pickPosition = juce::jlimit (0.0f, 1.0f, newPickPosition);
+        pickPosition = 0.5f * juce::jlimit (0.0f, 1.0f, newPickPosition);
         slap = newSlap;
-        dispersionCoefficient = -0.7f * stiffness;
+        dispersionCoefficient = -0.95f * stiffness;
+        loopSetupDirty = true;
         updateDispersionDelay();
         updatePianoDispersion();
         updatePiano();
@@ -231,9 +244,9 @@ public:
             writePosition = 0;
             lowpassState = 0.0f;
             phase = 0.0;
-            std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-            std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
-            slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
+            for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+            for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
+            slapRemaining = slap ? slapSamples() : 0;
             slapLevel = level;
             strikeVelocity = level;
             bridgeInput = 0.0f;
@@ -249,32 +262,48 @@ public:
         // Hardness 1 (the default) keeps the raw burst; lower values soften it.
         if (pickHardness < 1.0f || pickPosition > 0.0f || excitationPosition > 0.0f)
         {
-            const auto period = juce::jlimit (2, (int) buffer.size() - 1, (int) (sampleRate / frequency));
+            // The loop recirculates the last `period` samples of the buffer:
+            // the pick and strike positions are combs round that circle (a
+            // partner past its end would be noise the string never plays, and
+            // the comb would only half work).
+            const auto size = (int) buffer.size();
+            const auto period = juce::jlimit (2, size - 1, (int) (sampleRate / frequency));
+            const auto first = size - period;
             const auto offset = juce::jlimit (1, period - 1, (int) (period * juce::jmax (0.01f, pickPosition)));
             const auto exciteOffset = juce::jlimit (1, period - 1, (int) (period * excitationPosition));
+            // A softer pick or finger lets fewer harmonics through: the
+            // burst's low-pass cutoff runs from 2 x the note (0) to 128 x (1),
+            // so HARDNESS means the same on every key.
+            const auto cutoff = frequency * std::pow (2.0, 6.0 * (double) pickHardness + 1.0);
+            const auto smoothing = pickHardness < 1.0f
+                                       ? (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sampleRate))
+                                       : 1.0f;
+
+            std::vector<float>& raw = combScratch;
+            raw.assign (buffer.begin() + first, buffer.end());
             auto smooth = 0.0f;
 
-            for (int i = 0; i < (int) buffer.size(); ++i)
+            for (int i = 0; i < period; ++i)
             {
-                auto value = buffer[(size_t) i];
-                smooth += (value - smooth) * (0.15f + 0.85f * pickHardness);
+                auto value = raw[(size_t) i];
 
                 if (pickPosition > 0.0f)
-                    value -= 0.75f * buffer[(size_t) ((i + offset) % (int) buffer.size())];
+                    value -= 0.75f * raw[(size_t) ((i + offset) % period)];
 
                 if (excitationPosition > 0.0f)
-                    value -= 0.6f * buffer[(size_t) ((i + exciteOffset) % (int) buffer.size())];
+                    value -= 0.6f * raw[(size_t) ((i + exciteOffset) % period)];
 
-                buffer[(size_t) i] = juce::jmap (pickHardness, smooth, value);
+                smooth += (value - smooth) * smoothing;
+                buffer[(size_t) (first + i)] = pickHardness < 1.0f ? smooth : value;
             }
         }
 
         writePosition = 0;
         lowpassState = 0.0f;
         phase = 0.0;
-        std::fill (std::begin (dispersionState), std::end (dispersionState), 0.0f);
-        std::fill (std::begin (dispersionInput), std::end (dispersionInput), 0.0f);
-        slapRemaining = slap ? (int) (sampleRate * 0.004) : 0;
+        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
+        slapRemaining = slap ? slapSamples() : 0;
         slapLevel = level;
         strikeVelocity = level;
     }
@@ -296,33 +325,17 @@ public:
             return processBowed (expression, noteHeld);
 
         const auto size = (int) buffer.size();
-        const auto period = sampleRate / frequency;
+        // The loop's pitch, delays and allpass coefficient follow the
+        // setters (at most once a sub-block): worked out again only then.
+        if (loopSetupDirty)
+            prepareLoop();
+        const auto period = cachedPeriod;
         const auto hammered = excite == Excite::Hammer;
-        // Piano strings run two loops (see processHorizontal), one per half.
+        // Piano strings run two loops (see readHorizontal), one per half.
         const auto loopSize = hammered ? size / 2 : size;
-        const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
-        const auto stages = (double) dispersionStages();
-        auto delay = useDispersion ? juce::jmin ((double) dispersionDelay, period - 1.25) : 0.0;
-        auto coefficient = delay < (double) dispersionDelay
-                               ? (float) ((stages - delay) / (stages + delay)) : dispersionCoefficient;
-
-        // Piano strings: the designed allpass, and the loop's exact delay at
-        // the fundamental taken off so the note stays in tune.
-        if (hammered)
-        {
-            delay = pianoLoopDelay;
-            coefficient = pianoCoefficient;
-        }
-        // The damping low-pass in the loop delays the fundamental too (about
-        // (1 - c) / c samples): take its phase delay off as well, or the
-        // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
-        if (! hammered)
-        {
-            const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
-            const auto pole = 1.0 - (double) lowpassCoefficient;
-            const auto lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
-            delay = juce::jmin (delay + lowpassDelay, period - 1.25);
-        }
+        const auto useDispersion = loopUseDispersion;
+        const auto delay = loopDelay;
+        const auto coefficient = loopCoefficient;
 
         auto readPosition = (double) writePosition - period
                             + delay;
@@ -332,11 +345,16 @@ public:
         while (readPosition >= (double) size)
             readPosition -= (double) size;
 
-        const auto index = (int) readPosition;
-        const auto nextIndex = (index + 1) % size;
-        const auto fraction = (float) (readPosition - (double) index);
-        auto rawDelayed = buffer[(size_t) index]
-                        + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+        // (A piano string reads through its Thiran allpass below instead.)
+        auto rawDelayed = 0.0f;
+        if (! hammered)
+        {
+            const auto index = (int) readPosition;
+            const auto nextIndex = index + 1 < size ? index + 1 : (index + 1) % size;
+            const auto fraction = (float) (readPosition - (double) index);
+            rawDelayed = buffer[(size_t) index]
+                       + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+        }
 
         // Piano strings read the fractional part through a first-order
         // allpass (Thiran) instead: linear interpolation averages neighbours,
@@ -344,13 +362,14 @@ public:
         if (hammered)
         {
             const auto length = period - delay;
-            const auto whole = (int) std::floor (length - 0.5);
-            const auto part = length - (double) whole; // 0.5 .. 1.5
+            if (length != verticalTap.length)
+                verticalTap = thiranTapFor (length);
+            const auto whole = verticalTap.whole;
             auto readIndex = writePosition - whole;
             while (readIndex < 0)
                 readIndex += loopSize;
-            const auto input = buffer[(size_t) (readIndex % loopSize)];
-            const auto a = (float) ((1.0 - part) / (1.0 + part));
+            const auto input = buffer[(size_t) (readIndex < loopSize ? readIndex : readIndex % loopSize)];
+            const auto a = verticalTap.a;
             rawDelayed = a * input + thiranInput - a * thiranOutput;
             thiranInput = input;
             thiranOutput = rawDelayed;
@@ -358,23 +377,34 @@ public:
 
         auto delayed = rawDelayed;
 
-        if (useDispersion)
+        // A piano string's horizontal polarisation reads its own half of the
+        // buffer, so it is read now and both run their (identical) stiffness
+        // allpasses together, one SIMD lane each.
+        auto horizontal = 0.0f;
+        if (hammered)
+            horizontal = readHorizontal (period);
+
+        if (hammered && useDispersion)
+        {
+            disperseHammeredPair (delayed, horizontal);
+        }
+        else if (useDispersion)
         {
             for (int stage = 0; stage < dispersionStages(); ++stage)
             {
-                const auto next = coefficient * delayed + dispersionInput[stage]
-                                  - coefficient * dispersionState[stage];
-                dispersionInput[stage] = delayed;
-                dispersionState[stage] = next;
+                const auto next = coefficient * delayed + dispersionPairIn[stage][0]
+                                  - coefficient * dispersionPairState[stage][0];
+                dispersionPairIn[stage][0] = delayed;
+                dispersionPairState[stage][0] = next;
                 delayed = next;
             }
         }
 
         auto output = delayed;
 
-        if (rattle > 0.0f && std::abs (delayed) > 0.18f)
+        if (rattle > 0.0f)
             output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity
-                      * std::abs (delayed) * 0.12f;
+                      * std::abs (delayed);
 
         if (pickupPosition > 0.0f)
         {
@@ -435,7 +465,7 @@ public:
         excitation += bridgeInput;
         bridgeInput = 0.0f;
 
-        phase += frequency / sampleRate;
+        phase += cachedPhaseStep;
 
         if (phase >= 1.0)
             phase -= 1.0;
@@ -453,20 +483,20 @@ public:
         // can never feed energy into the loop.
         if (buzz > 0.0f)
         {
-            constexpr auto contact = 0.2f;
-            loopValue -= buzz * 0.6f * (loopValue - contact * std::tanh (loopValue / contact));
+            const auto contact = 0.04f;
+            loopValue -= buzz * 0.8f * (loopValue - contact * std::tanh (loopValue / contact));
         }
 
         buffer[(size_t) writePosition] = loopValue + excitation;
-        writePosition = (writePosition + 1) % loopSize;
+        writePosition = writePosition + 1 < loopSize ? writePosition + 1 : (writePosition + 1) % loopSize;
 
         if (hammered)
-            output += processHorizontal (drive, noteHeld, period);
+            output += finishHorizontal (horizontal, drive, noteHeld);
 
         if (slapRemaining > 0)
         {
-            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, (int) (sampleRate * 0.004));
-            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * slapLevel;
+            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, slapSamples());
+            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * slapLevel * 2.0f; // a click you can hear over the string
             --slapRemaining;
         }
 
@@ -493,10 +523,78 @@ private:
     // mode was built for: more allpass stages make the upper partials
     // audibly sharp, as in a real piano's bass.
     static constexpr int maxDispersionStages = 8;
+    // The per-sample loop's setup (see process), with the caches below.
+    void prepareLoop()
+    {
+        loopSetupDirty = false;
+        // The divisions below are cached on their inputs: the pitch moves
+        // at most once a sub-block, so they rarely need doing.
+        if (frequency != cachedFrequency || sampleRate != cachedSampleRate)
+        {
+            cachedFrequency = frequency;
+            cachedSampleRate = sampleRate;
+            cachedPeriod = sampleRate / frequency;
+            cachedPhaseStep = frequency / sampleRate;
+        }
+        const auto period = cachedPeriod;
+        const auto hammered = excite == Excite::Hammer;
+        const auto useDispersion = hammered ? pianoCoefficient != 0.0f : (stiffness > 0.0f && period > 3.5);
+        const auto stages = (double) dispersionStages();
+        // The allpasses delay the fundamental by their phase delay there, less
+        // than at DC: taking the DC delay off instead leaves a stiff string
+        // sharp (a hundred cents at full STIFF).
+        const auto fullDelay = ! useDispersion ? 0.0
+                               : hammered ? (double) dispersionDelay
+                                          : stages * allpassPhaseDelay ((double) dispersionCoefficient,
+                                                                        juce::MathConstants<double>::twoPi / juce::jmax (2.0, period));
+        auto delay = useDispersion ? juce::jmin (fullDelay, period - 1.25) : 0.0;
+        auto coefficient = dispersionCoefficient;
+        if (delay < fullDelay)
+        {
+            if (delay != cachedShortDelay || stages != cachedShortStages)
+            {
+                cachedShortDelay = delay;
+                cachedShortStages = stages;
+                cachedShortCoefficient = (float) ((stages - delay) / (stages + delay));
+            }
+            coefficient = cachedShortCoefficient;
+        }
+
+        // Piano strings: the designed allpass, and the loop's exact delay at
+        // the fundamental taken off so the note stays in tune.
+        if (hammered)
+        {
+            delay = pianoLoopDelay;
+            coefficient = pianoCoefficient;
+        }
+        // The damping low-pass in the loop delays the fundamental too (about
+        // (1 - c) / c samples): take its phase delay off as well, or the
+        // string sits flat by about 0.7 samples (11 cents at A4, 48 kHz).
+        if (! hammered)
+        {
+            // Cached: the pitch and damping change at most once a sub-block.
+            if (period != lowpassDelayPeriod || lowpassCoefficient != lowpassDelayCoefficient)
+            {
+                const auto omega = juce::MathConstants<double>::twoPi / juce::jmax (2.0, period);
+                const auto pole = 1.0 - (double) lowpassCoefficient;
+                lowpassDelay = std::atan2 (pole * std::sin (omega), 1.0 - pole * std::cos (omega)) / omega;
+                lowpassDelayPeriod = period;
+                lowpassDelayCoefficient = lowpassCoefficient;
+            }
+            delay = juce::jmin (delay + lowpassDelay, period - 1.25);
+        }
+
+        loopUseDispersion = useDispersion;
+        loopDelay = delay;
+        loopCoefficient = coefficient;
+    }
+
+    int slapSamples() const { return (int) (sampleRate * 0.010); }
     int dispersionStages() const { return excite == Excite::Hammer ? maxDispersionStages : 2; }
     void updateDispersionDelay()
     {
         dispersionDelay = (float) dispersionStages() * (1.0f - dispersionCoefficient) / (1.0f + dispersionCoefficient);
+        loopSetupDirty = true;
     }
 
     // A stiff piano string's partials run sharp: partial n sits at
@@ -536,7 +634,9 @@ private:
         const auto dampingDelay = lowpassPhaseDelay (w0);
         const auto horizontalDampingDelay = lowpassPhaseDelay (w0, (double) horizontalLowpass);
         pianoCoefficient = 0.0f;
+        loopSetupDirty = true;
         pianoLoopDelay = juce::jmin (dampingDelay, period - 1.25);
+        loopSetupDirty = true;
         horizontalLoopDelay = juce::jmin (horizontalDampingDelay, period - 1.25);
 
         const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
@@ -566,7 +666,9 @@ private:
             a *= 0.8;
 
         pianoCoefficient = (float) a;
+        loopSetupDirty = true;
         pianoLoopDelay = stages * allpassPhaseDelay (a, w0) + dampingDelay;
+        loopSetupDirty = true;
         horizontalLoopDelay = juce::jmin (period - 1.25, stages * allpassPhaseDelay (a, w0) + horizontalDampingDelay);
     }
 
@@ -707,6 +809,7 @@ private:
         if (hammerDesignValid && inputs == hammerDesignInputs)
         {
             lowpassCoefficient = hammerDesign[0];
+            loopSetupDirty = true;
             feedback = hammerDesign[1];
             horizontalLowpass = hammerDesign[2];
             horizontalFeedback = hammerDesign[3];
@@ -757,6 +860,7 @@ private:
         // barely couples, and rings on as the quiet aftersound. DECAY sets
         // the aftersound; the prompt sound lasts promptRatio of it.
         design (juce::jmax (0.05, t60 * (double) tuning.promptRatio), lowpassCoefficient, feedback);
+        loopSetupDirty = true;
         design (t60, horizontalLowpass, horizontalFeedback);
 
         hammerDesignInputs = inputs;
@@ -771,38 +875,68 @@ private:
     // The horizontal polarisation: the same string (same stiffness filter),
     // in the upper half of the buffer, taking aftersound's share of the
     // strike and losing energy far more slowly.
-    float processHorizontal (float drive, bool noteHeld, double period)
+    float readHorizontal (double period)
     {
         const auto half = (int) buffer.size() / 2;
         const auto length = juce::jlimit (1.5, (double) half - 2.0, period - horizontalLoopDelay);
-        const auto whole = (int) std::floor (length - 0.5);
-        const auto part = length - (double) whole;
-        auto readIndex = horizontalWrite - whole;
+        if (length != horizontalTap.length)
+            horizontalTap = thiranTapFor (length);
+        auto readIndex = horizontalWrite - horizontalTap.whole;
         while (readIndex < 0)
             readIndex += half;
-        const auto input = buffer[(size_t) (half + readIndex % half)];
-        const auto a = (float) ((1.0 - part) / (1.0 + part));
-        auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
+        const auto input = buffer[(size_t) (half + (readIndex < half ? readIndex : readIndex % half))];
+        const auto a = horizontalTap.a;
+        const auto delayed = a * input + horizontalThiranIn - a * horizontalThiranOut;
         horizontalThiranIn = input;
         horizontalThiranOut = delayed;
+        return delayed;
+    }
 
-        if (pianoCoefficient != 0.0f)
+    // Both polarisations through the piano stiffness allpasses (lane 0 the
+    // vertical, lane 1 the horizontal): the same arithmetic per lane.
+    void disperseHammeredPair (float& vertical, float& horizontal) noexcept
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        const auto c = _mm_set1_ps (pianoCoefficient);
+        auto x = _mm_set_ps (0.0f, 0.0f, horizontal, vertical);
+        for (int stage = 0; stage < maxDispersionStages; ++stage)
+        {
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (c, x), _mm_load_ps (dispersionPairIn[stage])),
+                                          _mm_mul_ps (c, _mm_load_ps (dispersionPairState[stage])));
+            _mm_store_ps (dispersionPairIn[stage], x);
+            _mm_store_ps (dispersionPairState[stage], next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        vertical = out[0];
+        horizontal = out[1];
+       #else
+        for (int lane = 0; lane < 2; ++lane)
+        {
+            auto& x = lane == 0 ? vertical : horizontal;
             for (int stage = 0; stage < maxDispersionStages; ++stage)
             {
-                const auto next = pianoCoefficient * delayed + horizontalDispersionIn[stage]
-                                  - pianoCoefficient * horizontalDispersionState[stage];
-                horizontalDispersionIn[stage] = delayed;
-                horizontalDispersionState[stage] = next;
-                delayed = next;
+                const auto next = pianoCoefficient * x + dispersionPairIn[stage][lane] - pianoCoefficient * dispersionPairState[stage][lane];
+                dispersionPairIn[stage][lane] = x;
+                dispersionPairState[stage][lane] = next;
+                x = next;
             }
+        }
+       #endif
+    }
 
+    // The rest of the horizontal loop, after its allpasses.
+    float finishHorizontal (float delayed, float drive, bool noteHeld)
+    {
+        const auto half = (int) buffer.size() / 2;
         horizontalLowState += (delayed - horizontalLowState) * horizontalLowpass;
         auto loopValue = horizontalLowState * horizontalFeedback;
         if (damper > 0.0f && ! noteHeld)
             loopValue *= 1.0f - damper * 0.16f;
 
         buffer[(size_t) (half + horizontalWrite)] = loopValue + drive * PianoTuning::get().aftersound;
-        horizontalWrite = (horizontalWrite + 1) % half;
+        horizontalWrite = horizontalWrite + 1 < half ? horizontalWrite + 1 : (horizontalWrite + 1) % half;
         return delayed;
     }
 
@@ -810,8 +944,8 @@ private:
     {
         horizontalWrite = 0;
         horizontalThiranIn = horizontalThiranOut = horizontalLowState = 0.0f;
-        std::fill (std::begin (horizontalDispersionIn), std::end (horizontalDispersionIn), 0.0f);
-        std::fill (std::begin (horizontalDispersionState), std::end (horizontalDispersionState), 0.0f);
+        for (auto& stage : dispersionPairIn) stage[1] = 0.0f;
+        for (auto& stage : dispersionPairState) stage[1] = 0.0f;
     }
 
     // A bowed string as two waveguides either side of the bow (the STK
@@ -850,6 +984,13 @@ private:
         auto bridgeReflection = -lowpassState * feedback;
         if (damper > 0.0f && ! noteHeld)
             bridgeReflection *= 1.0f - damper * 0.16f;
+        // The bridge's buzz (as on the plucked string) flattens the peaks
+        // that come back from it.
+        if (buzz > 0.0f)
+        {
+            const auto contact = 0.04f;
+            bridgeReflection -= buzz * 0.8f * (bridgeReflection - contact * std::tanh (bridgeReflection / contact));
+        }
         const auto neckReflection = -neckOut;
         const auto stringVelocity = bridgeReflection + neckReflection;
 
@@ -879,7 +1020,9 @@ private:
         bowDcInput = bridgeOut;
         bowDcOutput = std::isfinite (blocked) ? blocked : 0.0f;
 
-        const auto output = bowDcOutput * bowOutputGain;
+        auto output = bowDcOutput * bowOutputGain;
+        if (rattle > 0.0f)
+            output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity * std::abs (output);
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
 
@@ -910,7 +1053,7 @@ private:
     void updatePiano()
     {
         if (isPiano())
-            piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition, eco);
+            piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition * 2.0f, eco);
     }
 
 public:
@@ -934,6 +1077,7 @@ private:
     }
 
     std::vector<float> buffer;
+    std::vector<float> combScratch;
     juce::Random random;
     double sampleRate = 44100.0;
     double frequency = 440.0;
@@ -952,8 +1096,32 @@ private:
     float pickPosition = 0.0f;
     float dispersionCoefficient = 0.0f;
     float dispersionDelay = 1.0f;
-    float dispersionState[maxDispersionStages] {};
-    float dispersionInput[maxDispersionStages] {};
+    double lowpassDelay = 0.0, lowpassDelayPeriod = -1.0;
+    bool loopSetupDirty = true, loopUseDispersion = false;
+    double loopDelay = 0.0;
+    float loopCoefficient = 0.0f;
+    double cachedFrequency = -1.0, cachedSampleRate = -1.0, cachedPeriod = 1.0, cachedPhaseStep = 0.0;
+    double cachedShortDelay = -1.0, cachedShortStages = -1.0;
+    float cachedShortCoefficient = 0.0f;
+
+    // A Thiran read's whole delay and allpass coefficient for one length.
+    struct ThiranTap
+    {
+        double length = -1.0;
+        int whole = 0;
+        float a = 0.0f;
+    };
+    static ThiranTap thiranTapFor (double length)
+    {
+        ThiranTap tap;
+        tap.length = length;
+        tap.whole = (int) std::floor (length - 0.5);
+        const auto part = length - (double) tap.whole; // 0.5 .. 1.5
+        tap.a = (float) ((1.0 - part) / (1.0 + part));
+        return tap;
+    }
+    ThiranTap verticalTap, horizontalTap;
+    float lowpassDelayCoefficient = -1.0f;
     bool slap = false;
     int slapRemaining = 0;
     float slapLevel = 0.0f;
@@ -980,7 +1148,10 @@ private:
     float thiranInput = 0.0f, thiranOutput = 0.0f;
     float horizontalLowpass = 0.5f, horizontalFeedback = 0.99f;
     float horizontalThiranIn = 0.0f, horizontalThiranOut = 0.0f, horizontalLowState = 0.0f;
-    float horizontalDispersionIn[8] {}, horizontalDispersionState[8] {};
+    // The stiffness allpasses' state per stage: lane 0 the string (or the
+    // vertical polarisation), lane 1 a piano string's horizontal one.
+    alignas (16) float dispersionPairIn[maxDispersionStages][4] {};
+    alignas (16) float dispersionPairState[maxDispersionStages][4] {};
     int horizontalWrite = 0;
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;

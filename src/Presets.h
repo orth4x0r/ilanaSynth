@@ -35,6 +35,9 @@ struct FactoryPreset
         bool withFx = true;
     };
     std::vector<Bounce> bounces {};
+    // The browser's category when it differs from category (DX7 voices: the
+    // kind of sound, while category stays "DX7" for the tools and tests).
+    const char* browseCategory = nullptr;
 };
 
 inline const std::vector<FactoryPreset>& getLegacyPresets()
@@ -459,7 +462,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_drive_on", 1 }, { "fx_drive_amount", 5.0f }, { "fx_drive_mix", 0.6f },
         } },
 
-        { "Glass Keys", {
+        { "Crystal Keys", {
             { "osc1_table", 3 }, { "osc1_frame", 0.2f }, { "osc1_level", 0.75f },
             { "osc2_on", 1 }, { "osc2_table", 8 }, { "osc2_level", 0.6f }, { "osc2_semi", 12 },
             { "fm_amount", 0.3f },
@@ -792,7 +795,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_limit_ceiling", -0.7f },
         } },
 
-        { "Formant Scream II", {
+        { "Formant Scream", {
             { "osc1_table", 4 }, { "osc1_frame", 0.7f }, { "osc1_level", 0.8f },
             { "osc1_unison", 3 }, { "osc1_detune", 20.0f }, { "osc1_spread", 0.7f },
             { "f1_fm", 0.35f }, { "f1_cutoff", 3000.0f }, { "f1_reso", 0.5f }, { "f1_drive", 4.0f },
@@ -805,7 +808,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_reverb_on", 1 }, { "fx_reverb_size", 0.5f }, { "fx_reverb_mix", 0.25f },
         } },
 
-        { "Self Osc Drone", {
+        { "Self-Osc Drone", {
             { "osc1_table", 8 }, { "osc1_frame", 0.6f }, { "osc1_level", 0.5f },
             { "res_on", 1 }, { "res_amount", 0.6f }, { "res_decay", 0.9f }, { "res_offset", 7.0f },
             { "f1_cutoff", 5200.0f },
@@ -887,7 +890,7 @@ inline const std::vector<FactoryPreset>& getLegacyPresets()
             { "fx_limit_ceiling", -0.6f },
         } },
 
-        { "Vocal Chops", {
+        { "Vocal Stutter", {
             { "osc1_mode", 2 }, { "osc1_sample_loop", 1 }, { "osc1_level", 0.8f },
             { "osc1_sample_factory", 2 },
             { "osc1_sample_start", 0.1f }, { "osc1_sample_end", 0.6f },
@@ -959,6 +962,10 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
     return presets;
 }
 
+// The categories the browser and the header show: getFactoryPresetCategories,
+// with each DX7 voice under the kind of sound it is (Keys, Bass, Pad...).
+inline juce::StringArray getFactoryBrowseCategories();
+
 inline juce::StringArray getFactoryPresetCategories()
 {
     auto categories = getLegacyCategories();
@@ -966,6 +973,17 @@ inline juce::StringArray getFactoryPresetCategories()
 
     for (auto i = (size_t) categories.size(); i < presets.size(); ++i)
         categories.add (presets[i].category != nullptr ? presets[i].category : "Other");
+
+    return categories;
+}
+inline juce::StringArray getFactoryBrowseCategories()
+{
+    auto categories = getFactoryPresetCategories();
+    const auto& presets = getFactoryPresets();
+
+    for (size_t i = 0; i < presets.size() && i < (size_t) categories.size(); ++i)
+        if (presets[i].browseCategory != nullptr)
+            categories.set ((int) i, presets[i].browseCategory);
 
     return categories;
 }

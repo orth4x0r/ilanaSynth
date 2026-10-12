@@ -299,6 +299,22 @@ public:
     }
 
     bool isActive() const { return ix < 4 || levels[3] > 0; }
+    // 0-2: moving to L1-L3; 3: held at L3 (key down) or moving to L4; 4: done.
+    int getStage() const { return ix; }
+
+    // Live edits while the note sounds (a knob, or a modulated parameter):
+    // new rates and levels take over the running stage from where it is;
+    // a new output level shifts the whole envelope, as the DX7's does.
+    void setShape (const int r[4], const int l[4], int outlevel)
+    {
+        std::copy (r, r + 4, rates);
+        std::copy (l, l + 4, levels);
+        const auto shift = (std::int32_t) (outlevel - outLevel) << 16;
+        outLevel = outlevel;
+        level = std::max<std::int32_t> (0, level + shift);
+        if (ix < 4)
+            advance (ix);
+    }
 
 private:
     void advance (int newIx)
@@ -364,8 +380,32 @@ public:
         }
     }
 
+    int getStage() const { return ix; }
+    // A pitch level (0-99) in log2 Q19 steps: 50 is 0, 0 and 99 about four
+    // octaves down and up (32 steps an octave).
+    static int levelSteps (int l) { return table (l); }
+
     // True when every level is 50 (no pitch movement), so it can be skipped.
     bool isFlat() const { return levels[0] == 50 && levels[1] == 50 && levels[2] == 50 && levels[3] == 50; }
+
+    // A live edit: new rates and levels take over the running stage.
+    void setShape (const int r[4], const int l[4])
+    {
+        std::copy (r, r + 4, rates);
+        std::copy (l, l + 4, levels);
+        if (ix < 4)
+            advance (ix);
+    }
+
+    // The largest swing of its four levels from the note, log2 Q24 (0 when
+    // flat): the "Op Pitch Env" source is the envelope over this.
+    std::int32_t span() const
+    {
+        auto most = 0;
+        for (auto l : levels)
+            most = std::max (most, std::abs (table (l)));
+        return most << 19;
+    }
 
 private:
     static int table (int l)
@@ -410,20 +450,8 @@ class Lfo
 public:
     void init (const Voice& v, double sampleRate)
     {
-        static constexpr double source[] {
-            0.062541, 0.125031, 0.312393, 0.437120, 0.624610, 0.750694, 0.936330, 1.125302, 1.249609, 1.436782,
-            1.560915, 1.752081, 1.875117, 2.062494, 2.247191, 2.374451, 2.560492, 2.686728, 2.873976, 2.998950,
-            3.188013, 3.369840, 3.500175, 3.682224, 3.812065, 4.000800, 4.186202, 4.310716, 4.501260, 4.623209,
-            4.814636, 4.930480, 5.121901, 5.315191, 5.434783, 5.617346, 5.750431, 5.946717, 6.062811, 6.248438,
-            6.431695, 6.564264, 6.749460, 6.868132, 7.052186, 7.250580, 7.375719, 7.556294, 7.687577, 7.877738,
-            7.993605, 8.181967, 8.372405, 8.504848, 8.685079, 8.810573, 8.986341, 9.122423, 9.300595, 9.500285,
-            9.607994, 9.798158, 9.950249, 10.117361, 11.251125, 11.384335, 12.562814, 13.676149, 13.904338, 15.092062,
-            16.366612, 16.638935, 17.869907, 19.193858, 19.425019, 20.833333, 21.034918, 22.502250, 24.003841, 24.260068,
-            25.746653, 27.173913, 27.578599, 29.052876, 30.693677, 31.191516, 32.658393, 34.317090, 34.674064, 36.416606,
-            38.197097, 38.550501, 40.387722, 40.749796, 42.625746, 44.326241, 44.883303, 46.772685, 48.590865, 49.261084 };
         const auto unit = (std::uint32_t) (block * 25190424 / sampleRate + 0.5);
-        const auto ratio = (std::uint32_t) (4437500000.0 * block / sampleRate);
-        delta = (std::uint32_t) (source[std::clamp ((int) v[137], 0, 99)] * ratio);
+        setSpeed (v[137], sampleRate);
         auto a = 99 - (int) v[138];
         if (a == 99)
             delayInc = delayInc2 = ~0u;
@@ -438,6 +466,20 @@ public:
         waveform = v[142];
         sync = v[141] != 0;
     }
+
+    // The speed (0-99) in Hz, as the DX7 runs it.
+    static double hz (int speed)
+    {
+        return speedTable()[(size_t) std::clamp (speed, 0, 99)];
+    }
+
+    void setSpeed (int speed, double sampleRate)
+    {
+        const auto ratio = (std::uint32_t) (4437500000.0 * block / sampleRate);
+        delta = (std::uint32_t) (speedTable()[(size_t) std::clamp (speed, 0, 99)] * ratio);
+    }
+
+    void setWaveform (int wave) { waveform = wave; }
 
     void keyDown()
     {
@@ -477,6 +519,22 @@ public:
     }
 
 private:
+    static const std::array<double, 100>& speedTable()
+    {
+        static const std::array<double, 100> table {
+            0.062541, 0.125031, 0.312393, 0.437120, 0.624610, 0.750694, 0.936330, 1.125302, 1.249609, 1.436782,
+            1.560915, 1.752081, 1.875117, 2.062494, 2.247191, 2.374451, 2.560492, 2.686728, 2.873976, 2.998950,
+            3.188013, 3.369840, 3.500175, 3.682224, 3.812065, 4.000800, 4.186202, 4.310716, 4.501260, 4.623209,
+            4.814636, 4.930480, 5.121901, 5.315191, 5.434783, 5.617346, 5.750431, 5.946717, 6.062811, 6.248438,
+            6.431695, 6.564264, 6.749460, 6.868132, 7.052186, 7.250580, 7.375719, 7.556294, 7.687577, 7.877738,
+            7.993605, 8.181967, 8.372405, 8.504848, 8.685079, 8.810573, 8.986341, 9.122423, 9.300595, 9.500285,
+            9.607994, 9.798158, 9.950249, 10.117361, 11.251125, 11.384335, 12.562814, 13.676149, 13.904338, 15.092062,
+            16.366612, 16.638935, 17.869907, 19.193858, 19.425019, 20.833333, 21.034918, 22.502250, 24.003841, 24.260068,
+            25.746653, 27.173913, 27.578599, 29.052876, 30.693677, 31.191516, 32.658393, 34.317090, 34.674064, 36.416606,
+            38.197097, 38.550501, 40.387722, 40.749796, 42.625746, 44.326241, 44.883303, 46.772685, 48.590865, 49.261084 };
+        return table;
+    }
+
     std::uint32_t phase = 0, delta = 0, delayState = 0, delayInc = 0, delayInc2 = 0;
     int waveform = 0, randState = 0;
     bool sync = false;
@@ -492,6 +550,8 @@ public:
     // has ended).
     void start (const Voice& v, int midiNote, int velocity, double sampleRate, const std::array<bool, 6>& carriers)
     {
+        note = midiNote;
+        noteVelocity = velocity;
         for (int k = 1; k <= 6; ++k)
         {
             const auto* d = op (v, k);
@@ -501,14 +561,8 @@ public:
                 r[i] = d[i];
                 l[i] = d[4 + i];
             }
-            auto out = scaleOutLevel (d[16]);
-            out += scaleLevel (midiNote, d[8], d[9], d[10], d[11], d[12]);
-            out = std::min (127, out) << 5;
-            out += scaleVelocity (velocity, d[15]);
-            out = std::max (0, out);
-            env[(size_t) (k - 1)].init (r, l, out, scaleRate (midiNote, d[13]), sampleRate);
-            static constexpr std::uint32_t ampModSens[] { 0, 4342338, 7171437, 16777216 };
-            ams[(size_t) (k - 1)] = ampModSens[d[14] & 3];
+            env[(size_t) (k - 1)].init (r, l, outLevelFor (d), scaleRate (midiNote, d[13]), sampleRate);
+            ams[(size_t) (k - 1)] = ampModSensFor (d[14]);
         }
         int r[4], l[4];
         for (int i = 0; i < 4; ++i)
@@ -518,10 +572,8 @@ public:
         }
         pitchEnv.init (r, l, sampleRate);
         flatPitch = pitchEnv.isFlat();
-        static constexpr int pitchModSens[] { 0, 10, 20, 33, 55, 92, 153, 255 };
-        pitchModDepth = (v[139] * 165) >> 6;
-        pitchModSensitivity = pitchModSens[v[143] & 7];
-        ampModDepth = (v[140] * 165) >> 6;
+        pitchSpan = pitchEnv.span();
+        setDepths (v);
         carrier = carriers;
         lfo.init (v, sampleRate);
         lfo.keyDown();
@@ -529,7 +581,41 @@ public:
         sampleRateUsed = sampleRate;
         released = false;
         releasedBlocks = 0;
+        playedBlocks = -1;
         step();
+    }
+
+    // The voice's settings changed while the note sounds (a knob turned, or
+    // a modulated parameter such as the wheel on PITCH DEPTH): the
+    // envelopes' rates, levels and output levels, the pitch envelope and the
+    // LFO's speed, wave and depths follow from here. Only called on a
+    // change, so a note nobody touches plays exactly as before.
+    void update (const Voice& v)
+    {
+        for (int k = 1; k <= 6; ++k)
+        {
+            const auto* d = op (v, k);
+            int r[4], l[4];
+            for (int i = 0; i < 4; ++i)
+            {
+                r[i] = d[i];
+                l[i] = d[4 + i];
+            }
+            env[(size_t) (k - 1)].setShape (r, l, outLevelFor (d));
+            ams[(size_t) (k - 1)] = ampModSensFor (d[14]);
+        }
+        int r[4], l[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            r[i] = v[126 + (size_t) i];
+            l[i] = v[130 + (size_t) i];
+        }
+        pitchEnv.setShape (r, l);
+        flatPitch = pitchEnv.isFlat();
+        pitchSpan = pitchEnv.span();
+        setDepths (v);
+        lfo.setSpeed (v[137], sampleRateUsed);
+        lfo.setWaveform (v[142]);
     }
 
     void keyUp()
@@ -546,6 +632,7 @@ public:
     {
         // A voice whose release level isn't zero would ring for ever (a DX7
         // keeps it until the voice is stolen); here it ends 10 s after the key.
+        ++playedBlocks;
         if (released && ++releasedBlocks > releaseLimit)
         {
             active = false;
@@ -555,13 +642,17 @@ public:
 
         const auto lfoValue = lfo.value();
         const auto lfoDelay = lfo.delay();
+        // The LFO after its delay, -1..1, for the "Op LFO" source.
+        lfoOutput = ((float) lfoValue / (float) (1 << 23) - 1.0f) * (float) lfoDelay / (float) (1 << 24);
 
         // Pitch: envelope plus LFO, log2 Q24.
         const auto pmd = (std::uint32_t) pitchModDepth * (std::uint32_t) lfoDelay;
         const auto sens = (std::int32_t) pitchModSensitivity * (lfoValue - (1 << 23));
         auto pmod = (std::int32_t) (((std::int64_t) pmd * (std::int64_t) sens) >> 39);
         pmod = std::abs (pmod) * (sens < 0 ? -1 : 1);
-        const auto pitch = (flatPitch ? 0 : pitchEnv.next()) + pmod;
+        const auto pitchLevel = flatPitch ? 0 : pitchEnv.next();
+        pitchShape = pitchSpan > 0 ? (float) pitchLevel / (float) pitchSpan : 0.0f;
+        const auto pitch = pitchLevel + pmod;
         pitchOctaves = (float) pitch / (float) (1 << 24);
 
         // Amplitude modulation.
@@ -587,10 +678,43 @@ public:
     // Operators 1-6 (0-based), in cycles of phase modulation.
     const std::array<float, 6>& getGains() const { return gains; }
     float getPitchOctaves() const { return pitchOctaves; }
+    // The two sources other modules can use: the LFO (after its delay) and
+    // the pitch envelope's shape, both -1..1.
+    float getLfoOutput() const { return lfoOutput; }
+    // How long the note has played, and since its key was let go (-1 while
+    // held), in seconds: the editor's playhead.
+    float getSecondsPlayed() const { return (float) (playedBlocks * block / sampleRateUsed); }
+    float getSecondsReleased() const { return released ? (float) (releasedBlocks * block / sampleRateUsed) : -1.0f; }
+    float getPitchShape() const { return pitchShape; }
     bool isActive() const { return active; }
     bool isCarrier (int i) const { return carrier[(size_t) i]; }
 
 private:
+    // An operator's output level as its envelope adds it: the output knob,
+    // keyboard scaling and velocity (msfa's dx7note).
+    int outLevelFor (const std::uint8_t* d) const
+    {
+        auto out = scaleOutLevel (d[16]);
+        out += scaleLevel (note, d[8], d[9], d[10], d[11], d[12]);
+        out = std::min (127, out) << 5;
+        out += scaleVelocity (noteVelocity, d[15]);
+        return std::max (0, out);
+    }
+
+    static std::uint32_t ampModSensFor (int sensitivity)
+    {
+        static constexpr std::uint32_t ampModSens[] { 0, 4342338, 7171437, 16777216 };
+        return ampModSens[sensitivity & 3];
+    }
+
+    void setDepths (const Voice& v)
+    {
+        static constexpr int pitchModSens[] { 0, 10, 20, 33, 55, 92, 153, 255 };
+        pitchModDepth = (v[139] * 165) >> 6;
+        pitchModSensitivity = pitchModSens[v[143] & 7];
+        ampModDepth = (v[140] * 165) >> 6;
+    }
+
     std::array<Envelope, 6> env;
     std::array<std::uint32_t, 6> ams {};
     std::array<float, 6> gains {};
@@ -598,9 +722,11 @@ private:
     PitchEnvelope pitchEnv;
     Lfo lfo;
     int pitchModDepth = 0, pitchModSensitivity = 0, ampModDepth = 0;
-    float pitchOctaves = 0.0f;
+    int note = 60, noteVelocity = 100;
+    std::int32_t pitchSpan = 0;
+    float pitchOctaves = 0.0f, lfoOutput = 0.0f, pitchShape = 0.0f;
     bool flatPitch = true, active = false, released = false;
     double sampleRateUsed = 48000.0;
-    int releasedBlocks = 0, releaseLimit = 0;
+    int releasedBlocks = 0, releaseLimit = 0, playedBlocks = 0;
 };
 } // namespace Dx7

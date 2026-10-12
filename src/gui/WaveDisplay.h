@@ -12,7 +12,11 @@
 #include "../dsp/SampleFactory.h"
 #include "../dsp/Voice.h"
 #include "IlanaLookAndFeel.h"
+#include "ParamControls.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
+#include "TableBrowser.h"
+#include "PhysicalView.h"
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
@@ -57,32 +61,89 @@ public:
 
         setTooltip (tableTooltip);
 
-        modeButton.setClickingTogglesState (false);
-        modeButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::Ui::raised);
-        modeButton.setColour (juce::TextButton::buttonOnColourId,
-                              (followsTheme ? IlanaTheme::accent() : traceColour).withAlpha (0.8f));
-        modeButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.6f));
-        modeButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-        modeButton.setTooltip ("Switch the view: the cycle (WAVE), every frame (3D) or the harmonics (SPEC)");
-        modeButton.onClick = [this]
-        {
-            viewMode = (viewMode + 1) % 3;
-            updateModeButton();
-            repaint();
-        };
-        updateModeButton();
+        // The view as a segmented switch above the plot (UI review 6, V21):
+        // the cycle (WAVE), every frame (3D) or the harmonics (SPEC).
+        static const char* const viewNames[] { "WAVE", "3D", "SPEC" };
+        static const char* const viewTips[] { "One cycle of the frame playing now",
+                                              "Every frame of the table, the one playing now lit",
+                                              "The cycle's harmonics, warps included" };
 
-        addAndMakeVisible (modeButton);
+        for (int view = 0; view < 3; ++view)
+        {
+            auto& button = viewButtons[(size_t) view];
+            button.setButtonText (viewNames[view]);
+            button.setClickingTogglesState (false);
+            button.setTooltip (viewTips[view]);
+            IlanaTheme::makePill (button, followsTheme ? IlanaTheme::accent() : traceColour);
+            button.onClick = [this, view]
+            {
+                viewPicked = true;
+                pickedTable = resolveTableIndex();
+                setViewMode (view);
+            };
+            addChildComponent (button);
+        }
+
+        // The table's name on the display, with arrows to step through the
+        // tables (V5-27): click the name for the browser.
+        for (auto* arrow : { &previousTable, &nextTable })
+        {
+            arrow->setButtonText (arrow == &previousTable ? "<" : ">");
+            arrow->setTooltip (arrow == &previousTable ? "Previous wavetable" : "Next wavetable");
+            arrow->onClick = [this, arrow] { stepTable (arrow == &previousTable ? -1 : 1); };
+            addChildComponent (*arrow);
+        }
+
+        updateViewButtons();
 
         startTimerHz (30);
     }
 
     ~WaveDisplay() override { endGestures(); }
 
+    // PLAY's strips: the picture only (no view switch, names or readouts).
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        modeEpoch = ~(juce::uint64) 0;
+        resized();
+        repaint();
+    }
+
+    // The picture with a slim line over its top (the table's name between
+    // arrows, a chip that cycles the view) and the frame's number at its foot:
+    // the OSC cards' 150 px well. Set after setCompact.
+    void setSlim (bool shouldBeSlim)
+    {
+        slim = shouldBeSlim;
+        repaint();
+    }
+
+    bool isSlim() const { return slim; }
+
+    // An FM operator plays one plain cycle: no 3D or SPEC views to pick
+    // (UI review 8, I8-15).
+    void setSingleCycle (bool shouldBeSingle)
+    {
+        if (singleCycle == shouldBeSingle)
+            return;
+        singleCycle = shouldBeSingle;
+        updateViewButtons();
+        repaint();
+    }
+
+    void setViewMode (int mode)
+    {
+        viewMode = juce::jlimit (0, 2, mode);
+        updateViewButtons();
+        repaint();
+    }
+
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat();
+        const auto bounds = wellArea();
 
+        paintChrome (g);
         IlanaTheme::paintWell (g, bounds, 6.0f);
 
         const auto borderColour = sampleDragHover ? traceColour : IlanaTheme::Ui::line;
@@ -135,7 +196,7 @@ public:
 
         if (isPhysicalString())
         {
-            drawString (g, bounds.reduced (12.0f));
+            drawString (g, bounds.reduced (compact ? 6.0f : 12.0f));
             IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
             return;
         }
@@ -144,7 +205,7 @@ public:
         {
             g.setColour (borderColour);
             g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, borderThickness);
-            drawPickup (g, bounds.reduced (12.0f));
+            drawPickup (g, bounds.reduced (compact ? 6.0f : 12.0f));
             IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
             return;
         }
@@ -160,13 +221,34 @@ public:
             return;
         }
 
-        const auto plot = bounds.reduced (10.0f);
+        auto plot = bounds.reduced (10.0f, compact ? 5.0f : 10.0f);
 
-        if (viewMode == 1)
+        // The OSC card's well (design round 2): a quarter grid behind the
+        // picture, the picture under the full height (the slim line shows
+        // over its top only while the mouse is on it), and the WAVE view as
+        // the design draws it, the table's frames stacked flat with the one
+        // playing lit.
+        const auto flatStack = slim && shownViewMode() == 0 && ! isStaticTable (processorRef.getWavetable (tableIndex));
+        if (slim)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            for (int i = 1; i < 4; ++i)
+            {
+                g.fillRect (juce::Rectangle<float> (bounds.getWidth() - 2.0f, 1.0f).withPosition (bounds.getX() + 1.0f, bounds.getY() + bounds.getHeight() * (float) i / 4.0f));
+                g.fillRect (juce::Rectangle<float> (1.0f, bounds.getHeight() - 2.0f).withPosition (bounds.getX() + bounds.getWidth() * (float) i / 4.0f, bounds.getY() + 1.0f));
+            }
+            plot.removeFromBottom (8.0f); // (the frame's number)
+        }
+
+        if (flatStack)
+        {
+            drawFlatStack (g, table, frame, plot);
+        }
+        else if (shownViewMode() == 1)
         {
             drawWaterfall (g, table, frame, plot);
         }
-        else if (viewMode == 2)
+        else if (shownViewMode() == 2)
         {
             const auto frameCount = table->getNumFrames();
             const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
@@ -192,36 +274,129 @@ public:
             }
             else
             {
-                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 1.6f);
+                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 2.0f); // (the sheet's 2 px trace)
             }
 
             // The x axis is the phase of one cycle, so the frame isn't marked
-            // on it (UI review 4, V11): a readout and a slim scrubber under
-            // the plot say where in the table the cycle comes from. (Unison
-            // shows on the UNISON knob, not as marks here.)
-            if (! dragging)
+            // on it (UI review 4, V11): a slim scrubber along the plot's foot
+            // and a readout under it say where in the table the cycle comes
+            // from. (Unison shows on the UNISON knob, not as marks here.)
+            if (! isStaticTable (processorRef.getWavetable (tableIndex)))
                 drawFramePosition (g, frameCount, frame, plot);
         }
 
-        if (dragging)
-            drawDragReadout (g, table, plot);
+        if (slim)
+            paintSlimLine (g, table);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
     }
 
-    // The WAVE view's frame readout ("FRAME 12 / 64"), empty when the view
-    // shows no table or the table has one frame (the UI test reads it).
+    // The design's 2D well: up to nine of the table's frames as flat lines one
+    // under the other (front to back, top to bottom), faint, and the cycle
+    // playing now lit at its place among them (warped when a warp is on).
+    void drawFlatStack (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const
+    {
+        const auto frameCount = table->getNumFrames();
+        const auto lines = juce::jmin (9, frameCount);
+        const auto amplitude = plot.getHeight() * 0.1f;
+        const auto top = plot.getY() + 1.5f * amplitude, span = plot.getHeight() - 3.0f * amplitude;
+        const auto yFor = [&] (float position) { return top + span * position; };
+
+        for (int i = 0; i < lines; ++i)
+        {
+            const auto position = lines > 1 ? (float) i / (float) (lines - 1) : 0.0f;
+            const auto index = juce::jlimit (0, frameCount - 1, juce::roundToInt (position * (float) (frameCount - 1)));
+            drawFrame (g, table, index, plot, yFor (position), amplitude, juce::Colours::white.withAlpha (0.2f), 1.0f);
+        }
+
+        const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
+        const auto centre = yFor (juce::jlimit (0.0f, 1.0f, frame));
+        if (hasWarp())
+        {
+            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
+            drawWarpedFrame (g, table, frameIndex, plot, centre, amplitude);
+        }
+        else
+            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour, 2.0f);
+    }
+
+    // Where the slim line's view chip and arrows sit, for the UI tests.
+    juce::Point<float> getSlimTarget (int which) const // 0 view chip, 1 previous, 2 next
+    {
+        const auto areas = slimAreas();
+        return (which == 0 ? areas.view : which == 1 ? areas.previous : areas.next).getCentre().toFloat();
+    }
+
+    // The slim line's parts: arrow, name, arrow, view chip.
+    struct SlimAreas { juce::Rectangle<int> previous, name, next, view; };
+
+    SlimAreas slimAreas() const
+    {
+        auto line = getLocalBounds().removeFromTop (slimHeader).reduced (2, 1);
+        SlimAreas areas;
+        areas.view = line.removeFromRight (32);
+        areas.previous = line.removeFromLeft (13);
+        areas.next = line.removeFromRight (13);
+        areas.name = line.reduced (1, 0);
+        return areas;
+    }
+
+    void paintSlimLine (juce::Graphics& g, const Wavetable* table) const
+    {
+        const auto areas = slimAreas();
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+
+        // The table's name, its arrows and the view chip show over the top of
+        // the picture while the mouse is on the well (the design's well is the
+        // picture alone); a view other than WAVE keeps its chip showing.
+        const auto hovered = isMouseOver (true);
+        if (hovered)
+        {
+            g.setColour (IlanaTheme::Ui::well.withAlpha (0.85f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat().removeFromTop ((float) slimHeader + 1.0f).reduced (1.0f, 1.0f), 5.0f);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (font);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), areas.previous, juce::Justification::centred);
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), areas.next, juce::Justification::centred);
+            g.setColour (IlanaTheme::Ui::text2);
+            IlanaTheme::drawFitted (g, getTableName(), areas.name, juce::Justification::centredLeft, 1);
+        }
+
+        static const char* const names[] { "WAVE", "3D", "SPEC" };
+        if (hovered || shownViewMode() != 0)
+        {
+            const auto chip = areas.view.toFloat().reduced (0.0f, 1.0f);
+            g.setColour (traceColour.withAlpha (0.18f));
+            g.fillRoundedRectangle (chip, 4.0f);
+            g.setColour (traceColour);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            IlanaTheme::drawFitted (g, names[juce::jlimit (0, 2, shownViewMode())], areas.view, juce::Justification::centred, 1);
+        }
+
+        // The frame the cycle comes from, at the picture's foot.
+        if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (font);
+            IlanaTheme::drawFitted (g, "FRAME " + juce::String (juce::jlimit (0, table->getNumFrames() - 1, juce::roundToInt (displayedFrame * (float) (table->getNumFrames() - 1)))),
+                                    getLocalBounds().removeFromBottom (15).withTrimmedBottom (3).withTrimmedLeft (8), juce::Justification::centredLeft, 1);
+        }
+    }
+
+    // The frame readout under the plot ("FRAME 12 / 64"), empty when the
+    // view shows no table, the table has one frame, or the view is SPEC (the
+    // UI test reads it).
     juce::String getFrameReadout() const
     {
-        if (viewMode != 0 || ! isTableMode() || isPhysicalString() || isElectricPiano())
+        if (shownViewMode() == 2 || ! isTableMode() || isPhysicalString() || isElectricPiano())
             return {};
 
         const auto* table = processorRef.getWavetable (resolveTableIndex());
 
-        if (table == nullptr || table->getNumFrames() <= 1)
+        if (table == nullptr || isStaticTable (table))
             return {};
 
-        return frameText (table->getNumFrames(), displayedFrame);
+        return frameText (table->getNumFrames(), displayedFrame, frameIsMoving (table->getNumFrames()));
     }
 
     // A drag on a table: across scrubs the frame (the scrubber under the
@@ -232,6 +407,16 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         endGestures();
+        pressInHeader = (! compact && event.position.y < (float) headerHeight)
+                        || (slim && isTableMode() && event.position.y < (float) slimHeader);
+
+        if (pressInHeader)
+        {
+            if (! event.mods.isPopupMenu())
+                mouseDownOnHeader (event);
+
+            return;
+        }
 
         if (! event.mods.isPopupMenu())
         {
@@ -242,6 +427,18 @@ public:
                 setPositionFromX (event.position.x);
                 return;
             }
+
+            // A plain or multi sample: START and END are the two handles on the wave
+            // (V14 / S14-4: the loop markers are dragged where they are drawn).
+            if (isSampleMode() && ! compact)
+                if (const auto handle = sampleHandleAt (event.position.x); handle != 0)
+                {
+                    handleDrag = handle;
+                    processorRef.beginEdit (editName());
+                    beginGesture (handle == 1 ? startId : endId);
+                    setHandleFromX (event.position.x);
+                    return;
+                }
 
             if (! isTableMode())
                 return;
@@ -262,7 +459,18 @@ public:
             return;
         }
 
+        showSampleMenu (*this);
+    }
+
+    // The sample menu: the factory samples, then a file (a sample, or an SF2
+    // / SFZ multisample). The display's right-click and the OSC card's LOAD
+    // button open it (UI review 7, I7-24).
+    void showSampleMenu (juce::Component& target)
+    {
         juce::PopupMenu menu;
+        constexpr int loadFileItem = 10000;
+        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+        menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
         const auto paramId = juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)])
@@ -272,13 +480,9 @@ public:
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
             menu.addItem (i + 1, SampleFactory::getFactorySampleName (i), true, current == i + 1);
 
-        constexpr int loadFileItem = 10000;
-        menu.addSeparator();
-        menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
-
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
                             [safeThis, paramId] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
@@ -302,6 +506,15 @@ public:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (pressInHeader)
+            return;
+
+        if (handleDrag != 0)
+        {
+            setHandleFromX (event.position.x);
+            return;
+        }
+
         if (isGranularMode())
             setPositionFromX (event.position.x);
 
@@ -323,8 +536,12 @@ public:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        if (std::exchange (pressInHeader, false))
+            return;
+
         endGestures();
         processorRef.endEdit();
+        handleDrag = 0;
 
         if (dragging)
         {
@@ -350,7 +567,16 @@ public:
     // The undo step's name for a drag or pick on this display.
     juce::String editName() const { return "OSC " + juce::String (oscIndex + 1) + " display"; }
 
-    int getViewMode() const { return viewMode; }
+    // A multisample's zone count (0 for a plain sample; the UI test).
+    int getZoneCount() const
+    {
+        const auto* sample = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
+        return sample != nullptr && sample->zones.size() > 1 ? (int) sample->zones.size() : 0;
+    }
+
+    // The view shown: a table whose frames are all one cycle shows as WAVE
+    // until a view is picked by hand.
+    int getViewMode() const { return shownViewMode(); }
     int getOscIndex() const { return oscIndex; }
     bool isDraggingWarp() const { return dragging && canDragWarp(); }
 
@@ -398,8 +624,31 @@ public:
 
     void resized() override
     {
-        modeButton.setBounds (getWidth() - 52, 6, 44, 18);
+        // The header line above the plot: the table's name between its
+        // arrows at the left, the view switch at the right.
+        auto header = getLocalBounds().removeFromTop (headerHeight);
+        auto views = header.removeFromRight (juce::jmin (114, header.getWidth() / 2));
+        const auto viewWidth = views.getWidth() / 3;
+
+        for (auto& button : viewButtons)
+            button.setBounds (views.removeFromLeft (viewWidth).reduced (1, 1));
+
+        header.removeFromRight (6);
+        previousTable.setBounds (header.removeFromLeft (20).reduced (0, 1));
+        nextTable.setBounds (header.removeFromRight (20).reduced (0, 1));
+        tableNameArea = header.reduced (4, 0);
     }
+
+    // The table's name as the header shows it (the UI test reads it).
+    juce::String getTableName() const
+    {
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (tableId)))
+            return param->getCurrentChoiceName();
+
+        return {};
+    }
+
+    bool isCompact() const { return compact; }
 
     void chooseSampleFile()
     {
@@ -419,6 +668,53 @@ public:
     }
 
 private:
+    // A table whose frames are all the same cycle (a sine operator's): 3D
+    // and a frame readout say nothing about it (UI review 7, V7-31).
+    bool isStaticTable (const Wavetable* table) const
+    {
+        if (table == nullptr)
+            return true;
+
+        if (table != staticTable)
+        {
+            staticTable = table;
+            staticFrames = true;
+            const auto* first = table->getFrameData (0, 0);
+
+            for (int frame = 1; frame < table->getNumFrames() && staticFrames; ++frame)
+            {
+                const auto* data = table->getFrameData (0, frame);
+
+                for (int i = 1; i <= Wavetable::frameSize; ++i)
+                    if (std::abs (data[i] - first[i]) > 1.0e-4f)
+                    {
+                        staticFrames = false;
+                        break;
+                    }
+            }
+        }
+
+        return staticFrames;
+    }
+
+    int shownViewMode() const
+    {
+        // PLAY's strip is too small for the harmonics: it shows the cycle
+        // (UI review 8, S8-34). Its picture is 150 px wide now, so a table
+        // whose frames differ shows as the lit 3D stack, as Serum 2's and
+        // Vital's strips do (UI review 17, R17-7).
+        if (compact && ! slim)
+            return ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
+
+        if (singleCycle)
+            return 0;
+        if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
+            && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
+            return 0;
+
+        return viewMode;
+    }
+
     bool isSampleMode() const
     {
         const auto mode = modeId.isNotEmpty() ? readChoice (modeId) : 0;
@@ -446,22 +742,15 @@ private:
     void drawString (juce::Graphics& g, juce::Rectangle<float> area) const
     {
         const auto prefix = modeId.upToLastOccurrenceOf ("_mode", false, false);
-        static const char* const excites[] { "BURST", "NOISE", "SAW", "PULSE", "BOW", "HAMMER", "OSC IN", "TINE", "REED", "PIANO HAMMER", "FEEDBACK" };
         const auto excite = juce::jlimit (0, 10, readChoice (prefix + "_excite"));
         const auto position = readPlain (prefix + "_string_excite_pos");
         const auto strike = position > 0.005f ? juce::jlimit (0.02f, 0.5f, position) : 0.125f;
 
-        g.setColour (traceColour);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        auto header = area.removeFromTop (18.0f);
-        g.drawText ("STRING", header.toNearestInt(), juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText (juce::String (excites[excite]).toLowerCase() + " at " + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + "%" : juce::String ("auto")),
-                    header.toNearestInt(), juce::Justification::centredRight);
-
-        auto footer = area.removeFromBottom (16.0f);
-        g.drawText ("OSC > PHYSICAL shows it moving", footer.toNearestInt(), juce::Justification::centredLeft);
+        // Named in the header above the plot (not on it), the caption only
+        // where both fit.
+        if (! compact)
+            drawHeaderText (g, "STRING", Exciters::name (excite).toLowerCase() + " at "
+                                             + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + "%" : juce::String ("auto")));
 
         const auto left = area.getX() + 8.0f, right = area.getRight() - 8.0f, mid = area.getCentreY() + area.getHeight() * 0.18f;
         g.setColour (juce::Colours::white.withAlpha (0.45f));
@@ -524,15 +813,11 @@ private:
         const auto swing = 0.5f * (t.ampLow + t.ampHigh);
         const auto range = swing * 1.6f;
 
-        g.setColour (traceColour);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-        auto header = area.removeFromTop (18.0f);
-        g.drawText (tine ? "TINE PICKUP" : "REED PICKUP", header.toNearestInt(), juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText (tine ? "flux vs tine position" : "charge vs reed position", header.toNearestInt(),
-                    juce::Justification::centredRight);
-        area.removeFromTop (4.0f);
+        // The title and caption in the header, the caption dropped when
+        // both don't fit ("REED PICKUPcharge vs reed position": UI review
+        // 6, V16 and S32).
+        if (! compact)
+            drawHeaderText (g, tine ? "TINE PICKUP" : "REED PICKUP", tine ? "flux vs tine position" : "charge vs reed position");
 
         auto low = 1.0e9f, high = -1.0e9f;
         constexpr int points = 160;
@@ -566,9 +851,15 @@ private:
         }
         g.setColour (traceColour);
         g.strokePath (path, juce::PathStrokeType (1.8f));
-        g.setColour (IlanaTheme::Ui::text3);
-        g.drawText ("rest", juce::Rectangle<float> (toX (0.0f) + 4.0f, area.getBottom() - 14.0f, 40.0f, 14.0f).toNearestInt(),
-                    juce::Justification::centredLeft);
+
+        // "rest" under the plot, at the rest line, off the curve.
+        if (! compact)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            g.drawText ("rest", juce::Rectangle<float> (toX (0.0f) - 20.0f, footerArea().getY(), 40.0f, footerArea().getHeight()).toNearestInt(),
+                        juce::Justification::centred);
+        }
     }
 
     bool isGranularMode() const
@@ -583,8 +874,49 @@ private:
         if (modeId.isEmpty() || isSampleMode())
             return;
 
-        if (auto* parameter = processorRef.apvts.getParameter (modeId))
+        // (Through the processor, so an operator's ratio tuning goes too.)
+        if (modeId == juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]) + "_mode")
+            processorRef.setOscillatorMode (oscIndex, OscMode::sample);
+        else if (auto* parameter = processorRef.apvts.getParameter (modeId))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
+    }
+
+    // The sample's plot as drawSample lays it out horizontally.
+    juce::Rectangle<float> samplePlotArea() const { return wellArea().reduced (10.0f, compact ? 5.0f : 10.0f); }
+
+    // 1: the START handle, 2: END, 0: neither, for a press at x (within 9 px; the
+    // nearer one when both are).
+    int sampleHandleAt (float x) const
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || sample->getNumSamples() < 2)
+            return 0;
+
+        const auto plot = samplePlotArea();
+        const auto startX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (startId)) * plot.getWidth();
+        const auto endX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (endId)) * plot.getWidth();
+        const auto nearStart = std::abs (x - startX), nearEnd = std::abs (x - endX);
+        if (juce::jmin (nearStart, nearEnd) > 9.0f)
+            return 0;
+        return nearStart <= nearEnd ? 1 : 2;
+    }
+
+    void setHandleFromX (float x)
+    {
+        const auto plot = samplePlotArea();
+        const auto position = juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()));
+        // (They never cross: at least 1 % of the sample stays between them.)
+        if (handleDrag == 1)
+            setPlain (startId, juce::jmin (position, readPlain (endId) - 0.01f));
+        else
+            setPlain (endId, juce::jmax (position, readPlain (startId) + 0.01f));
+        repaint();
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        setMouseCursor (isSampleMode() && ! compact && sampleHandleAt (event.position.x) != 0 ? juce::MouseCursor::LeftRightResizeCursor
+                                                                                             : juce::MouseCursor::NormalCursor);
     }
 
     void setPositionFromX (float x)
@@ -647,14 +979,90 @@ private:
     void drawSample (juce::Graphics& g) const
     {
         const auto* sample = processorRef.getSampleForOsc (oscIndex);
-        const auto plot = getLocalBounds().toFloat().reduced (10.0f);
+        auto plot = wellArea().reduced (10.0f, compact ? 5.0f : 10.0f);
+
+        // A multisample's zones under the wave: keys across, velocity up
+        // (UI review 7, I7-24).
+        // A plain sample shows its map too: one box, every key and velocity
+        // (S13-1); granular mode reads a position, not zones.
+        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 96.0f)
+            drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)
         {
-            g.setColour (IlanaTheme::Ui::text3);
+            if (compact)
+            {
+                g.setColour (IlanaTheme::Ui::text3);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+                IlanaTheme::drawFitted (g, "Drop a sample", wellArea().toNearestInt().reduced (6), juce::Justification::centred, 2);
+                return;
+            }
+
+            // A drop zone that looks like one (S13-1): a dashed edge, the
+            // hint, and LOAD... drawn as the button a click on it acts as.
+            const auto well = wellArea().reduced (6.0f);
+
+            // A ghost of the wave a sample would draw, so the well is a
+            // picture first and a prompt second (review 14, S14-3).
+            {
+                juce::Path ghost;
+                const auto ghostArea = well.reduced (10.0f, 14.0f);
+                const auto columns = juce::jmax (2, (int) ghostArea.getWidth() / 2);
+                for (int i = 0; i < columns; ++i)
+                {
+                    const auto t = (float) i / (float) (columns - 1);
+                    const auto envelope = std::exp (-3.2f * t) * (0.55f + 0.45f * std::sin (t * 23.0f)) + 0.04f;
+                    const auto amplitude = envelope * std::abs (std::sin (t * 410.0f) * 0.7f + std::sin (t * 97.0f) * 0.3f);
+                    const auto x = ghostArea.getX() + t * ghostArea.getWidth();
+                    ghost.startNewSubPath (x, ghostArea.getCentreY() - amplitude * ghostArea.getHeight() * 0.45f);
+                    ghost.lineTo (x, ghostArea.getCentreY() + amplitude * ghostArea.getHeight() * 0.45f);
+                }
+                g.setColour (traceColour.withAlpha (0.14f));
+                g.strokePath (ghost, juce::PathStrokeType (1.2f));
+            }
+
+            juce::Path outline, dashed;
+            outline.addRoundedRectangle (well, 8.0f);
+            const float dashes[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+            g.fillPath (dashed);
+
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            g.drawFittedText ("DROP A SAMPLE HERE", getLocalBounds().reduced (12), juce::Justification::centred, 2);
+            // (A hint, so a sentence: UI review 9, I9-22.)
+            const auto hint = well.withSizeKeepingCentre (well.getWidth() - 20.0f, 40.0f).translated (0.0f, -26.0f);
+            IlanaTheme::drawFitted (g, "Drop a .wav or .sfz here", hint.toNearestInt(), juce::Justification::centred, 2);
+            const auto pill = juce::Rectangle<float> (110.0f, 28.0f).withCentre (well.getCentre().translated (0.0f, 20.0f));
+            g.setColour (IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (pill, 6.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.drawText ("LOAD...", pill, juce::Justification::centred);
             return;
+        }
+
+        // The time ruler under the wave (seconds, ticks where they are 70 px
+        // apart or more), as a sample editor has it (S14-4).
+        if (! compact && ! isGranularMode() && plot.getHeight() > 80.0f)
+        {
+            const auto ruler = plot.removeFromBottom (12.0f);
+            const auto seconds = (double) sample->getNumSamples() / juce::jmax (1.0, sample->sampleRate);
+            auto step = 0.001;
+            for (const auto candidate : { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0 })
+            {
+                step = candidate;
+                if (candidate / seconds * (double) plot.getWidth() >= 70.0)
+                    break;
+            }
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            for (double t = 0.0; t <= seconds + 1.0e-9; t += step)
+            {
+                const auto x = plot.getX() + (float) (t / seconds) * plot.getWidth();
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.6f));
+                g.fillRect (x, ruler.getY(), 1.0f, 4.0f);
+                const auto text = step < 1.0 ? juce::String (juce::roundToInt ((float) (t * 1000.0))) + " ms" : juce::String (t, step < 1.0 ? 2 : (step == std::floor (step) ? 0 : 1)) + " s";
+                if (x + 44.0f < plot.getRight())
+                    g.drawText (text, juce::Rectangle<float> (x + 3.0f, ruler.getY(), 44.0f, ruler.getHeight()), juce::Justification::centredLeft, false);
+            }
         }
 
         const auto start = juce::jlimit (0.0f, 1.0f, readPlain (startId));
@@ -727,12 +1135,10 @@ private:
         if (isGranularMode())
         {
             drawGrainCloud (g, plot, centreY, halfHeight);
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            const auto wide = getWidth() > 240;
-            g.drawText ((reverse ? "REV " : "") + juce::String (wide ? "GRAINS - drag to move" : "GRAINS"),
-                        getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
-            g.drawText (sample->name, getLocalBounds().reduced (8, 6), juce::Justification::bottomRight);
+
+            if (! compact)
+                drawHeaderText (g, sample->name, (reverse ? "REV " : "") + juce::String::fromUTF8 ("grains \xc2\xb7 drag to move"));
+
             return;
         }
 
@@ -743,9 +1149,60 @@ private:
         g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getY(), juce::jmax (0.0f, startX - plot.getX()), plot.getHeight()));
         g.fillRect (juce::Rectangle<float> (endX, plot.getY(), juce::jmax (0.0f, plot.getRight() - endX), plot.getHeight()));
 
+        // While it loops, the loop's span is lit and the handles say LOOP.
+        if (loop && ! compact)
+        {
+            g.setColour (traceColour.withAlpha (0.10f));
+            g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.55f));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ startX, centreY }));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ endX, centreY }));
+
+        // The two handles, flags on the lines you can drag (S14-4).
+        if (! compact && plot.getHeight() > 60.0f)
+        {
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            const auto startName = loop ? juce::String ("LOOP START") : juce::String ("START");
+            const auto endName = loop ? juce::String ("LOOP END") : juce::String ("END");
+            const auto startWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), startName) + 10.0f;
+            const auto endWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), endName) + 10.0f;
+            const auto startFlag = juce::Rectangle<float> (startX, plot.getY(), startWidth, 13.0f);
+            const auto endFlag = juce::Rectangle<float> (endX - endWidth, plot.getBottom() - 13.0f, endWidth, 13.0f);
+            for (const auto& [flag, name] : { std::pair<juce::Rectangle<float>, juce::String> { startFlag, startName }, { endFlag, endName } })
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.8f));
+                g.fillRoundedRectangle (flag, 2.0f);
+                g.setColour (juce::Colours::black.withAlpha (0.8f));
+                g.drawText (name, flag, juce::Justification::centred, false);
+            }
+        }
+
+        // A multisample region's own sustain loop (SF2 / SFZ loop points, the
+        // ones the voice wraps at): dashed lines and flags while LOOP is on
+        // (S15-4). Display only.
+        if (loop && ! compact && ! sample->zones.empty() && numSamples > 1)
+            if (const auto* zone = sample->zoneFor (60, 100); zone != nullptr && zone->loop && zone->loopEnd > zone->loopStart)
+            {
+                const auto inX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopStart / (float) numSamples) * plot.getWidth();
+                const auto outX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopEnd / (float) numSamples) * plot.getWidth();
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+                for (const auto& [x, name, leftOf] : { std::tuple<float, juce::String, bool> { inX, "LOOP IN", false }, { outX, "LOOP OUT", true } })
+                {
+                    const float dashes[] { 3.0f, 3.0f };
+                    g.setColour (traceColour.withAlpha (0.95f));
+                    g.drawDashedLine (juce::Line<float> (x, plot.getY(), x, plot.getBottom()), dashes, 2, 1.5f);
+                    if (plot.getHeight() > 60.0f)
+                    {
+                        const auto width = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), name) + 10.0f;
+                        const auto flag = juce::Rectangle<float> (leftOf ? x - width : x, plot.getY() + 16.0f, width, 13.0f);
+                        g.fillRoundedRectangle (flag, 2.0f);
+                        g.setColour (juce::Colours::black.withAlpha (0.8f));
+                        g.drawText (name, flag, juce::Justification::centred, false);
+                    }
+                }
+            }
 
         if (fadeIn > 0.001f)
         {
@@ -787,11 +1244,70 @@ private:
             g.fillEllipse (juce::Rectangle<float> (5.5f, 5.5f).withCentre ({ cursorX, cursorY }));
         }
 
-        g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.drawText ((reverse ? "REV " : "") + juce::String (loop ? "LOOP" : "1-SHOT"),
-                    getLocalBounds().reduced (8, 6), juce::Justification::bottomLeft);
-        g.drawText (sample->name, getLocalBounds().reduced (8, 6), juce::Justification::bottomRight);
+        if (! compact)
+            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
+                                                                           : juce::String())
+                                                 + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"));
+    }
+
+    // The zones as boxes on a keyboard strip: the used key range across
+    // (octave lines, C notes named), velocity up; the zone middle C plays
+    // lit.
+    void drawZones (juce::Graphics& g, const SampleData& sample, juce::Rectangle<float> area) const
+    {
+        // A plain sample is one zone over every key and velocity.
+        std::vector<SampleZone> plain;
+        if (sample.zones.empty())
+            plain.emplace_back();
+        const auto& zones = sample.zones.empty() ? plain : sample.zones;
+
+        auto low = 127, high = 0;
+        for (const auto& zone : zones)
+        {
+            low = juce::jmin (low, zone.loKey);
+            high = juce::jmax (high, zone.hiKey);
+        }
+        low = juce::jmax (0, low - low % 12);
+        high = juce::jmin (127, high + (11 - high % 12));
+
+        area.removeFromTop (6.0f);
+        const auto labels = area.removeFromBottom (11.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRoundedRectangle (area, 3.0f);
+        const auto keyWidth = area.getWidth() / (float) juce::jmax (1, high - low + 1);
+        const auto xOf = [&] (int key) { return area.getX() + (float) (key - low) * keyWidth; };
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (int key = low; key <= high; key += 12)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.1f));
+            g.fillRect (xOf (key), area.getY(), 1.0f, area.getHeight());
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText (juce::MidiMessage::getMidiNoteName (key, true, true, 3), juce::Rectangle<float> (xOf (key) + 2.0f, labels.getY(), 40.0f, labels.getHeight()),
+                        juce::Justification::centredLeft, false);
+        }
+
+        const auto* middle = sample.zones.empty() ? &zones.front() : sample.zoneFor (60, 100);
+        for (const auto& zone : zones)
+        {
+            const auto box = juce::Rectangle<float> (xOf (zone.loKey), area.getBottom() - area.getHeight() * (float) zone.hiVel / 127.0f,
+                                                     (float) (zone.hiKey - zone.loKey + 1) * keyWidth,
+                                                     area.getHeight() * (float) (zone.hiVel - zone.loVel + 1) / 127.0f).reduced (0.5f);
+            g.setColour (traceColour.withAlpha (&zone == middle ? 0.55f : 0.22f));
+            g.fillRect (box);
+            g.setColour (traceColour.withAlpha (0.8f));
+            g.drawRect (box, 1.0f);
+
+            // The root note: where the sample plays at its own pitch (review
+            // 11, S11-10).
+            const auto root = juce::roundToInt ((float) zone.rootNote);
+            if (! sample.zones.empty() && root >= low && root <= high)
+            {
+                const auto x = xOf (root) + keyWidth * 0.5f;
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.fillEllipse (x - 2.0f, box.getBottom() - 5.0f, 4.0f, 4.0f);
+            }
+        }
     }
 
     int resolveTableIndex() const
@@ -813,28 +1329,28 @@ private:
         return choice - 4;
     }
 
-    static juce::String frameText (int frames, float position)
+    // Whether the frame playing is another than the knob's (modulated): only
+    // then does the caption add "playing" (V12-28).
+    bool frameIsMoving (int frames) const
     {
-        return "FRAME " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
-               + " / " + juce::String (frames);
+        return std::abs (displayedFrame - readValue (frameId)) * (float) juce::jmax (0, frames - 1) >= 0.5f;
     }
 
-    // Where the cycle sits in the table (after modulation, gliding): a
-    // quiet readout at the top left and a slim scrubber along the bottom.
+    static juce::String frameText (int frames, float position, bool playingNow = true)
+    {
+        // (The frame playing now, modulation included; the FRAME knob is the
+        // set value: S9-12. One caption, "frame 6 of 64", with ", playing" only when modulation moves it off the knob: S10-6, V12-28.)
+        return "frame " + juce::String (juce::roundToInt (position * (float) juce::jmax (0, frames - 1)) + 1)
+               + " of " + juce::String (frames) + (playingNow ? ", playing" : "");
+    }
+
+    // Where the cycle sits in the table (after modulation, gliding): a slim
+    // scrubber along the plot's foot (the readout is under the plot, in
+    // paintChrome, so it never covers the trace: UI review 6, V21).
     void drawFramePosition (juce::Graphics& g, int frames, float position, juce::Rectangle<float> plot) const
     {
         if (frames <= 1)
             return;
-
-        // On a backing so the trace under it doesn't cross the letters.
-        const auto text = frameText (frames, position);
-        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto box = juce::Rectangle<float> (plot.getX() - 2.0f, plot.getY(), juce::GlyphArrangement::getStringWidth (font, text) + 8.0f, 14.0f);
-        g.setColour (IlanaTheme::Ui::bg.withAlpha (0.75f));
-        g.fillRoundedRectangle (box, 3.0f);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (font);
-        g.drawText (text, box.toNearestInt(), juce::Justification::centred);
 
         const auto track = juce::Rectangle<float> (plot.getX(), plot.getBottom() - 2.0f, plot.getWidth(), 2.0f);
         g.setColour (juce::Colours::white.withAlpha (0.08f));
@@ -843,6 +1359,44 @@ private:
         g.fillRoundedRectangle (track.withWidth (track.getWidth() * position), 1.0f);
         g.setColour (traceColour);
         g.fillRoundedRectangle (juce::Rectangle<float> (10.0f, 4.0f).withCentre ({ track.getX() + track.getWidth() * position, track.getCentreY() }), 2.0f);
+    }
+
+    // The parameter with whatever modulates it right now (LFOs, envelopes,
+    // macros), as the voices hear it: the picture of the warp follows a
+    // modulated WARP amount (ilana, 2026-10-10: warp modulation didn't
+    // animate the oscillator display).
+    float readModulated (const juce::String& id) const
+    {
+        const auto plain = readPlain (id);
+
+        if (const auto config = modRingConfigFor (id); config.destination != 0)
+            if (const auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                const auto range = parameter->getNormalisableRange();
+                const auto offset = processorRef.getModDisplay (config.destination);
+                return range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, range.convertTo0to1 (plain) + offset));
+            }
+
+        return plain;
+    }
+
+    // Changes whenever a modulated warp amount moves enough to redraw.
+    juce::uint64 warpSignature() const
+    {
+        const auto stages = readWarp();
+        auto signature = IlanaAnim::phaseSignature (stages.amount1, 11) ^ IlanaAnim::phaseSignature (stages.amount2, 12);
+
+        // A modulated spectral amount rebuilds the warped table in 64 steps;
+        // redraw when the step moves, not on every tiny change.
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
+
+        if (readChoice (prefix + "_spectral") > 0)
+        {
+            const auto step = juce::roundToInt (juce::jlimit (0.0f, 1.0f, readModulated (prefix + "_spectral_amt")) * (float) SpectralCache::amountSteps);
+            signature ^= IlanaAnim::phaseSignature ((float) step / (float) SpectralCache::amountSteps, 13);
+        }
+
+        return signature;
     }
 
     float readPlain (const juce::String& id) const
@@ -867,7 +1421,9 @@ private:
         if (followsTheme)
         {
             traceColour = IlanaTheme::accent();
-            modeButton.setColour (juce::TextButton::buttonOnColourId, traceColour.withAlpha (0.8f));
+
+            for (auto& button : viewButtons)
+                IlanaTheme::makePill (button, traceColour);
         }
     }
 
@@ -878,8 +1434,8 @@ private:
         if (const auto epoch = processorRef.getUiEpoch(); epoch != modeEpoch)
         {
             modeEpoch = epoch;
-            modeButton.setVisible (! isSampleMode() && ! isElectricPiano() && ! isLiveInput() && ! isPhysicalString());
-            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS). OSC > PHYSICAL shows it moving." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
+            updateViewButtons();
+            setTooltip (isPhysicalString() ? "The string after a strike, from where it is struck (EXCITE POS)." : isElectricPiano() ? "The pickup's response across the swing: the shaded bands are a medium and a hard note. "
                                             "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                         : isLiveInput() ? "The audio coming into ilanaSynth FX."
                         : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
@@ -898,6 +1454,13 @@ private:
 
         loadFlash = IlanaAnim::decay (loadFlash, 0.93f, frameTicks());
 
+        if (const auto view = shownViewMode(); view != lastShownView)
+        {
+            lastShownView = view;
+            updateViewButtons();
+            repaint();
+        }
+
         // Follow the frame parameter including any modulation (LFO, envelope,
         // macros), smoothed so morphs glide rather than jump.
         const auto frame = resolvedFrame();
@@ -908,10 +1471,10 @@ private:
         if (processorRef.getActiveVoiceCount() > 0)
             liveSeconds += (double) frameSeconds();
 
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
-        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
+        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ warpSignature()))
             repaint();
     }
 
@@ -948,7 +1511,9 @@ private:
         {
             const auto depth = numFrames > 1 ? (float) f / (float) (numFrames - 1) : 0.0f;
             const auto inset = plot.getWidth() * 0.08f * depth;
-            const auto baseline = plot.getBottom() - 6.0f - depth * plot.getHeight() * 0.62f;
+            // The front frame's troughs stay inside the plot (on a tall
+            // plot a fixed 6 px margin let them run under the frame readout).
+            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.15f) - depth * plot.getHeight() * 0.62f;
             const auto amplitude = plot.getHeight() * 0.15f * (1.0f - depth * 0.35f);
             const auto* data = table->getFrameData (0, f);
             const auto highlight = f == currentFrame;
@@ -1019,8 +1584,7 @@ private:
                 path.lineTo ((float) plot.getX() + (float) x, y);
         }
 
-        g.setColour (colour);
-        g.strokePath (path, juce::PathStrokeType (thickness));
+        IlanaTrace::paintTrace (g, path, colour, thickness);
     }
 
     // The phase warps the oscillator applies itself (not FM or Ring), for
@@ -1036,9 +1600,9 @@ private:
         const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
         WarpStages stages;
         stages.mode1 = readChoice (prefix + "_warp");
-        stages.amount1 = readPlain (prefix + "_warp_amt");
+        stages.amount1 = readModulated (prefix + "_warp_amt");
         stages.mode2 = Warp::modeForStageTwoChoice (readChoice (prefix + "_warp2"));
-        stages.amount2 = readPlain (prefix + "_warp2_amt");
+        stages.amount2 = readModulated (prefix + "_warp2_amt");
 
         if (! Warp::isOscillatorWarp (stages.mode1)) stages.amount1 = 0.0f;
         if (! Warp::isOscillatorWarp (stages.mode2)) stages.amount2 = 0.0f;
@@ -1047,7 +1611,7 @@ private:
 
     bool hasWarp() const
     {
-        if (subTableMapping || (modeId.isNotEmpty() && readChoice (modeId) != 0))
+        if (subTableMapping || (modeId.isNotEmpty() && ! OscMode::playsWavetable (readChoice (modeId))))
             return false;
 
         const auto stages = readWarp();
@@ -1096,21 +1660,206 @@ private:
                 path.lineTo (plot.getX() + (float) x, y);
         }
 
-        g.setColour (traceColour);
-        g.strokePath (path, juce::PathStrokeType (1.6f));
+        IlanaTrace::paintTrace (g, path, traceColour);
     }
 
-    void updateModeButton()
+    // The view switch and the table arrows show over a wavetable only, and
+    // not in a compact strip.
+    void updateViewButtons()
     {
-        static const char* const names[] { "WAVE", "3D", "SPEC" };
-        modeButton.setButtonText (names[viewMode]);
-        modeButton.setToggleState (viewMode != 0, juce::dontSendNotification);
+        const auto table = ! compact && isTableMode() && ! subTableMapping;
+
+        for (int view = 0; view < 3; ++view)
+        {
+            viewButtons[(size_t) view].setVisible (table && ! singleCycle);
+            viewButtons[(size_t) view].setToggleState (view == shownViewMode(), juce::dontSendNotification);
+        }
+
+        previousTable.setVisible (table);
+        nextTable.setVisible (table);
+    }
+
+    // The next or previous table that holds something (empty User slots are
+    // skipped), as one undo step.
+    void stepTable (int direction)
+    {
+        auto* param = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (tableId));
+
+        if (param == nullptr)
+            return;
+
+        const auto count = param->choices.size();
+        auto choice = param->getIndex();
+
+        for (int tries = 0; tries < count; ++tries)
+        {
+            choice = (choice + direction + count) % count;
+
+            if (const auto* table = processorRef.getWavetable (choice); table != nullptr && table->getNumFrames() > 0)
+                break;
+        }
+
+        processorRef.performEdit ("OSC " + juce::String (oscIndex + 1) + " table", [param, choice]
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) choice));
+            param->endChangeGesture();
+        });
+        repaint();
+    }
+
+    // The well the picture sits in: all of it in a compact strip; between
+    // the header line and the readout line otherwise.
+    juce::Rectangle<float> wellArea() const
+    {
+        auto bounds = getLocalBounds().toFloat();
+
+        if (! compact)
+        {
+            bounds.removeFromTop ((float) headerHeight + 3.0f);
+            // (A sample has no readout line: its picture takes that height, S14-3.)
+            bounds.removeFromBottom (isSampleMode() && ! isGranularMode() ? 4.0f : (float) footerHeight + 2.0f);
+        }
+
+        return bounds;
+    }
+
+    juce::Rectangle<float> footerArea() const
+    {
+        return getLocalBounds().toFloat().removeFromBottom ((float) footerHeight);
+    }
+
+    // A title and a quieter caption in the header line; the caption only
+    // where both fit (with a gap).
+    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption) const
+    {
+        auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
+        const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
+        const auto captionWidth = juce::GlyphArrangement::getStringWidth (captionFont, caption);
+
+        g.setColour (traceColour);
+        g.setFont (titleFont);
+        g.drawText (title, header, juce::Justification::centredLeft, true);
+
+        if (caption.isNotEmpty() && titleWidth + captionWidth + 14.0f <= header.getWidth())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (captionFont);
+            g.drawText (caption, header, juce::Justification::centredRight);
+        }
+    }
+
+    // Outside the well: the table's name (between its arrows) in the header
+    // and the frame readout, or the drag readout, under the plot.
+    void paintChrome (juce::Graphics& g) const
+    {
+        if (compact || ! isTableMode() || subTableMapping)
+            return;
+
+        g.setColour (IlanaTheme::Ui::text);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawText (getTableName(), tableNameArea, juce::Justification::centredLeft, true);
+
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+        juce::String readout;
+
+        if (table != nullptr && table->getNumFrames() > 0)
+        {
+            if (dragging)
+            {
+                readout = frameText (table->getNumFrames(), readValue (frameId), false);
+
+                if (canDragWarp())
+                    readout << "   WARP " << juce::roundToInt (readPlain (warpAmountId()) * 100.0f) << "%";
+            }
+            else if (shownViewMode() == 2)
+                readout = "HARMONICS 1-" + juce::String (juce::jlimit (8, 128, (int) ((wellArea().getWidth() - 20.0f) / 4.0f)));
+            else if (! isStaticTable (table))
+                readout = frameText (table->getNumFrames(), displayedFrame, frameIsMoving (table->getNumFrames()));
+        }
+
+        g.setColour (dragging ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (readout, footerArea().reduced (4.0f, 0.0f), juce::Justification::centredLeft, true);
+
+        // What a drag on the plot does, at the footer's right while there is
+        // room (UI review 9, S9-18: the warp drag had no visible hint).
+        if (const auto hint = getDragHint(); hint.isNotEmpty() && ! dragging)
+        {
+            const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            const auto footer = footerArea().reduced (4.0f, 0.0f);
+            const auto used = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), readout);
+            // (The full hint, else its short form; a hint that fits neither
+            // is left out rather than shrunk.)
+            const auto shortHint = hint.contains ("frame") ? juce::String ("drag: frame") : juce::String ("drag: warp");
+            // Both gestures keep a middle form before one is dropped (review
+            // 11, S11-6).
+            const auto bothHint = hint.contains ("frame") && hint.contains ("warp") ? juce::String::fromUTF8 ("drag: frame \xc2\xb7 warp") : shortHint;
+            for (const auto& candidate : { hint, bothHint, shortHint })
+                if (juce::GlyphArrangement::getStringWidth (font, candidate) + used + 16.0f <= footer.getWidth())
+                {
+                    g.setFont (font);
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.drawText (candidate, footer, juce::Justification::centredRight, false);
+                    break;
+                }
+        }
+    }
+
+public:
+    // The footer's drag hint: across moves the frame of a table with more
+    // than one, up and down the first WARP's amount once a warp is chosen
+    // (the UI test reads it).
+    juce::String getDragHint() const
+    {
+        if (compact || ! isTableMode() || subTableMapping || shownViewMode() == 2)
+            return {};
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+        const auto frames = table != nullptr && ! isStaticTable (table);
+        if (frames && canDragWarp())
+            return juce::String::fromUTF8 ("drag across: frame \xc2\xb7 up / down: warp");
+        // (Both gestures are always told, so the second can be found: V12-16.)
+        if (frames)
+            return juce::String::fromUTF8 ("drag across: frame \xc2\xb7 up / down: warp (choose a warp first)");
+        return canDragWarp() ? "drag up / down: warp" : juce::String();
+    }
+
+private:
+
+    void mouseDownOnHeader (const juce::MouseEvent& event)
+    {
+        if (slim)
+        {
+            const auto areas = slimAreas();
+            const auto at = event.getPosition();
+
+            if (areas.view.contains (at))
+            {
+                viewPicked = true;
+                pickedTable = resolveTableIndex();
+                setViewMode ((shownViewMode() + 1) % 3);
+            }
+            else if (areas.previous.contains (at))
+                stepTable (-1);
+            else if (areas.next.contains (at))
+                stepTable (1);
+            else if (areas.name.contains (at) && isTableMode() && ! subTableMapping)
+                TableBrowser::show (processorRef, tableId, traceColour, *this);
+
+            return;
+        }
+
+        if (tableNameArea.contains (event.getPosition()) && isTableMode() && ! subTableMapping)
+            TableBrowser::show (processorRef, tableId, traceColour, *this);
     }
 
     // A plain wavetable oscillator (not sample, grains, physical or live).
     bool isTableMode() const
     {
-        return frameId.isNotEmpty() && (modeId.isEmpty() || readChoice (modeId) == 0);
+        // (FM / DX7 plays the wavetable engine too.)
+        return frameId.isNotEmpty() && (modeId.isEmpty() || OscMode::playsWavetable (readChoice (modeId)));
     }
 
     juce::String warpAmountId() const
@@ -1202,7 +1951,7 @@ private:
             fft = std::make_unique<juce::dsp::FFT> (order);
         fft->performFrequencyOnlyForwardTransform (spectrumBuffer.data(), true);
 
-        const auto area = plot.withTrimmedTop (20.0f).withTrimmedBottom (4.0f);
+        const auto area = plot.withTrimmedTop (4.0f).withTrimmedBottom (4.0f);
         const auto bars = juce::jlimit (8, 128, (int) (area.getWidth() / 4.0f));
         auto loudest = 1.0e-9f;
         for (int h = 1; h <= bars; ++h)
@@ -1229,30 +1978,6 @@ private:
             g.setColour (traceColour.withAlpha (h % 2 == 1 ? 0.9f : 0.65f));
             g.fillRect (bar);
         }
-
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        g.drawText ("HARMONICS 1-" + juce::String (bars), plot.withHeight (18.0f).toNearestInt(), juce::Justification::centredLeft);
-    }
-
-    // While dragging: the frame, and the warp amount when the drag moves it.
-    void drawDragReadout (juce::Graphics& g, const Wavetable* table, juce::Rectangle<float> plot) const
-    {
-        const auto frames = table->getNumFrames();
-        auto text = "FRAME " + juce::String (juce::roundToInt (readValue (frameId) * (float) juce::jmax (0, frames - 1)) + 1)
-                    + " / " + juce::String (frames);
-
-        if (canDragWarp())
-            text << "   WARP " << juce::roundToInt (readPlain (warpAmountId()) * 100.0f) << "%";
-
-        const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        const auto width = juce::GlyphArrangement::getStringWidth (font, text) + 14.0f;
-        const auto box = juce::Rectangle<float> (plot.getX(), plot.getY() + (viewMode == 2 ? 20.0f : 0.0f), width, 16.0f);
-        g.setColour (IlanaTheme::Ui::raised.withAlpha (0.92f));
-        g.fillRoundedRectangle (box, 4.0f);
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (font);
-        g.drawText (text, box.toNearestInt(), juce::Justification::centred);
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -1262,6 +1987,7 @@ private:
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
     juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId;
+    int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;
     mutable const SampleData* cachedSample = nullptr;
@@ -1273,8 +1999,17 @@ private:
     float displayedFrame = 0.0f;
     bool sampleDragHover = false;
     bool subTableMapping = false;
-    juce::TextButton modeButton { "WAVE" };
+    std::array<juce::TextButton, 3> viewButtons;
+    juce::TextButton previousTable, nextTable;
+    juce::Rectangle<int> tableNameArea;
+    bool compact = false, pressInHeader = false, singleCycle = false, slim = false;
+    static constexpr int headerHeight = 20, footerHeight = 14, slimHeader = 17;
     int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
+    bool viewPicked = false; // a view chosen by hand, kept for that table even when static
+    int pickedTable = -1;
+    int lastShownView = -1;
+    mutable const Wavetable* staticTable = nullptr;
+    mutable bool staticFrames = false;
     bool dragging = false;
     float dragStartY = 0.0f, warpAtDragStart = 0.0f;
     std::vector<juce::RangedAudioParameter*> openGestures;
@@ -1284,6 +2019,6 @@ private:
 
     static constexpr const char* tableTooltip =
         "Drag across to scrub the frame; with a WARP chosen, drag up or down for its amount (shift: fine, double-click: zero). "
-        "The corner key switches WAVE / 3D / SPEC. Drop a wav to switch this oscillator to Sample.";
+        "WAVE / 3D / SPEC above it switch the view; the arrows and the name pick the table. Drop a wav to switch this oscillator to Sample.";
     std::unique_ptr<juce::FileChooser> fileChooser;
 };

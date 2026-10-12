@@ -79,11 +79,11 @@ public:
         : processorRef (processor),
           fft (11)
     {
-        setTooltip ("Click to cycle scope, spectrum and split view.  Click a meter (L or R) to solo that channel; "
+        setTooltip ("Scope\nClick to cycle scope, spectrum and split view.  Click a meter (L or R) to solo that channel; "
                     "click the peak numbers or CLIP to reset them.");
 
         holdButton.setClickingTogglesState (true);
-        holdButton.setTooltip ("Freeze the display");
+        holdButton.setTooltip ("Freeze\nHold the picture still to look at it.");
         holdButton.onClick = [this]
         {
             hold = holdButton.getToggleState();
@@ -92,7 +92,7 @@ public:
 
         peakButton.setClickingTogglesState (true);
         peakButton.setToggleState (true, juce::dontSendNotification);
-        peakButton.setTooltip ("Peak hold in the level meters");
+        peakButton.setTooltip ("Peak hold\nThe level meters keep their peaks for a moment.");
         peakButton.onClick = [this]
         {
             peakHoldEnabled = peakButton.getToggleState();
@@ -125,23 +125,8 @@ public:
 
         viewButtons[2].setToggleState (true, juce::dontSendNotification);
 
-        oversamplingButton.setClickingTogglesState (true);
-        oversamplingButton.setTooltip ("Oversampling\nRun the voice engine at a higher sample rate: cleaner highs from "
-                                       "warps, FM and screaming filters, at the cost of CPU.  Pick 2x or 4x beside it.");
-        factorBox.addItemList ({ "2x", "4x" }, 1);
-        factorBox.setTooltip ("Oversampling factor");
-        addAndMakeVisible (factorBox);
-        factorAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-            processor.apvts, "os_factor", factorBox);
-        addAndMakeVisible (oversamplingButton);
-        oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            processor.apvts, "oversampling", oversamplingButton);
-        qualityBox.addItemList ({ "Eco", "Normal", "High" }, 1);
-        qualityBox.setTooltip ("Quality: Eco caps unison at four voices; Normal preserves the original sound; "
-                               "High uses two wavetable reads per sample for smoother highs.");
-        addAndMakeVisible (qualityBox);
-        qualityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-            processor.apvts, "quality", qualityBox);
+        // Engine quality and oversampling are engine settings (the settings
+        // menu), not views: they left this row in review 6.
 
         scopeSamplesL.assign (fftSize, 0.0f);
         scopeSamplesR.assign (fftSize, 0.0f);
@@ -162,15 +147,9 @@ public:
             viewButtons[(size_t) i].setBounds (row.removeFromLeft (52).withTrimmedRight (i < 2 ? 4 : 0));
 
         row.removeFromLeft (8);
-        peakButton.setBounds (row.removeFromRight (42));
+        peakButton.setBounds (row.removeFromRight (84));
         row.removeFromRight (4);
-        holdButton.setBounds (row.removeFromRight (42));
-        row.removeFromRight (4);
-        factorBox.setBounds (row.removeFromRight (42));
-        row.removeFromRight (4);
-        oversamplingButton.setBounds (row.removeFromRight (32));
-        row.removeFromRight (4);
-        qualityBox.setBounds (row.removeFromRight (juce::jmin (86, row.getWidth())));
+        holdButton.setBounds (row.removeFromRight (66));
     }
 
     void paint (juce::Graphics& g) override
@@ -192,7 +171,7 @@ public:
         area.removeFromRight (10.0f);
 
         if (! hold)
-            processorRef.copyScopeData (scopeSamplesL.data(), scopeSamplesR.data(), fftSize);
+            processorRef.copyScopeDataSmooth (scopeSamplesL.data(), scopeSamplesR.data(), fftSize);
 
         auto peakL = 0.0f;
         auto peakR = 0.0f;
@@ -222,6 +201,7 @@ public:
         }
 
         const auto peak = juce::jmax (peakL, peakR);
+        idleScope = peak <= 0.004f;
 
         if (peak > 0.004f && ! hold)
         {
@@ -252,7 +232,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        g.drawText (hold ? "HOLD" : "VIEW",
+        g.drawText (hold ? "FROZEN" : "VIEW",
                     getLocalBounds().reduced (12, 8), juce::Justification::topLeft);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
@@ -346,7 +326,7 @@ private:
 
     void timerCallback() override
     {
-        if (! isShowing())
+        if (! IlanaAnim::showing (*this))
             return;
 
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
@@ -394,6 +374,33 @@ private:
         label ("+1", centreY - halfHeight + 2.0f);
         label ("0", centreY + 2.0f);
         label ("-1", centreY + halfHeight - 14.0f);
+
+        // Idle: a ghost of a note's wave and a prompt, until one plays.
+        if (idleScope)
+        {
+            juce::Path ghost;
+            const auto steps = juce::jmax (32, (int) area.getWidth() / 2);
+            for (int i = 0; i <= steps; ++i)
+            {
+                const auto t = (float) i / (float) steps;
+                // A decaying pluck: a sine and its octave, so it reads as a sound and not a ruler.
+                const auto v = (0.8f * std::sin (juce::MathConstants<float>::twoPi * 4.0f * t) + 0.25f * std::sin (juce::MathConstants<float>::twoPi * 8.0f * t + 0.6f)) * (1.0f - 0.35f * t);
+                const juce::Point<float> point (area.getX() + t * area.getWidth(), centreY - v * 0.55f * halfHeight);
+                if (i == 0)
+                    ghost.startNewSubPath (point);
+                else
+                    ghost.lineTo (point);
+            }
+            juce::Path dashed;
+            const float pattern[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.4f).createDashedStroke (dashed, ghost, pattern, 2);
+            g.setColour (IlanaTheme::accent().withAlpha (0.38f));
+            g.fillPath (dashed);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "play a note to see its wave", area.withSizeKeepingCentre (area.getWidth() * 0.6f, 18.0f).translated (0.0f, -halfHeight * 0.78f).toNearestInt(),
+                                    juce::Justification::centred, 1);
+        }
 
         auto start = 0;
 
@@ -492,6 +499,38 @@ private:
             const auto db = juce::Decibels::gainToDecibels (buckets[(size_t) x] * spectrumGain, -80.0f);
             const auto target = juce::jlimit (0.0f, 1.0f, (db + 80.0f) / 84.0f);
             spectrumSmoothed[(size_t) x] = IlanaAnim::approach (spectrumSmoothed[(size_t) x], target, 0.35f, paintTicks);
+        }
+
+        // Idle: the outline of a note's harmonics, dim, until one plays.
+        if (idleScope)
+        {
+            juce::Path ghost;
+            ghost.startNewSubPath (area.getX(), area.getBottom());
+            for (int x = 1; x < width; ++x)
+            {
+                const auto hz = 20.0 * std::pow (1000.0, (double) x / (double) width);
+                auto level = 0.04f;
+                for (int k = 1; k <= 14; ++k)
+                {
+                    const auto octaves = (float) std::log2 (hz / (110.0 * k));
+                    level = juce::jmax (level, 0.72f / std::pow ((float) k, 0.7f) * std::exp (-octaves * octaves * 260.0f));
+                }
+                ghost.lineTo (area.getX() + (float) x, area.getBottom() - level * area.getHeight());
+            }
+            auto fill = ghost;
+            fill.lineTo (area.getRight(), area.getBottom());
+            fill.closeSubPath();
+            g.setColour (IlanaTheme::accent().withAlpha (0.10f));
+            g.fillPath (fill);
+            juce::Path dashed;
+            const float pattern[] { 5.0f, 4.0f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dashed, ghost, pattern, 2);
+            g.setColour (IlanaTheme::accent().withAlpha (0.38f));
+            g.fillPath (dashed);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "play a note to see its spectrum", area.withSizeKeepingCentre (area.getWidth() * 0.6f, 18.0f).translated (0.0f, -area.getHeight() * 0.18f).toNearestInt(),
+                                    juce::Justification::centred, 1);
         }
 
         juce::Path path;
@@ -644,20 +683,14 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     juce::dsp::FFT fft;
-    juce::TextButton holdButton { "HOLD" };
-    juce::TextButton peakButton { "PEAK" };
-    juce::TextButton oversamplingButton { "OS" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> oversamplingAttachment;
-    juce::ComboBox factorBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> factorAttachment;
-    juce::ComboBox qualityBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> qualityAttachment;
-
+    juce::TextButton holdButton { "FREEZE" };
+    juce::TextButton peakButton { "PEAK HOLD" };
     std::vector<float> scopeSamplesL, scopeSamplesR, windowBuffer;
     std::vector<std::complex<float>> fftInput, fftOutput;
     std::vector<float> spectrumSmoothed;
     std::vector<float> spectrumPeak;
     float scopeGain = 1.0f;
+    bool idleScope = false; // nothing playing: the panes show a dim ghost of what a note draws (N16-7)
     float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
     double lastPaintMs = 0.0, lastChangeMs = 0.0;
 

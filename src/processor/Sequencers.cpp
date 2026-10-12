@@ -270,7 +270,26 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         }
 
         const auto note = selectArpNote (mode, octaves);
-        const auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
+        auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
+
+        // The arp's step lanes (Euclid alone plays plain hits): this step's
+        // velocity, transpose and gate (a share of GATE; 0 rests). At their
+        // defaults the step plays exactly as it did before the lanes.
+        auto velocity = 100, transpose = 0;
+        auto stepGate = gateSamples;
+
+        if (arpOn)
+        {
+            const auto steps = juce::jlimit (1, 16, juce::roundToInt (getParam (arpStepsRef)));
+            const auto lane = (size_t) (((number % steps) + steps) % steps);
+            const auto length = getParam (arpLengthIds[lane]);
+            velocity = juce::jlimit (1, 127, juce::roundToInt (getParam (arpVelocityIds[lane])));
+            transpose = juce::jlimit (-12, 12, juce::roundToInt (getParam (arpPitchIds[lane])));
+            rest = rest || length < 0.005f;
+
+            if (length != 1.0f)
+                stepGate = juce::jmax (8, (int) ((float) samplesPerStep * gate * length));
+        }
 
         if (! rest)
         {
@@ -278,18 +297,22 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
             {
                 for (auto chordNote : arpChordNotes)
                 {
-                    output.addEvent (juce::MidiMessage::noteOn (1, chordNote, (juce::uint8) 100), position);
+                    if (transpose != 0)
+                        chordNote = juce::jlimit (0, 127, chordNote + transpose);
+
+                    output.addEvent (juce::MidiMessage::noteOn (1, chordNote, (juce::uint8) velocity), position);
                     arpChordActive.add (chordNote);
                 }
             }
             else
             {
-                output.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), position);
-                arpActiveNote = note;
+                const auto played = transpose != 0 ? juce::jlimit (0, 127, note + transpose) : note;
+                output.addEvent (juce::MidiMessage::noteOn (1, played, (juce::uint8) velocity), position);
+                arpActiveNote = played;
             }
         }
 
-        arpGateRemaining = gateSamples;
+        arpGateRemaining = stepGate;
         arpCounter = samplesToNextStep (position);
     };
 

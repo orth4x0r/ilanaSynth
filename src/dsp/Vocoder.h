@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <cmath>
+#include <limits>
 
 #include "Biquad.h"
 
@@ -59,6 +60,7 @@ public:
                 filter.reset();
         talkPhase = 0.0;
         noiseState = 0x2545F491u; // its own generator, so nothing else's sequence moves
+        lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
     // Carrier in `left` / `right` (in place). `modulator` is one mono block,
@@ -72,9 +74,14 @@ public:
         const auto level = juce::Decibels::decibelsToGain (s.levelDb) * outputScale;
         const auto noiseGain = s.unvoiced * 0.6f;
         const auto talkStep = juce::MathConstants<double>::twoPi * juce::jlimit (0.05f, 20.0f, s.talkRate) / sampleRate;
+        // MIX eases across the block from the last one (no step at the block edge).
+        const auto mixFrom = std::isfinite (lastMix) ? lastMix : s.mix;
+        const auto mixStep = numSamples > 0 ? (s.mix - mixFrom) / (float) numSamples : 0.0f;
+        lastMix = s.mix;
 
         for (int i = 0; i < numSamples; ++i)
         {
+            const auto mixNow = mixFrom + mixStep * (float) i;
             const auto carrierL = left[i];
             const auto carrierR = right != nullptr ? right[i] : carrierL;
             auto x = 0.0f;
@@ -102,14 +109,17 @@ public:
             }
 
             const auto wetL = std::tanh (sumL * level); // soft limit: a hot LEVEL or loud voice can't run away
-            left[i] = carrierL + (wetL - carrierL) * s.mix;
+            left[i] = carrierL + (wetL - carrierL) * mixNow;
             if (right != nullptr)
             {
                 const auto wetR = std::tanh (sumR * level);
-                right[i] = carrierR + (wetR - carrierR) * s.mix;
+                right[i] = carrierR + (wetR - carrierR) * mixNow;
             }
         }
     }
+
+    // A band's envelope follower (the modulator's level in it), for display.
+    float getBandLevel (int band) const { return juce::isPositiveAndBelow (band, activeBands) ? bands[(size_t) band].envelope : 0.0f; }
 
 private:
     struct Band
@@ -217,6 +227,7 @@ private:
     double talkPhase = 0.0;
     unsigned talkCounter = 0;
     std::uint32_t noiseState = 0x2545F491u;
+    float lastMix = std::numeric_limits<float>::quiet_NaN(); // MIX of the last block (eased from)
     int activeBands = 16;
     int designedBands = 0;
     float designedFormant = 0.0f, designedWidth = 0.0f;

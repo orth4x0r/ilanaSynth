@@ -171,10 +171,10 @@ inline juce::String text (int shape, int index, float p)
         case DoublePendulum: return index < 2 ? num (v, 2) + " m" : index < 4 ? num (v, 2) + " kg"
                                                                                 : juce::String (juce::roundToInt (juce::radiansToDegrees (v))) + juce::String::fromUTF8 ("\xc2\xb0");
         case Bounce:
-            return index == 0 ? num (v, 2) + " m/s2" : index == 1 ? num (v, 2) + " m" : index == 2 ? num (v, 2)
-                                                                                                    : num (v, 2) + " /s";
+            return index == 0 ? num (v, 2) + juce::String::fromUTF8 (" m/s\xc2\xb2") : index == 1 ? num (v, 2) + " m" : index == 2 ? num (v, 2)
+                                                                                                    : num (v, 2) + " per s";
         case Pendulum:
-            return index == 0 ? num (v, 2) + " m" : index == 1 ? num (v, 2) + " m/s2" : index == 2 ? num (v, 3) + " /s"
+            return index == 0 ? num (v, 2) + " m" : index == 1 ? num (v, 2) + juce::String::fromUTF8 (" m/s\xc2\xb2") : index == 2 ? num (v, 3) + " per s"
                  : index == 3 ? juce::String (juce::roundToInt (juce::radiansToDegrees (v))) + juce::String::fromUTF8 ("\xc2\xb0")
                  : index == 4 ? num (v, 2) + " g" : num (v, 2) + "x";
         case Spring:

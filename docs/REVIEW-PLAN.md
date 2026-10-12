@@ -448,7 +448,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: very large. A new time-stretch engine, plus host tempo in the processor. Touches `src/dsp/SamplePlayer.h` and the processor's transport.
    Order 33. Why here: the largest engine change in this group. It comes after the playback modes (33) and quality modes (39), which it builds on.
 
-41. **Multisample resampling** (ilana, 2026-10-10: decided, not started). Extend RESAMPLE to capture several notes and velocities automatically, then build zones from those renders, with note spacing, tail length and FX capture.
+41. **Multisample resampling** (ilana, 2026-10-10: decided; **first version built** 2026-10-12, branch `claude/multisample-resampling-step-41-a4yo8y`: RESAMPLE > "As a multisample", note range and spacing, 1-4 velocity layers, tail, FX capture; zones are saved inside the patch; saving as portable files waits for step 31, zone editing for step 36). Extend RESAMPLE to capture several notes and velocities automatically, then build zones from those renders, with note spacing, tail length and FX capture.
    Size: large. Extends RESAMPLE (`src/processor/Bounce.cpp`) and writes zones through `src/dsp/MultiSample.h`. Depends on steps 36 and 31.
    Order 34. Why here: it needs the zone map (36) to edit its zones and portable presets (31) to save them.
 

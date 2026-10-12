@@ -533,6 +533,7 @@ public:
             dragOrigin = clip;
             dragNote = n.note;
             paintOrigin = n.start;
+            paintLast = position;
             paintCells.clear();
             paintCells.push_back (0);
             commit();
@@ -1348,13 +1349,23 @@ private:
     }
 
     // DRAW's run: a note in every grid cell the pointer crosses (cells of the
-    // last length, on the grid), at the pointer's pitch, never two in one cell.
+    // last length, on the grid), never two in one cell. A cell takes the
+    // pitch the pointer had where it crossed it, along the line from where
+    // the last event was to this one (a fast sweep makes few events, and
+    // none of its cells should take the last pitch). The pointer above or
+    // below the roll keeps the top or bottom row, and a spot that already
+    // holds a note of that pitch is left alone.
     void paintRun (juce::Point<float> position)
     {
+        const auto grid = gridBounds();
+        position.y = juce::jlimit (grid.getY() + 0.01f, grid.getBottom() - 0.01f, position.y);
+        const auto from = paintLast;
+        paintLast = position;
         const auto spacing = juce::jmax (gridStep(), ceilToGrid (lastLength));
         const auto cell = (int) std::floor ((xToBeat (position.x) - paintOrigin) / spacing + 1.0e-4f);
         const auto last = paintCells.empty() ? 0 : paintCells.back();
         const auto direction = cell >= last ? 1 : -1;
+        const auto fromBeat = xToBeat (from.x), toBeat = xToBeat (position.x);
         auto added = false;
 
         for (auto c = last; c != cell + direction; c += direction)
@@ -1366,12 +1377,23 @@ private:
                 || (int) clip.notes.size() >= ClipState::maxNotes)
                 continue;
 
+            const auto across = std::abs (toBeat - fromBeat) < 1.0e-4f
+                                    ? 1.0f
+                                    : juce::jlimit (0.0f, 1.0f, (start + spacing * 0.5f - fromBeat) / (toBeat - fromBeat));
             ClipNote n;
             n.start = start;
             n.length = lastLength;
-            n.note = yToNote (position.y);
+            n.note = yToNote (from.y + (position.y - from.y) * across);
             n.velocity = lastVelocity;
             constrain (n);
+
+            if (std::any_of (clip.notes.begin(), clip.notes.end(), [&n] (const ClipNote& other)
+                             { return other.note == n.note && std::abs (other.start - n.start) < 1.0e-3f; }))
+            {
+                paintCells.push_back (c);
+                continue;
+            }
+
             clip.notes.push_back (n);
             selected.push_back (true);
             paintCells.push_back (c);
@@ -1662,6 +1684,7 @@ private:
     bool drawMode = true;
     bool pitchViewTouched = false; // the pitches scrolled or zoomed by hand
     float paintOrigin = 0.0f;      // DRAW: the first note's start
+    juce::Point<float> paintLast;  // DRAW: where the pointer was at the last event
     std::vector<int> paintCells;   // DRAW: the cells painted, in order
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;

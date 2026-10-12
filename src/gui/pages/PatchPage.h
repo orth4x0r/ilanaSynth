@@ -654,11 +654,11 @@ private:
     juce::String hintText() const
     {
         if (hasVoice && ! processorRef.areRouteCablesOn() && ! processorRef.isFxPatcherOn())
-            return "The chain and rack as cables. Change one to play the cables.";
+            return "Chain and rack as cables. Edit one to play them.";
         const auto loops = processorRef.getFxLoopLatencyMs();
         if (loops > 0.0f)
-            return "Drag an output to an input. Drag a loop's tag for its level.";
-        return "Drag an output to an input. More cables play in parallel.";
+            return "Drag output to input. Drag a loop's tag for its level.";
+        return "Drag output to input. More cables play in parallel.";
     }
 
     // "WEST > FILTER 1 > FILTER 2", the voice's stages in the order they run.
@@ -724,9 +724,21 @@ private:
         g.setColour (Ui::text3);
         g.setFont (font (TextSize::tiny, true).withKerningFactor (0.08f));
         g.drawText ("EACH NOTE", band.reduced (16.0f, 10.0f).removeFromTop (14.0f), juce::Justification::centredLeft, false);
-        // The rest, after VOICES, hears every note summed.
-        g.drawText ("ALL NOTES", juce::Rectangle<float> (band.getRight() + 16.0f, band.getY() + 10.0f, 120.0f, 14.0f),
-                    juce::Justification::centredLeft, false);
+        // The rest, after VOICES, hears every note summed: framed the same way.
+        const auto content = view.getContentArea().translated (view.getOrigin().x, view.getOrigin().y);
+        if (content.getRight() > band.getRight() + 40.0f)
+        {
+            const auto all = juce::Rectangle<float> (band.getRight() + 10.0f, band.getY(), content.getRight() + 20.0f - band.getRight() - 10.0f, band.getHeight());
+            g.setColour (Ui::line2.withAlpha (0.2f));
+            g.fillRoundedRectangle (all, 12.0f);
+            g.setColour (Ui::line.withAlpha (0.7f));
+            g.drawRoundedRectangle (all.reduced (0.5f), 12.0f, 1.0f);
+            g.setColour (Ui::text3);
+            g.drawText ("ALL NOTES", all.reduced (16.0f, 10.0f).removeFromTop (14.0f), juce::Justification::centredLeft, false);
+        }
+        else
+            g.drawText ("ALL NOTES", juce::Rectangle<float> (band.getRight() + 16.0f, band.getY() + 10.0f, 120.0f, 14.0f),
+                        juce::Justification::centredLeft, false);
     }
 
     void paintInspector (juce::Graphics& g)
@@ -982,7 +994,23 @@ private:
 
     //==========================================================================
     // Edits.
-    void fit() { view.fitContent (maxZoom, minZoom); }
+    // The graph fills what the open windows leave free: tighter margins and
+    // 5 % zoom steps than the default fit, so it keeps its size (R17-2).
+    void fit() { view.fitContentInto (freeArea(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f); }
+
+    juce::Rectangle<int> freeArea() const
+    {
+        auto free = view.getLocalBounds();
+        for (const auto& window : windows)
+            if (window->isVisible())
+            {
+                const auto at = window->getBounds().translated (-view.getX(), -view.getY());
+                // (Only one docked at the right edge; a window dragged elsewhere floats.)
+                if (at.getRight() >= free.getRight() - 2 && at.getX() > free.getX() + 300)
+                    free.setRight (at.getX() - 10);
+            }
+        return free;
+    }
 
     // A cable may not cross the line at VOICES: the per-note boxes feed only
     // each other and VOICES, the effects never feed back into a note.
@@ -1276,6 +1304,24 @@ private:
                 places.push_back (size.withPosition (at.getX(), at.getBottom() + 10));
                 places.push_back (size.withPosition (at.getX(), at.getY() - 10 - size.getHeight()));
             }
+        // Docked first: against the canvas's right edge while that leaves the
+        // graph room; the graph refits into what is left (R17-3), so a window
+        // no longer covers its own boxes. Further windows tile as before.
+        std::vector<juce::Rectangle<int>> docks { size.withPosition (view.getRight() - size.getWidth(), view.getY()) };
+        auto docked = false;
+        for (const auto& dock : docks)
+        {
+            auto clear = view.getBounds().contains (dock) && (float) (dock.getX() - view.getX()) >= view.getContentArea().getWidth() * 0.8f + 60.0f;
+            for (const auto& other : windows)
+                clear = clear && (! other->isVisible() || ! other->getBounds().intersects (dock));
+            if (clear)
+            {
+                places.insert (places.begin(), dock);
+                docked = true;
+                break;
+            }
+        }
+
         // The one covering the least: another window counts far more than the
         // boxes (which stay reachable round it); a place that fits as it is
         // wins a tie.
@@ -1302,10 +1348,12 @@ private:
                 place = inside;
             }
         }
-        window->setBounds (place);
+        window->setBounds (docked ? places.front() : place);
         addAndMakeVisible (*window);
         window->setLimits (view.getBounds());
         windows.push_back (std::move (window));
+        if (docked)
+            fit();
     }
 
     // (Deferred: a window closes from its own button's click.)
@@ -1320,6 +1368,7 @@ private:
                 return;
             auto& list = safe->windows;
             list.erase (std::remove_if (list.begin(), list.end(), [window] (const auto& w) { return w.get() == window; }), list.end());
+            safe->fit();
         });
     }
 

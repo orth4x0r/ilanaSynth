@@ -113,6 +113,51 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
                 "cable view: a node moves on the 10 px grid without a recompile (at " + juce::String (node->x) + ", " + juce::String (node->y) + ")");
     }
 
+    // Cable motion (step 47): still at rest, swings when a box is dragged,
+    // stays bounded and settles; the graph and its compiled plan never see it.
+    {
+        Harness h (demoGraph());
+        const auto revision = h.graph.revision();
+        expect (! h.view.isAnimating() && h.view.largestSwing() == 0.0f, "cable motion: a fresh patcher is at rest");
+
+        const auto a = h.graph.nodes()[1].id;
+        const auto grab = h.view.nodeBounds (*h.graph.find (a)).getCentre();
+        h.view.mouseDown (mouse (h.view, grab, true));
+        auto peak = 0.0f;
+        for (int step = 1; step <= 30; ++step)
+        {
+            h.view.mouseDrag (mouse (h.view, grab + juce::Point<float> (0.0f, 4.0f * (float) step), true));
+            h.view.advanceMotion (1.0f / 60.0f);
+            peak = juce::jmax (peak, h.view.largestSwing());
+        }
+        expect (peak > 3.0f && peak <= 40.0f && h.view.isAnimating(),
+                "cable motion: dragging a box swings its cables (peak " + juce::String (peak, 1) + " px, at most 40)");
+        h.view.mouseUp (mouse (h.view, grab + juce::Point<float> (0.0f, 120.0f), false));
+
+        auto frames = 0;
+        while (h.view.advanceMotion (1.0f / 60.0f) && frames < 600)
+            ++frames;
+        expect (! h.view.isAnimating() && h.view.largestSwing() == 0.0f && frames < 240,
+                "cable motion: the cables settle and stop (" + juce::String (frames) + " frames)");
+        expect (h.graph.revision() == revision, "cable motion: the swing never touches the graph");
+
+        // Cost of one paint of the whole patch, plain curves against hanging ones.
+        juce::Image image (juce::Image::ARGB, 860, 360, true);
+        for (const auto motion : { false, true })
+        {
+            h.view.setMotion (motion);
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 200; ++i)
+            {
+                juce::Graphics g (image);
+                h.view.paintEntireComponent (g, false);
+            }
+            std::cout << "  cable view paint, motion " << (motion ? "on " : "off") << ": "
+                      << juce::String ((juce::Time::getMillisecondCounterHiRes() - start) / 200.0, 3) << " ms\n";
+        }
+        h.view.setMotion (true);
+    }
+
     // Right-click menus and Delete.
     {
         Harness h (demoGraph());
@@ -228,7 +273,10 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
 // ILANA_SNAPSHOT_GRAPH: pictures of the cable view, at twice the size:
 // graph-demo.png (a chain, a parallel branch at 70 % and a loop),
 // graph-series.png and graph-parallel.png (a factory rack migrated both
-// ways) and graph-dragging.png (a cable on its way to an input).
+// ways), graph-dragging.png (a cable on its way to an input) and, for the
+// cable motion of step 47, motion-1-rest.png (the hanging cables), then
+// motion-2..4 (a box thrown up 70 px: just after, a swing later, and
+// settled again).
 inline void snapshotPatchCableView (IlanaSynthAudioProcessor& processor, const juce::File& outDir)
 {
     using namespace PatchCableUi;
@@ -253,6 +301,28 @@ inline void snapshotPatchCableView (IlanaSynthAudioProcessor& processor, const j
         h.view.mouseDrag (mouse (h.view, h.view.portPosition ({ PatchGraph::outputNodeId, 0 }, true).translated (-2.0f, 1.0f), true));
         write (h.view, "graph-dragging.png");
         h.view.mouseUp (mouse (h.view, { 5.0f, 5.0f }, false));
+    }
+
+    {
+        Harness h (demoGraph());
+        h.view.setSize (860, 240);
+        h.view.centreContent();
+        write (h.view, "motion-1-rest.png");
+
+        const auto grab = h.view.nodeBounds (*h.graph.find (3)).getCentre();
+        h.view.mouseDown (mouse (h.view, grab, true));
+        for (int step = 1; step <= 14; ++step)
+        {
+            h.view.mouseDrag (mouse (h.view, grab + juce::Point<float> (0.0f, -5.0f * (float) step), true));
+            h.view.advanceMotion (1.0f / 60.0f);
+        }
+        write (h.view, "motion-2-dragged.png");
+        h.view.mouseUp (mouse (h.view, grab + juce::Point<float> (0.0f, -70.0f), false));
+        for (int frame = 0; frame < 12; ++frame)
+            h.view.advanceMotion (1.0f / 60.0f);
+        write (h.view, "motion-3-swinging.png");
+        while (h.view.advanceMotion (1.0f / 60.0f)) {}
+        write (h.view, "motion-4-settled.png");
     }
 
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Neuro Wobble")));

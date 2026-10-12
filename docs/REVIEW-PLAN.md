@@ -313,7 +313,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
 
 **Checkpoint (after step 16): UI review pass.** Step 15's cycle runs here, once routing has landed, so it reviews FILTER and FX as they now are. ilana approved this at the reorder, so it runs automatically once step 16 lands.
 
-47. **Animated cable shapes in the patcher** (ilana, 2026-10-11: decided, not started; do not build yet). The cables in the FX patcher hang with a soft sag, and they swing and settle with simple physics when a box or a cable is dragged, like FL Studio's Patcher or VCV Rack. When nothing moves, the cables are still and cost nothing.
+47. **Animated cable shapes in the patcher** (ilana, 2026-10-11: decided; **done** 2026-10-12, PR open, see HANDOFF). The cables in the FX patcher hang with a soft sag, and they swing and settle with simple physics when a box or a cable is dragged, like FL Studio's Patcher or VCV Rack. When nothing moves, the cables are still and cost nothing.
    **Rules when it starts:** the animation is display only, so no audio, parameter or preset changes; the patcher's idle cost is zero (no timer or repaint runs while nothing moves).
    Size: small-medium. Touches the cable drawing in the shared cable widget (sub-step A) and the FX patcher built in step 17. Needs a frame timer that stops when the cables settle.
    Order 6. Why here: it is a UI step for the patcher, so it lands with the post-16 UI review checkpoint, which covers the patcher page, and it builds on the cable widget from A and the patcher from 17.

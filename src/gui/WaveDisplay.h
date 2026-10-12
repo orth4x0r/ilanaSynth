@@ -287,8 +287,62 @@ public:
 
         if (slim)
             paintSlimLine (g, table);
+        else if (compact)
+            paintPickerIcon (g);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);
+    }
+
+    // The change-wavetable icon (roadmap step 20): three stacked cycles, in the
+    // picture's top-left corner. Always showing, so changing the table is
+    // obvious; it opens the same browser as the table's name does.
+    bool hasPicker() const { return (compact || slim) && isTableMode() && ! subTableMapping; }
+
+    juce::Rectangle<int> pickerArea() const
+    {
+        if (slim)
+            return slimAreas().picker.withSizeKeepingCentre (pickerSize, pickerSize);
+
+        return juce::Rectangle<int> (pickerSize, pickerSize).withPosition (4, 4);
+    }
+
+    void paintPickerIcon (juce::Graphics& g) const
+    {
+        if (! hasPicker())
+            return;
+
+        const auto box = pickerArea().toFloat();
+        g.setColour (traceColour.withAlpha (pickerHover ? 0.28f : 0.14f));
+        g.fillRoundedRectangle (box, 4.0f);
+        g.setColour (traceColour.withAlpha (pickerHover ? 1.0f : 0.75f));
+
+        // Three cycles, the middle one the longest: a table's stack of frames.
+        const auto inner = box.reduced (3.0f, 2.5f);
+
+        for (int row = 0; row < 3; ++row)
+        {
+            const auto y = inner.getY() + inner.getHeight() * ((float) row + 0.5f) / 3.0f;
+            const auto amplitude = row == 1 ? 2.0f : 1.4f;
+            juce::Path wave;
+
+            for (int x = 0; x <= 12; ++x)
+            {
+                const auto px = inner.getX() + inner.getWidth() * (float) x / 12.0f;
+                const auto py = y - amplitude * std::sin ((float) x / 12.0f * juce::MathConstants<float>::twoPi + (float) row * 0.9f);
+
+                if (x == 0)
+                    wave.startNewSubPath (px, py);
+                else
+                    wave.lineTo (px, py);
+            }
+
+            g.strokePath (wave, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+    }
+
+    void openTableBrowser()
+    {
+        TableBrowser::show (processorRef, tableId, traceColour, *this);
     }
 
     // The design's 2D well: up to nine of the table's frames as flat lines one
@@ -328,13 +382,14 @@ public:
     }
 
     // The slim line's parts: arrow, name, arrow, view chip.
-    struct SlimAreas { juce::Rectangle<int> previous, name, next, view; };
+    struct SlimAreas { juce::Rectangle<int> picker, previous, name, next, view; };
 
     SlimAreas slimAreas() const
     {
         auto line = getLocalBounds().removeFromTop (slimHeader).reduced (2, 1);
         SlimAreas areas;
         areas.view = line.removeFromRight (32);
+        areas.picker = line.removeFromLeft (pickerSize + 2);
         areas.previous = line.removeFromLeft (13);
         areas.next = line.removeFromRight (13);
         areas.name = line.reduced (1, 0);
@@ -373,6 +428,8 @@ public:
             IlanaTheme::drawFitted (g, names[juce::jlimit (0, 2, shownViewMode())], areas.view, juce::Justification::centred, 1);
         }
 
+        paintPickerIcon (g);
+
         // The frame the cycle comes from, at the picture's foot.
         if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
         {
@@ -407,6 +464,14 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         endGestures();
+
+        if (hasPicker() && ! event.mods.isPopupMenu() && pickerArea().expanded (2).contains (event.getPosition()))
+        {
+            pressInHeader = true;
+            openTableBrowser();
+            return;
+        }
+
         pressInHeader = (! compact && event.position.y < (float) headerHeight)
                         || (slim && isTableMode() && event.position.y < (float) slimHeader);
 
@@ -913,8 +978,25 @@ private:
         repaint();
     }
 
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (std::exchange (pickerHover, false))
+            repaint();
+    }
+
     void mouseMove (const juce::MouseEvent& event) override
     {
+        const auto overPicker = hasPicker() && pickerArea().expanded (2).contains (event.getPosition());
+
+        if (std::exchange (pickerHover, overPicker) != overPicker)
+            repaint();
+
+        if (overPicker)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            return;
+        }
+
         setMouseCursor (isSampleMode() && ! compact && sampleHandleAt (event.position.x) != 0 ? juce::MouseCursor::LeftRightResizeCursor
                                                                                              : juce::MouseCursor::NormalCursor);
     }
@@ -1845,8 +1927,8 @@ private:
                 stepTable (-1);
             else if (areas.next.contains (at))
                 stepTable (1);
-            else if (areas.name.contains (at) && isTableMode() && ! subTableMapping)
-                TableBrowser::show (processorRef, tableId, traceColour, *this);
+            else if ((areas.name.contains (at) || areas.picker.contains (at)) && isTableMode() && ! subTableMapping)
+                openTableBrowser();
 
             return;
         }
@@ -2003,7 +2085,8 @@ private:
     juce::TextButton previousTable, nextTable;
     juce::Rectangle<int> tableNameArea;
     bool compact = false, pressInHeader = false, singleCycle = false, slim = false;
-    static constexpr int headerHeight = 20, footerHeight = 14, slimHeader = 17;
+    static constexpr int headerHeight = 20, footerHeight = 14, slimHeader = 17, pickerSize = 15;
+    bool pickerHover = false;
     int viewMode = 0; // 0 the cycle, 1 the 3D waterfall, 2 the harmonics
     bool viewPicked = false; // a view chosen by hand, kept for that table even when static
     int pickedTable = -1;

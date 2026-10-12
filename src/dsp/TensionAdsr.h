@@ -161,6 +161,19 @@ public:
             default:             return -1.0f;
         }
     }
+    // The stage lengths as the note runs them (delay, attack, hold, decay,
+    // release; key scaling and modulation are in the parameters), for the
+    // playhead's clock.
+    std::array<float, 5> getDisplaySeconds() const
+    {
+        return { params.delay, params.attack, params.hold, params.decay, params.release };
+    }
+    // Where the running attack or release began (the level a retrigger or an
+    // early key up left it at), 0 in the other stages.
+    float getDisplayStageStart() const
+    {
+        return stage == Stage::Attack ? attackStart : stage == Stage::Release ? releaseStart : 0.0f;
+    }
     float getCurrentValue() const { return currentValue; }
 
     // One sample on, like getNextSample, without working out the curve: for

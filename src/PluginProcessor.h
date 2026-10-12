@@ -496,6 +496,21 @@ public:
     // ENV 1-16 (amp, filter, filter 2, mod, ENV 5, ENV 6-16) of the voice the
     // monitors follow: stage plus progress (TensionAdsr::getDisplayPosition).
     float getEnvMonitorPosition (int env) const { return envMonitorPositions[(size_t) juce::jlimit (0, 15, env)].load(); }
+    // The same voice's level where ENV 1-16's running attack or release began
+    // (0 in other stages), and a count that goes up with every
+    // note on (the playhead restarts on it, so a stage shorter than a block
+    // is still drawn).
+    float getEnvMonitorStageStart (int env) const { return envMonitorStageStarts[(size_t) juce::jlimit (0, 15, env)].load(); }
+    // ENV 1-16's stage lengths as that voice runs them (delay, attack, hold,
+    // decay, release in seconds).
+    std::array<float, 5> getEnvMonitorSeconds (int env) const
+    {
+        std::array<float, 5> out;
+        for (size_t i = 0; i < 5; ++i)
+            out[i] = envMonitorSeconds[(size_t) juce::jlimit (0, 15, env) * 5 + i].load();
+        return out;
+    }
+    int getNoteSerial() const { return noteSerial.load(); }
     // The MSEG's place in its cycle (0..1), for its playhead.
     float getMsegPhase() const { return msegPhaseDisplay.load(); }
 
@@ -1227,6 +1242,9 @@ private:
     std::atomic<float> monitorOpEnvSeconds { -1.0f }, monitorOpEnvRelease { -1.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<float>, 16> envMonitorPositions {};
+    std::array<std::atomic<float>, 16> envMonitorStageStarts {};
+    std::array<std::atomic<float>, 80> envMonitorSeconds {};
+    std::atomic<int> noteSerial { 0 };
     std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
 

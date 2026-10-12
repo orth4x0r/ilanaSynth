@@ -10,6 +10,7 @@
 #include "../dsp/airwindows/Categories.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 
 // The small picture on an FX card, one per effect family, drawn from the
 // module's parameters (and its live gain reduction where the processor
@@ -158,14 +159,8 @@ private:
 
     void strokeCurve (juce::Graphics& g, const juce::Path& curve, juce::Rectangle<float> plot, float baselineY) const
     {
-        auto fill = curve;
-        fill.lineTo (curve.getCurrentPosition().x, baselineY);
-        fill.lineTo (plot.getX(), baselineY);
-        fill.closeSubPath();
-        g.setColour (colour.withAlpha (0.12f));
-        g.fillPath (fill);
-        g.setColour (colour);
-        g.strokePath (curve, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        IlanaTrace::paintArea (g, curve, colour, baselineY, plot.getX(), curve.getCurrentPosition().x);
+        IlanaTrace::paintTrace (g, curve, colour);
     }
 
     // ---- Transfer curves: output against input, -1..1 both ways ----

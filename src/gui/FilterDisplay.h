@@ -13,6 +13,7 @@
 #include "../dsp/WestCoastTuning.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 #include "FilterWidgets.h"
 
 class FilterDisplay : public juce::Component,
@@ -374,11 +375,6 @@ private:
 
     void timerCallback() override
     {
-        // The glow pulses only while notes sound, so it repaints on every
-        // frame then (the audio epoch alone changes once per block).
-        const auto pulsing = processorRef.getActiveVoiceCount() > 0;
-        if (pulsing)
-            pulse += 0.09f * frameTicks();
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
         const auto falling = decaying() && juce::Time::getMillisecondCounterHiRes() - lastLiveMs < 4000.0;
@@ -386,7 +382,7 @@ private:
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
-        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || pulsing || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -509,18 +505,22 @@ private:
 
         if (withMod)
         {
-            g.setColour (colour.withAlpha (parallel ? 0.22f : 0.3f));
-            g.strokePath (path, juce::PathStrokeType (1.2f));
+            // The modulated shadow: the same round-capped trace, thinner and faint.
+            IlanaTrace::paintTrace (g, path, colour.withAlpha (parallel ? 0.22f : 0.3f), 1.2f);
             return;
         }
 
-        // A filter that passes everything draws quietly (V8-39).
+        // A filter that passes everything draws quietly (V8-39). The look is
+        // the oscillator, LFO and envelope displays' (DisplayStyle.h): one
+        // 1.6 px round trace and a soft fill under the filter that ends the
+        // chain (F1 alone, or both in series); parallel is thinner so the
+        // two read as a pair.
         const auto open = (isPassThrough (processorRef, filterIndex) ? 0.45f : 1.0f) * (voiceOff ? 0.5f : 1.0f);
-        g.setColour (colour.withAlpha (open * ((parallel ? 0.16f : 0.2f) + 0.05f * (0.5f + 0.5f * std::sin (pulse)))));
-        g.strokePath (path, juce::PathStrokeType (parallel ? 4.0f : 5.0f));
 
-        g.setColour (colour.withAlpha (open * (parallel ? 0.55f : 0.95f)));
-        g.strokePath (path, juce::PathStrokeType (parallel ? 1.2f : 1.8f));
+        if (! parallel && filterIndex == 0)
+            IlanaTrace::paintArea (g, path, colour.withAlpha (open), plot.getBottom(), plot.getX(), plot.getRight());
+
+        IlanaTrace::paintTrace (g, path, colour.withAlpha (open * (parallel ? 0.7f : 1.0f)), parallel ? 1.2f : IlanaTrace::width);
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot)
@@ -756,7 +756,6 @@ private:
     int draggingFilter = -1;
     juce::Point<float> dragOffset; // a grabbed marker's set place minus the mouse
     float dragStartY = 0.0f, dragStartReso = 0.0f;
-    float pulse = 0.0f;
     float paintTicks = 1.0f; // smoothing steps (at 30 Hz) this paint stands for
     double lastPaintMs = 0.0, lastLiveMs = 0.0;
 

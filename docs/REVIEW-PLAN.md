@@ -318,7 +318,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium. Touches the cable drawing in the shared cable widget (sub-step A) and the FX patcher built in step 17. Needs a frame timer that stops when the cables settle.
    Order 6. Why here: it is a UI step for the patcher, so it lands with the post-16 UI review checkpoint, which covers the patcher page, and it builds on the cable widget from A and the patcher from 17.
 
-26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided, not started). The filter
+26. **Filter response display in the synth's visual language** (ilana, 2026-10-10: decided). **Done** 2026-10-12 (cloud, branch `claude/project-thread-omp96o`): `drawCurve` uses `IlanaTrace`, glow pulse removed; awaiting ilana's picture approval. The filter
    response graph is drawn in a style that does not match the rest of the synth (PLAY's filter card and the other pages).
    Restyle it to match the rest of the interface.
    **Rules when it starts:** UI only; the graph's values do not change, and the UI review follows it.

@@ -803,7 +803,7 @@ public:
                 const auto edited = std::abs (value - defaultFor (lane)) > 1.0e-3f;
 
                 const auto hovered = lane == hoverLane && step == hoverStep;
-                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : on ? 0.045f : 0.07f) * (active ? 1.0f : 0.6f)));
+                g.setColour (juce::Colours::white.withAlpha ((hovered ? 0.1f : on ? 0.045f : 0.02f) * (active ? 1.0f : 0.6f)));
                 g.fillRoundedRectangle (full, 2.0f);
                 // Off, the bars also lose most of their colour, so they read
                 // as stored, not playing (I8-24), while the values stay clear.
@@ -843,11 +843,13 @@ public:
                 else if (! on && ! edited)
                 {
                     // Off and never drawn in: the pattern the arp would play
-                    // (every step at its default), as dimmed ghost bars, so the
-                    // lane shows content but never reads as in use (V11-16,
-                    // V15-1).
-                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.5f * cellAlpha));
-                    g.fillRoundedRectangle (cell.withTrimmedTop (cell.getHeight() * (1.0f - unit)), 2.0f);
+                    // (every step at its default), as a thin tick at the bar's
+                    // height rather than a filled bar, so the lane shows the
+                    // pattern but never reads as in use or as a grey wall
+                    // (V11-16, V15-1, review 18).
+                    g.setColour (IlanaTheme::Ui::text3.withAlpha (0.55f * cellAlpha));
+                    g.fillRoundedRectangle (juce::Rectangle<float> (cell.getX() + 3.0f, cell.getBottom() - unit * cell.getHeight() - 1.5f,
+                                                                    cell.getWidth() - 6.0f, 3.0f), 1.5f);
 
                     if (lane == gate)
                     {

@@ -625,7 +625,11 @@ private:
     // The 10 px grid: voice columns 160 apart (a 130 px box and 30 px for the
     // cables; R18-1: tighter than the rack's 180, so a whole patch fits the
     // canvas at full size), rows 70 apart (a 50 px box and a 20 px gap).
-    static constexpr float columnStep = 160.0f, rowStep = 70.0f;
+    // (Review 19, R19-1: with four boxes or fewer in the per-note column the
+    // rows are 100 apart, so the fitted graph fills the canvas's height, not a
+    // strip of it; five or six sources keep 70 so they still fit.)
+    static constexpr float columnStep = 160.0f;
+    static float rowStepFor (size_t sourceCount) { return sourceCount <= 4 ? 100.0f : 70.0f; }
     static constexpr float rackStep = 180.0f; // PatchGraph::rackGraph's
 
     static int localKind (const PatchGraph::Node& node) { return node.kind - voiceKind; }
@@ -910,7 +914,7 @@ private:
         {
             // Nothing selected: the patch in one line, and how to start
             // (left of the stats at the right).
-            text = text.withTrimmedRight (hasVoice ? 470 : 320);
+            text = text.withTrimmedRight (hasVoice ? 520 : 340);
             juce::String line;
             if (hasVoice)
             {
@@ -927,7 +931,7 @@ private:
                         text.withTrimmedTop (4), juce::Justification::topLeft, true);
 
             // At the right: how the patch is wired and what its effects cost.
-            auto stats = inspector.reduced (20, 10).removeFromRight (450);
+            auto stats = inspector.reduced (20, 10).removeFromRight (hasVoice ? 510 : 330);
             auto cpu = 0.0f;
             for (const auto& box : fxShown.nodes())
                 if (! box.isFixed() && juce::isPositiveAndBelow (box.ref - 1, IlanaSynthAudioProcessor::numFxSlots))
@@ -950,7 +954,7 @@ private:
                 cells.push_back ({ "SPLIT SOURCES", juce::String (splitSources()) });
             for (const auto& [name, value] : cells)
             {
-                auto cell = stats.removeFromRight (140);
+                auto cell = stats.removeFromRight (hasVoice ? 160 : 110);
                 g.setColour (Ui::text3);
                 g.setFont (font (TextSize::tiny, true).withKerningFactor (0.08f));
                 g.drawText (name, cell.removeFromTop (cell.getHeight() / 2), juce::Justification::bottomLeft, false);
@@ -1830,6 +1834,7 @@ private:
             node.label = voiceName (kind).toStdString();
             graph.restoreNode (node);
         };
+        const auto rowStep = rowStepFor (sources.size());
         const auto middle = (float) ((int) sources.size() - 1) * rowStep * 0.5f;
         for (size_t row = 0; row < sources.size(); ++row)
         {

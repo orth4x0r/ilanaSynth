@@ -376,6 +376,11 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small, Haiku. Touches `tests/TableTest.cpp` and new `.inc` files in `tests/`.
    Order 15. Why here: it is independent and easy, and it follows step 48 so the new parameter tests can go into their own file.
 
+50. **Review 19 UI fixes** (ilana, 2026-10-12: "yes, do ur suggestions! add to roadmap"; report https://claude.ai/artifact/YMqXvTGfPXJ1UzsoUMAWFb, notes `docs/ui-review/UI-REVIEW-19.md`). R19-1 PATCH: the fitted graph fills the canvas height (taller layout, bigger boxes and labels) and the summary strip is one line. R19-2 FX tab: no CHAIN 1 / 2 or SERIES / PARALLEL / PATCHER switches; one ROUTING ON PATCH button opens PATCH (routing lives there). R19-3 SEQ: checked, the control column is already one knob plus gap per row (about 129 px), so it stays as is. R19-4 VECTOR: "OSC 4: none" once, not twice.
+   **Rules:** UI only, 0 audio / preset changes. Keep the `fx_routing`, `fx_patcher` and `route_cables` parameters and IDs (old presets sound identical, same lazy migration as #83). Routing safety (finite output, recovery after unpatching, loop tests) and docs/ROUTING-CPU.md (CPU measured against main) apply.
+   Size: medium, Sonnet. Touches `src/gui/pages/FxPage.h`, `src/gui/pages/PatchPage.h`, `src/gui/PatchCableView.h`, `src/gui/pages/SeqPage.h`, `src/gui/pages/FilterVectorPhysicalPages.h` and their UI tests.
+   Order 15b. Why here: ilana's go came with the review and it is UI-only, so it runs alongside 48 and before the sample player group.
+
 30. **Waveform zoom and audition** (ilana, 2026-10-10: decided, not started). Zoom into attacks and loop boundaries on the wave, enter a start and end in milliseconds or samples, and preview the selected range.
    Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
    Order 16. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.

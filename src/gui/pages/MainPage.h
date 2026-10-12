@@ -1407,8 +1407,8 @@ private:
         subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
         noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
         // The pin is a small tab on the seam between the two cards, level with
-        // the switches: it belongs to the section, not to SUB.
-        subPin.setBounds (juce::Rectangle<int> (14, 18).withCentre ({ subCard.getRight() + slotGap / 2, subCard.getY() + cardHeaderHeight / 2 + 1 }));
+        // the switches but a little higher: it belongs to the section, not to SUB.
+        subPin.setBounds (juce::Rectangle<int> (14, 18).withCentre ({ subCard.getRight() + slotGap / 2, subCard.getY() + cardHeaderHeight / 2 - 4 }));
 
         // One grid for both cards: the body starts where an oscillator card's
         // picture does (header + padding) and ends one padding above the card's

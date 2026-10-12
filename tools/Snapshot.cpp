@@ -8287,6 +8287,16 @@ int main (int argc, char** argv)
                 parameter->setValueNotifyingHost (1.0f);
         settle (500);
         save (*editor, outDir.getChildFile ("play-3osc.png"));
+        // The other engines' cards: a string, a sample and grains.
+        for (const auto& [id, mode] : { std::pair<const char*, float> { "osc1_mode", 1.0f }, { "osc2_mode", 2.0f }, { "sub_mode", 3.0f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (mode));
+        settle (600);
+        save (*editor, outDir.getChildFile ("play-engines.png"));
+        for (const auto& [id, mode] : { std::pair<const char*, float> { "osc1_mode", 0.0f }, { "osc2_mode", 0.0f }, { "sub_mode", 0.0f } })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (mode));
+        settle (400);
         processor.addOscillator (3);
         processor.addOscillator (4);
         settle (500);

@@ -91,7 +91,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         processor.performEdit ("Remove OSC 4", [&processor] { processor.removeOscillator (3); });
         settle (300);
 
-        // PLAY's picture is the cycle whatever view OSC last chose (S8-34).
+        // PLAY's picture is the cycle or the lit 3D stack, never SPEC, whatever view OSC last chose (S8-34, R17-7).
         std::vector<WaveDisplay*> waves;
         findAll<WaveDisplay> (editor, waves);
         auto compactSpec = 0, compactChecked = 0;
@@ -100,10 +100,10 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             {
                 wave->setViewMode (2);
                 ++compactChecked;
-                compactSpec += wave->getViewMode() != 0 ? 1 : 0;
+                compactSpec += wave->getViewMode() == 2 ? 1 : 0;
                 wave->setViewMode (0);
             }
-        expect (compactChecked > 0 && compactSpec == 0, "PLAY: the strips' pictures stay on the cycle in SPEC view");
+        expect (compactChecked > 0 && compactSpec == 0, "PLAY: the strips' pictures never show SPEC (cycle or lit 3D only)");
     }
 
     // A DX7 voice (six strips): the same strip height as Neuro's three, the

@@ -99,13 +99,64 @@ public:
                                      strip->scale.get(), strip->scaleRoot.get() };
                 strip->spreadKnob = knob ("_spread", "SPREAD");
             }
+            // (Made before the sample row's own FINE, so a lookup by id finds the operator's.)
+            auto* operatorFine = knob ("_fine", "FINE");
+            // The other engines' second rows (ilana, 2026-10-12): what shapes the
+            // sound most. A string's by exciter; a control missing on this
+            // oscillator is left out.
+            {
+                const auto optional = [&] (const juce::String& suffix, const juce::String& label) -> juce::Component*
+                {
+                    return p.apvts.getParameter (prefix + suffix) != nullptr ? (juce::Component*) knob (suffix, label) : nullptr;
+                };
+                const auto toggle = [&] (const juce::String& suffix, const juce::String& label) -> juce::Component*
+                {
+                    if (p.apvts.getParameter (prefix + suffix) == nullptr)
+                        return nullptr;
+                    strip->toggles.push_back (std::make_unique<ToggleControl> (p.apvts, prefix + suffix, label));
+                    oscColumn.addChildComponent (*strip->toggles.back());
+                    return strip->toggles.back().get();
+                };
+                const auto line = [] (std::initializer_list<juce::Component*> items)
+                {
+                    std::vector<juce::Component*> row;
+                    for (auto* item : items)
+                        if (item != nullptr)
+                            row.push_back (item);
+                    return row;
+                };
+                const auto sustain = optional ("_string_sustain", "SUSTAIN"), feedback = optional ("_string_sustain", "FEEDBACK");
+                const auto stiff = optional ("_string_stiffness", "STIFF"), position = optional ("_string_excite_pos", "POSITION");
+                const auto hardness = optional ("_string_pick_hardness", "HARDNESS"), pickPos = optional ("_string_pick_pos", "PICK POS");
+                const auto slap = optional ("_string_slap", "SLAP"), pickup = optional ("_string_pickup", "PICKUP");
+                const auto hammer = optional ("_hammer_hard", "HAMMER"), buzz = optional ("_bridge_buzz", "BUZZ");
+                const auto distance = optional ("_fb_distance", "DISTANCE");
+                // (exciters: 0-3 pluck, rub, saw, pulse; 4 bow; 5 hammer; 6 oscillator; 7 tine; 8 reed; 9 piano; 10 feedback)
+                for (int e = 0; e <= 3; ++e)
+                    strip->stringRows[(size_t) e] = line ({ sustain, stiff, position, hardness, pickPos, slap });
+                strip->stringRows[4] = line ({ sustain, stiff, position, optional ("_bow_pressure", "BOW PRESS"), optional ("_bow_speed", "BOW SPEED"), pickup });
+                strip->stringRows[5] = line ({ sustain, stiff, position, hammer, slap, pickup });
+                strip->stringRows[6] = line ({ sustain, stiff, position, slap, pickup, buzz });
+                strip->stringRows[7] = strip->stringRows[8] = line ({ optional ("_damper", "DAMPER"), hammer, optional ("_ep_distance", "DISTANCE"), optional ("_ep_position", "OFFSET") });
+                strip->stringRows[9] = line ({ sustain, stiff, optional ("_register", "REGISTER"), optional ("_couple", "COUPLE"), position, hammer });
+                strip->stringRows[10] = line ({ feedback, stiff, position, optional ("_fb_gain", "AMP GAIN"), distance, hardness });
+                strip->sampleRow = line ({ toggle ("_sample_tuned", "TUNED"), toggle ("_sample_loop", "LOOP"), toggle ("_sample_reverse", "REVERSE"),
+                                           optional ("_sample_fade_in", "FADE IN"), optional ("_sample_fade_out", "FADE OUT"), optional ("_fine", "FINE") });
+                strip->grainRow = line ({ optional ("_grain_density", "DENSITY"), optional ("_grain_spray", "SPRAY"), optional ("_grain_pitch", "PITCH RND"),
+                                          optional ("_grain_spread", "STEREO"), toggle ("_sample_reverse", "REVERSE"), toggle ("_sample_tuned", "TUNED") });
+                strip->everySecond = strip->secondRow;
+                for (const auto& row : { strip->sampleRow, strip->grainRow })
+                    strip->everySecond.insert (strip->everySecond.end(), row.begin(), row.end());
+                for (const auto& row : strip->stringRows)
+                    strip->everySecond.insert (strip->everySecond.end(), row.begin(), row.end());
+            }
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
             strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
             strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
             // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)
-            strip->operatorEnvKnobs = { knob ("_fine", "FINE"), knob ("_eg_out", "OUTPUT") };
+            strip->operatorEnvKnobs = { operatorFine, knob ("_eg_out", "OUTPUT") };
             // An operator's other OSC-tab knobs, so PLAY holds them all (ilana,
             // 2026-10-08: no trip to OSC): SEMI beside its RATIO, and its own
             // FEEDBACK.
@@ -568,7 +619,18 @@ private:
         // settings): SPECTRAL, WARP 2, SCALE and ROOT menus and their amounts;
         // SPREAD joins the first row's UNISON and DETUNE.
         std::unique_ptr<ComboControl> spectral, warp2, scale, scaleRoot;
-        std::array<juce::Component*, 6> secondRow {};
+        std::vector<juce::Component*> secondRow; // a wavetable's
+        // The other engines' second rows: a string's by exciter, a sample's, grains'.
+        std::array<std::vector<juce::Component*>, 11> stringRows;
+        std::vector<juce::Component*> sampleRow, grainRow, everySecond;
+        std::vector<std::unique_ptr<ToggleControl>> toggles;
+        int shownExcite = 0;
+        const std::vector<juce::Component*>& secondFor() const
+        {
+            static const std::vector<juce::Component*> none;
+            const auto mode = juce::jmax (0, shownMode);
+            return mode == 0 ? secondRow : mode == 1 ? stringRows[(size_t) juce::jlimit (0, 10, shownExcite)] : mode == 2 ? sampleRow : mode == 3 ? grainRow : none;
+        }
         juce::Component* spreadKnob = nullptr;
         bool twoRow = false; // this card shows the two-row layout (set by showStrip)
         juce::Component *warpKnob = nullptr, *detuneKnob = nullptr, *unisonKnob = nullptr, *panKnob = nullptr;
@@ -614,7 +676,7 @@ private:
             const auto& own = modeKnobs[(size_t) mode];
             // (A wavetable's third knob is WARP, after FRAME.)
             std::vector<juce::Component*> row { pitch, own[0], own[1], mode == 0 ? warpKnob : own[2], unisonKnob, detuneKnob };
-            if (twoRow && mode == 0)
+            if (twoRow && mode <= 2) // (grains have no unison spread)
                 row.push_back (spreadKnob);
             return row;
         }
@@ -721,6 +783,7 @@ private:
             const auto fm = OscRole::isOperator (processorRef, index);
             const auto mode = OscMode::engineMode (OscRole::mode (processorRef, index));
             const auto on = readInt (prefix + "_on") > 0;
+            const auto excite = readInt (prefix + "_excite");
             const auto shown = processorRef.isOscillatorShown (index);
             const auto tuning = OscRole::tuning (processorRef, index);
             const auto role = OscRole::roleLine (processorRef, index);
@@ -738,8 +801,9 @@ private:
             }
 
             if (mode != strip.shownMode || shown != shownStrips[(size_t) index] || on != strip.shownOn || tuning != strip.shownTuning
-                || opEg != strip.opEg || fm != strip.fm)
+                || opEg != strip.opEg || fm != strip.fm || excite != strip.shownExcite)
             {
+                strip.shownExcite = excite;
                 strip.fm = fm;
                 strip.shownMode = mode;
                 strip.shownOn = on;
@@ -770,7 +834,7 @@ private:
         const auto& strip = *strips[(size_t) osc];
         return shownStrips[(size_t) osc] && strip.shownOn && ! strip.fm;
     }
-    bool hasRowTwo (int osc) const { return usesCardLayout (osc) && juce::jmax (0, strips[(size_t) osc]->shownMode) == 0; }
+    bool hasRowTwo (int osc) const { return usesCardLayout (osc) && juce::jmax (0, strips[(size_t) osc]->shownMode) <= 3; }
 
     // What a folded strip plays: "Wavetable · Basic".
     juce::String foldedSummary (int osc) const
@@ -811,7 +875,7 @@ private:
             for (auto* control : { (juce::Component*) strip.mode.get(), (juce::Component*) strip.table.get(),
                                    (juce::Component*) strip.excite.get(), (juce::Component*) strip.warp.get(), (juce::Component*) strip.ampEnv.get(), (juce::Component*) &wave (index) })
                 control->setVisible (false);
-            for (auto* item : strip.secondRow)
+            for (auto* item : strip.everySecond)
                 item->setVisible (false);
             strip.on->setVisible (true);
             return;
@@ -824,6 +888,9 @@ private:
 
         strip.twoRow = usesCardLayout (index);
 
+        // (Hidden first: a second-row control may be a first-row one too, like FINE.)
+        for (auto* item : strip.everySecond)
+            item->setVisible (false);
         for (auto* item : strip.knobs())
             if (item != nullptr)
             {
@@ -833,12 +900,12 @@ private:
 
         // The second row: every open wavetable card has it (not an FM operator's).
         const auto secondRow = shown && hasRowTwo (index);
-        for (auto* item : strip.secondRow)
-        {
-            item->setVisible (secondRow);
-            if (secondRow)
+        if (secondRow)
+            for (auto* item : strip.secondFor())
+            {
+                item->setVisible (true);
                 controls.push_back (item);
-        }
+            }
         strip.table->setVisible (shown && mode == 0);
         // (WARP is a Wavetable's: an FM / DX7 strip keeps to the operator's controls.)
         strip.warp->setVisible (shown && mode == 0 && ! strip.fm && (strip.twoRow || roomy (oscCards[(size_t) index])));
@@ -1132,7 +1199,7 @@ private:
     void layoutTwoRow (OscStrip& strip, int index, juce::Rectangle<int> card)
     {
         const auto mode = juce::jmax (0, strip.shownMode);
-        auto columns = twoRowColumns (card, mode == 0);
+        auto columns = twoRowColumns (card, mode <= 3);
         wave (index).setBounds (columns.picture);
 
         auto menus = columns.menus;
@@ -1165,8 +1232,8 @@ private:
         auto row = strip.knobs();
         row.resize (7, nullptr);
         layoutRow (columns.knobs, row);
-        if (mode == 0)
-            layoutRow (columns.second, std::vector<juce::Component*> (strip.secondRow.begin(), strip.secondRow.end()), true);
+        if (mode <= 3)
+            layoutRow (columns.second, strip.secondFor(), true);
     }
 
     void layoutStrip (int index, juce::Rectangle<int> card)

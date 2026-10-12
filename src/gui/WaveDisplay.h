@@ -699,10 +699,12 @@ private:
 
     int shownViewMode() const
     {
-        // PLAY's strip is too small for 3D or the harmonics: it always shows
-        // the cycle (UI review 8, S8-34).
+        // PLAY's strip is too small for the harmonics: it shows the cycle
+        // (UI review 8, S8-34). Its picture is 150 px wide now, so a table
+        // whose frames differ shows as the lit 3D stack, as Serum 2's and
+        // Vital's strips do (UI review 17, R17-7).
         if (compact && ! slim)
-            return 0;
+            return ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
 
         if (singleCycle)
             return 0;

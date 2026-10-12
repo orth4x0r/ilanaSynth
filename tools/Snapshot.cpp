@@ -3464,6 +3464,22 @@ int runUiTests()
         expect (zoomed > 1.1f && std::abs (roll.getZoom() - zoomed) < 1.0e-6f,
                 "Ctrl+wheel zooms the clip roll in time, the wheel alone doesn't");
 
+        // A touchpad's stream of small deltas scrolls as far as one mouse notch.
+        {
+            const auto before = roll.getLowNote();
+            roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), wheel);
+            const auto notch = roll.getLowNote() - before;
+            const auto start = roll.getLowNote();
+            juce::MouseWheelDetails tiny {};
+            tiny.deltaY = -0.025f;
+            tiny.isSmooth = true;
+            for (int i = 0; i < 20; ++i)
+                roll.mouseWheelMove (event (roll, { x (2.0f), 80.0f }, false, 0, {}), tiny);
+            const auto moved = roll.getLowNote() - start;
+            expect (notch >= 2 && notch <= 4 && std::abs (moved + notch) <= 1,
+                    "twenty tiny touchpad deltas scroll the clip roll as far as one mouse notch ("
+                        + juce::String (moved) + " vs " + juce::String (notch) + ")");
+        }
         // Review 6 (V5-22, S6-10): a keyboard column left of the grid and a
         // bar ruler over it; zoom buttons' calls; QUANTISE snaps starts to
         // the grid in one undo step (every note with none selected).

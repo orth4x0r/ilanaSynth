@@ -1469,7 +1469,10 @@ inline juce::String describeParameter (const juce::String& id)
 
     if (id.endsWith ("_sample_stretch"))
         return "Repitch: one speed, so a faster tempo or a higher note also raises the pitch. "
-               "Stretch: the note sets the pitch and the tempo sets the speed, apart (a time-stretch).";
+               "Stretch: the note sets the pitch and the tempo sets the speed, apart (a time-stretch). "
+               "Signalsmith, Bungee, PGHI and Paulstretch: higher-quality stretches, too heavy to run live, so a copy "
+               "of the sample is rendered for each tempo and note (the original is kept) and the plain stretch "
+               "plays until it's ready. Paulstretch smears the sound into a pad.";
 
     return {};
 }

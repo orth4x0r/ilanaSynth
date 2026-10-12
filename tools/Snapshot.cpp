@@ -6713,6 +6713,45 @@ int runUiTests()
                     "the envelope's playhead sits on the sustain while a note is held (stage " + juce::String (stage)
                         + ") and goes once it has released");
         }
+
+        // The dot follows the newest note, not the loudest voice, and a stage
+        // shorter than a block is still crossed.
+        {
+            juce::AudioBuffer<float> buffer (2, 512);
+            const auto run = [&processor, &buffer] (int blocks, int note, bool on)
+            {
+                for (int block = 0; block < blocks; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0 && note >= 0)
+                        midi.addEvent (on ? juce::MidiMessage::noteOn (1, note, 0.8f) : juce::MidiMessage::noteOff (1, note), 0);
+                    buffer.clear();
+                    processor.processBlock (buffer, midi);
+                }
+            };
+            run (40, 60, true);
+            const auto held = processor.getEnvMonitorPosition (0);
+            const auto serial = processor.getNoteSerial();
+            if (auto* parameter = processor.apvts.getParameter ("amp_attack"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.3f));
+            run (2, 64, true); // a second note, slowly rising
+            const auto second = processor.getEnvMonitorPosition (0);
+            expect ((int) held == 4 && (int) second == 1 && processor.getNoteSerial() == serial + 1,
+                    "the playhead follows the newest note (held " + juce::String (held) + ", then " + juce::String (second)
+                        + ") and the note count goes up");
+            run (1, 60, false);
+            run (1, 64, false);
+            run (80, -1, false);
+
+            IlanaAnim::EnvTracker tracker;
+            const std::array<float, 5> seconds { 0.0f, 0.002f, 0.0f, 0.3f, 0.05f };
+            tracker.get (4.0f, seconds, 0);
+            const auto atNote = tracker.get (3.2f, seconds, 1); // the block already past a 2 ms attack
+            juce::Thread::sleep (20);
+            const auto later = tracker.get (3.3f, seconds, 1);
+            expect ((int) atNote == 1 && (int) later == 3,
+                    "a new note starts the dot at the attack and runs it on (" + juce::String (atNote) + ", then " + juce::String (later) + ")");
+        }
     }
 
     // UI review 4, batch E: oscillators, filter, PLAY.

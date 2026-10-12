@@ -786,7 +786,7 @@ inline juce::String whyDestinationIsIdle (const IlanaSynthAudioProcessor& proces
 
         if ((D) destination == D::Filter2Cutoff || (D) destination == D::Filter2Reso || (D) destination == D::Filter2Drive
             || (D) destination == D::Filter2Env || (D) destination == D::Filter2Fm || (D) destination == D::Filter2Morph)
-            if (read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1)
+            if (read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1 && read ("route_cables") < 0.5f)
                 return "WEST replaces Filter 2";
     }
 

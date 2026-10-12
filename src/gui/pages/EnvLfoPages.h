@@ -37,6 +37,14 @@ public:
         const auto parallel = read ("filters_parallel") > 0.5f;
         const auto westReplaces = read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1;
 
+        // Roadmap step 16: with the PATCH cables on, the strip shows the
+        // order the cables run the stages in, and a click opens them.
+        if (read ("route_cables") > 0.5f)
+        {
+            paintCables (g, bounds);
+            return;
+        }
+
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
         const auto chipHeight = 22.0f;
         auto x = 12.0f;
@@ -99,6 +107,60 @@ private:
     {
         const auto* value = processorRef.apvts.getRawParameterValue (id);
         return value != nullptr ? value->load() : 0.0f;
+    }
+
+    // SIGNAL FLOW while the PATCH cables decide: the stages in the order
+    // they run, and where to change it.
+    void paintCables (juce::Graphics& g, juce::Rectangle<float> bounds)
+    {
+        const auto table = VoiceRouting::compile (processorRef.getRoutePatch());
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
+        const auto centreY = bounds.getCentreY();
+        auto x = 12.0f;
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (font);
+        g.drawText ("SIGNAL FLOW", juce::Rectangle<float> (x, centreY - 8.0f, 92.0f, 16.0f), juce::Justification::centredLeft);
+        x += 100.0f;
+        const auto pillWidth = (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::pillFont(), "CABLES") + 20.0f;
+        IlanaTheme::paintPill (g, { x, centreY - 9.0f, pillWidth, 18.0f }, "CABLES", IlanaTheme::accent(), true);
+        x += pillWidth + 10.0f;
+        const auto chip = [&] (const juce::String& text, juce::Colour colour)
+        {
+            const auto box = juce::Rectangle<float> (x, centreY - 11.0f, (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 18.0f, 22.0f);
+            g.setColour (IlanaTheme::Ui::panel.interpolatedWith (colour, 0.14f));
+            g.fillRoundedRectangle (box, 6.0f);
+            g.setColour (colour);
+            g.drawRoundedRectangle (box.reduced (0.5f), 6.0f, 1.0f);
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (font);
+            g.drawText (text, box, juce::Justification::centred);
+            x += box.getWidth() + 3.0f;
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        };
+        const auto arrow = [&]
+        {
+            g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), juce::Rectangle<float> (x, centreY - 8.0f, 12.0f, 16.0f), juce::Justification::centred);
+            x += 14.0f;
+        };
+        for (int k = 0; k < table.numOrdered; ++k)
+        {
+            const auto stage = table.order[(size_t) k];
+            chip (stage == VoiceRouting::f1 ? "F1" : stage == VoiceRouting::f2 ? "F2" : "WEST",
+                  stage == VoiceRouting::f1 ? FilterColours::filter (0) : stage == VoiceRouting::f2 ? FilterColours::filter (1) : FilterColours::west());
+            arrow();
+        }
+        chip ("OUT", IlanaTheme::Ui::text);
+
+        const juce::String hint ("The PATCH cables decide. Click to open them.");
+        const auto hintFont = IlanaTheme::font (IlanaTheme::TextSize::label);
+        const auto room = (float) getWidth() - (float) balanceWidth - 8.0f - x;
+        if (room > (float) juce::GlyphArrangement::getStringWidthInt (hintFont, hint) + 8.0f)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (hintFont);
+            g.drawText (hint, juce::Rectangle<float> (x, centreY - 8.0f, room, 16.0f), juce::Justification::centredRight);
+        }
     }
 
     IlanaSynthAudioProcessor& processorRef;
@@ -186,7 +248,13 @@ public:
         stripBalance.setInline (true);
         stripBalance.setSizeRole (IlanaTheme::KnobSize::minimum);
         addChildComponent (overlay);
-        strip.onClick = [this] { pinned = ! pinned; };
+        strip.onClick = [this]
+        {
+            if (readValue ("route_cables") > 0.5f && FilterFlow::openRouting())
+                FilterFlow::openRouting()();
+            else
+                pinned = ! pinned;
+        };
         overlay.onHeaderClick = [this] { pinned = false; };
 
         // What doesn't act right now dims (the one rule for every page:
@@ -346,7 +414,8 @@ private:
         // card (or a menu from it is up); leaving lets it shrink back.
         const auto over = strip.isMouseOver (true) || (overlay.isVisible() && overlay.isMouseOver (true))
                           || juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0 && overlay.isVisible();
-        const auto want = pinned || over || flowForcedOpen();
+        // (Not while the PATCH cables decide: the strip opens them instead.)
+        const auto want = (pinned || over || flowForcedOpen()) && readValue ("route_cables") < 0.5f;
         const auto target = want ? 1.0f : 0.0f;
         if (std::abs (openAmount - target) > 0.001f)
         {
@@ -421,7 +490,10 @@ private:
         return value != nullptr ? value->load() : 0.0f;
     }
 
-    bool filter2Replaced() const { return readValue ("west_on") > 0.5f && juce::roundToInt (readValue ("west_pos")) == 1; }
+    bool filter2Replaced() const
+    {
+        return readValue ("west_on") > 0.5f && juce::roundToInt (readValue ("west_pos")) == 1 && readValue ("route_cables") < 0.5f;
+    }
 
     IlanaSynthAudioProcessor& processorRef;
     FilterDisplay filterDisplay;

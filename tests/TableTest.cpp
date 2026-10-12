@@ -8855,6 +8855,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "ParallelFxTests.inc"
 #include "PatchGraphTests.inc"
 #include "FxPatcherTests.inc"
+#include "OscRoutingTests.inc"
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
@@ -9568,6 +9569,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OSC_ROUTING_TEST", "").isNotEmpty())
+    {
+        runOscRoutingTests (true);
+        std::cout << (failures == 0 ? "OSC ROUTING TESTS PASSED" : "OSC ROUTING TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_FX_PATCHER_TEST", "").isNotEmpty())
     {
         runFxPatcherTests();
@@ -10000,6 +10008,7 @@ int main()
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });
     timedRun ("runPatchGraphTests", [] { runPatchGraphTests (false); });
     timedRun ("runFxPatcherTests", [] { runFxPatcherTests(); });
+    timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
     timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });

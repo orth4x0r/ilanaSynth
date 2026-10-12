@@ -150,7 +150,8 @@ private:
 
         // Filter 2's card while WEST takes its place: dimmed, and says why
         // (UI review 6, I6-16).
-        const auto replacedNow = prefix == "f2" && read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1;
+        const auto replacedNow = prefix == "f2" && read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1
+                                 && read ("route_cables") < 0.5f;
         // A filter that passes everything (open at 20 kHz) dims, as an off
         // module would, all but its type and CUTOFF, which bring it in (UI
         // review 8, V8-39).
@@ -269,6 +270,7 @@ public:
         auto header = getLocalBounds().reduced (12, 0).removeFromTop (30);
         const auto westOn = read ("west_on") > 0.5f;
         IlanaTheme::paintCardHeader (g, header, "WEST", ! westOn ? juce::String (juce::CharPointer_UTF8 ("off \xc2\xb7 switch on to fold and gate"))
+                                                       : read ("route_cables") > 0.5f ? juce::String ("wavefolder and low-pass gate, where the PATCH cables put it")
                                                        : juce::roundToInt (read ("west_pos")) == 1 ? juce::String ("wavefolder and low-pass gate, in Filter 2's place")
                                                                                                     : juce::String ("wavefolder and low-pass gate, after the filters"),
                                      colour(), 60);

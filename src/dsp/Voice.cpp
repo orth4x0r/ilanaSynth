@@ -1465,20 +1465,26 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                       D::Osc4Level, D::Osc5Level, D::Osc6Level };
     constexpr D warpDestinations[] { D::Osc1Warp, D::Osc2Warp, D::SubWarp,
                                      D::Osc4Warp, D::Osc5Warp, D::Osc6Warp };
+    // The bus each source adds into: its _route (the fixed chain's buses),
+    // or with the ROUTING cables on the bus of its cables (one per distinct
+    // set of destinations, VoiceRouting.h).
+    const auto& routing = params.routing;
+    const auto numBuses = routing.on ? routing.numBuses : (int) FilterRoute::Count;
     int routes[VoiceParams::numOscillators] {};
     bool active[VoiceParams::numOscillators] {};
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
     {
         const auto& settings = params.oscillators[osc];
-        routes[osc] = juce::jlimit (0, FilterRoute::Count - 1, settings.route);
+        routes[osc] = routing.on ? routing.busOf[(size_t) osc] : juce::jlimit (0, FilterRoute::Count - 1, settings.route);
         active[osc] = params.oscillatorEnabled[osc]
                       && (settings.stringMode || settings.sampleMode || settings.table != nullptr);
     }
 
-    const auto routeSubOsc = juce::jlimit (0, FilterRoute::Count - 1, params.subOscRoute);
-    bool bothActive = routeSubOsc == FilterRoute::Both;
-    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    const auto routeSubOsc = routing.on ? routing.busOf[(size_t) VoiceRouting::subNoiseSource]
+                                        : juce::jlimit (0, FilterRoute::Count - 1, params.subOscRoute);
+    bool bothActive = ! routing.on && routeSubOsc == FilterRoute::Both;
+    for (int osc = 0; osc < VoiceParams::numOscillators && ! routing.on; ++osc)
         bothActive = bothActive || (active[osc] && routes[osc] == FilterRoute::Both);
     bothRouteActive = bothActive;
     const auto subOscActive = params.subOscEnabled && params.subOscTable != nullptr;
@@ -1656,7 +1662,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                                return true;
                                        return false;
                                    }();
-    float chunkBusL[maxChunk][FilterRoute::Count], chunkBusR[maxChunk][FilterRoute::Count];
+    float chunkBusL[maxChunk][VoiceRouting::maxBuses], chunkBusR[maxChunk][VoiceRouting::maxBuses];
     float chunkBodyL[maxChunk], chunkBodyR[maxChunk], chunkLive[maxChunk], chunkAmp[maxChunk];
     float chunkAmpLevel[maxChunk], chunkWest[maxChunk];
 
@@ -1698,102 +1704,206 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     };
     const auto westReplacesFilter2 = params.west.on && params.west.position == 1;
 
+    // Roadmap step 16: the ROUTING cables. Each used stage runs in the
+    // compiled order (VoiceRouting.h); its input is the sum of the buses and
+    // stages cabled into it (Filter 1 and 2 behind their DRIVE, as in the
+    // fixed chain), and its output goes to each stage or OUT it is cabled to.
+    // WEST switched off passes its input on. Two filters into one place mix
+    // as the fixed chain's PARALLEL does (BALANCE, 0.7071).
+    const auto runCables = [&] (int n, float* outL, float* outR)
+    {
+        constexpr int numNodes = VoiceRouting::numStages + 1; // the stages, then OUT
+        float nodeL[numNodes][maxChunk], nodeR[numNodes][maxChunk];
+        for (int node = 0; node < numNodes; ++node)
+        {
+            std::fill (nodeL[node], nodeL[node] + n, 0.0f);
+            std::fill (nodeR[node], nodeR[node] + n, 0.0f);
+        }
+
+        for (int bus = 0; bus < routing.numBuses; ++bus)
+            for (int node = 0; node < numNodes; ++node)
+                if ((routing.busMask[(size_t) bus] & VoiceRouting::bitOf (node)) != 0)
+                    for (int s = 0; s < n; ++s)
+                    {
+                        nodeL[node][s] += chunkBusL[s][bus];
+                        nodeR[node][s] += chunkBusR[s][bus];
+                    }
+
+        const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance) * 0.7071f;
+        const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance) * 0.7071f;
+
+        for (int k = 0; k < routing.numOrdered; ++k)
+        {
+            const auto stage = routing.order[(size_t) k];
+            float inL[maxChunk], inR[maxChunk], stageL[maxChunk], stageR[maxChunk];
+
+            if (stage == VoiceRouting::f1)
+            {
+                for (int s = 0; s < n; ++s)
+                    drivePair (nodeL[stage][s], nodeR[stage][s], drive1, inL[s], inR[s]);
+                if (filter1Open)
+                    processOpenPairBlock (openFilter1L, openFilter1R, filter1Linked, inL, inR, stageL, stageR, n);
+                else
+                    processFilterPairBlock (filter1L, filter1R, filter1Linked, inL, inR, stageL, stageR, n);
+                filter1Ran = true;
+
+                if (filter1Fade > 0)
+                {
+                    float oldL[maxChunk], oldR[maxChunk];
+                    if (filter1Open)
+                        processFilterPairBlock (filter1L, filter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+                    else
+                        processOpenPairBlock (openFilter1L, openFilter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+                    for (int s = 0; s < n && filter1Fade > 0; ++s, --filter1Fade)
+                    {
+                        const auto g = (float) filter1Fade / (float) filterFadeLength;
+                        stageL[s] += (oldL[s] - stageL[s]) * g;
+                        stageR[s] += (oldR[s] - stageR[s]) * g;
+                    }
+                }
+            }
+            else if (stage == VoiceRouting::f2)
+            {
+                for (int s = 0; s < n; ++s)
+                    drivePair (nodeL[stage][s], nodeR[stage][s], drive2, inL[s], inR[s]);
+                if (filter2Open)
+                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, inL, inR, stageL, stageR, n);
+                else
+                    processFilterPairBlock (filter2L, filter2R, filter2Linked, inL, inR, stageL, stageR, n);
+            }
+            else
+            {
+                for (int s = 0; s < n; ++s)
+                {
+                    stageL[s] = nodeL[stage][s];
+                    stageR[s] = nodeR[stage][s];
+                    if (params.west.on)
+                        westProcess (stageL[s], stageR[s], chunkWest[s]);
+                }
+            }
+
+            const auto destinations = routing.stageOut[(size_t) stage];
+            const auto paired = stage == VoiceRouting::west ? 0 : routing.filterPairInto;
+            for (int node = 0; node < numNodes; ++node)
+            {
+                if ((destinations & VoiceRouting::bitOf (node)) == 0)
+                    continue;
+                const auto gain = (paired & VoiceRouting::bitOf (node)) != 0 ? (stage == VoiceRouting::f1 ? gain1 : gain2) : 1.0f;
+                for (int s = 0; s < n; ++s)
+                {
+                    nodeL[node][s] += stageL[s] * gain;
+                    nodeR[node][s] += stageR[s] * gain;
+                }
+            }
+        }
+
+        std::copy (nodeL[VoiceRouting::out], nodeL[VoiceRouting::out] + n, outL);
+        std::copy (nodeR[VoiceRouting::out], nodeR[VoiceRouting::out] + n, outR);
+    };
+
     const auto postChunk = [&] (int chunkStart, int n)
     {
         float defaultL[maxChunk], defaultR[maxChunk], inL[maxChunk], inR[maxChunk];
         float f1L[maxChunk], f1R[maxChunk], in2L[maxChunk], in2R[maxChunk], outL[maxChunk], outR[maxChunk];
 
-        // Filter 1 hears the Default and Filter-1 buses.
-        for (int s = 0; s < n; ++s)
+        if (routing.on)
         {
-            const auto* busL = chunkBusL[s];
-            const auto* busR = chunkBusR[s];
-            drivePair (busL[FilterRoute::Default], busR[FilterRoute::Default], drive1, defaultL[s], defaultR[s]);
-            inL[s] = defaultL[s];
-            inR[s] = defaultR[s];
-            if (busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f)
-                drivePair (busL[FilterRoute::Default] + busL[FilterRoute::Filter1],
-                           busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL[s], inR[s]);
+            runCables (n, outL, outR);
         }
-
-        if (filter1Open)
-            processOpenPairBlock (openFilter1L, openFilter1R, filter1Linked, inL, inR, f1L, f1R, n);
         else
-            processFilterPairBlock (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R, n);
-        filter1Ran = true;
-
-        if (filter1Fade > 0)
         {
-            float oldL[maxChunk], oldR[maxChunk];
+            // Filter 1 hears the Default and Filter-1 buses.
+            for (int s = 0; s < n; ++s)
+            {
+                const auto* busL = chunkBusL[s];
+                const auto* busR = chunkBusR[s];
+                drivePair (busL[FilterRoute::Default], busR[FilterRoute::Default], drive1, defaultL[s], defaultR[s]);
+                inL[s] = defaultL[s];
+                inR[s] = defaultR[s];
+                if (busL[FilterRoute::Filter1] != 0.0f || busR[FilterRoute::Filter1] != 0.0f)
+                    drivePair (busL[FilterRoute::Default] + busL[FilterRoute::Filter1],
+                               busR[FilterRoute::Default] + busR[FilterRoute::Filter1], drive1, inL[s], inR[s]);
+            }
+
             if (filter1Open)
-                processFilterPairBlock (filter1L, filter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+                processOpenPairBlock (openFilter1L, openFilter1R, filter1Linked, inL, inR, f1L, f1R, n);
             else
-                processOpenPairBlock (openFilter1L, openFilter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
-            for (int s = 0; s < n && filter1Fade > 0; ++s, --filter1Fade)
-            {
-                const auto g = (float) filter1Fade / (float) filterFadeLength;
-                f1L[s] += (oldL[s] - f1L[s]) * g;
-                f1R[s] += (oldR[s] - f1R[s]) * g;
-            }
-        }
+                processFilterPairBlock (filter1L, filter1R, filter1Linked, inL, inR, f1L, f1R, n);
+            filter1Ran = true;
 
-        if (params.filtersParallel)
-        {
-            // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
-            for (int s = 0; s < n; ++s)
-                drivePair (defaultL[s] + chunkBusL[s][FilterRoute::Filter2], defaultR[s] + chunkBusR[s][FilterRoute::Filter2],
-                           drive2, in2L[s], in2R[s]);
-
-            float f2L[maxChunk], f2R[maxChunk];
-            if (westReplacesFilter2)
+            if (filter1Fade > 0)
             {
-                for (int s = 0; s < n; ++s)
+                float oldL[maxChunk], oldR[maxChunk];
+                if (filter1Open)
+                    processFilterPairBlock (filter1L, filter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+                else
+                    processOpenPairBlock (openFilter1L, openFilter1R, filter1FadeLinked, inL, inR, oldL, oldR, n);
+                for (int s = 0; s < n && filter1Fade > 0; ++s, --filter1Fade)
                 {
-                    f2L[s] = in2L[s];
-                    f2R[s] = in2R[s];
-                    westProcess (f2L[s], f2R[s], chunkWest[s]);
+                    const auto g = (float) filter1Fade / (float) filterFadeLength;
+                    f1L[s] += (oldL[s] - f1L[s]) * g;
+                    f1R[s] += (oldR[s] - f1R[s]) * g;
                 }
             }
-            else if (filter2Open)
-            {
-                processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
-            }
-            else
-            {
-                processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
-            }
 
-            // Balance fades one filter out; at the centre both are at full.
-            const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
-            const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
-            for (int s = 0; s < n; ++s)
+            if (params.filtersParallel)
             {
-                outL[s] = (f1L[s] * gain1 + f2L[s] * gain2) * 0.7071f;
-                outR[s] = (f1R[s] * gain1 + f2R[s] * gain2) * 0.7071f;
-            }
-        }
-        else
-        {
-            for (int s = 0; s < n; ++s)
-                drivePair (f1L[s] + chunkBusL[s][FilterRoute::Filter2], f1R[s] + chunkBusR[s][FilterRoute::Filter2],
-                           drive2, in2L[s], in2R[s]);
+                // Filter 2 hears the (Filter-1-driven) Default bus plus its own.
+                for (int s = 0; s < n; ++s)
+                    drivePair (defaultL[s] + chunkBusL[s][FilterRoute::Filter2], defaultR[s] + chunkBusR[s][FilterRoute::Filter2],
+                               drive2, in2L[s], in2R[s]);
 
-            if (westReplacesFilter2)
-            {
+                float f2L[maxChunk], f2R[maxChunk];
+                if (westReplacesFilter2)
+                {
+                    for (int s = 0; s < n; ++s)
+                    {
+                        f2L[s] = in2L[s];
+                        f2R[s] = in2R[s];
+                        westProcess (f2L[s], f2R[s], chunkWest[s]);
+                    }
+                }
+                else if (filter2Open)
+                {
+                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
+                }
+                else
+                {
+                    processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
+                }
+
+                // Balance fades one filter out; at the centre both are at full.
+                const auto gain1 = juce::jmin (1.0f, 1.0f - params.filterBalance);
+                const auto gain2 = juce::jmin (1.0f, 1.0f + params.filterBalance);
                 for (int s = 0; s < n; ++s)
                 {
-                    outL[s] = in2L[s];
-                    outR[s] = in2R[s];
-                    westProcess (outL[s], outR[s], chunkWest[s]);
+                    outL[s] = (f1L[s] * gain1 + f2L[s] * gain2) * 0.7071f;
+                    outR[s] = (f1R[s] * gain1 + f2R[s] * gain2) * 0.7071f;
                 }
-            }
-            else if (filter2Open)
-            {
-                processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, outL, outR, n);
             }
             else
             {
-                processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, outL, outR, n);
+                for (int s = 0; s < n; ++s)
+                    drivePair (f1L[s] + chunkBusL[s][FilterRoute::Filter2], f1R[s] + chunkBusR[s][FilterRoute::Filter2],
+                               drive2, in2L[s], in2R[s]);
+
+                if (westReplacesFilter2)
+                {
+                    for (int s = 0; s < n; ++s)
+                    {
+                        outL[s] = in2L[s];
+                        outR[s] = in2R[s];
+                        westProcess (outL[s], outR[s], chunkWest[s]);
+                    }
+                }
+                else if (filter2Open)
+                {
+                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, outL, outR, n);
+                }
+                else
+                {
+                    processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, outL, outR, n);
+                }
             }
         }
 
@@ -1802,11 +1912,17 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto i = chunkStart + s;
             const auto* busL = chunkBusL[s];
             const auto* busR = chunkBusR[s];
-            auto sampleL = outL[s] + busL[FilterRoute::Direct];
-            auto sampleR = outR[s] + busR[FilterRoute::Direct];
+            auto sampleL = outL[s];
+            auto sampleR = outR[s];
 
-            if (params.west.on && params.west.position == 0)
-                westProcess (sampleL, sampleR, chunkWest[s]);
+            // (With the cables the bypass and WEST are cables, run above.)
+            if (! routing.on)
+            {
+                sampleL += busL[FilterRoute::Direct];
+                sampleR += busR[FilterRoute::Direct];
+                if (params.west.on && params.west.position == 0)
+                    westProcess (sampleL, sampleR, chunkWest[s]);
+            }
 
             // A separate parallel pair keeps the existing serial/parallel paths
             // bit-identical whenever no oscillator selects Both.
@@ -2521,8 +2637,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // The buses, summed in the per-sample loop's order.
         for (int slot = 0; slot < n; ++slot)
         {
-            float busL[FilterRoute::Count] {};
-            float busR[FilterRoute::Count] {};
+            float busL[VoiceRouting::maxBuses] {};
+            float busR[VoiceRouting::maxBuses] {};
 
             for (int osc = 0; osc < numOsc; ++osc)
             {
@@ -2536,7 +2652,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 {
                     const auto ringMod = ringMods[slot];
                     if (ringMod > 0.0f && active[0] && active[1])
-                        for (int bus = 0; bus < FilterRoute::Count; ++bus)
+                        for (int bus = 0; bus < numBuses; ++bus)
                         {
                             busL[bus] += (busL[bus] * monoOut[1][slot] - busL[bus]) * ringMod;
                             busR[bus] += (busR[bus] * monoOut[1][slot] - busR[bus]) * ringMod;
@@ -2570,7 +2686,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                 }
                 bodyStrikePending = false;
-                for (int bus = 0; bus < FilterRoute::Count; ++bus)
+                for (int bus = 0; bus < numBuses; ++bus)
                 {
                     bodyExciteL += busL[bus];
                     bodyExciteR += busR[bus];
@@ -2590,8 +2706,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
             }
 
-            std::copy (busL, busL + FilterRoute::Count, chunkBusL[slot]);
-            std::copy (busR, busR + FilterRoute::Count, chunkBusR[slot]);
+            std::copy (busL, busL + numBuses, chunkBusL[slot]);
+            std::copy (busR, busR + numBuses, chunkBusR[slot]);
             chunkBodyL[slot] = bodyExciteL;
             chunkBodyR[slot] = bodyExciteR;
         }
@@ -2671,8 +2787,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             updateFilterCoefficients (mods, filterValue, filter2Value);
 
         // Keep the old operator order: 1, sync, 2, ring, then 3.
-        float busL[FilterRoute::Count] {};
-        float busR[FilterRoute::Count] {};
+        float busL[VoiceRouting::maxBuses] {};
+        float busR[VoiceRouting::maxBuses] {};
         float oscMono[VoiceParams::numOscillators] {};
         float stringDrive[VoiceParams::numOscillators] {};
 
@@ -2943,7 +3059,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 const auto ringMod = params.ringMod + mods[(int) D::RingMod];
 
                 if (ringMod > 0.0f && active[0] && active[1])
-                    for (int bus = 0; bus < FilterRoute::Count; ++bus)
+                    for (int bus = 0; bus < numBuses; ++bus)
                     {
                         busL[bus] += (busL[bus] * oscMono[1] - busL[bus]) * ringMod;
                         busR[bus] += (busR[bus] * oscMono[1] - busR[bus]) * ringMod;
@@ -3028,7 +3144,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 }
             }
             bodyStrikePending = false;
-            for (int bus = 0; bus < FilterRoute::Count; ++bus)
+            for (int bus = 0; bus < numBuses; ++bus)
             {
                 bodyExciteL += busL[bus];
                 bodyExciteR += busR[bus];
@@ -3072,8 +3188,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
 
         const auto slot = i - chunkStart;
-        std::copy (busL, busL + FilterRoute::Count, chunkBusL[slot]);
-        std::copy (busR, busR + FilterRoute::Count, chunkBusR[slot]);
+        std::copy (busL, busL + numBuses, chunkBusL[slot]);
+        std::copy (busR, busR + numBuses, chunkBusR[slot]);
         chunkBodyL[slot] = bodyExciteL;
         chunkBodyR[slot] = bodyExciteR;
         chunkLive[slot] = liveSample;

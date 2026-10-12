@@ -294,7 +294,11 @@ private:
     static juce::Colour filterColour (int filterIndex) { return FilterColours::filter (filterIndex); }
 
     // WEST in Filter 2's place: Filter 2 isn't in the path.
-    bool filter2Replaced() const { return readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_pos")) == 1; }
+    // (Not while the ROUTING cables decide: there WEST is its own stage.)
+    bool filter2Replaced() const
+    {
+        return readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_pos")) == 1 && readParam ("route_cables") < 0.5f;
+    }
 
     juce::Rectangle<float> plotBounds() const { return getLocalBounds().toFloat().reduced (10.0f, 12.0f); }
 

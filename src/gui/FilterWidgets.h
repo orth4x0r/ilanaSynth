@@ -407,6 +407,16 @@ private:
 // the bypass is drawn only while a source takes it, as a labelled lane over
 // the filters into the stage that really follows them; the SERIAL badge sits
 // over the gap between F1 and F2, clear of the wires.
+// Opens the PATCH tab (set by the editor).
+namespace FilterFlow
+{
+inline std::function<void()>& openRouting()
+{
+    static std::function<void()> open;
+    return open;
+}
+} // namespace FilterFlow
+
 class SignalFlow : public juce::Component,
                    public juce::SettableTooltipClient,
                    private juce::Timer
@@ -450,6 +460,22 @@ public:
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintWell (g, getLocalBounds().toFloat(), 6.0f);
+
+        // Roadmap step 16: with the ROUTING cables on, they are the signal
+        // flow; this strip says so and opens them.
+        if (cablesOn())
+        {
+            const auto area = getLocalBounds().reduced (14, 6);
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            IlanaTheme::drawFitted (g, "ROUTED BY CABLES", area.withHeight (juce::jmin (area.getHeight(), 22)), juce::Justification::centredLeft, 1);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            IlanaTheme::drawFitted (g, "The PATCH tab decides where each oscillator goes. Click to open it.",
+                                    area.withTrimmedTop (juce::jmin (area.getHeight() / 2, 22)), juce::Justification::topLeft, 2);
+            return;
+        }
+
         const auto layout = computeLayout();
         const auto parallel = read ("filters_parallel") > 0.5f;
         const auto mouse = getMouseXYRelative().toFloat();
@@ -577,6 +603,13 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        if (cablesOn())
+        {
+            if (FilterFlow::openRouting())
+                FilterFlow::openRouting()();
+            return;
+        }
+
         const auto layout = computeLayout();
 
         for (size_t row = 0; row < layout.sources.size(); ++row)
@@ -598,6 +631,12 @@ public:
 
     void mouseMove (const juce::MouseEvent& event) override
     {
+        if (cablesOn())
+        {
+            setTooltip ("Signal flow\nThe ROUTING cables decide the routing. Click to open them.");
+            return;
+        }
+
         const auto layout = computeLayout();
         juce::String tip = "Signal flow\nClick an oscillator to route it, the badge to switch serial/parallel, WEST or BODY to switch them on or off.";
 
@@ -796,6 +835,8 @@ private:
         // (review 11, I11-8).
         return strings && board ? "PHYSICAL" : (strings ? "STRINGS" : "SOUNDBOARD");
     }
+
+    bool cablesOn() const { return read ("route_cables") > 0.5f; }
 
     bool isSourceOn (int osc) const
     {

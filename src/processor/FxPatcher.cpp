@@ -185,7 +185,190 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
         ownedValues[(size_t) s] = std::move (table);
     }
 
+    // The LFO boxes: settings and every knob a cable moves, resolved to the
+    // parameter's cache entry. A knob that isn't its slot's effect's (yet:
+    // a state load sets the types after) is left out until reconcile.
+    auto program = std::make_unique<FxLfoProgram>();
+    for (const auto& lfo : patch.lfos)
+        if (juce::isPositiveAndBelow (lfo.id - 1, FxLfo::maxLfos))
+        {
+            program->used[(size_t) (lfo.id - 1)] = true;
+            program->settings[(size_t) (lfo.id - 1)] = lfo.settings.sanitised();
+        }
+    for (const auto& route : patch.lfoRoutes)
+    {
+        if (program->numRoutes >= FxLfo::maxRoutes || ! juce::isPositiveAndBelow (route.slot, numSlots)
+            || ! juce::isPositiveAndBelow (route.lfo - 1, FxLfo::maxLfos) || ! program->used[(size_t) (route.lfo - 1)] || route.amount == 0.0f)
+            continue;
+        const auto type = (int) getRawParam (fxSlotIds[(size_t) route.slot].type);
+        if (route.param != FxPatchData::mixParam && ! FxPatchData::isParamOf (type, route.param))
+            continue;
+        const auto id = fxLfoParamId (route.slot, route.param);
+        const auto* entry = findParam (id.toRawUTF8());
+        auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id));
+        if (entry == nullptr || entry->index < 0 || entry->discrete || parameter == nullptr)
+            continue;
+        auto& made = program->routes[(size_t) program->numRoutes++];
+        made.lfo = route.lfo - 1;
+        made.slot = route.slot;
+        made.index = entry->index;
+        made.parameter = parameter;
+        made.amount = juce::jlimit (-1.0f, 1.0f, route.amount);
+    }
+    const auto* running = ownedFxLfoProgram.get();
+    const auto same = running != nullptr && running->numRoutes == program->numRoutes && running->used == program->used
+                      && running->settings == program->settings
+                      && std::equal (program->routes.begin(), program->routes.begin() + program->numRoutes, running->routes.begin(),
+                                     [] (const FxLfoProgram::Route& a, const FxLfoProgram::Route& b)
+                                     { return a.lfo == b.lfo && a.slot == b.slot && a.index == b.index && a.amount == b.amount; });
+    if (! same && (running != nullptr || program->numRoutes > 0 || program->used != decltype (program->used) {}))
+    {
+        fxLfoProgram.store (program.get(), std::memory_order_release);
+        RetiredFx retired;
+        retired.when = juce::Time::getMillisecondCounter();
+        retired.lfoProgram = std::move (ownedFxLfoProgram);
+        if (retired.lfoProgram != nullptr)
+            retiredFx.push_back (std::move (retired));
+        ownedFxLfoProgram = std::move (program);
+    }
+
     freeRetiredFx (false);
+}
+
+//==============================================================================
+// The LFO boxes (FxLfo.h).
+
+juce::String IlanaSynthAudioProcessor::fxLfoParamId (int slotIndex, const juce::String& param)
+{
+    return param == FxPatchData::mixParam ? "fx_slot" + juce::String (slotIndex + 1) + "_mix" : param;
+}
+
+std::vector<std::pair<juce::String, juce::String>> IlanaSynthAudioProcessor::getFxLfoTargets (int slotIndex) const
+{
+    std::vector<std::pair<juce::String, juce::String>> targets;
+    if (! juce::isPositiveAndBelow (slotIndex, numSlots))
+        return targets;
+    const auto type = (int) getRawParam (fxSlotIds[(size_t) slotIndex].type);
+    if (type == 0)
+        return targets;
+    targets.emplace_back (FxPatchData::mixParam, "Mix");
+    for (const auto& id : fxParamIds (type))
+        if (const auto* entry = findParam (id.toRawUTF8()); entry != nullptr && ! entry->discrete)
+            if (auto* parameter = apvts.getParameter (id))
+                targets.emplace_back (id, parameter->getName (64));
+    return targets;
+}
+
+int IlanaSynthAudioProcessor::addFxLfo (float x, float y)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    for (int id = 1; id <= FxLfo::maxLfos; ++id)
+        if (patch.findLfo (id) == nullptr)
+        {
+            FxPatchData::Lfo lfo;
+            lfo.id = id;
+            lfo.x = x;
+            lfo.y = y;
+            patch.lfos.push_back (lfo);
+            publishFxPatch (std::move (patch));
+            return id;
+        }
+    return 0;
+}
+
+void IlanaSynthAudioProcessor::removeFxLfo (int id)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    patch.lfos.erase (std::remove_if (patch.lfos.begin(), patch.lfos.end(), [id] (const FxPatchData::Lfo& l) { return l.id == id; }), patch.lfos.end());
+    patch.pruneLfoRoutes();
+    if (! FxPatchData::samePatch (patch, getFxPatch()))
+        publishFxPatch (std::move (patch));
+}
+
+void IlanaSynthAudioProcessor::setFxLfoSettings (int id, const FxLfo::Settings& settings)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    for (auto& lfo : patch.lfos)
+        if (lfo.id == id && lfo.settings != settings.sanitised())
+        {
+            lfo.settings = settings.sanitised();
+            publishFxPatch (std::move (patch));
+            return;
+        }
+}
+
+void IlanaSynthAudioProcessor::moveFxLfo (int id, float x, float y)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    for (auto& lfo : patch.lfos)
+        if (lfo.id == id && (lfo.x != x || lfo.y != y) && std::isfinite (x) && std::isfinite (y))
+        {
+            lfo.x = x;
+            lfo.y = y;
+            publishFxPatch (std::move (patch));
+            return;
+        }
+}
+
+void IlanaSynthAudioProcessor::setFxLfoCable (int id, int slotIndex, bool connected)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    if (patch.findLfo (id) == nullptr || ! juce::isPositiveAndBelow (slotIndex, numSlots) || patch.hasLfoCable (id, slotIndex) == connected)
+        return;
+    if (connected)
+        patch.lfoCables.push_back ({ id, slotIndex });
+    else
+        patch.lfoCables.erase (std::remove (patch.lfoCables.begin(), patch.lfoCables.end(), FxPatchData::LfoCable { id, slotIndex }), patch.lfoCables.end());
+    patch.pruneLfoRoutes();
+    publishFxPatch (std::move (patch));
+}
+
+void IlanaSynthAudioProcessor::assignFxLfo (int id, int slotIndex, const juce::String& param, bool assign, float amount)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    if (param.isEmpty())
+        return;
+    auto& routes = patch.lfoRoutes;
+    const auto found = std::find_if (routes.begin(), routes.end(), [&] (const FxPatchData::LfoRoute& r)
+                                     { return r.lfo == id && r.slot == slotIndex && r.param == param; });
+    if (assign)
+    {
+        if (found != routes.end() || (int) routes.size() >= FxLfo::maxRoutes)
+            return;
+        // Assigning makes the cable if there wasn't one.
+        if (patch.findLfo (id) == nullptr || ! juce::isPositiveAndBelow (slotIndex, numSlots))
+            return;
+        if (! patch.hasLfoCable (id, slotIndex))
+            patch.lfoCables.push_back ({ id, slotIndex });
+        routes.push_back ({ id, slotIndex, param, juce::jlimit (-1.0f, 1.0f, std::isfinite (amount) ? amount : 0.5f) });
+    }
+    else
+    {
+        if (found == routes.end())
+            return;
+        routes.erase (found);
+    }
+    publishFxPatch (std::move (patch));
+}
+
+void IlanaSynthAudioProcessor::setFxLfoAmount (int id, int slotIndex, const juce::String& param, float amount)
+{
+    const juce::ScopedLock edit (fxEditLock);
+    auto patch = getFxPatch();
+    amount = std::isfinite (amount) ? juce::jlimit (-1.0f, 1.0f, amount) : 0.0f;
+    for (auto& route : patch.lfoRoutes)
+        if (route.lfo == id && route.slot == slotIndex && route.param == param && route.amount != amount)
+        {
+            route.amount = amount;
+            publishFxPatch (std::move (patch));
+            return;
+        }
 }
 
 // The audio thread may be inside a block with these: freed a second later.
@@ -361,8 +544,19 @@ void IlanaSynthAudioProcessor::reconcileFxPatch()
         limitLoopGains (graph, nullptr);
     }
 
+    // LFO cables into an emptied slot go; a knob its new effect doesn't have stops being moved.
+    patch.lfoCables.erase (std::remove_if (patch.lfoCables.begin(), patch.lfoCables.end(),
+                                           [&types] (const FxPatchData::LfoCable& c) { return types[(size_t) c.slot] == 0; }),
+                           patch.lfoCables.end());
+    patch.lfoRoutes.erase (std::remove_if (patch.lfoRoutes.begin(), patch.lfoRoutes.end(), [&types] (const FxPatchData::LfoRoute& r)
+                                           { return r.param != FxPatchData::mixParam && ! FxPatchData::isParamOf (types[(size_t) r.slot], r.param); }),
+                           patch.lfoRoutes.end());
+    patch.pruneLfoRoutes();
+
     if (! FxPatchData::samePatch (patch, getFxPatch()))
         publishFxPatch (std::move (patch));
+    else
+        applyFxPatchRuntime(); // (the types the LFO routes are checked against may be new)
     writeFxParams (toWrite);
 }
 
@@ -587,6 +781,11 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
 
     auto patch = getFxPatch();
     std::swap (patch.slots[(size_t) a], patch.slots[(size_t) b]);
+    const auto swapped = [a, b] (int s) { return s == a ? b : s == b ? a : s; };
+    for (auto& cable : patch.lfoCables)
+        cable.slot = swapped (cable.slot);
+    for (auto& route : patch.lfoRoutes)
+        route.slot = swapped (route.slot);
     if (patch.hasGraph)
         for (const auto& node : std::vector<PatchGraph::Node> (patch.graph.nodes()))
             if (auto* editable = patch.graph.find (node.id); editable != nullptr && ! node.isFixed())

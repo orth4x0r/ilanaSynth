@@ -2051,9 +2051,20 @@ public:
 
     // The right-click menu (the snapshot tool draws it offscreen: a real
     // menu window can't open under its X server).
+    // Optional: items the knob's owner puts first in its right-click menu,
+    // with their own actions (the PATCH tab's effect windows: assign to an LFO box).
+    std::function<void (juce::PopupMenu&)> extraMenu;
+
     juce::PopupMenu buildModMenu() const
     {
         juce::PopupMenu menu;
+
+        if (extraMenu)
+        {
+            extraMenu (menu);
+            if (menu.getNumItems() > 0)
+                menu.addSeparator();
+        }
 
         if (processorRef == nullptr)
             return menu;
@@ -2107,7 +2118,7 @@ public:
 private:
     void showModMenu()
     {
-        if (processorRef == nullptr)
+        if (processorRef == nullptr && ! extraMenu)
             return;
 
         auto menu = buildModMenu();

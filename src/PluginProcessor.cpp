@@ -471,6 +471,7 @@ struct AudioThreadParams
 {
     bool reading = false;
     const float* fxValues = nullptr;
+    const IlanaSynthAudioProcessor::FxLfoSlotMods* fxLfoMods = nullptr;
 };
 thread_local AudioThreadParams audioThreadParams;
 } // namespace
@@ -478,6 +479,11 @@ thread_local AudioThreadParams audioThreadParams;
 const float* IlanaSynthAudioProcessor::swapFxParamValues (const float* values) noexcept
 {
     return std::exchange (audioThreadParams.fxValues, values);
+}
+
+const IlanaSynthAudioProcessor::FxLfoSlotMods* IlanaSynthAudioProcessor::swapFxLfoMods (const FxLfoSlotMods* mods) noexcept
+{
+    return std::exchange (audioThreadParams.fxLfoMods, mods);
 }
 
 float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
@@ -490,6 +496,18 @@ float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
     // A host (or a damaged state) can set NaN, which parameters don't clamp.
     if (! std::isfinite (result))
         result = entry.fallback;
+    // The FX patcher's LFO cables into the slot that is running (FxLfo.h):
+    // an offset in the knob's own range, clamped to it.
+    if (const auto* mods = thread.fxLfoMods; mods != nullptr && entry.index >= 0)
+        for (int k = 0; k < mods->count; ++k)
+            if (mods->index[(size_t) k] == entry.index)
+            {
+                const auto* parameter = mods->parameter[(size_t) k];
+                const auto moved = parameter->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, parameter->convertTo0to1 (result) + mods->offset[(size_t) k]));
+                if (std::isfinite (moved))
+                    result = moved;
+                break;
+            }
     if (entry.discrete)
         result = std::round (result);
 

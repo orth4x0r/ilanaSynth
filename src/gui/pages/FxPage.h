@@ -376,7 +376,7 @@ public:
         seriesButton.setTooltip ("Series\nEach effect feeds the next one, top to bottom.");
         parallelButton.setTooltip ("Parallel\nEvery effect hears the rack's input; their outputs are summed "
                                    "(averaged, so effects that leave the sound alone give it back unchanged).");
-        patcherButton.setTooltip ("Patcher\nThe effects as boxes wired with cables (the PATCHER tab): parallel branches, "
+        patcherButton.setTooltip ("Patcher\nThe effects as boxes wired with cables (the PATCH tab): parallel branches, "
                                   "loops and several of the same effect.");
         seriesButton.setDescription ("FX routing: series");
         parallelButton.setDescription ("FX routing: parallel");
@@ -792,7 +792,7 @@ public:
                                    : "Every slot is in use: remove an effect to add another.");
     }
 
-    // Choosing PATCHER routing opens the PATCHER tab (the editor sets it).
+    // Choosing PATCHER routing opens the PATCH tab (the editor sets it).
     std::function<void()> onShowPatcher;
 
     // A shared copy's MAKE OWN (older patches), and the patcher's EDIT
@@ -827,6 +827,18 @@ public:
 
     // The library as a call-out by another page's button (the patcher's + ADD).
     void openLibrary (juce::Component& target) { showLibrary (target, target.getLocalBounds()); }
+
+    // The PATCH tab's mini windows build their own copies of a module's
+    // controls from these: the ones its card lays out (without its on
+    // switch), and the name its slot MIX goes by (empty: the card shows none).
+    std::vector<juce::Component*> windowControls (int type) const { return rowItems (type); }
+    juce::String windowMixName (int slot, int type) const
+    {
+        StackPanel panel;
+        panel.slot = slot;
+        panel.type = type;
+        return showsSlotMix (panel) ? juce::String (hasOwnMix (type) ? "BLEND" : "MIX") : juce::String();
+    }
 
 private:
     int getSlotType (int slot) const
@@ -1213,7 +1225,7 @@ private:
         });
     }
 
-    // PATCHER: the cables on the PATCHER tab decide the routing, and the
+    // PATCHER: the cables on the PATCH tab decide the routing, and the
     // tab opens on them (one choice: the routing and where it is edited).
     void setPatcher()
     {
@@ -1241,7 +1253,7 @@ private:
     juce::String routingHintText() const
     {
         if (patcherOn)
-            return "the PATCHER tab's cables decide the routing";
+            return "the PATCH tab's cables decide the routing";
         return parallelRouting ? "every effect hears the input, outputs are summed" : "each effect feeds the next one";
     }
 

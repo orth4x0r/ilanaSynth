@@ -26,6 +26,7 @@
 #include "Dx7Engine.h"
 #include "OperatorEgParams.h"
 #include "UnisonBank.h"
+#include "VoiceRouting.h"
 #include "WavetableOscillator.h"
 
 namespace UnisonMode
@@ -332,6 +333,9 @@ struct VoiceParams
     FilterParams filter2;
     bool filtersParallel = false;
     float filterBalance = 0.0f; // parallel only: -1 all Filter 1 .. +1 all Filter 2
+    // Roadmap step 16: the ROUTING cables, compiled. Off (as in every older
+    // patch): the fixed chain above (routes, filtersParallel, west.position).
+    VoiceRouting::Table routing;
 
     TensionAdsr::Parameters ampEnv { 0.005f, 0.3f, 0.8f, 0.25f, 0.0f };
     TensionAdsr::Parameters filterEnv { 0.01f, 0.4f, 0.4f, 0.3f, 0.0f };

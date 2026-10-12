@@ -1171,6 +1171,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     p.filtersParallel = getParam ("filters_parallel") > 0.5f;
     p.filterBalance = getParam ("filter_balance");
+    p.routing = currentRoutingTable();
 
     p.ampEnv = { getParam ("amp_attack"), getParam ("amp_decay"), getParam ("amp_sustain"),
                  getParam ("amp_release"), getParam ("amp_curve") };

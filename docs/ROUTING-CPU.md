@@ -183,6 +183,19 @@ The loop's cost is eight chunks instead of one for the four effects in it: about
 
 Rules followed: A1 (plans compiled on the message thread; a slot change runs the old fixed loop for the block until the new plan is in, offline it compiles at once), A2 (loops only through a 64-sample delay, shown on the cable and in the inspector), A3 (pooled buffers, no `setSize` on the audio path), A4 (an instance owns an `FxEngine`, made off the audio thread; freed engines are deleted on the message thread at least a second later), A5 (PATCHER skips a node whose input is silent and tail is spent; effects that can sound on their own are never skipped), A6/A7 (from step A), A9 (the loop ring flushes denormals), A11 (CPU per node on the node and in the inspector, total in the inspector), A14 (fingerprints 0 changed).
 
+## Step 16 measured (2026-10-11, branch `claude/reroutable-oscillators-hl008x`)
+
+What follows the rules in B: the cables compile to a small table (`VoiceRouting::compile`: stage order, used stages, one bus per distinct set of cables, at most 8) when the ten `cable_*` masks change, checked once per block by a 40-bit signature, no allocation. The voice loops index buses by it per chunk; stages nothing feeds, or that feed nothing, are not run. With ROUTING on CHAIN (every existing patch) the voice runs today's code path unchanged: 0 of 698 fingerprints changed, and `ILANA_OSC_ROUTING_TEST=1 ilanaTableTest` plays 600 of 659 presets sample for sample as cables (57 are not repeatable run to run, 2 are corners the cables don't model, 0 differ). Deviation from rule B1: the table is compiled on the audio thread (cheap, allocation-free) rather than on the message thread, so a host automating nothing and a preset load both stay in step with no lock.
+
+Whole engine, `ilanaSnapshot --heldcpu` (12 held notes, multi-core on), 4 alternating runs, mean % of real time: main / this branch (chain) / the same preset's chain as cables (`ILANA_HELD_CABLES=1`) / cables with OSC 1 to F1 and OUT and OSC 2 to F2 (three buses, both filters run):
+
+| Preset | main | branch | cables | split |
+|---|---|---|---|---|
+| Neuro Wobble | 11.3 (10.7-11.8) | 11.4 (10.6-12.0) | 11.8 (10.7-14.1) | 12.0 (10.6-12.5) |
+| Supersaw Anthem | 11.1 (10.3-11.7) | 10.9 (9.7-12.5) | 11.4 (9.6-14.1) | 11.3 (9.1-14.3) |
+
+All within the run-to-run noise of this box (about 2 points). A split patch costs the extra filter it runs and a bus add per chunk, nothing else.
+
 ## Step 17 follow-up: loop guard, loop level and delay (2026-10-11)
 
 ilana's patch (Reverb into Smear and EQ, Smear into EQ, EQ back to Reverb at 50 %) ran away: two branches meet, so the loop gain was over 1, and it sat at the ring's old +-8 clamp (+24 dB) for good. Rule A2 now reads: a loop's ring passes the **loop guard** (a limiter at 0 dBFS, instant attack, 200 ms release, gain set every 16 samples and glided, then clipped), and a graph with a loop passes the **output guard** (the same on its output). Each loop cable has its own delay (one 64-sample chunk to 1 s; rings are sized for 1 s and taken over by the next plan when the cable is the same, so editing doesn't cut the loop) and its level (0-70 %, new ones 20 %).

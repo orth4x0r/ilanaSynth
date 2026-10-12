@@ -63,7 +63,7 @@
 #include "gui/FxInfoText.h"
 #include "gui/pages/FxWidgets.h"
 #include "gui/pages/FxPage.h"
-#include "gui/pages/FxPatcherPage.h"
+#include "gui/pages/PatchPage.h"
 
 
 // The scope over the current page. Docked (the default, review 7) it fills
@@ -369,16 +369,21 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     auto* fmPage = new FmPage (p);
     addSection ("FM", { { "FM", "FM", fmPage } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
-    // The rack and, under the same tab, its PATCHER (roadmap step 17).
     auto* fxPage = new FxPage (p);
-    auto* fxPatcherPage = new FxPatcherPage (p, *fxPage);
-    addSection ("FX", { { "FX", "RACK", fxPage }, { "PATCHER", "PATCHER", fxPatcherPage } });
-    fxPage->onShowPatcher = [this] { showPage ("PATCHER"); };
-    fxPatcherPage->onOpenSlot = [this, fxPage] (int slot)
+    addSection ("FX", { { "FX", "RACK", fxPage } });
+    // PATCH: the oscillators' routing (roadmap step 16) and the FX patcher
+    // (17) as one canvas, each note's part and then the effects
+    // (ilana, 2026-10-11).
+    auto* patchPage = new PatchPage (p, *fxPage);
+    addSection ("PATCH", { { "PATCH", "PATCH", patchPage } });
+    patchPage->onShowPage = [this] (const juce::String& page) { showPage (page); };
+    patchPage->onOpenSlot = [this, fxPage] (int slot)
     {
         showPage ("FX");
         fxPage->editInstance (slot);
     };
+    FilterFlow::openRouting() = [this] { showPage ("PATCH"); };
+    fxPage->onShowPatcher = [this] { showPage ("PATCH"); };
     // M7.5: ilanaSynth FX adds its INPUT page (last, so tab shortcuts stay).
     if (IlanaSynthAudioProcessor::isEffectBuild)
         addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });
@@ -1894,12 +1899,23 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
     constexpr int readoutGap = 12;
     place (cpuArea, textWidth ("CPU 100%"), readoutGap);
     place (voicesArea, textWidth ("VOICES 32 / 32"), readoutGap);
-    place (bpmArea, textWidth ("BPM 120.0"), 0);
-    statusStartX = x;
 
     auto& tabBar = tabs.getTabbedButtonBar();
     auto* lastTab = tabBar.getNumTabs() > 0 ? tabBar.getTabButton (tabBar.getNumTabs() - 1) : nullptr;
     const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : bar.getX();
+
+    // BPM gives way when the current tab's page switch would not fit
+    // whole beside the tabs (nine tabs and PLAY's OVERVIEW / VECTOR).
+    auto switchWidth = 0;
+    for (auto* section : sections)
+        if (section == currentSection() && section->getNumPages() > 1)
+            switchWidth = section->switcher.getIdealWidth();
+    const auto bpmWidth = textWidth ("BPM 120.0");
+    const auto showBpm = switchWidth <= x - bpmWidth - 12 - (tabsRight + 12);
+    bpmArea.setVisible (showBpm);
+    if (showBpm)
+        place (bpmArea, bpmWidth, 0);
+    statusStartX = x;
     auto row = juce::Rectangle<int> (tabsRight + 12, bar.getY() + 3, juce::jmax (0, statusStartX - 12 - (tabsRight + 12)), tabBarHeight - 7);
 
     for (auto* section : sections)

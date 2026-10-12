@@ -207,7 +207,7 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
                 for (auto* knob : knobs)
                     timeKnob = timeKnob || knob->getParameterId() == "fx_delay_time";
                 expect (timeKnob, "the window has the Delay's TIME knob");
-                expect (view->getBounds().contains (window->getBounds()), "the window sits inside the canvas");
+                expect (window->getY() >= view->getBottom() && window->getBottom() <= window->getParentComponent()->getHeight(), "the window sits in the strip under the canvas");
                 std::vector<juce::TextButton*> buttons;
                 findAll<juce::TextButton> (*window, buttons);
                 for (auto* button : buttons)

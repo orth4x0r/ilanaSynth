@@ -101,7 +101,8 @@ private:
 // windowed versions of effects inside the patcher"): its picture and its
 // card's controls, built here as copies on the same parameters (the RACK
 // page keeps its own), so it can be edited without leaving the cables.
-// Dragged by its title, closed with x; the page keeps it inside the canvas.
+// Docked in a strip under the canvas (ilana, 2026-10-12: "move it"), so it
+// never covers the graph; closed with x.
 class FxMiniWindow : public juce::Component
 {
 public:
@@ -109,7 +110,6 @@ public:
         : slot (slotIndex), type (fxType), name (title), colour (fxColour (fxType)), power (p, slotIndex), display (p)
     {
         setName ("FX WINDOW " + title); // (the UI test finds it by name)
-        constrainer.owner = this;
         power.setBare (true);
         addAndMakeVisible (power);
         closeButton.setTooltip ("Close this window");
@@ -117,7 +117,8 @@ public:
         closeButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         closeButton.onClick = [this] { if (onClose) onClose (*this); };
         addAndMakeVisible (closeButton);
-        if (FxDisplay::hasDisplay (type))
+        hasDisp = FxDisplay::hasDisplay (type);
+        if (hasDisp)
         {
             display.setType (type, colour);
             addAndMakeVisible (display);
@@ -166,13 +167,7 @@ public:
             controls.push_back (std::move (mix));
         }
 
-        const auto count = (int) controls.size();
-        // (At most three across: a window is a small thing beside its box.)
-        columns = juce::jlimit (1, 3, count == 4 ? 2 : count);
-        rows = juce::jmax (1, (count + columns - 1) / columns);
-        const auto width = juce::jmax (300, columns * cellWidth + (columns - 1) * gap + 2 * pad);
-        const auto height = titleHeight + (display.isVisible() ? displayHeight + gap : 0) + rows * cellHeight + (rows - 1) * gap + pad;
-        setSize (width, height);
+        setSize (400, heightFor (400));
     }
 
     ~FxMiniWindow() override
@@ -183,7 +178,18 @@ public:
     }
 
     const int slot, type;
-    std::function<void (FxMiniWindow&)> onClose, onMoved;
+    std::function<void (FxMiniWindow&)> onClose;
+
+    // The height it needs at a given width: the picture beside the controls
+    // when wide, above them when not; the controls fill the width in a grid.
+    int heightFor (int width) const
+    {
+        const auto layout = gridFor (width);
+        const auto gridHeight = layout.rows * cellHeight + (layout.rows - 1) * gap + 6;
+        if (layout.wide)
+            return titleHeight + juce::jmax (gridHeight, displayHeight) + pad;
+        return titleHeight + (hasDisp ? displayHeight + gap : 0) + gridHeight + pad;
+    }
 
     // Whether its controls are on a copy's own settings (or on the front ones).
     bool isOwnSettings() const { return shadow != nullptr; }
@@ -217,60 +223,43 @@ public:
         title.removeFromRight (10);
         power.setBounds (title.removeFromRight (40).withSizeKeepingCentre (40, 20));
         area = area.withTrimmedLeft (pad).withTrimmedRight (pad).withTrimmedBottom (pad);
-        if (display.isVisible())
+        const auto layout = gridFor (getWidth());
+        if (hasDisp)
         {
-            display.setBounds (area.removeFromTop (displayHeight));
-            area.removeFromTop (gap);
+            if (layout.wide)
+            {
+                display.setBounds (area.removeFromLeft (displayWidth).withHeight (juce::jmax (displayHeight, area.getHeight())));
+                area.removeFromLeft (gap);
+            }
+            else
+            {
+                display.setBounds (area.removeFromTop (displayHeight));
+                area.removeFromTop (gap);
+            }
         }
+        const auto cell = (area.getWidth() - (layout.columns - 1) * gap) / layout.columns;
         for (size_t k = 0; k < controls.size(); ++k)
         {
-            const auto column = (int) k % columns, row = (int) k / columns;
-            controls[k]->setBounds (area.getX() + column * (cellWidth + gap), area.getY() + row * (cellHeight + gap), cellWidth, cellHeight);
+            const auto column = (int) k % layout.columns, row = (int) k / layout.columns;
+            controls[k]->setBounds (area.getX() + column * (cell + gap), area.getY() + row * (cellHeight + gap), cell, cellHeight);
         }
-    }
-
-    // Dragged by its title bar.
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        toFront (false);
-        dragging = e.y < titleHeight;
-        if (dragging)
-            dragger.startDraggingComponent (this, e);
-    }
-
-    void mouseDrag (const juce::MouseEvent& e) override
-    {
-        if (dragging)
-            dragger.dragComponent (this, e, &constrainer);
-    }
-
-    void mouseUp (const juce::MouseEvent&) override
-    {
-        if (dragging && onMoved)
-            onMoved (*this);
-        dragging = false;
-    }
-
-    // Keeps it inside this area of its parent (the canvas).
-    void setLimits (juce::Rectangle<int> area)
-    {
-        limits = area;
-        constrainer.setMinimumOnscreenAmounts (getHeight(), getWidth(), getHeight(), getWidth());
-        setBounds (getBounds().constrainedWithin (limits));
     }
 
 private:
-    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, cellWidth = 116, cellHeight = 44;
+    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, displayWidth = 220, cellWidth = 92, cellHeight = 44;
 
-    struct Constrainer : juce::ComponentBoundsConstrainer
+    struct Grid { int columns, rows; bool wide; };
+
+    // Columns and rows of controls at a width; wide enough, the picture goes beside them.
+    Grid gridFor (int width) const
     {
-        FxMiniWindow* owner = nullptr;
-        void checkBounds (juce::Rectangle<int>& bounds, const juce::Rectangle<int>&, const juce::Rectangle<int>&, bool, bool, bool, bool) override
-        {
-            if (owner != nullptr && ! owner->limits.isEmpty())
-                bounds = bounds.constrainedWithin (owner->limits);
-        }
-    };
+        const auto count = juce::jmax (1, (int) controls.size());
+        const auto inner = width - 2 * pad;
+        const auto wide = hasDisp && inner >= displayWidth + gap + 3 * cellWidth;
+        const auto room = inner - (wide ? displayWidth + gap : 0);
+        const auto columns = juce::jlimit (1, count, (room + gap) / (cellWidth + gap));
+        return { columns, (count + columns - 1) / columns, wide };
+    }
 
     juce::String name;
     juce::Colour colour;
@@ -279,11 +268,7 @@ private:
     std::unique_ptr<FxInstance::Shadow> shadow;
     juce::TextButton closeButton { juce::String::fromUTF8 ("\xc3\x97") };
     std::vector<std::unique_ptr<juce::Component>> controls;
-    int columns = 1, rows = 1;
-    juce::ComponentDragger dragger;
-    Constrainer constrainer;
-    juce::Rectangle<int> limits;
-    bool dragging = false;
+    bool hasDisp = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FxMiniWindow)
 };
@@ -503,11 +488,10 @@ public:
         area.removeFromTop (10);
         inspector = area.removeFromBottom (inspectorHeight);
         area.removeFromBottom (10);
+        layoutDock (area);
         view.setBounds (area);
         fit();
         layoutInspector();
-        for (auto& window : windows)
-            window->setLimits (view.getBounds());
     }
 
     // Tests: the graph the view shows, and the voice's cables as a patch.
@@ -994,22 +978,35 @@ private:
 
     //==========================================================================
     // Edits.
-    // The graph fills what the open windows leave free: tighter margins and
-    // 5 % zoom steps than the default fit, so it keeps its size (R17-2).
-    void fit() { view.fitContentInto (freeArea(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f); }
+    // The graph fills the canvas: tighter margins and 5 % zoom steps than
+    // the default fit, so it keeps its size (R17-2).
+    // (Under an open window the canvas is short: down to half size.)
+    void fit() { view.fitContentInto (view.getLocalBounds(), maxZoom, dockOpen ? 0.5f : minZoom, 40.0f, dockOpen ? 40.0f : 90.0f, 0.05f); }
 
-    juce::Rectangle<int> freeArea() const
+    // The effect windows sit in a strip under the canvas, side by side
+    // (taken from `area`; the canvas is what is left).
+    void layoutDock (juce::Rectangle<int>& area)
     {
-        auto free = view.getLocalBounds();
-        for (const auto& window : windows)
+        std::vector<FxMiniWindow*> open;
+        for (auto& window : windows)
             if (window->isVisible())
-            {
-                const auto at = window->getBounds().translated (-view.getX(), -view.getY());
-                // (Only one docked at the right edge; a window dragged elsewhere floats.)
-                if (at.getRight() >= free.getRight() - 2 && at.getX() > free.getX() + 300)
-                    free.setRight (at.getX() - 10);
-            }
-        return free;
+                open.push_back (window.get());
+        dockOpen = ! open.empty();
+        if (open.empty())
+            return;
+        const auto gap = 10;
+        const auto width = (area.getWidth() - gap * ((int) open.size() - 1)) / (int) open.size();
+        auto height = 0;
+        for (auto* window : open)
+            height = juce::jmax (height, window->heightFor (width));
+        height = juce::jmin (height, area.getHeight() * 3 / 5);
+        auto dock = area.removeFromBottom (height);
+        area.removeFromBottom (10);
+        for (auto* window : open)
+        {
+            window->setBounds (dock.removeFromLeft (width));
+            dock.removeFromLeft (gap);
+        }
     }
 
     // A cable may not cross the line at VOICES: the per-note boxes feed only
@@ -1256,7 +1253,7 @@ private:
     //==========================================================================
     // Mini windows: at most four, one per box (a copy of an effect with its
     // own settings gets controls on those, not on the front ones).
-    static constexpr size_t maxWindows = 4;
+    static constexpr size_t maxWindows = 2;
 
     void openWindow (int slot)
     {
@@ -1284,76 +1281,9 @@ private:
 
         auto window = std::make_unique<FxMiniWindow> (processorRef, rack, slot, type, label);
         window->onClose = [this] (FxMiniWindow& closing) { closeWindow (&closing); };
-        // Beside the box where it fits the canvas and covers no other
-        // window: right of it, left, below, above; else right of it.
-        const auto box = (view.nodeBounds (*node) * view.getZoom()).toNearestInt() + view.getPosition();
-        const auto size = window->getLocalBounds();
-        std::vector<juce::Rectangle<int>> places {
-            size.withPosition (box.getRight() + 20, box.getY()),
-            size.withPosition (box.getX() - 20 - size.getWidth(), box.getY()),
-            size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getBottom() + 20),
-            size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getY() - 20 - size.getHeight())
-        };
-        // (Or beside a window already open, so they tile rather than stack.)
-        for (const auto& other : windows)
-            if (other->isVisible())
-            {
-                const auto at = other->getBounds();
-                places.push_back (size.withPosition (at.getX() - 10 - size.getWidth(), at.getY()));
-                places.push_back (size.withPosition (at.getRight() + 10, at.getY()));
-                places.push_back (size.withPosition (at.getX(), at.getBottom() + 10));
-                places.push_back (size.withPosition (at.getX(), at.getY() - 10 - size.getHeight()));
-            }
-        // Docked first: against the canvas's right edge while that leaves the
-        // graph room; the graph refits into what is left (R17-3), so a window
-        // no longer covers its own boxes. Further windows tile as before.
-        std::vector<juce::Rectangle<int>> docks { size.withPosition (view.getRight() - size.getWidth(), view.getY()) };
-        auto docked = false;
-        for (const auto& dock : docks)
-        {
-            auto clear = view.getBounds().contains (dock) && (float) (dock.getX() - view.getX()) >= view.getContentArea().getWidth() * minZoom + 60.0f;
-            for (const auto& other : windows)
-                clear = clear && (! other->isVisible() || ! other->getBounds().intersects (dock));
-            if (clear)
-            {
-                places.insert (places.begin(), dock);
-                docked = true;
-                break;
-            }
-        }
-
-        // The one covering the least: another window counts far more than the
-        // boxes (which stay reachable round it); a place that fits as it is
-        // wins a tie.
-        auto place = places[0].constrainedWithin (view.getBounds());
-        auto least = std::numeric_limits<juce::int64>::max();
-        for (const auto& candidate : places)
-        {
-            const auto inside = candidate.constrainedWithin (view.getBounds());
-            juce::int64 covered = view.getBounds().contains (candidate) ? 0 : 1;
-            for (const auto& other : windows)
-                if (other->isVisible())
-                {
-                    const auto overlap = other->getBounds().getIntersection (inside);
-                    covered += 100 * (juce::int64) overlap.getWidth() * overlap.getHeight();
-                }
-            for (const auto& node : shown.nodes())
-            {
-                const auto overlap = ((view.nodeBounds (node) * view.getZoom()).toNearestInt() + view.getPosition()).getIntersection (inside);
-                covered += (juce::int64) overlap.getWidth() * overlap.getHeight();
-            }
-            if (covered < least)
-            {
-                least = covered;
-                place = inside;
-            }
-        }
-        window->setBounds (docked ? places.front() : place);
         addAndMakeVisible (*window);
-        window->setLimits (view.getBounds());
         windows.push_back (std::move (window));
-        if (docked)
-            fit();
+        resized();
     }
 
     // (Deferred: a window closes from its own button's click.)
@@ -1362,13 +1292,14 @@ private:
         if (window == nullptr)
             return;
         window->setVisible (false);
+        resized();
         juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PatchPage> (this), window]
         {
             if (safe == nullptr)
                 return;
             auto& list = safe->windows;
             list.erase (std::remove_if (list.begin(), list.end(), [window] (const auto& w) { return w.get() == window; }), list.end());
-            safe->fit();
+            safe->resized();
         });
     }
 
@@ -1739,6 +1670,7 @@ private:
     bool loopGestureOpen = false;
 
     std::vector<std::unique_ptr<FxMiniWindow>> windows;
+    bool dockOpen = false;
     juce::String lastSignature, lastState, refusal;
     juce::uint32 refusedUntil = 0;
     int shownNodes = -1;

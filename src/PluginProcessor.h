@@ -679,7 +679,22 @@ public:
         bool muteOthers = true;     // the other oscillators switched off after
         int note = 60, velocity = 100;
         double holdSeconds = 2.0, tailSeconds = 2.0;
+        // Roadmap step 41: a multisample. One render per note on the grid
+        // (noteLow, noteLow + spacing, ... up to noteHigh) and per velocity
+        // layer, each becoming a zone of one embedded multisample on the
+        // target oscillator. All the renders share one gain, so the
+        // loudness between notes and layers is what the patch played.
+        bool multi = false;
+        int noteLow = 36, noteHigh = 84, spacing = 3, velocityLayers = 1;
+
+        // The root notes of the grid and the velocities of the layers.
+        std::vector<int> multiNotes() const;
+        std::vector<int> multiVelocities() const;
+        int numCaptures() const { return (int) (multiNotes().size() * multiVelocities().size()); }
     };
+    // Embedded multisamples stay under this many bytes of 16-bit audio (the
+    // patch carries them): about 3 minutes of mono at 48 kHz.
+    static constexpr juce::int64 maxMultisampleBytes = 17 * 1024 * 1024;
     enum class BounceState { Idle, Rendering, Done, Failed };
     // Message thread. False if a bounce is already running.
     bool startBounce (const BounceRequest& request);
@@ -691,6 +706,8 @@ public:
     static std::shared_ptr<SampleData> renderBounce (const juce::ValueTree& state, const BounceRequest& request,
                                                      std::atomic<float>* progress = nullptr,
                                                      const std::atomic<bool>* cancel = nullptr);
+    static juce::AudioBuffer<float> playOneNote (const juce::ValueTree& state, int note, int velocity, double holdSeconds, double tailSeconds,
+                                                 const std::function<void (float)>& progress, const std::atomic<bool>* cancel);
     // Puts a render on the target oscillator (message thread).
     bool applyBounce (const BounceRequest& request, std::shared_ptr<SampleData> audio, juce::String& message);
 
@@ -1016,6 +1033,9 @@ private:
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
     std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock
+    // The last encoding of each embedded sample (gzip of a multisample takes
+    // a second), reused while the oscillator holds the same audio.
+    std::array<std::pair<std::shared_ptr<SampleData>, juce::ValueTree>, (size_t) numSampleOscs> encodedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
     bool samplesReloadPending = false;

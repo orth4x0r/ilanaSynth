@@ -8566,6 +8566,58 @@ int main (int argc, char** argv)
         pages->showPage ("FX");
         shot ("rack-instances");
 
+        // ilana's patch (2026-10-11): Reverb into Smear and EQ, Smear into
+        // EQ, an EQ to Reverb loop (here at its 70 % top, so the guard holds
+        // it), with the loop selected; then the RACK with a second Reverb.
+        {
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                setParam ("fx_slot" + juce::String (slot), 0.0f);
+            settle (100);
+            for (const auto type : { 13, 11, 29 })
+                processor.addFxEffect (type);
+            setParam ("fx_reverb_on", 1.0f);
+            setParam ("fx_smear_on", 1.0f);
+            processor.setFxPatcherOn (true);
+            auto patch = processor.getFxPatchGraph();
+            std::map<int, PatchGraph::NodeId> boxOf;
+            for (const auto& node : patch.nodes())
+                if (! node.isFixed())
+                    boxOf[node.ref] = node.id;
+            for (const auto& cable : std::vector<PatchGraph::Cable> (patch.cables()))
+                patch.disconnect (cable.from, cable.to);
+            patch.moveNode (PatchGraph::inputNodeId, 0.0f, 80.0f);
+            patch.moveNode (boxOf[1], 140.0f, 140.0f);
+            patch.moveNode (boxOf[2], 380.0f, 0.0f);
+            patch.moveNode (boxOf[3], 450.0f, 80.0f);
+            patch.moveNode (PatchGraph::outputNodeId, 650.0f, 80.0f);
+            patch.connect ({ PatchGraph::inputNodeId, 0 }, { boxOf[1], 0 });
+            patch.connect ({ boxOf[1], 0 }, { boxOf[2], 0 });
+            patch.connect ({ boxOf[1], 0 }, { boxOf[3], 0 });
+            patch.connect ({ boxOf[2], 0 }, { boxOf[3], 0 });
+            patch.connect ({ boxOf[3], 0 }, { PatchGraph::outputNodeId, 0 });
+            patch.connect ({ boxOf[3], 0 }, { boxOf[1], 0 }, 0.7f);
+            processor.setFxPatchGraph (patch);
+            auto hot = processor.getFxPatchGraph();
+            hot.setCableGain (hot.findCable ({ boxOf[3], 0 }, { boxOf[1], 0 }), 0.7f);
+            hot.setCableDelay (hot.findCable ({ boxOf[3], 0 }, { boxOf[1], 0 }), 120.0f);
+            processor.setFxPatchGraph (hot);
+            pages->showPage ("PATCHER");
+            settle (200);
+            if (auto* view = findChild<PatchCableView> (*editor))
+            {
+                view->fitContent (1.4f);
+                view->selectCable (processor.getFxPatchGraph().findCable ({ boxOf[3], 0 }, { boxOf[1], 0 }));
+            }
+            shot ("ilana-loop");
+
+            processor.setFxPatcherOn (false);
+            setParam ("fx_routing", 0.0f);
+            processor.addFxEffect (13);
+            setParam ("fx_reverb_size", 0.8f);
+            pages->showPage ("FX");
+            shot ("rack-reverb-instance");
+        }
+
         if (auto* top = editor->getTopLevelComponent())
         {
             const auto before = top->getBounds();

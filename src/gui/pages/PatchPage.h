@@ -129,7 +129,8 @@ public:
         if (! p.isFxSlotInFront (slot))
         {
             std::vector<juce::String> ids;
-            for (const auto& entry : p.getFxPatch().slots[(size_t) slot].values)
+            const auto patch = p.getFxPatch(); // (a copy: a range-for over the temporary's member read freed memory)
+            for (const auto& entry : patch.slots[(size_t) slot].values)
                 ids.push_back (entry.first);
             shadow = std::make_unique<FxInstance::Shadow> (p, slot, type, ids);
             display.setValueSource (&shadow->getState());
@@ -187,6 +188,45 @@ public:
 
     // Whether its controls are on a copy's own settings (or on the front ones).
     bool isOwnSettings() const { return shadow != nullptr; }
+
+    // The PATCH tab's LFO boxes: each knob's right-click menu gets `menu`'s
+    // items (assign to an LFO cabled to this effect), and a knob an LFO moves
+    // carries a dot in that LFO's colour (`marker`: transparent for none).
+    // Knobs are named by their parameter ID, the slot's MIX by "mix".
+    void setLfoHooks (std::function<void (juce::PopupMenu&, const juce::String&)> menu, std::function<juce::Colour (const juce::String&)> marker)
+    {
+        lfoMarker = std::move (marker);
+        const auto mixId = "fx_slot" + juce::String (slot + 1) + "_mix";
+        for (auto& control : controls)
+            if (auto* knob = dynamic_cast<KnobControl*> (control.get()))
+            {
+                const auto param = knob->getParameterId() == mixId ? FxPatchData::mixParam : knob->getParameterId();
+                knob->extraMenu = [menu, param] (juce::PopupMenu& items) { if (menu) menu (items, param); };
+            }
+        repaint();
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! lfoMarker)
+            return;
+        const auto mixId = "fx_slot" + juce::String (slot + 1) + "_mix";
+        for (auto& control : controls)
+            if (auto* knob = dynamic_cast<KnobControl*> (control.get()))
+            {
+                const auto colour = lfoMarker (knob->getParameterId() == mixId ? FxPatchData::mixParam : knob->getParameterId());
+                if (colour.isTransparent())
+                    continue;
+                const auto at = knob->getBounds().toFloat();
+                // (On the dial's top right corner, by the knob it moves.)
+                const auto dial = juce::jmin (at.getHeight(), at.getWidth());
+                const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ at.getX() + dial * 0.86f, at.getY() + dial * 0.14f });
+                g.setColour (colour);
+                g.fillEllipse (dot);
+                g.setColour (IlanaTheme::Ui::panel);
+                g.drawEllipse (dot, 1.0f);
+            }
+    }
 
     // Changes made elsewhere (its RACK card, undo) onto a copy's controls.
     void refresh()
@@ -279,6 +319,7 @@ private:
     std::unique_ptr<FxInstance::Shadow> shadow;
     juce::TextButton closeButton { juce::String::fromUTF8 ("\xc3\x97") };
     std::vector<std::unique_ptr<juce::Component>> controls;
+    std::function<juce::Colour (const juce::String&)> lfoMarker;
     int columns = 1, rows = 1;
     juce::ComponentDragger dragger;
     Constrainer constrainer;
@@ -299,6 +340,9 @@ public:
     static constexpr PatchGraph::NodeId voiceId = 1u << 20;
     static constexpr int voiceKind = 1000;
     static constexpr int stageKind = 10;
+    // The LFO boxes (FxLfo.h, PatchLfo.h): id lfoNodeId + the LFO's number.
+    static constexpr PatchGraph::NodeId lfoNodeId = 1u << 21;
+    static constexpr int lfoKind = 2000;
 
     PatchPage (IlanaSynthAudioProcessor& p, FxPage& rackPage)
         : processorRef (p), rack (rackPage), view (shown), hasVoice (! IlanaSynthAudioProcessor::isEffectBuild)
@@ -335,6 +379,9 @@ public:
 
         addButton.setTooltip ("Add an effect: it is wired in just before OUT. One the rack has already is a new instance with its own settings.");
         addButton.onClick = [this] { rack.openLibrary (addButton); };
+        lfoButton.setTooltip ("Add an LFO box. Cable it to an effect, then right-click a knob in that effect's window to assign it.");
+        lfoButton.onClick = [this] { addLfo (std::nullopt); };
+        addAndMakeVisible (lfoButton);
         resetButton.setTooltip ("Voice cables back to the fixed chain's routing (each oscillator's route, SERIAL / PARALLEL, WEST's position)");
         resetButton.onClick = [this] { resetVoiceToChain(); };
         fitButton.setTooltip ("Fit the patch to the view");
@@ -350,7 +397,11 @@ public:
             addAndMakeVisible (resetButton);
 
         view.setName ("PATCH"); // (the UI tests find it by name)
-        view.colourOf = [] (const PatchGraph::Node& node) { return colourOf (node); };
+        view.colourOf = [] (const PatchGraph::Node& node) { return isLfo (node) ? fxLfoColour (lfoOf (node)) : colourOf (node); };
+        view.isModSource = [] (const PatchGraph::Node& node) { return isLfo (node); };
+        view.modTagOf = [this] (const PatchGraph::Cable& cable) { return modTagOf (cable); };
+        view.decorateNode = [this] (juce::Graphics& g, const PatchGraph::Node& node, juce::Rectangle<float> box) { decorateLfo (g, node, box); };
+        view.bypassable = [] (const PatchGraph::Node& node) { return ! isLfo (node); };
         view.cpuOf = [this] (PatchGraph::NodeId id) -> float
         {
             const auto slot = slotOf (shown.find (id));
@@ -362,7 +413,7 @@ public:
         view.hasLevel = [this] (const PatchGraph::Cable& cable)
         {
             const auto* from = shown.find (cable.from.node);
-            return from != nullptr && ! isVoice (*from);
+            return from != nullptr && ! isVoice (*from) && ! isLfo (*from);
         };
         view.acceptGraph = [this] (const PatchGraph::Graph& graph) { return accept (graph); };
         view.onRefused = [this]
@@ -372,7 +423,12 @@ public:
         };
         view.onEdited = [this] (PatchCableView::Edit edit) { commit (edit); };
         view.onBypass = [this] (const PatchGraph::Node& node) { toggleBypass (slotOf (&node)); };
-        view.onRemove = [this] (const PatchGraph::Node& node) { removeEffect (slotOf (&node)); };
+        view.onRemove = [this] (const PatchGraph::Node& node)
+        {
+            if (isLfo (node))
+                return removeLfo (lfoOf (node));
+            removeEffect (slotOf (&node));
+        };
         view.onOpen = [this] (const PatchGraph::Node& node) { open (node); };
         view.nodeMenu = [this] (juce::PopupMenu& menu, const PatchGraph::Node& node) { addNodeItems (menu, node); };
         view.addMenu = [this] (juce::PopupMenu& menu, juce::Point<float> at) { addEffectItems (menu, at); };
@@ -393,7 +449,7 @@ public:
         removeCableButton.setTooltip ("Take this loop cable out");
         removeCableButton.onClick = [this]
         {
-            if (const auto* cable = selectedLoop())
+            if (const auto* cable = selectedLoop() != nullptr ? selectedLoop() : selectedModCable())
             {
                 shown.disconnect (cable->from, cable->to);
                 commit (PatchCableView::Edit::cables);
@@ -402,6 +458,30 @@ public:
         removeCableButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
         removeCableButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         addChildComponent (removeCableButton);
+
+        // A selected LFO cable: AMOUNT per knob it moves, the effect's window, remove.
+        lfoAmounts = std::make_unique<FxLfoAmounts> (processorRef);
+        for (auto& knob : lfoAmounts->knobs)
+            addChildComponent (*knob);
+        IlanaTheme::makePill (openTargetButton, IlanaTheme::accent());
+        openTargetButton.setTooltip ("Open the effect's window: right-click a knob there to assign it to this LFO");
+        openTargetButton.onClick = [this]
+        {
+            if (const auto* cable = selectedModCable())
+                if (const auto slot = slotOf (shown.find (cable->to.node)); slot >= 0)
+                    openWindow (slot);
+        };
+        addChildComponent (openTargetButton);
+        // A selected LFO box: its wave, its main controls, its window, remove.
+        IlanaTheme::makePill (openLfoButton, IlanaTheme::accent());
+        openLfoButton.setTooltip ("Open this LFO's window (double-click its box does too)");
+        openLfoButton.onClick = [this] { if (inspectedLfo > 0) openLfoWindow (inspectedLfo); };
+        removeLfoButton.setTooltip ("Take this LFO out (the knobs it moved go back to where they are set)");
+        removeLfoButton.onClick = [this] { removeLfo (inspectedLfo); };
+        removeLfoButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        removeLfoButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
+        addChildComponent (openLfoButton);
+        addChildComponent (removeLfoButton);
 
         // The selected box's own row. A voice box: its ON switch and where to
         // edit it. An effect: its switch, solo, band and MIX, and what to do
@@ -499,6 +579,8 @@ public:
             toolbar.removeFromRight (6);
         }
         addButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
+        toolbar.removeFromRight (6);
+        lfoButton.setBounds (toolbar.removeFromRight (70).reduced (0, 2));
         hint = toolbar.withTrimmedRight (10);
         area.removeFromTop (10);
         inspector = area.removeFromBottom (inspectorHeight);
@@ -508,6 +590,8 @@ public:
         layoutInspector();
         for (auto& window : windows)
             window->setLimits (view.getBounds());
+        for (auto& window : lfoWindows)
+            window->setLimits (view.getBounds());
     }
 
     // Tests: the graph the view shows, and the voice's cables as a patch.
@@ -515,7 +599,9 @@ public:
     int getNumWindows() const { return (int) windows.size(); }
     PatchCableView& getView() { return view; }
 
-    static bool isVoice (const PatchGraph::Node& node) { return node.id >= voiceId; }
+    static bool isVoice (const PatchGraph::Node& node) { return node.id >= voiceId && node.id < lfoNodeId; }
+    static bool isLfo (const PatchGraph::Node& node) { return node.id > lfoNodeId && node.id <= lfoNodeId + (PatchGraph::NodeId) FxLfo::maxLfos; }
+    static int lfoOf (const PatchGraph::Node& node) { return isLfo (node) ? (int) (node.id - lfoNodeId) : 0; }
 
     // The voice's patch a merged graph's cables make (a cable into VOICES
     // is VoiceRouting's OUT).
@@ -618,6 +704,11 @@ private:
 
     juce::String statusOf (const PatchGraph::Node& node) const
     {
+        if (isLfo (node))
+        {
+            const auto* lfo = lfoPatch.findLfo (lfoOf (node));
+            return lfo != nullptr ? FxLfo::rateText (lfo->settings).toUpperCase() : juce::String();
+        }
         if (! isVoice (node))
         {
             if (node.bypassed)
@@ -728,7 +819,16 @@ private:
         const auto content = view.getContentArea().translated (view.getOrigin().x, view.getOrigin().y);
         if (content.getRight() > band.getRight() + 40.0f)
         {
-            const auto all = juce::Rectangle<float> (band.getRight() + 10.0f, band.getY(), content.getRight() + 20.0f - band.getRight() - 10.0f, band.getHeight());
+            // (Tall enough for every box after VOICES: an LFO box above or below the row sits inside.)
+            auto top = voiceArea.getY(), bottom = voiceArea.getBottom();
+            for (const auto& node : shown.nodes())
+                if (! isVoice (node) && ! node.isFixed())
+                {
+                    top = juce::jmin (top, node.y - 40.0f);
+                    bottom = juce::jmax (bottom, node.y + PatchCableView::nodeHeight + 20.0f);
+                }
+            const auto all = juce::Rectangle<float> (band.getRight() + 10.0f, top + view.getOrigin().y,
+                                                     content.getRight() + 20.0f - band.getRight() - 10.0f, bottom - top);
             g.setColour (Ui::line2.withAlpha (0.2f));
             g.fillRoundedRectangle (all, 12.0f);
             g.setColour (Ui::line.withAlpha (0.7f));
@@ -748,6 +848,47 @@ private:
             return;
         paintCard (g, inspector.toFloat(), 8.0f, Ui::line);
         auto text = inspectorText;
+        const auto twoLines = [&g, &text] (const juce::String& name, const juce::String& detail, juce::Colour colour)
+        {
+            auto title = text.removeFromTop (text.getHeight() / 2);
+            paintTag (g, { (float) title.getX() + 4.0f, (float) title.getBottom() - 10.0f }, colour);
+            g.setColour (Ui::text);
+            g.setFont (font (TextSize::large, true));
+            drawFitted (g, name, title.withTrimmedLeft (16), juce::Justification::bottomLeft, 1, TextSize::minPassive);
+            g.setColour (Ui::text3);
+            g.setFont (font (TextSize::label));
+            drawFitted (g, detail, text.withTrimmedTop (4).withTrimmedLeft (16), juce::Justification::topLeft, 2);
+        };
+        if (const auto* mod = selectedModCable())
+        {
+            const auto* from = shown.find (mod->from.node);
+            const auto* to = shown.find (mod->to.node);
+            const auto id = from != nullptr ? lfoOf (*from) : 0;
+            const auto target = to != nullptr ? juce::String (to->label) : juce::String ("?");
+            const auto assigned = lfoAmounts->totalAssigned();
+            juce::String detail;
+            if (assigned == 0)
+                detail = "Right-click a knob in " + target + "'s window to assign it.";
+            else
+                detail << "Moves " << assigned << (assigned == 1 ? " knob" : " knobs")
+                       << (assigned > lfoAmounts->numShown() ? " (first " + juce::String (lfoAmounts->numShown()) + " here)" : juce::String())
+                       << ". Right-click a knob in its window for more.";
+            twoLines (fxLfoName (id).toUpperCase() + "  >  " + target, detail, fxLfoColour (id));
+            return;
+        }
+        if (inspectedLfo > 0)
+        {
+            juce::StringArray to;
+            for (const auto& cable : shown.cables())
+                if (cable.from.node == lfoNodeId + (PatchGraph::NodeId) inspectedLfo)
+                    if (const auto* target = shown.find (cable.to.node))
+                        to.add (target->label);
+            twoLines (fxLfoName (inspectedLfo).toUpperCase(),
+                      to.isEmpty() ? "Drag from its output onto an effect's box, then assign knobs in that effect's window."
+                                   : "Cabled to " + to.joinIntoString (", ") + ".",
+                      fxLfoColour (inspectedLfo));
+            return;
+        }
         if (const auto* loop = selectedLoop())
         {
             // A loop: where it runs, and whether the guard is holding it.
@@ -885,7 +1026,8 @@ private:
     void layoutInspector()
     {
         auto row = inspector.reduced (20, 10);
-        inspectorText = row.removeFromLeft (juce::jmin (inspectedVoice >= 0 ? 420 : 300, row.getWidth() / 3));
+        inspectorText = row.removeFromLeft (juce::jmin (inspectedVoice >= 0 ? 420 : inspectedLfo > 0 ? 200 : selectedModCable() != nullptr ? 260 : 300,
+                                                       row.getWidth() / 3));
         onArea = powerArea = soloArea = bandArea = {};
         const auto loop = selectedLoop() != nullptr;
         for (juce::Component* item : { (juce::Component*) loopKnobs->level.get(), (juce::Component*) loopKnobs->delay.get(),
@@ -900,6 +1042,50 @@ private:
             loopKnobs->level->setBounds (row.removeFromLeft (120).withSizeKeepingCentre (116, 44));
             row.removeFromLeft (20);
             loopKnobs->delay->setBounds (row.removeFromLeft (120).withSizeKeepingCentre (116, 44));
+            return;
+        }
+        // A selected LFO cable: name and detail, an AMOUNT per knob it moves,
+        // OPEN WINDOW and REMOVE CABLE at the right.
+        const auto* mod = selectedModCable();
+        for (auto& knob : lfoAmounts->knobs)
+            knob->setVisible (false);
+        openTargetButton.setVisible (mod != nullptr);
+        if (mod != nullptr)
+        {
+            auto actions = row.removeFromRight (290);
+            removeCableButton.setVisible (true);
+            removeCableButton.setBounds (actions.removeFromRight (130).withSizeKeepingCentre (130, 28));
+            actions.removeFromRight (10);
+            openTargetButton.setBounds (actions.removeFromRight (140).withSizeKeepingCentre (140, 28));
+            row.removeFromLeft (20);
+            for (int k = 0; k < lfoAmounts->numShown(); ++k)
+            {
+                lfoAmounts->knobs[(size_t) k]->setBounds (row.removeFromLeft (120).withSizeKeepingCentre (116, 44));
+                lfoAmounts->knobs[(size_t) k]->setVisible (true);
+                row.removeFromLeft (20);
+            }
+            return;
+        }
+        // A selected LFO box: name and detail, its wave, SHAPE, SYNC, RATE,
+        // DEPTH (the rest in its window), OPEN WINDOW and REMOVE at the right.
+        if (inspectedLfo > 0 && lfoControls != nullptr)
+        {
+            auto actions = row.removeFromRight (250);
+            removeLfoButton.setBounds (actions.removeFromRight (90).withSizeKeepingCentre (90, 28));
+            actions.removeFromRight (10);
+            openLfoButton.setBounds (actions.removeFromRight (140).withSizeKeepingCentre (140, 28));
+            row.removeFromLeft (20);
+            lfoDisplay->setBounds (row.removeFromLeft (140).withSizeKeepingCentre (140, 44));
+            row.removeFromLeft (20);
+            for (auto* item : lfoControls->allItems())
+                item->setVisible (false);
+            const auto items = lfoControls->windowItems();
+            for (size_t k = 0; k < 4 && row.getWidth() >= 116; ++k)
+            {
+                items[k]->setBounds (row.removeFromLeft (116).withSizeKeepingCentre (116, 44));
+                items[k]->setVisible (true);
+                row.removeFromLeft (8); // (the windows' cell gap)
+            }
             return;
         }
         if (inspectedVoice < 0 && inspectedSlot < 0)
@@ -947,10 +1133,25 @@ private:
     {
         const auto voice = node != nullptr && isVoice (*node) ? localKind (*node) : -1;
         const auto slot = slotOf (node);
-        if (voice == inspectedVoice && slot == inspectedSlot)
+        const auto lfo = node != nullptr ? lfoOf (*node) : 0;
+        if (voice == inspectedVoice && slot == inspectedSlot && lfo == inspectedLfo)
             return;
         inspectedVoice = voice;
         inspectedSlot = slot;
+        inspectedLfo = lfo;
+        lfoDisplay.reset();
+        lfoControls.reset();
+        openLfoButton.setVisible (lfo > 0);
+        removeLfoButton.setVisible (lfo > 0);
+        if (lfo > 0)
+        {
+            lfoControls = std::make_unique<FxLfoControls> (processorRef, lfo);
+            lfoDisplay = std::make_unique<FxLfoDisplay> (processorRef, *lfoControls);
+            addAndMakeVisible (*lfoDisplay);
+            for (auto* item : lfoControls->allItems())
+                addChildComponent (item);
+            lfoControls->onLayoutChanged = [safe = juce::Component::SafePointer<PatchPage> (this)] { if (safe != nullptr) safe->layoutInspector(); };
+        }
         onAttachment.reset();
         power.reset();
         mixKnob.reset();
@@ -1007,6 +1208,15 @@ private:
             const auto* to = graph.find (cable.to.node);
             if (from == nullptr || to == nullptr)
                 continue;
+            if (isLfo (*from))
+            {
+                if (slotOf (to) < 0)
+                {
+                    refusal = "An LFO's cable goes to an effect's box.";
+                    return false;
+                }
+                continue;
+            }
             if (isVoice (*from) && ! isVoice (*to) && ! to->isInput())
             {
                 refusal = "Notes meet at VOICES before any effect.";
@@ -1035,14 +1245,14 @@ private:
         for (const auto& cable : graph.cables())
         {
             const auto* from = graph.find (cable.from.node);
-            if (from != nullptr && ! isVoice (*from))
+            if (from != nullptr && ! isVoice (*from) && ! isLfo (*from))
             {
                 fx.connect (cable.from, cable.to, cable.gain);
                 fx.setCableDelay (fx.findCable (cable.from, cable.to), cable.delayMs);
             }
         }
         for (const auto& node : graph.nodes())
-            if (! isVoice (node) && ! node.isInput())
+            if (! isVoice (node) && ! isLfo (node) && ! node.isInput())
                 fx.moveNode (node.id, node.x - fxShift.x, node.y - fxShift.y);
         return fx;
     }
@@ -1065,6 +1275,8 @@ private:
     // decide). One undo step.
     void commit (PatchCableView::Edit edit)
     {
+        if (commitLfos())
+            return;
         const auto fx = fxGraphOf (shown);
         if (edit == PatchCableView::Edit::loop && loopGestureOpen)
         {
@@ -1104,6 +1316,17 @@ private:
             }
         });
         refresh (true);
+    }
+
+    // The LFO cable the view has selected, or null.
+    const PatchGraph::Cable* selectedModCable() const
+    {
+        const auto index = view.getSelectedCable();
+        if (! juce::isPositiveAndBelow (index, (int) shown.cables().size()))
+            return nullptr;
+        const auto& cable = shown.cables()[(size_t) index];
+        const auto* from = shown.find (cable.from.node);
+        return from != nullptr && isLfo (*from) ? &cable : nullptr;
     }
 
     // The loop cable the view has selected, or null.
@@ -1227,6 +1450,8 @@ private:
 
     void open (const PatchGraph::Node& node)
     {
+        if (isLfo (node))
+            return openLfoWindow (lfoOf (node));
         if (isVoice (node))
         {
             if (onShowPage)
@@ -1269,6 +1494,8 @@ private:
 
         auto window = std::make_unique<FxMiniWindow> (processorRef, rack, slot, type, label);
         window->onClose = [this] (FxMiniWindow& closing) { closeWindow (&closing); };
+        window->setLfoHooks ([this, slot] (juce::PopupMenu& menu, const juce::String& param) { addKnobLfoItems (menu, slot, param); },
+                             [this, slot] (const juce::String& param) { return knobLfoColour (slot, param); });
         // Beside the box where it fits the canvas and covers no other
         // window: right of it, left, below, above; else right of it.
         const auto box = (view.nodeBounds (*node) * view.getZoom()).toNearestInt() + view.getPosition();
@@ -1339,6 +1566,14 @@ private:
     // A window whose slot changed effect or was emptied closes.
     void checkWindows()
     {
+        for (auto& window : lfoWindows)
+            if (window->isVisible())
+            {
+                if (lfoPatch.findLfo (window->id) == nullptr)
+                    closeLfoWindow (window.get());
+                else
+                    window->refresh();
+            }
         // (So does one whose settings moved to or from the front: its
         // controls would be on the wrong ones.)
         for (auto& window : windows)
@@ -1348,7 +1583,12 @@ private:
                     || window->isOwnSettings() == processorRef.isFxSlotInFront (window->slot))
                     closeWindow (window.get());
                 else
+                {
                     window->refresh();
+                    if (std::any_of (lfoPatch.lfoCables.begin(), lfoPatch.lfoCables.end(),
+                                                                                 [&window] (const auto& c) { return c.slot == window->slot; }))
+                        window->repaint();
+                }
             }
     }
 
@@ -1360,6 +1600,11 @@ private:
 
     void addNodeItems (juce::PopupMenu& menu, const PatchGraph::Node& node)
     {
+        if (isLfo (node))
+        {
+            menu.addItem ("Open its window", [this, id = lfoOf (node)] { openLfoWindow (id); });
+            return;
+        }
         if (isVoice (node))
         {
             const auto kind = localKind (node);
@@ -1384,6 +1629,8 @@ private:
 
     void addEffectItems (juce::PopupMenu& menu, juce::Point<float> at)
     {
+        menu.addItem ("Add an LFO here", (int) lfoPatch.lfos.size() < FxLfo::maxLfos, false, [this, at] { addLfo (at); });
+        menu.addSeparator();
         const auto full = [this]
         {
             for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
@@ -1515,6 +1762,7 @@ private:
         }
         if (hasVoice)
             connectVoice (graph, patch, sources);
+        addLfoBoxes (graph);
 
         shown = graph;
         view.setLoopLatencyMs (shortestLoopMs());
@@ -1641,6 +1889,306 @@ private:
                     graph.connect ({ voiceId + (PatchGraph::NodeId) (stageKind + stage), 0 }, { targetOf (destination), 0 });
     }
 
+    //==========================================================================
+    // LFO boxes (FxLfo.h, PatchLfo.h).
+
+    // The knobs an LFO may move on a slot (ID or "mix", name), cached per refresh.
+    const std::vector<std::pair<juce::String, juce::String>>& targetsOf (int slot)
+    {
+        auto& targets = lfoTargets[slot];
+        if (targets.empty())
+            targets = processorRef.getFxLfoTargets (slot);
+        return targets;
+    }
+
+    // The boxes and their cables into the merged graph (FX coordinates moved
+    // as the effects are), and each cable's tag: the knobs it moves.
+    void addLfoBoxes (PatchGraph::Graph& graph)
+    {
+        lfoPatch = processorRef.getFxPatch();
+        lfoTargets.clear();
+        modTags.clear();
+        for (const auto& lfo : lfoPatch.lfos)
+        {
+            PatchGraph::Node node;
+            node.id = lfoNodeId + (PatchGraph::NodeId) lfo.id;
+            node.kind = lfoKind;
+            node.numInputs = 0;
+            node.numOutputs = 1;
+            node.x = lfo.x + fxShift.x;
+            node.y = lfo.y + fxShift.y;
+            node.label = fxLfoName (lfo.id).toUpperCase().toStdString();
+            graph.restoreNode (node);
+        }
+        for (const auto& cable : lfoPatch.lfoCables)
+        {
+            const PatchGraph::Node* target = nullptr;
+            for (const auto& node : graph.nodes())
+                if (slotOf (&node) == cable.slot)
+                    target = &node;
+            if (target == nullptr)
+                continue;
+            graph.connect ({ lfoNodeId + (PatchGraph::NodeId) cable.lfo, 0 }, { target->id, 0 });
+
+            juce::StringArray names;
+            for (const auto& route : lfoPatch.lfoRoutes)
+                if (route.lfo == cable.lfo && route.slot == cable.slot)
+                    for (const auto& [param, name] : targetsOf (cable.slot))
+                        if (param == route.param)
+                            names.add (FxLfo::shortName (name, fxTypeName (target->kind)));
+            juce::String tag;
+            if (names.isEmpty())
+                tag = "ASSIGN A KNOB";
+            else if (names.size() <= 2)
+                tag = names.joinIntoString (", ");
+            else
+                tag = names[0] + ", " + names[1] + " +" + juce::String (names.size() - 2);
+            modTags[{ cable.lfo, cable.slot }] = tag;
+        }
+    }
+
+    juce::String modTagOf (const PatchGraph::Cable& cable) const
+    {
+        const auto* from = shown.find (cable.from.node);
+        const auto slot = slotOf (shown.find (cable.to.node));
+        if (from == nullptr || slot < 0)
+            return {};
+        const auto found = modTags.find ({ lfoOf (*from), slot });
+        return found != modTags.end() ? found->second : juce::String();
+    }
+
+    // An LFO box: its rate as the second line, its wave at the right.
+    void decorateLfo (juce::Graphics& g, const PatchGraph::Node& node, juce::Rectangle<float> box) const
+    {
+        if (! isLfo (node))
+            return;
+        const auto* lfo = lfoPatch.findLfo (lfoOf (node));
+        if (lfo == nullptr)
+            return;
+        const auto plot = juce::Rectangle<float> (box.getRight() - 54.0f, box.getY() + 13.0f, 40.0f, 24.0f);
+        paintFxLfoWave (g, plot, lfo->settings, fxLfoColour (lfo->id), processorRef.getFxLfoPhase (lfo->id), true, false);
+    }
+
+    // A view edit that touched an LFO box or cable: made here (one undo step), true if so.
+    bool commitLfos()
+    {
+        const auto patch = processorRef.getFxPatch();
+        std::vector<FxPatchData::LfoCable> cables;
+        for (const auto& cable : shown.cables())
+            if (const auto* from = shown.find (cable.from.node); from != nullptr && isLfo (*from))
+                if (const auto slot = slotOf (shown.find (cable.to.node)); slot >= 0)
+                    cables.push_back ({ lfoOf (*from), slot });
+        std::vector<FxPatchData::LfoCable> added, removed;
+        for (const auto& cable : cables)
+            if (! patch.hasLfoCable (cable.lfo, cable.slot))
+                added.push_back (cable);
+        for (const auto& cable : patch.lfoCables)
+            if (std::find (cables.begin(), cables.end(), cable) == cables.end())
+                removed.push_back (cable);
+        std::vector<FxPatchData::Lfo> moved;
+        for (const auto& node : shown.nodes())
+            if (const auto* lfo = isLfo (node) ? patch.findLfo (lfoOf (node)) : nullptr)
+                if (lfo->x != node.x - fxShift.x || lfo->y != node.y - fxShift.y)
+                {
+                    auto at = *lfo;
+                    at.x = node.x - fxShift.x;
+                    at.y = node.y - fxShift.y;
+                    moved.push_back (at);
+                }
+        if (added.empty() && removed.empty() && moved.empty())
+            return false;
+        const auto name = ! moved.empty() && added.empty() && removed.empty() ? "Move LFO" : removed.empty() ? "LFO cable" : "Remove LFO cable";
+        processorRef.performEdit (name, [this, added, removed, moved]
+        {
+            for (const auto& cable : removed)
+                processorRef.setFxLfoCable (cable.lfo, cable.slot, false);
+            for (const auto& cable : added)
+                processorRef.setFxLfoCable (cable.lfo, cable.slot, true);
+            for (const auto& lfo : moved)
+                processorRef.moveFxLfo (lfo.id, lfo.x, lfo.y);
+        });
+        refresh (true);
+        return true;
+    }
+
+    // A new LFO box at a merged-graph position, or above the effects.
+    int addLfo (std::optional<juce::Point<float>> at)
+    {
+        if ((int) lfoPatch.lfos.size() >= FxLfo::maxLfos)
+        {
+            refusal = "Every LFO box is in use (" + juce::String (FxLfo::maxLfos) + ").";
+            refusedUntil = juce::Time::getMillisecondCounter() + 3000;
+            repaint (hint);
+            return 0;
+        }
+        juce::Point<float> place;
+        if (at.has_value())
+        {
+            place = *at;
+        }
+        else
+        {
+            // Above the effects' row, left to right as they are added.
+            auto top = std::numeric_limits<float>::max(), left = std::numeric_limits<float>::max();
+            for (const auto& node : shown.nodes())
+                if (! isVoice (node) && ! isLfo (node) && ! node.isOutput())
+                {
+                    top = juce::jmin (top, node.y);
+                    left = juce::jmin (left, node.x + (node.isInput() ? PatchCableView::fixedWidth + 50.0f : 0.0f));
+                }
+            if (top == std::numeric_limits<float>::max())
+                top = left = 0.0f;
+            const auto row = (float) lfoPatch.lfos.size();
+            place = { left + row * (PatchCableView::nodeWidth + 20.0f), top - 110.0f };
+        }
+        const auto x = std::round ((place.x - fxShift.x) / 10.0f) * 10.0f, y = std::round ((place.y - fxShift.y) / 10.0f) * 10.0f;
+        auto id = 0;
+        processorRef.performEdit ("Add LFO", [this, x, y, &id] { id = processorRef.addFxLfo (x, y); });
+        refresh (true);
+        return id;
+    }
+
+    void removeLfo (int id)
+    {
+        if (id <= 0)
+            return;
+        processorRef.performEdit ("Remove " + fxLfoName (id), [this, id] { processorRef.removeFxLfo (id); });
+        for (auto& window : lfoWindows)
+            if (window->id == id)
+                closeLfoWindow (window.get());
+        refresh (true);
+    }
+
+    void openLfoWindow (int id)
+    {
+        const auto* node = shown.find (lfoNodeId + (PatchGraph::NodeId) id);
+        if (node == nullptr)
+            return;
+        for (auto& window : lfoWindows)
+            if (window->id == id && window->isVisible())
+            {
+                window->toFront (false);
+                return;
+            }
+        auto window = std::make_unique<FxLfoWindow> (processorRef, id);
+        window->onClose = [this] (FxLfoWindow& closing) { closeLfoWindow (&closing); };
+        // Beside its box, where it covers the fewest boxes: right, left, below, above.
+        const auto box = (view.nodeBounds (*node) * view.getZoom()).toNearestInt() + view.getPosition();
+        const auto size = window->getLocalBounds();
+        const std::vector<juce::Rectangle<int>> places { size.withPosition (box.getRight() + 20, box.getY()),
+                                                         size.withPosition (box.getX() - 20 - size.getWidth(), box.getY()),
+                                                         size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getBottom() + 20),
+                                                         size.withPosition (box.getCentreX() - size.getWidth() / 2, box.getY() - 20 - size.getHeight()) };
+        auto place = places[0].constrainedWithin (view.getBounds());
+        auto least = std::numeric_limits<juce::int64>::max();
+        for (const auto& candidate : places)
+        {
+            const auto inside = candidate.constrainedWithin (view.getBounds());
+            juce::int64 covered = view.getBounds().contains (candidate) ? 0 : 1;
+            for (const auto& other : shown.nodes())
+            {
+                const auto overlap = ((view.nodeBounds (other) * view.getZoom()).toNearestInt() + view.getPosition()).getIntersection (inside);
+                covered += (juce::int64) overlap.getWidth() * overlap.getHeight();
+            }
+            for (const auto& other : windows)
+                if (other->isVisible())
+                {
+                    const auto overlap = other->getBounds().getIntersection (inside);
+                    covered += 100 * (juce::int64) overlap.getWidth() * overlap.getHeight();
+                }
+            if (covered < least)
+            {
+                least = covered;
+                place = inside;
+            }
+        }
+        window->setBounds (place);
+        addAndMakeVisible (*window);
+        window->setLimits (view.getBounds());
+        lfoWindows.push_back (std::move (window));
+    }
+
+    void closeLfoWindow (FxLfoWindow* window)
+    {
+        if (window == nullptr)
+            return;
+        window->setVisible (false);
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PatchPage> (this), window]
+        {
+            if (safe == nullptr)
+                return;
+            auto& list = safe->lfoWindows;
+            list.erase (std::remove_if (list.begin(), list.end(), [window] (const auto& w) { return w.get() == window; }), list.end());
+        });
+    }
+
+    // A knob's right-click items in an effect's window: assign it to an LFO
+    // cabled to this effect (or stop, or how far), or make an LFO for it.
+    void addKnobLfoItems (juce::PopupMenu& menu, int slot, const juce::String& param)
+    {
+        const auto patch = processorRef.getFxPatch();
+        const auto targets = processorRef.getFxLfoTargets (slot);
+        if (std::none_of (targets.begin(), targets.end(), [&param] (const auto& t) { return t.first == param; }))
+            return;
+        auto cabled = 0;
+        for (const auto& cable : patch.lfoCables)
+        {
+            if (cable.slot != slot)
+                continue;
+            ++cabled;
+            const auto id = cable.lfo;
+            const auto name = fxLfoName (id);
+            const auto route = std::find_if (patch.lfoRoutes.begin(), patch.lfoRoutes.end(), [&] (const FxPatchData::LfoRoute& r)
+                                             { return r.lfo == id && r.slot == slot && r.param == param; });
+            if (route == patch.lfoRoutes.end())
+            {
+                menu.addItem ("Assign to " + name, [this, id, slot, param, name]
+                {
+                    processorRef.performEdit ("Assign to " + name, [this, id, slot, param] { processorRef.assignFxLfo (id, slot, param, true, 0.5f); });
+                    refresh (true);
+                });
+                continue;
+            }
+            juce::PopupMenu amounts;
+            for (const auto percent : { 100, 50, 25, -25, -50, -100 })
+                amounts.addItem (juce::String (percent) + " %", true, juce::roundToInt (route->amount * 100.0f) == percent, [this, id, slot, param, percent]
+                {
+                    processorRef.performEdit ("LFO amount", [this, id, slot, param, percent] { processorRef.setFxLfoAmount (id, slot, param, (float) percent / 100.0f); });
+                    refresh (true);
+                });
+            menu.addSubMenu (name + " amount  (" + juce::String (juce::roundToInt (route->amount * 100.0f)) + " %)", amounts);
+            menu.addItem ("Remove from " + name, [this, id, slot, param, name]
+            {
+                processorRef.performEdit ("Remove from " + name, [this, id, slot, param] { processorRef.assignFxLfo (id, slot, param, false); });
+                refresh (true);
+            });
+        }
+        if (cabled == 0 && (int) patch.lfos.size() < FxLfo::maxLfos)
+            menu.addItem ("Assign to a new LFO", [this, slot, param]
+            {
+                // The new box above this effect's, cabled to it.
+                juce::Point<float> at;
+                for (const auto& node : shown.nodes())
+                    if (slotOf (&node) == slot)
+                        at = { node.x, node.y - 110.0f };
+                const auto x = std::round ((at.x - fxShift.x) / 10.0f) * 10.0f, y = std::round ((at.y - fxShift.y) / 10.0f) * 10.0f;
+                processorRef.performEdit ("Assign to a new LFO", [this, slot, param, x, y]
+                {
+                    if (const auto id = processorRef.addFxLfo (x, y); id > 0)
+                        processorRef.assignFxLfo (id, slot, param, true, 0.5f);
+                });
+                refresh (true);
+            });
+    }
+
+    juce::Colour knobLfoColour (int slot, const juce::String& param) const
+    {
+        for (const auto& route : lfoPatch.lfoRoutes)
+            if (route.slot == slot && route.param == param)
+                return fxLfoColour (route.lfo);
+        return juce::Colours::transparentBlack;
+    }
+
     void timerCallback() override
     {
         // (Not under a drag: the view is editing its copy.)
@@ -1662,6 +2210,31 @@ private:
             loopKnobs->show (*loop);
         if ((loop != nullptr) != loopKnobs->level->isVisible())
             layoutInspector();
+        const auto* mod = selectedModCable();
+        if (mod != nullptr)
+        {
+            const auto slot = slotOf (shown.find (mod->to.node));
+            const auto* from = shown.find (mod->from.node);
+            const auto shownBefore = lfoAmounts->numShown();
+            const auto* to = shown.find (mod->to.node);
+            lfoAmounts->show (from != nullptr ? lfoOf (*from) : 0, slot, targetsOf (slot), to != nullptr ? fxTypeName (to->kind) : juce::String(),
+                              from != nullptr ? fxLfoColour (lfoOf (*from)) : IlanaTheme::accent());
+            if (shownBefore != lfoAmounts->numShown() || ! openTargetButton.isVisible())
+                layoutInspector();
+        }
+        else if (openTargetButton.isVisible())
+        {
+            layoutInspector();
+        }
+        if (lfoControls != nullptr)
+        {
+            const auto synced = lfoControls->isSynced();
+            lfoControls->show();
+            if (synced != lfoControls->isSynced())
+                layoutInspector();
+            if (lfoDisplay != nullptr)
+                lfoDisplay->repaint();
+        }
         checkWindows();
         if (juce::Time::getMillisecondCounter() >= refusedUntil && refusedUntil != 0)
         {
@@ -1703,6 +2276,18 @@ private:
     bool loopGestureOpen = false;
 
     std::vector<std::unique_ptr<FxMiniWindow>> windows;
+
+    // LFO boxes: the patch as last shown, each cable's tag, the selected box's
+    // row, a selected cable's amounts, the floating windows.
+    FxPatchData::Patch lfoPatch;
+    std::map<std::pair<int, int>, juce::String> modTags;
+    std::map<int, std::vector<std::pair<juce::String, juce::String>>> lfoTargets;
+    int inspectedLfo = 0;
+    std::unique_ptr<FxLfoControls> lfoControls;
+    std::unique_ptr<FxLfoDisplay> lfoDisplay;
+    std::unique_ptr<FxLfoAmounts> lfoAmounts;
+    juce::TextButton lfoButton { "+ LFO" }, openTargetButton { "OPEN ITS WINDOW" }, openLfoButton { "OPEN WINDOW" }, removeLfoButton { "REMOVE" };
+    std::vector<std::unique_ptr<FxLfoWindow>> lfoWindows;
     juce::String lastSignature, lastState, refusal;
     juce::uint32 refusedUntil = 0;
     int shownNodes = -1;

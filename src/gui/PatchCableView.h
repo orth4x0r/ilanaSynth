@@ -96,6 +96,15 @@ public:
     std::function<void (bool)> onGesture;
     // The highest level a loop cable takes (the owner's limit).
     float maxLoopLevel = 0.7f;
+    // Optional: modulation (the PATCH tab's LFO boxes). A cable out of a node
+    // for which isModSource is true is a modulation cable: it lands on the
+    // top edge of the box it goes to (not on its audio input), is drawn thin
+    // with a tag (modTagOf) by its end, and is dropped anywhere on a box.
+    // decorateNode paints into a node's box after its name (e.g. a wave).
+    std::function<bool (const PatchGraph::Node&)> isModSource;
+    std::function<juce::String (const PatchGraph::Cable&)> modTagOf;
+    std::function<void (juce::Graphics&, const PatchGraph::Node&, juce::Rectangle<float>)> decorateNode;
+    std::function<bool (const PatchGraph::Node&)> bypassable;
 
     // How menus open. The tests swap it for one that picks an item.
     std::function<void (juce::PopupMenu&, std::function<void (int)>)> openMenu = [this] (juce::PopupMenu& menu, std::function<void (int)> done)
@@ -189,6 +198,39 @@ public:
         const auto count = juce::jmax (1, input ? node->numInputs : node->numOutputs);
         const auto spacing = bounds.getHeight() / (float) (count + 1);
         return { input ? bounds.getX() : bounds.getRight(), bounds.getY() + spacing * (float) (port.port + 1) };
+    }
+
+    // Where a modulation cable lands on a box: the middle of its top edge.
+    // Where a modulation cable from `from` lands on box `id`: the middle of
+    // its top edge, or of its bottom edge when the cable comes from below.
+    juce::Point<float> modPortPosition (PatchGraph::NodeId id, juce::Point<float> from = {}) const
+    {
+        const auto* node = graph.find (id);
+        if (node == nullptr)
+            return {};
+        const auto bounds = nodeBounds (*node);
+        return { bounds.getCentreX(), from.y > bounds.getBottom() ? bounds.getBottom() : bounds.getY() };
+    }
+
+    bool isModCable (const PatchGraph::Cable& cable) const
+    {
+        const auto* from = graph.find (cable.from.node);
+        return isModSource && from != nullptr && isModSource (*from);
+    }
+
+    // The box a cable's drag ends on: an input port, or for a modulation
+    // cable any box that isn't a fixed one or another source of modulation.
+    PatchGraph::Port dropTargetAt (juce::Point<float> position) const
+    {
+        const auto* from = graph.find (drag.from.node);
+        if (from != nullptr && isModSource && isModSource (*from))
+        {
+            const auto* target = nodeAt (position);
+            if (target == nullptr || target->isFixed() || isModSource (*target) || target->numInputs <= 0)
+                return {};
+            return { target->id, 0 };
+        }
+        return portAt (position, true);
     }
 
     const PatchGraph::Graph& getGraph() const { return graph; }
@@ -295,7 +337,7 @@ public:
             // Pick up the newest cable into this port.
             const auto& cables = graph.cables();
             for (int c = (int) cables.size() - 1; c >= 0; --c)
-                if (cables[(size_t) c].to == in)
+                if (cables[(size_t) c].to == in && ! isModCable (cables[(size_t) c]))
                 {
                     startCableDrag (cables[(size_t) c].from, c, position);
                     return;
@@ -389,7 +431,7 @@ public:
             onEdited (Edit::layout);
 
         if (drag.kind == DragKind::cable)
-            finishCableDrag (portAt (e.position / zoom, true));
+            finishCableDrag (dropTargetAt (e.position / zoom));
 
         drag = {};
         repaint();
@@ -581,7 +623,7 @@ public:
         {
             const auto key = swingKey (cable);
             auto swing = swings.count (key) ? swings[key] : Swing();
-            active |= stepSwing (swing, portPosition (cable.from, false), portPosition (cable.to, true), dt);
+            active |= stepSwing (swing, portPosition (cable.from, false), cableEnd (cable), dt);
             if (swing.seen)
                 next[key] = swing;
         }
@@ -656,10 +698,32 @@ private:
     // grows with its length up to 14 px.
     float sagFor (juce::Point<float> from, juce::Point<float> to) const { return motion ? juce::jmin (14.0f, from.getDistanceFrom (to) * 0.06f) : 0.0f; }
 
+    juce::Point<float> cableEnd (const PatchGraph::Cable& cable) const
+    {
+        return isModCable (cable) ? modPortPosition (cable.to.node, portPosition (cable.from, false)) : portPosition (cable.to, true);
+    }
+
     juce::Path cablePathOf (const PatchGraph::Cable& cable, bool loop) const
     {
-        const auto from = portPosition (cable.from, false), to = portPosition (cable.to, true);
+        const auto from = portPosition (cable.from, false), to = cableEnd (cable);
+        if (isModCable (cable))
+            return modCablePath (from, to, swingOf (cable));
         return cablePath (from, to, loop, swingOf (cable));
+    }
+
+    // Out of the LFO's port to the right, then down into the top of the box
+    // it moves (or up into its bottom).
+    juce::Path modCablePath (juce::Point<float> from, juce::Point<float> to, juce::Point<float> swing) const
+    {
+        juce::Path path;
+        path.startNewSubPath (from);
+        const auto pullX = juce::jlimit (30.0f, 120.0f, std::abs (to.x - from.x) * 0.5f);
+        const auto pullY = juce::jlimit (30.0f, 120.0f, std::abs (to.y - from.y) * 0.6f);
+        const auto up = from.y > to.y;
+        // (A box to the left: turn straight up or down out of the port, no hook.)
+        const auto start = to.x >= from.x ? from.translated (pullX, 0.0f) : from.translated (16.0f, up ? -pullY : pullY);
+        path.cubicTo (start, to.translated (0.0f, up ? pullY : -pullY), to);
+        return displaced (path, swing + juce::Point<float> (0.0f, sagFor (from, to) * 0.5f));
     }
 
     std::map<SwingKey, Swing> swings;
@@ -788,7 +852,8 @@ private:
             repaint();
             if (canRemove (*node))
             {
-                menu.addItem (bypassNode, "Bypass", true, node->bypassed);
+                if (! bypassable || bypassable (*node))
+                    menu.addItem (bypassNode, "Bypass", true, node->bypassed);
                 menu.addItem (removeNode, "Remove");
             }
             if (nodeMenu)
@@ -948,6 +1013,30 @@ private:
         colour = colour.withAlpha (selected ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));
         const auto width = selected ? 2.6f : 2.0f;
 
+        if (isModCable (cable))
+        {
+            // Thinner, with a dot where it lands, and its tag (the knobs it moves) above the box.
+            const auto end = cableEnd (cable);
+            g.setColour (colour.withAlpha (selected ? 1.0f : 0.75f));
+            g.strokePath (path, juce::PathStrokeType (selected ? 2.2f : 1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (end));
+            if (modTagOf)
+                if (const auto tag = modTagOf (cable); tag.isNotEmpty())
+                {
+                    g.setFont (font (TextSize::tiny, true));
+                    const auto textWidth = juce::jmin (nodeWidth + 20.0f, (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), tag) + 18.0f);
+                    const auto below = portPosition (cable.from, false).y > end.y;
+                    const auto box = juce::Rectangle<float> (textWidth, 18.0f).withCentre (end.translated (0.0f, below ? 17.0f : -17.0f));
+                    g.setColour (Ui::raised);
+                    g.fillRoundedRectangle (box, 9.0f);
+                    g.setColour (selected ? colour : Ui::line);
+                    g.drawRoundedRectangle (box.reduced (0.5f), 9.0f, 1.0f);
+                    g.setColour (Ui::text2);
+                    drawFitted (g, tag, box.reduced (8.0f, 0.0f), juce::Justification::centred, 1, TextSize::tiny);
+                }
+            return;
+        }
+
         if (loop)
         {
             juce::Path dashed;
@@ -1034,7 +1123,17 @@ private:
             g.setColour (Ui::text3);
             g.setFont (font (TextSize::tiny, false, true));
             g.drawText (status, inner.withTrimmedLeft (12), juce::Justification::centredLeft, false);
+            if (decorateNode)
+                decorateNode (g, node, bounds);
         }
+
+        // A box an LFO cable is being dragged over.
+        if (drag.kind == DragKind::cable && dropTargetAt (drag.mouse).node == node.id)
+            if (const auto* source = graph.find (drag.from.node); source != nullptr && isModSource && isModSource (*source))
+            {
+                g.setColour (colourFor (*source));
+                g.drawRoundedRectangle (bounds.expanded (2.0f), 10.0f, 1.5f);
+            }
 
         // Ports: filled while a cable is on them.
         const auto paintPort = [&] (PatchGraph::Port port, bool input)
@@ -1042,8 +1141,8 @@ private:
             const auto centre = portPosition (port, input);
             auto connected = false;
             for (const auto& cable : graph.cables())
-                connected = connected || (input ? cable.to == port : cable.from == port);
-            const auto target = drag.kind == DragKind::cable && input && portAt (drag.mouse, true) == port;
+                connected = connected || (input ? cable.to == port && ! isModCable (cable) : cable.from == port);
+            const auto target = drag.kind == DragKind::cable && input && portAt (drag.mouse, true) == port && ! (isModSource && graph.find (drag.from.node) != nullptr && isModSource (*graph.find (drag.from.node)));
             const auto disc = juce::Rectangle<float> (portRadius * 2.0f, portRadius * 2.0f).withCentre (centre);
             g.setColour (connected || target ? colour.withMultipliedAlpha (alpha) : Ui::raised);
             g.fillEllipse (disc);

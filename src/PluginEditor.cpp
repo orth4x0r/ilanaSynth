@@ -63,6 +63,7 @@
 #include "gui/FxInfoText.h"
 #include "gui/pages/FxWidgets.h"
 #include "gui/pages/FxPage.h"
+#include "gui/pages/PatchLfo.h"
 #include "gui/pages/PatchPage.h"
 
 

@@ -8856,6 +8856,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "ParallelFxTests.inc"
 #include "PatchGraphTests.inc"
 #include "FxPatcherTests.inc"
+#include "FxLfoTests.inc"
 #include "TensionEnvTests.inc"
 #include "OscRoutingTests.inc"
 #include "NoiseTests.inc"
@@ -9578,6 +9579,13 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_FX_LFO_TEST", "").isNotEmpty())
+    {
+        runFxLfoTests();
+        std::cout << (failures == 0 ? "FX LFO TESTS PASSED" : "FX LFO TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_FX_PATCHER_TEST", "").isNotEmpty())
     {
         runFxPatcherTests();
@@ -10026,6 +10034,7 @@ int main()
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });
     timedRun ("runPatchGraphTests", [] { runPatchGraphTests (false); });
     timedRun ("runFxPatcherTests", [] { runFxPatcherTests(); });
+    timedRun ("runFxLfoTests", [] { runFxLfoTests(); });
     timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
     timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });

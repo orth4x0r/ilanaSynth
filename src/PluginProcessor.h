@@ -657,6 +657,29 @@ public:
     // it isn't holding the loop, under 1 while the loop rings by itself and
     // is held at 0 dB (PatchGraphRunner.h).
     float getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const;
+    // The patcher's LFO boxes (FxLfo.h, FxPatch.h). Message thread; the
+    // editor wraps each action in performEdit. addFxLfo returns the new box's
+    // number, or 0 when all FxLfo::maxLfos are in.
+    int addFxLfo (float x, float y);
+    void removeFxLfo (int id);
+    void setFxLfoSettings (int id, const FxLfo::Settings& settings);
+    void moveFxLfo (int id, float x, float y);
+    // A cable from an LFO box to a slot's box; taking it out drops the knobs it moved.
+    void setFxLfoCable (int id, int slotIndex, bool connected);
+    // Moves (amount != 0 with assign) or stops moving one knob of the slot's effect.
+    void assignFxLfo (int id, int slotIndex, const juce::String& param, bool assign, float amount = 0.5f);
+    void setFxLfoAmount (int id, int slotIndex, const juce::String& param, float amount);
+    // The knobs an LFO may move on a slot: (parameter ID or "mix", name),
+    // the continuous ones only.
+    std::vector<std::pair<juce::String, juce::String>> getFxLfoTargets (int slotIndex) const;
+    // The parameter ID a route's param names on a slot ("mix" is the slot's MIX).
+    static juce::String fxLfoParamId (int slotIndex, const juce::String& param);
+    // What an LFO box is doing now (display): its shape's value -1..1 and phase 0..1.
+    float getFxLfoValue (int id) const;
+    float getFxLfoPhase (int id) const;
+    // Tests: the offset (0..1 range) an LFO puts on a slot's parameter in the last chunk.
+    float getFxLfoOffset (int slotIndex, const juce::String& parameterId) const;
+
     // Tests: the rack's plan (what the audio thread runs) is current.
     bool isFxRackPlanCurrent();
     // Tests / tools: compile now what the audio thread would wait for.
@@ -1338,11 +1361,52 @@ private:
     std::array<std::unique_ptr<FxEngine>, (size_t) numFxSlots> ownedEngines;
     std::array<std::unique_ptr<std::vector<float>>, (size_t) numFxSlots> ownedValues;
     std::array<std::atomic<const float*>, (size_t) numFxSlots> slotValues {};
+    // The LFO boxes as the audio thread runs them: made from the patch on
+    // the message thread (applyFxPatchRuntime), swapped in whole.
+    struct FxLfoProgram
+    {
+        std::array<FxLfo::Settings, FxLfo::maxLfos> settings {};
+        std::array<bool, FxLfo::maxLfos> used {};
+        struct Route
+        {
+            int lfo = 0;  // 0-based
+            int slot = 0; // 0-based
+            int index = -1; // ParamCacheEntry::index
+            juce::RangedAudioParameter* parameter = nullptr;
+            float amount = 0.0f;
+        };
+        std::array<Route, FxLfo::maxRoutes> routes {};
+        int numRoutes = 0;
+    };
+public:
+    // What one slot reads while it runs: the offsets on its parameters (readParam).
+    struct FxLfoSlotMods
+    {
+        int count = 0;
+        std::array<int, FxLfo::maxRoutes> index {};
+        std::array<juce::RangedAudioParameter*, FxLfo::maxRoutes> parameter {};
+        std::array<float, FxLfo::maxRoutes> offset {};
+    };
+    static const FxLfoSlotMods* swapFxLfoMods (const FxLfoSlotMods* mods) noexcept;
+private:
+    std::unique_ptr<FxLfoProgram> ownedFxLfoProgram;
+    std::atomic<const FxLfoProgram*> fxLfoProgram { nullptr };
+    std::array<FxLfo::State, FxLfo::maxLfos> fxLfoStates {};
+    std::array<FxLfoSlotMods, (size_t) numFxSlots> fxLfoSlotMods {};
+    std::array<std::atomic<float>, FxLfo::maxLfos> fxLfoShownValue {}, fxLfoShownPhase {};
+    double fxLfoLastPpq = -1.0;
+    juce::int64 fxLfoSamplesSincePpq = 0;
+    bool fxLfoRunning = false;
+    void advanceFxLfos (const FxLfoProgram& program, int numSamples);
+    void processEffectsNow (juce::AudioBuffer<float>& buffer);
+    void resetFxLfos();
+
     struct RetiredFx
     {
         juce::uint32 when = 0;
         std::unique_ptr<FxEngine> engine;
         std::unique_ptr<std::vector<float>> values;
+        std::unique_ptr<FxLfoProgram> lfoProgram;
     };
     std::vector<RetiredFx> retiredFx;
     juce::CriticalSection fxEditLock; // the patch's edits (message thread, or a host's state load)

@@ -142,6 +142,7 @@ void expect (bool condition, const juce::String& message)
 #include "DropdownUiTests.h"
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
+#include "FxLfoUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
@@ -1004,6 +1005,15 @@ int runUiTests()
     if (only == "OR")
     {
         runOscRoutingUiTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "FL")
+    {
+        runFxLfoUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7061,6 +7071,8 @@ int runUiTests()
     runPatchCableTests (processor);
     // Step 16: the oscillators' ROUTING cables.
     runOscRoutingUiTests (processor, *pages);
+    // The PATCH tab's LFO boxes.
+    runFxLfoUiTests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);
@@ -8595,6 +8607,139 @@ int main (int argc, char** argv)
                     break;
                 }
         shot ("window");
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_FXLFO: the PATCH tab's LFO boxes (ilana 2026-10-12):
+    // Delay, Delay 2, FILTER and Reverb; FX LFO 1 cabled to Delay 2 moving
+    // TIME and FEEDBACK, FX LFO 2 (Sample & Hold, synced) on FILTER's cutoff; the
+    // patch, an LFO selected, its cable selected, the windows, and a knob's
+    // right-click menu in an effect's window; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FXLFO", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (500);
+            save (*editor, outDir.getChildFile ("fxlfo-" + name + ".png"));
+        };
+        const auto nodeCentre = [&] (PatchCableView& view, PatchGraph::NodeId id)
+        {
+            for (const auto& node : view.getGraph().nodes())
+                if (node.id == id)
+                    return view.nodeBounds (node).getCentre() * view.getZoom();
+            return juce::Point<float>();
+        };
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        for (const auto type : { 9, 9, 42, 13 })
+            processor.addFxEffect (type);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_reverb_on", 1.0f);
+        setParam ("fx_filter_cutoff", 1200.0f);
+        processor.setFxPatcherOn (true);
+        settle (200);
+        auto graph = processor.getFxPatchGraph();
+        std::map<int, PatchGraph::NodeId> nodeOf;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed())
+                nodeOf[node.ref] = node.id;
+        for (const auto& cable : std::vector<PatchGraph::Cable> (graph.cables()))
+            graph.disconnect (cable.from, cable.to);
+        graph.moveNode (PatchGraph::inputNodeId, 0.0f, 100.0f);
+        graph.moveNode (nodeOf[1], 160.0f, 40.0f);   // Delay
+        graph.moveNode (nodeOf[2], 160.0f, 160.0f);  // Delay 2
+        graph.moveNode (nodeOf[3], 360.0f, 100.0f);  // FILTER
+        graph.moveNode (nodeOf[4], 560.0f, 100.0f);  // Reverb
+        graph.moveNode (PatchGraph::outputNodeId, 760.0f, 100.0f);
+        graph.connect ({ PatchGraph::inputNodeId, 0 }, { nodeOf[1], 0 });
+        graph.connect ({ PatchGraph::inputNodeId, 0 }, { nodeOf[2], 0 });
+        graph.connect ({ nodeOf[1], 0 }, { nodeOf[3], 0 });
+        graph.connect ({ nodeOf[2], 0 }, { nodeOf[3], 0 });
+        graph.connect ({ nodeOf[3], 0 }, { nodeOf[4], 0 });
+        graph.connect ({ nodeOf[4], 0 }, { PatchGraph::outputNodeId, 0 });
+        processor.setFxPatchGraph (graph);
+
+        const auto first = processor.addFxLfo (360.0f, 260.0f);
+        FxLfo::Settings slow;
+        slow.rateHz = 0.4f;
+        processor.setFxLfoSettings (first, slow);
+        processor.setFxLfoCable (first, 1, true);
+        processor.assignFxLfo (first, 1, "fx_delay_time", true, 0.4f);
+        processor.assignFxLfo (first, 1, "fx_delay_feedback", true, -0.3f);
+        const auto second = processor.addFxLfo (360.0f, -40.0f);
+        FxLfo::Settings steps;
+        steps.shape = 5;
+        steps.sync = true;
+        steps.division = 6; // 1/8
+        steps.bipolar = false;
+        steps.depth = 0.8f;
+        processor.setFxLfoSettings (second, steps);
+        processor.assignFxLfo (second, 2, "fx_filter_cutoff", true, 0.6f);
+
+        pages->showPage ("PATCH");
+        settle (300);
+        PatchCableView* view = nullptr;
+        {
+            std::vector<PatchCableView*> views;
+            findAll<PatchCableView> (*editor, views);
+            for (auto* candidate : views)
+                if (candidate->getName() == "PATCH")
+                    view = candidate;
+        }
+        if (view == nullptr)
+            return 1;
+        shot ("patch");
+
+        const auto lfoNode = (PatchGraph::NodeId) ((1u << 21) + (unsigned) first);
+        view->mouseDown (PatchCableUi::mouse (*view, nodeCentre (*view, lfoNode), true));
+        view->mouseUp (PatchCableUi::mouse (*view, nodeCentre (*view, lfoNode), false));
+        shot ("lfo-selected");
+
+        view->selectCable (view->getGraph().findCable ({ lfoNode, 0 }, { nodeOf[2], 0 }));
+        shot ("cable-selected");
+
+        view->mouseDoubleClick (PatchCableUi::mouse (*view, nodeCentre (*view, nodeOf[2]), false));
+        view->mouseDoubleClick (PatchCableUi::mouse (*view, nodeCentre (*view, lfoNode), false));
+        shot ("windows");
+
+        // A knob's right-click menu in Delay 2's window: assigned (TIME, its
+        // amount submenu beside it) and not yet (DAMPING).
+        auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+        const auto writePng = [&outDir] (const juce::Image& image, const juce::String& name)
+        {
+            const auto file = outDir.getChildFile (name);
+            file.deleteFile();
+            juce::FileOutputStream stream (file);
+            juce::PNGImageFormat().writeImageToStream (image, stream);
+            std::cout << file.getFullPathName() << std::endl;
+        };
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (*editor, knobs);
+        for (auto* knob : knobs)
+        {
+            auto inWindow = false;
+            for (auto* parent = knob->getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+                inWindow = inWindow || parent->getName().startsWith ("FX WINDOW") && ! parent->getName().contains ("LFO");
+            if (! visibleInTree (knob) || ! inWindow)
+                continue;
+            if (knob->getParameterId() == "fx_delay_time")
+            {
+                const auto menu = knob->buildModMenu();
+                juce::PopupMenu sub;
+                for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+                    if (it.getItem().subMenu != nullptr && sub.getNumItems() == 0)
+                        sub = *it.getItem().subMenu;
+                writePng (renderMenuSheet (lf, { { menu, 0 }, { sub, 1 } }, 1.5f), "fxlfo-menu-assigned.png");
+            }
+            if (knob->getParameterId() == "fx_delay_damping")
+                writePng (renderMenuSheet (lf, { { knob->buildModMenu(), 0 } }, 1.5f), "fxlfo-menu-assign.png");
+        }
         return 0;
     }
 

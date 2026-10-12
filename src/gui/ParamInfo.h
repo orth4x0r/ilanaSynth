@@ -1338,6 +1338,25 @@ inline juce::String describeParameter (const juce::String& id)
     if (id == "fx_vowel_morph" || id == "fx_vowel_mix")
         return "Vowel filter: morphs A-E-I-O-U formant shapes.";
 
+    if (id.startsWith ("fx_filter_"))
+    {
+        if (id == "fx_filter_type")
+            return "The filter model: any of the FILTER page's types, run once on the effects' sound. In a PATCH loop it filters "
+                   "what comes back round.";
+        if (id == "fx_filter_slope")
+            return "12 or 24 dB per octave, for the classic types (the others have their own).";
+        if (id == "fx_filter_cutoff")
+            return "Where the filter cuts or rings. Glides over about 20 ms, so sweeping it doesn't click.";
+        if (id == "fx_filter_reso")
+            return "Resonance: a peak at the cutoff; high, some types ring by themselves.";
+        if (id == "fx_filter_drive")
+            return "Drive into the filter: a soft clip in front, or inside the loop for 303 Acid and Moog Drive.";
+        if (id == "fx_filter_morph")
+            return "The shape knob of the types that have one: vowel, comb, SEM, Airwindows.";
+        if (id == "fx_filter_spread")
+            return "Opens the left side and closes the right, up to an octave apart: a stereo filter.";
+    }
+
     if (id.startsWith ("fx_voc_"))
     {
         if (id == "fx_voc_source")

@@ -592,6 +592,12 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("vec_drift_rate", "Vector Wander Rate");
         add ("spray_strum_time", "Spray Strum Time");
         add ("spray_velocity", "Spray Velocity");
+        // FX type 42, FILTER (append only).
+        add ("fx_filter_cutoff", "Filter FX Cutoff");
+        add ("fx_filter_reso", "Filter FX Reso");
+        add ("fx_filter_drive", "Filter FX Drive");
+        add ("fx_filter_morph", "Filter FX Morph");
+        add ("fx_filter_spread", "Filter FX Spread");
         return true;
     }();
     juce::ignoreUnused (extended);

@@ -381,6 +381,11 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium, Sonnet. Touches `src/gui/pages/FxPage.h`, `src/gui/pages/PatchPage.h`, `src/gui/PatchCableView.h`, `src/gui/pages/SeqPage.h`, `src/gui/pages/FilterVectorPhysicalPages.h` and their UI tests.
    Order 15b. Why here: ilana's go came with the review and it is UI-only, so it runs alongside 48 and before the sample player group.
 
+51. **Adversarial polish and debug pass: animations, flair, CPU** (ilana, approved 2026-10-12: "a full adversarial polish and debug pass, focused on animations and flair, and also stuff like optimization of the cpu usage. feel free to research ways to optimize further using haiku to browse the web"). A hostile read of every page and effect for what looks or feels off: animation glitches, timing and easing, hover and press feedback, repaint cost, flicker, anything that stutters or lags; then the bugs that turn up. Plus a CPU pass: profile the audio thread and the UI, apply the best optimizations found. Research (Haiku subagents browsing the web for CPU and animation techniques) goes in a separate research thread whose notes feed this step; it does not start the pass.
+   **Rules:** sound changes only where the fingerprint check says they are inaudible (ilana's standing OK for minor CPU-driven changes); routing safety and docs/ROUTING-CPU.md apply, CPU measured before and after on a fixed set of presets.
+   Size: large, Opus for the profiling and restructuring, Sonnet for page work, Haiku fan-out for the sweeps.
+   Order 15c. Why here: after the R19 fixes (50) and steps 48 and 49, so it works on settled layouts and the shared display style, and before the sample player group adds more displays.
+
 30. **Waveform zoom and audition** (ilana, 2026-10-10: decided, not started). Zoom into attacks and loop boundaries on the wave, enter a start and end in milliseconds or samples, and preview the selected range.
    Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
    Order 16. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.

@@ -589,7 +589,7 @@ inline juce::String describeParameter (const juce::String& id)
         return "Tine / Reed: the pickup's offset from the tine or reed. It changes the balance of even and odd harmonics.";
     if (isOscParameter (id, "_couple"))
         return "Strings share the bridge: needs UNISON 2-3. Fast first decay, long aftersound.";
-    if (isOscParameter (id, "_damper")) return "How quickly the dampers stop the string. They act once the key (and the sustain pedal) is up.";
+    if (isOscParameter (id, "_damper")) return "How fast the dampers stop the string once the key (and pedal) is up. Hear it on a short note; AMP RELEASE lets the slow end through.";
     if (isOscParameter (id, "_register"))
         return "Changes the string across the keyboard. Stiffer and brighter in the treble, looser and longer in the bass.";
     if (id == "stretch") return "Piano stretch tuning: bass slightly flat, treble slightly sharp, as a tuner does for real pianos.";

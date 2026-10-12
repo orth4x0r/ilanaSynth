@@ -56,7 +56,7 @@ std::vector<std::vector<float>> generateTable (ShapeFunction&& shapeForFrame)
 
 int TableFactory::getNumFactoryTables()
 {
-    return 120;
+    return 134;
 }
 
 // The browser's grouping, one entry per factory table.
@@ -83,7 +83,10 @@ juce::StringArray TableFactory::getFactoryTableCategories()
              "Chaos", "Chaos", "Chaos", "Chaos", "Chaos", "Chaos",
              "Keys", "Keys", "Keys", "Keys", "Keys", "Keys", "Keys",
              "Bass", "Bass", "Bass", "Bass", "Bass", "Bass", "Bass",
-             "Spectral", "Organic", "Spectral", "Analog", "Vocal" };
+             "Spectral", "Organic", "Spectral", "Analog", "Vocal",
+             // step 19 (weird tables, appended before the User tables)
+             "Harsh", "Digital", "Spectral", "Spectral", "Spectral", "Digital", "Chaos",
+             "Harsh", "Chaos", "Vocal", "Chaos", "Harsh", "Harsh", "Vocal" };
 }
 
 juce::StringArray TableFactory::getCategoryOrder()
@@ -117,7 +120,10 @@ juce::StringArray TableFactory::getFactoryTableNames()
              "Henon", "Random Walk", "Rossler", "Shaped Noise", "Tent Map", "Duffing",
              "Tine", "Reed Piano", "Jazz Organ", "Full Organ", "Clav", "Harpsichord", "Toy Piano",
              "Warm Sub", "Reese", "Growl", "Wobble", "808", "Neuro", "Deep Pulse",
-             "Glass Harmonics", "Air Pad", "Shimmer Stack", "Warm Pad", "Pad Choir" };
+             "Glass Harmonics", "Air Pad", "Shimmer Stack", "Warm Pad", "Pad Choir",
+             // step 19: weirder tables (appended; old patches' User choices move up)
+             "Arca Tear", "Stutter Saw", "Cluster Beat", "Chirp Zap", "Euclid Gaps", "Bytebeat", "Shard Grains",
+             "Fibonacci Ring", "Fold Feedback", "Throat Shred", "Scramble Saw", "Splice", "Saw Product", "Noise Choir" };
 }
 
 namespace
@@ -1140,10 +1146,280 @@ std::vector<std::vector<float>> generateV13 (int tableIndex)
             return {};
     }
 }
+// Step 19: weirder tables. Every one is made here from maths and fixed seeds
+// (no third-party files, so nothing to license), and every frame is a whole
+// number of cycles, so the wave stays periodic at any FRAME.
+
+// additiveTable with a phase that also moves with the frame: phaseFor (t, n)
+// offsets partial n by that fraction of a cycle.
+template <typename AmplitudeFunction, typename PhaseFunction>
+std::vector<std::vector<float>> additiveTableMoving (AmplitudeFunction&& amplitudeFor, PhaseFunction&& phaseFor,
+                                                     int partials = additivePartials)
+{
+    using Complex = std::complex<float>;
+    const TableFFT fft ((int) std::log2 ((double) frameSize));
+    std::vector<Complex> spectrum ((size_t) frameSize), time ((size_t) frameSize);
+    std::vector<std::vector<float>> frames ((size_t) numFrames, std::vector<float> ((size_t) frameSize, 0.0f));
+    partials = juce::jmin (partials, frameSize / 2 - 1);
+
+    for (int frame = 0; frame < numFrames; ++frame)
+    {
+        const auto t = (double) frame / (double) (numFrames - 1);
+        std::fill (spectrum.begin(), spectrum.end(), Complex());
+
+        for (int n = 1; n <= partials; ++n)
+        {
+            const auto a = (float) amplitudeFor (t, n) * (float) frameSize * 0.5f;
+            const auto phase = juce::MathConstants<double>::twoPi * phaseFor (t, n);
+            const auto re = a * (float) std::cos (phase), im = a * (float) std::sin (phase);
+            spectrum[(size_t) n] = Complex (im, -re);
+            spectrum[(size_t) (frameSize - n)] = std::conj (spectrum[(size_t) n]);
+        }
+
+        fft.perform (spectrum.data(), time.data(), true);
+        auto& target = frames[(size_t) frame];
+        for (int i = 0; i < frameSize; ++i)
+            target[(size_t) i] = time[(size_t) i].real();
+    }
+
+    return frames;
+}
+
+// A table that crossfades, frame by frame, between keyframe waves: keyframe k
+// is shapeFor (k, phase). The crossfade is on the waves, so the morph is
+// smooth even when the keyframes are random.
+template <typename KeyShape>
+std::vector<std::vector<float>> keyframeTable (int keys, KeyShape&& shapeFor)
+{
+    std::vector<std::vector<float>> waves ((size_t) keys, std::vector<float> ((size_t) frameSize, 0.0f));
+
+    for (int k = 0; k < keys; ++k)
+        for (int i = 0; i < frameSize; ++i)
+            waves[(size_t) k][(size_t) i] = shapeFor (k, (double) i / (double) frameSize);
+
+    std::vector<std::vector<float>> frames ((size_t) numFrames, std::vector<float> ((size_t) frameSize, 0.0f));
+
+    for (int frame = 0; frame < numFrames; ++frame)
+    {
+        const auto scaled = (double) frame / (double) (numFrames - 1) * (double) (keys - 1);
+        const auto a = juce::jlimit (0, keys - 2, (int) scaled);
+        const auto mix = (float) (scaled - (double) a);
+
+        for (int i = 0; i < frameSize; ++i)
+            frames[(size_t) frame][(size_t) i] = waves[(size_t) a][(size_t) i] * (1.0f - mix) + waves[(size_t) a + 1][(size_t) i] * mix;
+    }
+
+    return frames;
+}
+
+std::vector<std::vector<float>> generateV19 (int tableIndex)
+{
+    constexpr auto pi = juce::MathConstants<double>::pi;
+
+    switch (tableIndex)
+    {
+        case 120: // Arca Tear: a sine whose phase is torn past going backwards
+            return generateTable ([] (double t, double p)
+            {
+                const auto depth = 0.2 + t * 4.3; // above 1 the phase runs backwards in places
+                const auto warped = p + depth * std::sin (twoPi * 3.0 * p) / (twoPi * 3.0);
+                return (float) std::sin (twoPi * 2.0 * warped + 1.3 * t * std::sin (twoPi * 5.0 * p));
+            });
+
+        case 121: // Stutter Saw: eight slices of a saw that repeat, skip and run backwards
+        {
+            juce::Random random (190121);
+            std::array<std::array<int, 8>, 7> source {};
+            std::array<std::array<bool, 8>, 7> backwards {};
+
+            for (size_t k = 0; k < source.size(); ++k)
+                for (size_t i = 0; i < 8; ++i)
+                {
+                    source[k][i] = k == 0 ? (int) i : random.nextInt (8);
+                    backwards[k][i] = k != 0 && random.nextFloat() < 0.3f;
+                }
+
+            return keyframeTable (7, [source, backwards] (int k, double p)
+            {
+                const auto slice = juce::jlimit (0, 7, (int) (p * 8.0));
+                const auto u = p * 8.0 - slice;
+                const auto from = (double) source[(size_t) k][(size_t) slice] + (backwards[(size_t) k][(size_t) slice] ? 1.0 - u : u);
+                return saw (from / 8.0);
+            });
+        }
+
+        case 122: // Cluster Beat: a band of neighbouring partials with scrambled phases
+        {
+            juce::Random random (190122);
+            std::array<double, additivePartials + 1> phases {};
+            for (auto& phase : phases)
+                phase = random.nextDouble();
+
+            return additiveTableMoving ([] (double t, int n)
+            {
+                const auto centre = 2.0 + t * t * 48.0;
+                const auto width = 1.2 + t * 3.0;
+                const auto d = ((double) n - centre) / width;
+                return std::exp (-0.5 * d * d) + (n == 1 ? 0.4 : 0.0) + 0.02 / (double) n;
+            }, [phases] (double, int n) { return phases[(size_t) n]; });
+        }
+
+        case 123: // Chirp Zap: the same saw, its partials spread in time so it sweeps like a laser
+            return additiveTableMoving ([] (double, int n) { return 1.0 / std::pow ((double) n, 0.8); },
+                                        [] (double t, int n) { return 0.0018 * t * t * (double) n * (double) n; }, 128);
+
+        case 124: // Euclid Gaps: partials kept or dropped by a Euclidean rhythm that fills up
+            return additiveTable ([] (double t, int n)
+            {
+                const auto steps = 12;
+                const auto hits = 1.0 + t * 10.0;
+                const auto a = (int) hits;
+                const auto frac = hits - (double) a;
+                const auto member = [steps] (int k, int index) { return (index * k) % steps < k ? 1.0 : 0.0; };
+                const auto index = n % steps;
+                const auto weight = member (a, index) * (1.0 - frac) + member (a + 1, index) * frac;
+                return (weight + (n == 1 ? 0.5 : 0.0)) / std::pow ((double) n, 0.7);
+            }, 120);
+
+        case 125: // Bytebeat: tiny integer formulas, the way a chiptune hacker writes a sound
+            return keyframeTable (8, [] (int k, double p)
+            {
+                const auto i = (int) (p * 512.0);
+                int value = 0;
+                switch (k)
+                {
+                    case 0: value = i >> 1; break;
+                    case 1: value = i * (i >> 5 | i >> 8); break;
+                    case 2: value = (i * 3) ^ (i >> 3); break;
+                    case 3: value = i & (i >> 4) & 63 | i << 1; break;
+                    case 4: value = i * ((i >> 9 | i >> 13) & 25 & i >> 6); break;
+                    case 5: value = (i ^ (i >> 2)) * 5; break;
+                    case 6: value = (i & 128 ? i : ~i) * 3; break;
+                    default: value = i * (3 + (i >> 6 & 7)); break;
+                }
+                return (float) (value & 255) / 127.5f - 1.0f;
+            });
+
+        case 126: // Shard Grains: sixteen windowed micro-grains of random pitch, re-rolled across the frames
+        {
+            juce::Random random (190126);
+            std::array<std::array<int, 16>, 6> cycles {};
+            std::array<std::array<float, 16>, 6> offsets {};
+
+            for (size_t k = 0; k < cycles.size(); ++k)
+                for (size_t g = 0; g < 16; ++g)
+                {
+                    cycles[k][g] = 1 + random.nextInt (9);
+                    offsets[k][g] = random.nextFloat();
+                }
+
+            return keyframeTable (6, [cycles, offsets] (int k, double p)
+            {
+                const auto grain = juce::jlimit (0, 15, (int) (p * 16.0));
+                const auto u = p * 16.0 - grain;
+                const auto window = 0.5 - 0.5 * std::cos (twoPi * u);
+                return (float) (window * std::sin (twoPi * ((double) cycles[(size_t) k][(size_t) grain] * u + (double) offsets[(size_t) k][(size_t) grain])));
+            });
+        }
+
+        case 127: // Fibonacci Ring: two sines multiplied, the pair walking up the Fibonacci series
+        {
+            static const int pairs[6][2] { { 1, 2 }, { 2, 3 }, { 3, 5 }, { 5, 8 }, { 8, 13 }, { 13, 21 } };
+            return keyframeTable (6, [] (int k, double p)
+            {
+                return (float) (std::sin (twoPi * pairs[k][0] * p) * std::sin (twoPi * pairs[k][1] * p + 0.6));
+            });
+        }
+
+        case 128: // Fold Feedback: a sine fed back into its own phase, five times
+            return generateTable ([] (double t, double p)
+            {
+                const auto amount = 0.6 + t * 8.4;
+                auto y = std::sin (twoPi * p);
+
+                for (int pass = 0; pass < 5; ++pass)
+                    y = std::sin (amount * y + twoPi * p);
+
+                return (float) y;
+            });
+
+        case 129: // Throat Shred: narrow screaming formants over a low voice, phases scrambled so it growls
+        {
+            juce::Random random (190129);
+            std::array<double, additivePartials + 1> phases {};
+            for (auto& phase : phases)
+                phase = random.nextDouble();
+
+            return additiveTableMoving ([] (double t, int n)
+            {
+                const auto frequency = 55.0 * (double) n;
+                const auto f1 = 250.0 + 900.0 * std::sin (pi * t * 3.0) * std::sin (pi * t * 3.0);
+                const auto f2 = 900.0 + 2600.0 * t;
+                const auto f3 = 3200.0 - 1500.0 * t;
+                return formantWeight (frequency, f1, 40.0, 1.0) + formantWeight (frequency, f2, 70.0, 0.8)
+                       + formantWeight (frequency, f3, 120.0, 0.5) + 0.01;
+            }, [phases] (double t, int n) { return phases[(size_t) n] * (0.15 + 0.85 * t); }, 150);
+        }
+
+        case 130: // Scramble Saw: a saw's partials traded around, gradually
+            return additiveTable ([] (double t, int n)
+            {
+                const auto other = (n * 29) % 61 + 1;
+                return (1.0 - t) / (double) n + t / (double) other;
+            }, 120);
+
+        case 131: // Splice: the first part of the cycle plays forward, the rest plays back, and the join moves
+            return generateTable ([] (double t, double p)
+            {
+                const auto join = 0.12 + 0.76 * t;
+
+                if (p < join)
+                {
+                    const auto u = p / join;
+                    return (float) ((1.0 - u) * std::sin (twoPi * 3.0 * u));
+                }
+
+                const auto u = (1.0 - p) / (1.0 - join);
+                return (float) ((1.0 - u) * std::sin (twoPi * 5.0 * u + 0.7));
+            });
+
+        case 132: // Saw Product: a saw times a faster saw, the second one climbing the harmonics
+        {
+            return keyframeTable (8, [] (int k, double p)
+            {
+                return saw (p) * saw (p * (double) (k + 1)) + 0.3f * saw (p);
+            });
+        }
+
+        case 133: // Noise Choir: vowel partials whose phases drift between two random sets, so the vowel shimmers and smears
+        {
+            juce::Random random (190133);
+            std::array<double, additivePartials + 1> from {}, to {};
+            for (size_t n = 0; n < from.size(); ++n)
+            {
+                from[n] = random.nextDouble();
+                to[n] = from[n] + (random.nextDouble() - 0.5) * 1.6;
+            }
+
+            return additiveTableMoving ([] (double t, int n)
+            {
+                const auto frequency = 98.0 * (double) n;
+                const auto a = 0.5 + 0.5 * std::sin (twoPi * t);
+                return (formantWeight (frequency, 320.0 + 400.0 * t, 90.0, 1.0) + formantWeight (frequency, 900.0 + 1300.0 * a, 130.0, 0.6)
+                        + formantWeight (frequency, 2500.0, 200.0, 0.3)) * (n % 2 == 0 ? 0.9 : 1.0) + 0.01 / (double) n;
+            }, [from, to] (double t, int n) { return from[(size_t) n] + (to[(size_t) n] - from[(size_t) n]) * t; }, 140);
+        }
+
+        default:
+            return {};
+    }
+}
 } // namespace
 
 std::vector<std::vector<float>> TableFactory::generate (int tableIndex)
 {
+    if (tableIndex >= 120)
+        return tidy (generateV19 (tableIndex));
     if (tableIndex >= 40)
         return tidy (generateV13 (tableIndex));
     if (tableIndex >= 16)

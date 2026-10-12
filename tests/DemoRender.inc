@@ -464,4 +464,24 @@ void renderM10 (const juce::File& folder)
         render (folder, name, names[i], {}, events, seconds);
     }
 }
+
+// ILANA_TABLE_DEMO=<folder> (ILANA_TABLE_FROM / ILANA_TABLE_TO pick a range of
+// factory tables, default every table after the 120 of step 19's start): each
+// table on OSC 1, a low note, then a chord, with FRAME swept 0 -> 1 -> 0.
+void renderTables (const juce::File& folder, int from, int to)
+{
+    const auto names = TableFactory::getFactoryTableNames();
+    to = juce::jmin (to, names.size());
+    for (int i = from; i < to; ++i)
+    {
+        const auto events = held ({ 36 }, 0.05, 3.0) + held ({ 48, 55, 60, 63 }, 3.2, 7.2);
+        const auto name = juce::String (i).paddedLeft ('0', 3) + " " + names[i];
+        render (folder, name, {}, { { "osc1_table", (float) i }, { "osc1_frame", 0.0f } }, events, 8.0,
+                [] (IlanaSynthAudioProcessor& processor, double time)
+                {
+                    const auto sweep = (float) (1.0 - std::abs (2.0 * time / 7.5 - 1.0));
+                    setParam (processor, "osc1_frame", juce::jlimit (0.0f, 1.0f, sweep));
+                });
+    }
+}
 } // namespace Demo

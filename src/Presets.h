@@ -956,6 +956,10 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
         for (auto& preset : Dx7Import::bankPresets())
             list.push_back (std::move (preset));
 
+        // Later packs go after the DX7 banks, so no earlier index moves.
+        for (auto& preset : Library::buildLaterPacks())
+            list.push_back (std::move (preset));
+
         return list;
     }();
 

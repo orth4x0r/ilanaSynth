@@ -597,6 +597,7 @@ namespace Presets
 namespace Library
 {
 #include "PresetPackM10.h"
+#include "PresetPackGate.h"
 
 // The owner's blind A/B marked these presets bad in both their old and new
 // form (2026-09-30): rebuilt from scratch (content/analysis/rebuild-8.md).
@@ -2845,6 +2846,18 @@ inline std::vector<FactoryPreset> build()
 
     // M10: the v1.3 pack.
     addM10Presets (add);
+
+    return list;
+}
+
+// Packs appended after the DX7 banks (Presets.h), oldest first.
+inline std::vector<FactoryPreset> buildLaterPacks()
+{
+    std::vector<FactoryPreset> list;
+    const auto add = [&list] (const FactoryPreset& preset) { list.push_back (preset); };
+
+    // Roadmap step 25: the trance gate pack.
+    addGatePresets (add);
 
     return list;
 }

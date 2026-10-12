@@ -134,6 +134,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
     clipActive.reserve (1024);
     arpChordActive.ensureStorageAllocated (128);
     arpChordNotes.ensureStorageAllocated (128);
+    stretchRenderer = std::make_unique<StretchRenderer> ([this] (int osc) { return getSharedSampleForOsc (osc); });
     spectralCache = std::make_unique<SpectralCache> (
         [this] (int choice) -> std::shared_ptr<const Wavetable>
         {
@@ -963,6 +964,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     juce::ScopedNoDenormals noDenormals;
     spectralCache->setSynchronous (isNonRealtime());
+    stretchRenderer->setSynchronous (isNonRealtime());
 
     const auto totalNumInputChannels = getTotalNumInputChannels();
     const auto totalNumOutputChannels = getTotalNumOutputChannels();
@@ -1310,7 +1312,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);
-        osc.sampleStretch = getParam (tempo[2]) > 0.5f;
+        const auto time = juce::roundToInt (getParam (tempo[2]));
+        osc.sampleStretch = time >= 1;
+        osc.sampleEngine = time >= 2 ? juce::jmin (3, time - 2) : -1;
 
         const auto& grain = grainParamIds[(size_t) oscIndex];
         osc.grainSizeMs = getParam (grain[0]);
@@ -1384,6 +1388,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.anyExtendedFmMods = false;
     p.anySpectralMods = false;
     p.spectralCache = spectralCache.get();
+    p.stretchRenderer = stretchRenderer.get();
 
     for (int i = 0; i < numActiveSlots; ++i)
     {
@@ -1929,6 +1934,26 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
         if ((int) getRawParam (stringParamIds[(size_t) oscIndex][0]) == 3) // osc mode: Granular
             return factorySamples[(size_t) juce::jmin (1, (int) factorySamples.size() - 1)].get();
 
+    return user;
+}
+
+std::shared_ptr<const SampleData> IlanaSynthAudioProcessor::getSharedSampleForOsc (int oscIndex) const
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs)
+        return nullptr;
+
+    const auto factoryIndex = (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]);
+    if (factoryIndex > 0 && factoryIndex <= (int) factorySamples.size())
+        return factorySamples[(size_t) (factoryIndex - 1)];
+
+    std::shared_ptr<const SampleData> user;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        user = sampleSlots[(size_t) oscIndex];
+    }
+    if (user == nullptr && ! factorySamples.empty())
+        if ((int) getRawParam (stringParamIds[(size_t) oscIndex][0]) == 3)
+            return factorySamples[(size_t) juce::jmin (1, (int) factorySamples.size() - 1)];
     return user;
 }
 

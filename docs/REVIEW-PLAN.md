@@ -444,7 +444,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium. Touches `src/dsp/GranularOsc.h`, the parameter layout (new parameters, appended), and the modulation destination list for grain stereo spread.
    Order 32. Why here: separate from the core sample work, so it stays after it.
 
-40. **Tempo sync and time-stretch** (ilana, 2026-10-10: decided; DONE 2026-10-12, see HANDOFF.md: SYNC / BPM / TIME on the sample card, WSOLA stretch). Set a source BPM or bar length, follow the host tempo, and change pitch independently of duration.
+40. **Tempo sync and time-stretch** (ilana, 2026-10-10: decided; DONE 2026-10-12, see HANDOFF.md: SYNC / BPM / TIME on the sample card, WSOLA stretch; follow-up 2026-10-12: Signalsmith, Bungee, PGHI and Paulstretch as rendered copies). Set a source BPM or bar length, follow the host tempo, and change pitch independently of duration.
    Size: very large. A new time-stretch engine, plus host tempo in the processor. Touches `src/dsp/SamplePlayer.h` and the processor's transport.
    Order 33. Why here: the largest engine change in this group. It comes after the playback modes (33) and quality modes (39), which it builds on.
 

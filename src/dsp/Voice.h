@@ -244,6 +244,10 @@ struct VoiceParams
         int sampleSync = 0;
         float sampleBpm = 120.0f;
         bool sampleStretch = false;
+        // TIME's high-quality engines (0 Signalsmith, 1 Bungee, 2 PGHI,
+        // 3 Paulstretch; -1 none): a copy rendered in the background
+        // (StretchRenderer) plays; until it's there, the live stretch above.
+        int sampleEngine = -1;
 
         bool granularMode = false; // also sets sampleMode: grains read the sample
         bool grainLive = false;    // M7.5: grains read the live input's history
@@ -307,6 +311,7 @@ struct VoiceParams
     float voiceSpread = 0.0f;
     float stretch = 0.0f; // M4: piano stretch tuning, 0 = equal temperament
     double hostBpm = 120.0; // the host's tempo, for samples that follow it (step 40)
+    class StretchRenderer* stretchRenderer = nullptr; // rendered copies for TIME's engines
     const Tuning* tuning = nullptr; // Scala tuning; nullptr = 12-TET (the old path)
     float unisonRandom = 0.0f;
 
@@ -549,6 +554,7 @@ public:
 
 private:
     void syncSamplePlayers();
+    const SampleData* stretchCopyFor (int osc, const SampleData* origin);
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues);
     double advanceGlideAndDrift (float driftMod);
     void tuneBody (double driftedFrequency);
@@ -833,6 +839,16 @@ private:
     int lastNote = 60, lastVelocity = 100;
     int pitchNote = 60; // the sounding note, legato included (scale quantise reads it)
     const SampleZone* sampleZone[VoiceParams::numOscillators] {};
+    // TIME's engines: the rendered copy each oscillator plays (null: the
+    // original), what it's a copy of, and the note's copy key, picked when
+    // the note starts (stretchNew) so bends and tempo changes mid-note go
+    // through the live stretch rather than another render.
+    const SampleData* stretchCopy[VoiceParams::numOscillators] {};
+    const SampleData* stretchOrigin[VoiceParams::numOscillators] {};
+    int stretchStep[VoiceParams::numOscillators] {};
+    int stretchSemis[VoiceParams::numOscillators] {};
+    int stretchEngine[VoiceParams::numOscillators] {};
+    bool stretchNew = true;
     bool noteHeld = false;
 
     // The Operator EG: the note's control side and its operator gains,

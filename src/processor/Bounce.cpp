@@ -18,6 +18,8 @@ IlanaSynthAudioProcessor::~IlanaSynthAudioProcessor()
 
     // The spectral worker reads the patch tables: stop it before they go.
     spectralCache.reset();
+    // The stretch worker reads the oscillators' samples.
+    stretchRenderer.reset();
 }
 
 bool IlanaSynthAudioProcessor::startBounce (const BounceRequest& request)

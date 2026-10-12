@@ -28,6 +28,7 @@
 #include "dsp/FmAlgorithms.h"
 #include "dsp/Mseg.h"
 #include "dsp/SpectralFreeze.h"
+#include "dsp/StretchRenderer.h"
 #include "dsp/Svf.h"
 #include "dsp/FilterUnit.h"
 #include "dsp/SympatheticStrings.h"
@@ -665,6 +666,10 @@ public:
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
     bool isSampleEmbedded (int oscIndex) const;
     const SampleData* getSampleForOsc (int oscIndex) const;
+    // The same, kept alive by the pointer (the stretch worker's view).
+    std::shared_ptr<const SampleData> getSharedSampleForOsc (int oscIndex) const;
+    // TIME's engines: copies still rendering, for the sample card.
+    int getStretchRendersPending() const { return stretchRenderer != nullptr ? stretchRenderer->pendingCount() : 0; }
     void flushAsyncUpdates();
 
     // M8.6: resample to oscillator. The patch plays one note on a copy of
@@ -818,6 +823,7 @@ private:
     juce::MidiBuffer generatedMidi;
     NoteSpray noteSpray;
     std::unique_ptr<SpectralCache> spectralCache;
+    std::unique_ptr<StretchRenderer> stretchRenderer; // TIME's engines: rendered copies of samples
     juce::Array<int> arpHeldNotes;
     juce::Array<int> arpChordActive;
     juce::Array<int> arpChordNotes;

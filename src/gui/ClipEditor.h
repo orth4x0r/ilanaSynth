@@ -1655,7 +1655,6 @@ private:
     unsigned shownEpoch = 0;
     int lowNote = 48;
     float rowScroll = 0.0f;
-    float rowScroll = 0.0f;
     int gridIndex = defaultGrid;
     float zoom = 1.0f, viewStart = 0.0f, rowScale = 1.0f;
     // On by default (review 8, the Serum 2 speed table): the first click

@@ -380,17 +380,21 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             expect (missing.isEmpty(), "every effect type draws a picture on its card (without: " + missing + ")");
         }
 
-        // Design round 2: SERIES / PARALLEL is a working switch bound to
-        // fx_routing (series by default), a click is one undo step, the
-        // parameter drives the switch back, and the rail turns into a
-        // ladder (the input's bus down the left, x = 13 in the rail).
+        // Design round 2 and review 19: the routing is chosen on PATCH, so the
+        // FX top bar has no SERIES / PARALLEL / PATCHER, one ROUTING ON PATCH
+        // button instead; fx_routing (series by default) still drives the
+        // rail, which turns into a ladder in parallel (the input's bus down
+        // the left, x = 13 in the rail).
         {
-            auto series = shownButtons ("SERIES"), parallel = shownButtons ("PARALLEL");
+            auto series = shownButtons ("SERIES"), parallel = shownButtons ("PARALLEL"), patcher = shownButtons ("PATCHER");
+            auto onPatch = shownButtons ("ROUTING ON PATCH");
             const auto routing = [&processor] { return processor.apvts.getRawParameterValue ("fx_routing")->load(); };
-            expect (series.size() == 1 && parallel.size() == 1, "the FX top bar has one SERIES and one PARALLEL button");
-            if (series.size() == 1 && parallel.size() == 1)
+            expect (series.empty() && parallel.empty() && patcher.empty(), "the FX top bar has no SERIES, PARALLEL or PATCHER switch (routing is on PATCH)");
+            expect (onPatch.size() == 1 && onPatch.front()->getTooltip().startsWith ("Routing") && onPatch.front()->getDescription().isNotEmpty(),
+                    "the FX top bar has one ROUTING ON PATCH button with a tooltip and an accessible description");
+            if (onPatch.size() == 1)
             {
-                auto* page = series.front()->getParentComponent();
+                auto* page = onPatch.front()->getParentComponent();
                 const auto busPixels = [page]
                 {
                     const auto image = page->createComponentSnapshot (page->getLocalBounds(), true, 1.0f);
@@ -406,28 +410,18 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     return count;
                 };
                 loadFx ({ 27, 2, 20 });
-                const auto startsSeries = routing() < 0.5f && series.front()->getToggleState() && ! parallel.front()->getToggleState();
+                const auto startsSeries = routing() < 0.5f;
                 const auto seriesBus = busPixels();
-                parallel.front()->onClick();
-                settle (200);
-                const auto clicked = routing() > 0.5f && parallel.front()->getToggleState() && ! series.front()->getToggleState();
-                const auto parallelBus = busPixels();
-                processor.getUndoManager().undo();
-                settle (200);
-                const auto undone = routing() < 0.5f && series.front()->getToggleState();
                 setParam ("fx_routing", 1.0f);
                 settle (200);
-                const auto followsParameter = parallel.front()->getToggleState() && ! series.front()->getToggleState();
-                series.front()->onClick();
+                const auto parallelBus = busPixels();
+                setParam ("fx_routing", 0.0f);
                 settle (200);
-                expect (startsSeries && clicked && undone && followsParameter && routing() < 0.5f,
-                        "SERIES / PARALLEL: series by default, a click sets fx_routing, undo puts it back, the switch follows the parameter");
+                expect (startsSeries && routing() < 0.5f,
+                        "FX routing is series by default and fx_routing still sets it");
                 expect (parallelBus > 4 * juce::jmax (1, seriesBus) && parallelBus > 60,
                         "PARALLEL draws the rail as a ladder: the input's bus runs down the rail's left ("
                             + juce::String (parallelBus) + " bus pixels against " + juce::String (seriesBus) + " in series)");
-                expect (parallel.front()->getTooltip().startsWith ("Parallel") && series.front()->getTooltip().startsWith ("Series")
-                            && parallel.front()->getDescription().isNotEmpty(),
-                        "SERIES / PARALLEL have tooltips and accessible descriptions");
             }
         }
 
@@ -647,15 +641,16 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             std::vector<juce::Button*> buttons;
             findAll<juce::Button> (editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == "PATCHER" && button->getRadioGroupId() != 0 && visibleInTree (button))
+                if (button->getButtonText() == "ROUTING ON PATCH" && visibleInTree (button))
                     routingPatcher = button;
         }
+        processor.setFxPatcherOn (true); // (the cables below are edited, which turns the patcher on)
         if (routingPatcher != nullptr)
             routingPatcher->triggerClick();
         settle (400);
         auto* view = findChild<PatchCableView> (editor);
-        expect (routingPatcher != nullptr && processor.isFxPatcherOn() && view != nullptr && visibleInTree (view),
-                "FX: picking PATCHER routing on RACK turns it on and opens the cable view");
+        expect (routingPatcher != nullptr && view != nullptr && visibleInTree (view),
+                "FX: ROUTING ON PATCH on RACK opens the cable view");
 
         // A loop cable selected: LEVEL and DELAY knobs under the canvas set it.
         if (view != nullptr)

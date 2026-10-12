@@ -8286,7 +8286,24 @@ int main (int argc, char** argv)
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (1.0f);
         settle (500);
+        // The pin on the SUB + NOISE seam: SUB + NOISE below the scrolling cards.
+        const auto setPin = [&] (bool pinned)
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getName() == "pin" && button->getToggleState() != pinned)
+                {
+                    button->triggerClick();
+                    break;
+                }
+            settle (500);
+        };
+        setPin (false);
         save (*editor, outDir.getChildFile ("play-3osc.png"));
+        setPin (true);
+        save (*editor, outDir.getChildFile ("play-3osc-pinned.png"));
+        setPin (false);
         // The other engines' cards: a string, a sample and grains.
         for (const auto& [id, mode] : { std::pair<const char*, float> { "osc1_mode", 1.0f }, { "osc2_mode", 2.0f }, { "sub_mode", 3.0f } })
             if (auto* parameter = processor.apvts.getParameter (id))
@@ -8304,6 +8321,9 @@ int main (int argc, char** argv)
         processor.addOscillator (5);
         settle (500);
         save (*editor, outDir.getChildFile ("play-6osc.png"));
+        setPin (true);
+        save (*editor, outDir.getChildFile ("play-6osc-pinned.png"));
+        setPin (false);
         return 0;
     }
 

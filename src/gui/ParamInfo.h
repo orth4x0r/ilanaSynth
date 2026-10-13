@@ -1170,6 +1170,9 @@ inline const HelpRow helpRows[] {
       "Signalsmith, Bungee, PGHI and Paulstretch: higher-quality stretches, too heavy to run live, so a copy "
       "of the sample is rendered for each tempo and note (the original is kept) and the plain stretch "
       "plays until it's ready. Paulstretch smears the sound into a pad." },
+    { ends ("_sample_playback"), "Gate: the note plays while the envelope lasts; LOOP decides whether it repeats. "
+      "One Shot: plays from START to END once and keeps going after you let go of the key (loops are skipped). "
+      "Sustain Loop: loops while the key is down, then leaves the loop and plays on to END." },
 };
 
 inline const RowIndex& helpIndex()

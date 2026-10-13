@@ -238,6 +238,7 @@ struct VoiceParams
         bool sampleLoopOwn = false; // step 27: LOOP uses its own span
         float sampleLoopStart = 0.25f, sampleLoopEnd = 0.75f;
         float sampleLoopXfade = 0.0f; // step 28: crossfade at the loop wrap
+        int samplePlayback = 0;       // step 33: Gate, One Shot, Sustain Loop (SamplePlayer::Playback)
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
@@ -937,6 +938,11 @@ private:
     int stretchEngine[VoiceParams::numOscillators] {};
     bool stretchNew = true;
     bool noteHeld = false;
+    // Step 33: a One Shot sample still plays after the key's release; the
+    // envelopes' release waits for it (releaseEnvelopes).
+    bool oneShotHold = false;
+    void releaseEnvelopes();
+    bool oneShotPlaying() const;
 
     // The Operator EG: the note's control side and its operator gains,
     // stepped every 64 samples and ramped in between (as msfa ramps them).

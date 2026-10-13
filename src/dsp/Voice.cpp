@@ -211,6 +211,7 @@ void Voice::syncSamplePlayers()
         sampleParams.loopFrom = osc.sampleLoopStart;
         sampleParams.loopTo = osc.sampleLoopEnd;
         sampleParams.loopCrossfade = osc.sampleLoopXfade;
+        sampleParams.playback = osc.samplePlayback;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
         sampleParams.end = end;
@@ -647,21 +648,21 @@ void Voice::stopNote (float, bool allowTailOff)
 
     if (allowTailOff)
     {
-        if (params.resonatorOn && params.bodyType != 0)
-            bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
-                1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
-        if (dx7Playing)
-            dx7Note.keyUp();
-        ampEnv.noteOff();
-        filterEnv.noteOff();
-        filter2Env.noteOff();
-        modEnv.noteOff();
-        env4.noteOff();
-        for (auto& env : extraEnvs)
-            env.noteOff();
+        // Step 33: a Sustain Loop leaves its loop now; a One Shot still
+        // playing holds the envelopes' release until it ends.
+        for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+            for (auto& player : sampleUnison[osc])
+                player.release();
+        if (oneShotPlaying())
+        {
+            oneShotHold = true;
+            return;
+        }
+        releaseEnvelopes();
     }
     else
     {
+        oneShotHold = false;
         bodyTailSamplesRemaining = 0;
         ampEnv.reset();
         filterEnv.reset();
@@ -677,6 +678,36 @@ void Voice::stopNote (float, bool allowTailOff)
         lastFilterValue = 0.0f;
         lastModValue = 0.0f;
         clearCurrentNote();
+    }
+}
+
+bool Voice::oneShotPlaying() const
+{
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        if (params.oscillators[osc].sampleMode && params.oscillators[osc].samplePlayback == SamplePlayer::oneShot
+            && params.oscillatorEnabled[osc])
+            for (const auto& player : sampleUnison[osc])
+                if (player.holdsRelease())
+                    return true;
+    return false;
+}
+
+void Voice::releaseEnvelopes()
+{
+    oneShotHold = false;
+    {
+        if (params.resonatorOn && params.bodyType != 0)
+            bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
+                1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
+        if (dx7Playing)
+            dx7Note.keyUp();
+        ampEnv.noteOff();
+        filterEnv.noteOff();
+        filter2Env.noteOff();
+        modEnv.noteOff();
+        env4.noteOff();
+        for (auto& env : extraEnvs)
+            env.noteOff();
     }
 }
 
@@ -1203,6 +1234,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     }
 
     sounded = true;
+
+    // Step 33: the One Shot that held the release has played out.
+    if (oneShotHold && ! oneShotPlaying())
+        releaseEnvelopes();
 
     // Block-rate modulation first: everything below can use it. The
     // per-sample values only clear destinations that are routed, so wipe

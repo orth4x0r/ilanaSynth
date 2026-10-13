@@ -826,6 +826,7 @@ class OscPage : public juce::Component,
               sampleLoopOwn (state, prefix + "_sample_loop_own", "LOOP PTS"),
               sampleSnap (state, prefix + "_sample_snap", "SNAP"),
               sampleLoopXfade (state, prefix + "_sample_loop_xfade", "CROSSFADE"),
+              samplePlayback (state, prefix + "_sample_playback", "PLAYBACK"),
               sampleStart (state, prefix + "_sample_start", "START"),
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
@@ -884,6 +885,8 @@ class OscPage : public juce::Component,
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut, sampleLoopXfade;
         // Step 40: the sample follows the host tempo.
         ComboControl sampleSync, sampleStretch;
+        // The sampler steps: the PLAYBACK row (33...).
+        ComboControl samplePlayback;
         KnobControl sampleBpm;
         KnobControl warpAmt, uniBlend, uniFrame, uniWarp, spectralAmt;
         KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
@@ -1008,7 +1011,7 @@ public:
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleSnap, osc.sampleLoopXfade, osc.sampleStart,
                                 osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
-                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch,
+                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
         }
@@ -1024,7 +1027,8 @@ public:
             for (auto* knob : cardKnobs (osc))
                 knob->setInlineKnob (true);
             for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
-                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch })
+                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
+                                &osc.samplePlayback })
                 menu->setCompactLayout (true);
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.grainLive })
                 toggle->setInlineLabel (true);
@@ -1236,7 +1240,8 @@ public:
             // The sample's own controls dim until there is a sample (S14-3).
             for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleSnap, (juce::Component*) &osc.sampleStart,
                                               (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut,
-                                              (juce::Component*) &osc.sampleSync, (juce::Component*) &osc.sampleBpm, (juce::Component*) &osc.sampleStretch })
+                                              (juce::Component*) &osc.sampleSync, (juce::Component*) &osc.sampleBpm, (juce::Component*) &osc.sampleStretch,
+                                              (juce::Component*) &osc.samplePlayback })
                 effectRules.add (*control, [this, i]
                                  {
                                      const auto* sample = processorRef.getSampleForOsc (i);
@@ -1681,13 +1686,15 @@ private:
                 // Step 28: the blend at the wrap, and the snap of the markers to zero crossings.
                 add (osc.sampleLoopXfade, 2, 4);
                 add (osc.sampleSnap, 2, 5);
+                // The sampler steps: how the note plays (step 33...).
+                add (osc.samplePlayback, 3, 0);
                 // More than one voice: the unison's own row (review 11, I11-11).
                 if (readFloat (prefix + "_unison") > 1.5f)
                 {
-                    add (osc.uniMode, 3, 0);
-                    add (osc.detune, 3, 1);
-                    add (osc.uniBlend, 3, 2);
-                    add (osc.spread, 3, 3);
+                    add (osc.uniMode, 4, 0);
+                    add (osc.detune, 4, 1);
+                    add (osc.uniBlend, 4, 2);
+                    add (osc.spread, 4, 3);
                 }
                 break;
         }
@@ -1768,7 +1775,7 @@ private:
             case Kind::physical: return row == 0 ? "STRING" : row == 1 ? "PITCH" : "UNISON";
             case Kind::grain: return row == 0 ? "GRAINS" : row == 1 ? "PITCH" : "UNISON";
             case Kind::live: return "LEVEL";
-            case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : row == 2 ? "TEMPO" : "UNISON";
+            case Kind::sample: return row == 0 ? "SAMPLE" : row == 1 ? "PITCH & LEVEL" : row == 2 ? "TEMPO" : row == 3 ? "PLAYBACK" : "UNISON";
         }
 
         return {};
@@ -1776,7 +1783,7 @@ private:
 
     static int numRows (Kind kind, bool unisonRow)
     {
-        return kind == Kind::live ? 1 : kind == Kind::sample ? (unisonRow ? 4 : 3) : 3;
+        return kind == Kind::live ? 1 : kind == Kind::sample ? (unisonRow ? 5 : 4) : 3;
     }
 
     // One card's measures, laid out by layoutPage and read by paint.
@@ -1786,7 +1793,7 @@ private:
         Kind kind = Kind::wavetable;
         juce::Rectangle<int> bounds, header, well, wave, group, captionArea, statusArea;
         int rows = 3, columns = 9, rowHeight = 28, gridX = 0, gridWidth = 0, labelX = 0, labelWidth = rowLabelWidth;
-        std::array<int, 4> rowY {};
+        std::array<int, 6> rowY {};
         juce::Rectangle<int> hintArea;
         std::vector<int> separatorY;
     };
@@ -2006,8 +2013,8 @@ private:
                 placeSlot (card, slot);
 
             // The unison row's picture fills what the row leaves.
-            if (card.rows == 3)
-                pieces.spreadView.setBounds (cellRect (card, 2, 4, 3));
+            if (card.rows == 5)
+                pieces.spreadView.setBounds (cellRect (card, 4, 4, 3));
             return;
         }
 
@@ -2691,7 +2698,7 @@ private:
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
@@ -2861,7 +2868,7 @@ private:
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
-                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch,
+                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,

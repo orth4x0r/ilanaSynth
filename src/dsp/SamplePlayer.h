@@ -120,7 +120,15 @@ public:
         // playing note carries on from the same place in it, with a short
         // crossfade, rather than starting again.
         bool keepPosition = false;
+        // Roadmap step 33: how a note's release treats the sample. Gate, as
+        // before: LOOP (and a region's loop) decide, the envelope ends it.
+        // One Shot: plays START to END once, loops ignored, and the voice
+        // holds it past the key's release. Sustain Loop: loops while the key
+        // is down (LOOP or not), then plays on out of the loop to END.
+        int playback = 0;
     };
+
+    enum Playback { gate = 0, oneShot = 1, sustainLoop = 2 };
 
     void prepare (double newSampleRate)
     {
@@ -134,6 +142,7 @@ public:
     void reset()
     {
         active = false;
+        released = false;
         tail.remaining = 0;
         position = regionStart;
     }
@@ -148,6 +157,7 @@ public:
 
         position = params.reverse ? regionEnd - 1.0 : regionStart;
         active = true;
+        released = false;
         tail.remaining = 0;
 
         if (params.stretch)
@@ -177,7 +187,7 @@ public:
         regionLength = regionEnd - regionStart;
 
         ownLoopOn = false;
-        if (params.ownLoop && params.loop)
+        if (params.ownLoop && loopCapable())
         {
             const auto resolved = SampleRange::resolveLoop (regionStart, regionEnd, (double) params.loopFrom * length,
                                                             (double) params.loopTo * length, minLoopLength);
@@ -191,7 +201,7 @@ public:
         // as there is sound beyond the loop's far side to blend in.
         xfadeLength = 0.0;
         const auto zoneLoop = ! ownLoopOn && params.loopEnd > params.loopStart;
-        if (params.loop && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop)
+        if (loopCapable() && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop)
         {
             xfadeStart = ownLoopOn ? ownLoopStart : regionStart;
             xfadeEnd = ownLoopOn ? ownLoopEnd : regionEnd;
@@ -241,6 +251,13 @@ public:
 
     bool isActive() const noexcept { return active; }
 
+    // Step 33: the key let go. A Sustain Loop leaves its loop and plays on
+    // to END; the other modes don't change.
+    void release() noexcept { released = true; }
+
+    // A One Shot still playing: the voice holds its release until it ends.
+    bool holdsRelease() const noexcept { return active && params.playback == oneShot; }
+
     double getSourcePosition() const noexcept { return position; }
 
     void process (float& left, float& right)
@@ -251,10 +268,12 @@ public:
         if (! active || params.sample == nullptr)
             return;
 
+        const auto looping = loopingNow();
+
         // The loop's own span (roadmap step 27): the first pass through the
         // attack is not repeated. Reversed, the note runs the other way and
         // wraps when it falls below the loop's start.
-        if (ownLoopOn)
+        if (ownLoopOn && looping)
         {
             const auto length = ownLoopEnd - ownLoopStart;
             if (params.reverse)
@@ -266,13 +285,13 @@ public:
                 position = ownLoopStart + std::fmod (position - ownLoopStart, length);
         }
         // A region's sustain loop: forward only, inside the played range.
-        else if (params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
+        else if (zoneLoopPlays() && params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
             && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
             position -= (double) (params.loopEnd - params.loopStart);
 
         if (position >= regionEnd || position < regionStart)
         {
-            if (! params.loop)
+            if (! looping)
             {
                 // START modulated above the playhead moves it up; only the
                 // end (or a reverse note's start) finishes a one-shot.
@@ -319,7 +338,7 @@ public:
 
         // Step 28: near the wrap the loop's end gives way to the sound just
         // beyond its other side, so the jump lands on matching material.
-        if (xfadeLength > 0.0)
+        if (xfadeLength > 0.0 && looping)
         {
             const auto distance = params.reverse ? position - xfadeStart : xfadeEnd - position;
             if (distance >= 0.0 && distance < xfadeLength)
@@ -364,6 +383,25 @@ public:
     }
 
 private:
+    // Step 33: whether the note can loop at all (LOOP, or a Sustain Loop),
+    // and whether it loops now (a Sustain Loop only until the release).
+    bool loopCapable() const noexcept
+    {
+        return params.playback == sustainLoop || (params.playback == gate && params.loop);
+    }
+
+    bool loopingNow() const noexcept
+    {
+        return params.playback == sustainLoop ? ! released : params.playback == gate && params.loop;
+    }
+
+    // A region's own sustain loop: always in Gate, as before; never in a
+    // One Shot; in a Sustain Loop until the release.
+    bool zoneLoopPlays() const noexcept
+    {
+        return params.playback == gate || (params.playback == sustainLoop && ! released);
+    }
+
     struct Grain
     {
         double read = 0.0; // source position
@@ -582,4 +620,5 @@ private:
     bool ownLoopOn = false;
     double ratio = 1.0;
     bool active = false;
+    bool released = false; // step 33: the key is up
 };

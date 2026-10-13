@@ -1241,5 +1241,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // card's six colours as FM noise (colour then has no say).
     addChoice ("fm_noise_type", "FM Noise Type", { "Colour", "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
 
+    // Roadmap step 33: how a sample treats the key's release. Gate, as in
+    // every older patch: LOOP decides and the envelope ends the note. One
+    // Shot plays START to END once and keeps playing after the release.
+    // Sustain Loop loops while the key is down, then plays on to END.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_playback", name + " Sample Playback", { "Gate", "One Shot", "Sustain Loop" }, 0);
+    }
+
     return layout;
 }

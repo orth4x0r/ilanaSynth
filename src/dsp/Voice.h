@@ -240,6 +240,8 @@ struct VoiceParams
         float sampleLoopXfade = 0.0f; // step 28: crossfade at the loop wrap
         int samplePlayback = 0;       // step 33: Gate, One Shot, Sustain Loop (SamplePlayer::Playback)
         bool samplePingPong = false;  // step 34: the loop runs forward and back
+        float sampleStartRandom = 0.0f; // step 35: random start amount
+        bool sampleStartSafe = false;   // step 35: random starts land on attacks
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
@@ -997,6 +999,7 @@ private:
     float driftValue = 0.0f;
     float driftTarget = 0.0f;
     juce::Random driftRandom;
+    juce::Random sampleStartRandom { 0x5a17 }; // step 35: random sample starts, apart from the others
     bool lastStringMode[VoiceParams::numOscillators] {};
     bool lastSampleMode[VoiceParams::numOscillators] {};
     bool lastEnabled[VoiceParams::numOscillators] { true, false, true };

@@ -213,6 +213,8 @@ void Voice::syncSamplePlayers()
         sampleParams.loopCrossfade = osc.sampleLoopXfade;
         sampleParams.playback = osc.samplePlayback;
         sampleParams.pingPong = osc.samplePingPong;
+        sampleParams.startRandom = osc.sampleStartRandom;
+        sampleParams.startSafe = osc.sampleStartSafe;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
         sampleParams.end = end;
@@ -498,7 +500,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         if (settings.sampleMode && params.oscillatorEnabled[osc] && settings.sample != nullptr)
             for (int u = 0; u < bufferedCount (settings.unison); ++u)
             {
-                sampleUnison[osc][u].trigger();
+                // Step 35: its own generator, drawn only while a random start
+                // is set, so older patches' random sequences don't shift.
+                sampleUnison[osc][u].trigger (settings.sampleStartRandom > 0.0f ? sampleStartRandom.nextFloat() : 0.0f);
                 // Live grains (ilanaSynth FX) draw their seeds from their own
                 // seeded generator, so an input renders the same every time;
                 // sample grains stay free, as the plugin's analog randomness is.
@@ -624,6 +628,7 @@ void Voice::resetForNewPatch()
     fmNoiseRandom.setSeed (31337);
     lfoPoolRandom.setSeed (27183);
     liveGrainRandom.setSeed (0x1f3a);
+    sampleStartRandom.setSeed (0x5a17);
     lfoSimNotes = 0;
     driftValue = driftTarget = 0.0f;
     hasPlayedNote = false;

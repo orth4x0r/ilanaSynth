@@ -300,10 +300,80 @@ void runSamplePingPongTest()
            "STRETCH with ping-pong stays finite");
 }
 
+// Step 35: a random start per note, optionally landing on an attack.
+void runSampleRandomStartTest()
+{
+    using namespace SamplerLab;
+    const auto sample = ramp();
+    const auto none = runPlayer (*sample, [] (SamplePlayer::Params&) {}, 10);
+    check (none.out[0] == 0.0f, "no random start: the note starts at START");
+
+    // The start goes up to the amount's share of the region.
+    const auto startAt = [&] (float amount, float unit, const std::function<void (SamplePlayer::Params&)>& more = {})
+    {
+        SamplePlayer player;
+        player.prepare (48000.0);
+        SamplePlayer::Params params;
+        params.sample = sample.get();
+        params.startRandom = amount;
+        if (more)
+            more (params);
+        player.setParams (params);
+        player.trigger (unit);
+        float l = 0.0f, r = 0.0f;
+        player.process (l, r);
+        return l;
+    };
+    check (std::abs (startAt (0.5f, 1.0f) - 0.5f) < 0.002f, "amount 0.5 reaches halfway at most");
+    check (std::abs (startAt (0.5f, 0.5f) - 0.25f) < 0.002f, "the random value scales the offset");
+    check (startAt (0.0f, 0.9f) == 0.0f, "amount 0 ignores the random value");
+    check (startAt (1.0f, 1.0f, [] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.2f; p.loopTo = 0.4f; }) < 0.4f,
+           "a random start stays before the loop's end");
+    check (startAt (1.0f, 0.5f, [] (SamplePlayer::Params& p) { p.reverse = true; }) > 0.45f, "a reversed note starts back from END");
+
+    // TRANSIENT SAFE: hits every 4000 frames; a start lands on the hit before it.
+    auto hits = std::make_shared<SampleData>();
+    hits->sampleRate = 48000.0;
+    hits->buffer.setSize (1, 48000);
+    hits->buffer.clear();
+    for (int hit = 0; hit < 12; ++hit)
+        for (int i = 0; i < 3000; ++i)
+            hits->buffer.setSample (0, hit * 4000 + i, (float) (std::exp (-i / 400.0) * std::sin (i * 0.3)));
+    hits->findOnsets();
+    check (hits->onsets.size() >= 10, "the hits' attacks are found (" + juce::String ((int) hits->onsets.size()) + ")");
+    SamplePlayer player;
+    player.prepare (48000.0);
+    SamplePlayer::Params params;
+    params.sample = hits.get();
+    params.startRandom = 1.0f;
+    params.startSafe = true;
+    player.setParams (params);
+    auto onHits = true;
+    juce::Random random (7);
+    for (int note = 0; note < 40; ++note)
+    {
+        player.trigger (random.nextFloat());
+        const auto at = (int) player.getSourcePosition();
+        onHits = onHits && (at % 4000 < 60 || at % 4000 > 3940);
+    }
+    check (onHits, "TRANSIENT SAFE starts every note on (or just before) a hit");
+
+    // In the synth: unison voices start at different places, and older patches don't change.
+    IlanaSynthAudioProcessor processor;
+    MultiSampleLab::setUp (processor);
+    processor.setUserSample (0, ramp (48000), {});
+    samplerSet (processor, "osc1_unison", 4.0f);
+    const auto plain = renderNote (processor, 20, 21);
+    samplerSet (processor, "osc1_sample_start_rand", 0.8f);
+    const auto spread = renderNote (processor, 20, 21);
+    check (std::abs (spread[2] - plain[2]) > 1.0e-4f, "a random start changes what the unison voices play");
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
     runSampleExportTest();
     runSamplePlaybackModeTest();
     runSamplePingPongTest();
+    runSampleRandomStartTest();
 }

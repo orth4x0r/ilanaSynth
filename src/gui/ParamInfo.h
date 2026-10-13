@@ -1173,6 +1173,9 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_playback"), "Gate: the note plays while the envelope lasts; LOOP decides whether it repeats. "
       "One Shot: plays from START to END once and keeps going after you let go of the key (loops are skipped). "
       "Sustain Loop: loops while the key is down, then leaves the loop and plays on to END." },
+    { ends ("_sample_start_rand"), "Each note starts at a random place, up to this far into the played range. "
+      "Every unison voice gets its own, so a stack sounds like several takes." },
+    { ends ("_sample_start_safe"), "A random start moves back to the attack before it and onto a zero crossing, so no note starts in the middle of a hit." },
     { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
 };
 

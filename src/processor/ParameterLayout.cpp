@@ -1261,5 +1261,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_sample_pingpong", name + " Sample Ping-Pong", false);
     }
 
+    // Roadmap step 35: each note starts at a random place up to this far
+    // into the played range; TRANSIENT SAFE moves it back onto the attack
+    // before it. 0, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_sample_start_rand", name + " Sample Random Start", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_sample_start_safe", name + " Sample Transient Safe", false);
+    }
+
     return layout;
 }

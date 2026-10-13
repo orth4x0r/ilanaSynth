@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "SampleOnsets.h"
 #include "SampleRange.h"
 #include "SampleTempo.h"
 
@@ -56,6 +57,21 @@ struct SampleData
     // Roadmap step 43: what the load left out (a file cut at 120 seconds,
     // an SFZ's missing files), for the display. Empty when all of it came in.
     juce::String loadWarning;
+    // Roadmap step 35: where its attacks start (frames), for a random start
+    // that lands on one. Found once when the sample comes in (findOnsets).
+    std::vector<int> onsets;
+    bool onsetsFound = false;
+
+    // Finds the attacks once (message thread, at load: about 10 ms for two
+    // minutes of stereo).
+    void findOnsets()
+    {
+        if (onsetsFound || getNumSamples() < 2)
+            return;
+        const float* channels[2] { buffer.getReadPointer (0), buffer.getReadPointer (juce::jmin (1, getNumChannels() - 1)) };
+        onsets = SampleOnsets::find (channels, juce::jmin (2, getNumChannels()), getNumSamples(), sampleRate);
+        onsetsFound = true;
+    }
 
     int getNumChannels() const noexcept { return buffer.getNumChannels(); }
     int getNumSamples() const noexcept { return buffer.getNumSamples(); }
@@ -130,6 +146,12 @@ public:
         // to its start (whichever span loops: LOOP PTS, a region's loop or
         // the whole START..END). Off, as before.
         bool pingPong = false;
+        // Roadmap step 35: each note starts up to this fraction of the way
+        // into the played range (a fresh random offset per note and unison
+        // voice). With startSafe the offset moves back to the attack before
+        // it, onto a zero crossing, so no note starts mid-hit. 0, as before.
+        float startRandom = 0.0f;
+        bool startSafe = false;
     };
 
     enum Playback { gate = 0, oneShot = 1, sustainLoop = 2 };
@@ -152,7 +174,8 @@ public:
         position = regionStart;
     }
 
-    void trigger()
+    // randomUnit (0..1) places the start for a random start (step 35).
+    void trigger (float randomUnit = 0.0f)
     {
         if (params.sample == nullptr || params.sample->getNumSamples() <= 1)
         {
@@ -161,6 +184,8 @@ public:
         }
 
         position = params.reverse ? regionEnd - 1.0 : regionStart;
+        if (params.startRandom > 0.0f && randomUnit > 0.0f)
+            position = randomStart (randomUnit);
         active = true;
         released = false;
         bounced = false;
@@ -413,6 +438,31 @@ private:
     bool zoneLoopPlays() const noexcept
     {
         return params.playback == gate || (params.playback == sustainLoop && ! released);
+    }
+
+    // Step 35: a start up to startRandom of the way in, kept before an own
+    // loop's end (a note still reaches its loop), moved back onto an attack
+    // and a zero crossing when startSafe asks.
+    double randomStart (float randomUnit) const noexcept
+    {
+        const auto& sample = *params.sample;
+        const auto limit = ownLoopOn ? (params.reverse ? regionEnd - ownLoopStart : ownLoopEnd - regionStart) : regionLength;
+        const auto offset = (double) juce::jlimit (0.0f, 1.0f, params.startRandom) * (double) juce::jlimit (0.0f, 1.0f, randomUnit)
+                            * juce::jmax (0.0, limit - 2.0);
+        auto start = params.reverse ? regionEnd - 1.0 - offset : regionStart + offset;
+        if (params.startSafe)
+        {
+            const auto frame = (int) start;
+            if (! params.reverse)
+            {
+                const auto attack = SampleOnsets::atOrBefore (sample.onsets, frame);
+                start = attack >= 0 && (double) attack >= regionStart ? (double) attack : regionStart;
+            }
+            const float* channels[2] { sample.buffer.getReadPointer (0), sample.buffer.getReadPointer (juce::jmin (1, sample.getNumChannels() - 1)) };
+            const auto radius = juce::jmax (1, (int) (0.002 * juce::jmax (8000.0, sample.sampleRate)));
+            start = (double) SampleOnsets::nearestZeroCrossing (channels, juce::jmin (2, sample.getNumChannels()), sample.getNumSamples(), (int) start, radius);
+        }
+        return juce::jlimit (regionStart, regionEnd - 1.0, start);
     }
 
     // Which way the read moves: REVERSE, turned by a ping-pong bounce.

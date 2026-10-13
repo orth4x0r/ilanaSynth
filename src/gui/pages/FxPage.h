@@ -1442,7 +1442,7 @@ private:
     static constexpr int addTileHeight = 36, suggestCaptionHeight = 22, suggestMinHeight = 70, suggestMaxHeight = 104, rowGrowMax = 90;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
-    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 18; // (the foot clears the last row's level chip, P-6)
+    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 

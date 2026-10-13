@@ -2645,8 +2645,8 @@ int runUiTests()
                 const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
                 // One layout on every patch (review 11, I11-5): the EXTRAS line opens and closes them.
                 {
-                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba"));
-                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xb9"));
+                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xbe"));
+                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xb4"));
                     // (A basic patch opens with them showing, to fill the matrix card, V14-5; a DX7 voice folds them.)
                     expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText)
                                 && ! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
@@ -2684,7 +2684,7 @@ int runUiTests()
                             && neuroNext.getX() - neuroCell.getX() >= dxNext.getX() - dxCell.getX(),
                         "FM: a three-oscillator matrix's cells are as large as, or larger than, a six-oscillator one's (V9-8: "
                             + neuroCell.toString() + " / " + dxCell.toString() + ")");
-                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba")))
+                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xbe")))
                             && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
                         "FM: a DX7 voice folds RING MOD, SYNC and NOISE FM behind MORE (S8-21)");
             }
@@ -3128,17 +3128,20 @@ int runUiTests()
     // one gesture at a time, EDITED sees it, and a load over an edited patch
     // asks once.
     {
-        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks = 1)
+        const auto event = [] (juce::Component& component, juce::Point<float> position, bool dragged, int clicks = 1,
+                               juce::Point<float> down = { -1.0e9f, -1.0e9f })
         {
+            if (down.x < -1.0e8f)
+                down = position;
             return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, juce::ModifierKeys(),
                                      1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
-                                     position, juce::Time::getCurrentTime(), clicks, dragged);
+                                     down, juce::Time::getCurrentTime(), clicks, dragged);
         };
         const auto gesture = [&event] (juce::Component& component, juce::Point<float> from, juce::Point<float> to, int clicks = 1)
         {
             component.mouseDown (event (component, from, false, clicks));
-            component.mouseDrag (event (component, to, true, clicks));
-            component.mouseUp (event (component, to, true, clicks));
+            component.mouseDrag (event (component, to, true, clicks, from));
+            component.mouseUp (event (component, to, true, clicks, from));
         };
         const auto sameCurve = [] (const LfoCurve& a, const LfoCurve& b) { return a.toString() == b.toString(); };
 
@@ -3859,7 +3862,7 @@ int runUiTests()
                 juce::String clipNote;
                 if (chain != nullptr)
                     chain->stages (clipNote);
-                expect (clipNote == "EUCLID's hits trigger the clip",
+                expect (clipNote == "EUCLID's hits trigger the clip.",
                         "with EUCLID and CLIP on the header says how they combine ('" + clipNote + "')");
                 set ("euc_on", 0.0f);
                 set ("clip_on", 0.0f);

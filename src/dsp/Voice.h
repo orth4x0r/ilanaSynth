@@ -468,6 +468,9 @@ class Voice : public juce::SynthesiserVoice
 public:
     Voice();
 
+    // Poly glide starts from the last note played, not the reused voice's own pitch. Off: it changes old presets.
+    static inline bool polyGlideFromLastNote = false;
+
     void setParams (const VoiceParams& newParams) { params = newParams; }
 
     // Where an idle voice finds this block's parameters when a note starts on
@@ -594,6 +597,16 @@ public:
     void pitchWheelMoved (int newValue) override;
     void controllerMoved (int controllerNumber, int newValue) override;
     void channelPressureChanged (int newValue) override;
+
+    // The MIDI channel this voice plays on (JUCE keeps its own copy private).
+    int playingChannel() const
+    {
+        for (int channel = 1; channel <= 16; ++channel)
+            if (isPlayingChannel (channel))
+                return channel;
+
+        return 1;
+    }
     void aftertouchChanged (int newValue) override;
     void setSharedState (VoiceSharedState* state) noexcept { shared = state; }
     // MPE master-channel bend, in semitones (added to this voice's own bend).

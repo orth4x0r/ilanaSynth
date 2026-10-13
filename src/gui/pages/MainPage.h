@@ -1447,7 +1447,8 @@ private:
             noiseLevel->setBounds (body.removeFromRight (juce::jlimit (60, 66, body.getWidth() / 4)));
             body.removeFromRight (gap);
             noiseType->setBounds (body.removeFromTop (rowHeight * 2 - 8));
-            noisePreview.setBounds (body.removeFromBottom (10));
+            // The trace takes the height SUB + NOISE gained on a tall window (no empty interior).
+            noisePreview.setBounds (body.removeFromBottom (juce::jlimit (10, juce::jmax (10, body.getHeight() - gap), 56)));
         }
 
         for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })

@@ -1504,7 +1504,7 @@ private:
     {
         const auto at = getMouseXYRelative();
 
-        if (isTableMode() && ! subTableMapping && (areas.name.contains (at) || tableNameArea.contains (at)))
+        if (isTableMode() && ! subTableMapping && (slimAreas().name.contains (at) || tableNameArea.contains (at)))
             return getTableName() + "\nClick to pick another table.";
 
         return juce::SettableTooltipClient::getTooltip();

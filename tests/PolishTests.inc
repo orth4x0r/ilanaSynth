@@ -798,6 +798,7 @@ void runControllerSeedTest()
         check (std::abs (voice->getBendSemitones() - 2.0) < 0.01, "MPE master-channel bend reaches a member-channel note");
 
     synth.allNotesOff (0, false);
+    Voice::polyGlideFromLastNote = true; // (off in the product until ilana decides: it changes poly GLIDE presets)
     setAll ([] (VoiceParams& p) { p.glideTime = 0.3f; });
     synth.noteOn (1, 48, 0.8f);
     synth.noteOff (1, 48, 0.0f, true); // still releasing, so the next note takes the other voice
@@ -805,6 +806,7 @@ void runControllerSeedTest()
     auto* second = static_cast<Voice*> (synth.getVoice (1));
     check (second->isVoiceActive() && std::abs (second->getCurrentFrequency() - juce::MidiMessage::getMidiNoteInHertz (48)) < 0.01,
            "poly glide starts from the previous note's pitch");
+    Voice::polyGlideFromLastNote = false;
 }
 
 // State and presets (the state review): what a state leaves behind, what a

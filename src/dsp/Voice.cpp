@@ -342,8 +342,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
 
     // Poly: glide from the previous note played, not from this voice's own
-    // last pitch (which depends on which voice the synth handed out).
-    if (! mono && params.glideTime > 0.001f && shared != nullptr && shared->lastNoteFrequency > 0.0)
+    // last pitch (which depends on which voice the synth handed out). Off
+    // until ilana decides: it changes how poly GLIDE presets sound.
+    if (polyGlideFromLastNote && ! mono && params.glideTime > 0.001f && shared != nullptr && shared->lastNoteFrequency > 0.0)
     {
         currentFrequency = shared->lastNoteFrequency;
         hasPlayedNote = true;
@@ -360,7 +361,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
 
         // Mod wheel, expression and pressure as they are now, not as this
         // voice last heard them.
-        const auto channel = juce::jlimit (1, 16, currentPlayingMidiChannel);
+        const auto channel = playingChannel();
         modWheel = shared->modWheel[channel];
         expressionValue = shared->expression[channel];
         aftertouchValue = shared->pressure[channel];
@@ -677,7 +678,7 @@ void Voice::pitchWheelMoved (int newValue)
 {
     // MPE: channel 1 is the master channel, its bend reaches every voice
     // through setMasterBend; a note on it has no member bend of its own.
-    memberBend = params.mpe && currentPlayingMidiChannel == 1
+    memberBend = params.mpe && playingChannel() == 1
                      ? 0.0
                      : ((double) newValue - 8192.0) / 8192.0 * (double) params.pitchBendRange;
     bendSemitones = memberBend + masterBend;

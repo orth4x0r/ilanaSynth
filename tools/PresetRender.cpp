@@ -141,6 +141,17 @@ int main (int argc, char** argv)
         for (auto* parameter : processor.getParameters())
             if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
                 text << ranged->getParameterID() << "=" << ranged->convertFrom0to1 (ranged->getDefaultValue()) << "\n";
+        // The modulation map the generator wires macros with.
+        text << "#slots=" << Mod::maxSlots << "\n";
+        for (int macro = 0; macro < Mod::numMacros; ++macro)
+            text << "#macro" << (macro + 1) << "=" << (int) Mod::macroSourceFor (macro) << "\n";
+        const auto destinations = Mod::getDestinationNames();
+        for (int d = 0; d < destinations.size(); ++d)
+            text << "#dest " << destinations[d] << "=" << d << "\n";
+        for (auto* parameter : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                if (const auto d = Mod::destinationForParamId (ranged->getParameterID()); d > 0)
+                    text << "#pdest " << ranged->getParameterID() << "=" << d << "\n";
         juce::File::getCurrentWorkingDirectory().getChildFile (defaultsFile).replaceWithText (text);
         return 0;
     }

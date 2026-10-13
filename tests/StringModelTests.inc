@@ -682,6 +682,100 @@ void runSampleRootTest()
     check (near (cents, 130.81 * std::exp2 (-0.5 / 12.0), 3.0), "a root half a semitone up lowers the playback by 50 cents (" + juce::String (cents, 2) + " Hz)");
 }
 
+void runSampleLoopCrossfadeTest()
+{
+    // Step 28: a crossfade at the loop's wrap, and the zero-crossing snap.
+    // A ramp sample (the value is the position) makes the wrap a jump of the
+    // loop's length; the crossfade turns it into a short glide.
+    constexpr int length = 10000;
+    auto ramp = std::make_shared<SampleData>();
+    ramp->sampleRate = 48000.0;
+    ramp->buffer.setSize (1, length);
+    for (int i = 0; i < length; ++i)
+        ramp->buffer.setSample (0, i, (float) i / (float) length);
+
+    const auto run = [&] (const std::function<void (SamplePlayer::Params&)>& configure, int count)
+    {
+        SamplePlayer player;
+        player.prepare (48000.0);
+        SamplePlayer::Params params;
+        params.sample = ramp.get();
+        configure (params);
+        player.setParams (params);
+        player.setPlaybackRatio (1.0);
+        player.trigger();
+        std::vector<float> out;
+        for (int i = 0; i < count; ++i)
+        {
+            float l = 0.0f, r = 0.0f;
+            player.process (l, r);
+            out.push_back (l);
+        }
+        return out;
+    };
+    // The biggest jump between neighbouring output samples after the attack.
+    const auto biggestStep = [] (const std::vector<float>& x, size_t from)
+    {
+        float step = 0.0f;
+        for (size_t i = from + 1; i < x.size(); ++i)
+            step = std::max (step, std::abs (x[i] - x[i - 1]));
+        return step;
+    };
+    const auto bounded = [] (const std::vector<float>& x)
+    {
+        return std::all_of (x.begin(), x.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 2.0f; });
+    };
+
+    const auto hard = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 30000);
+    check (biggestStep (hard, 4000) > 0.19f, "without a crossfade the wrap is a hard jump of the loop's length");
+
+    const auto zero = run ([] (SamplePlayer::Params& p)
+                           { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.loopCrossfade = 0.0f; }, 30000);
+    check (zero == hard, "a crossfade of 0 plays exactly as before");
+
+    // 0.5 = a quarter of the loop (500 frames) of blend into the sound before LOOP START.
+    const auto blended = run ([] (SamplePlayer::Params& p)
+                              { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.loopCrossfade = 0.5f; }, 30000);
+    check (bounded (blended), "a crossfaded loop stays finite and bounded");
+    check (biggestStep (blended, 4000) < 0.02f, "the crossfade turns the wrap into a glide (biggest step " + juce::String (biggestStep (blended, 4000), 4) + ")");
+    check (std::abs (blended[100] - hard[100]) < 1.0e-6f && std::abs (blended[3000] - hard[3000]) < 1.0e-6f, "the attack is untouched by the crossfade");
+
+    // The whole START..END region loops with START inside the sample: the blend reaches before START.
+    const auto whole = run ([] (SamplePlayer::Params& p) { p.loop = true; p.start = 0.4f; p.end = 0.6f; p.loopCrossfade = 0.5f; }, 30000);
+    check (bounded (whole) && biggestStep (whole, 2100) < 0.02f, "the whole-region loop crossfades into the sound before START");
+
+    // From the head of the sample there is nothing before the loop to blend in.
+    const auto headless = run ([] (SamplePlayer::Params& p) { p.loop = true; p.loopCrossfade = 1.0f; }, 30000);
+    check (bounded (headless) && biggestStep (headless, 100) > 0.5f, "a loop that starts at the sample's head has no crossfade to make");
+
+    const auto back = run ([] (SamplePlayer::Params& p)
+                           { p.loop = true; p.ownLoop = true; p.reverse = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.loopCrossfade = 0.5f; }, 40000);
+    check (bounded (back) && biggestStep (back, 6000) < 0.02f, "a reversed loop crossfades with the sound after LOOP END");
+
+    const auto stretched = run ([] (SamplePlayer::Params& p)
+                                { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.loopCrossfade = 1.0f; p.stretch = true; }, 20000);
+    check (bounded (stretched), "the stretch engine stays finite with a crossfade set");
+
+    // Zero-crossing snap.
+    std::vector<float> sine ((size_t) length);
+    for (int i = 0; i < length; ++i)
+        sine[(size_t) i] = std::sin (juce::MathConstants<float>::twoPi * (float) i / 100.0f); // zero every 50 frames
+    const auto snapped = SampleRange::nearestZeroCrossing (sine.data(), nullptr, length, 1013.0, 40);
+    check (std::abs (snapped - 1000.0) < 0.6 || std::abs (snapped - 1050.0) < 0.6, "a position snaps to a zero crossing (" + juce::String (snapped, 2) + ")");
+    check (std::abs (snapped - 1013.0) <= 14.0, "it takes the nearest crossing");
+    const auto stays = SampleRange::nearestZeroCrossing (sine.data(), nullptr, length, 1025.0, 10);
+    check (std::abs (stays - 1025.0) < 1.0e-9, "nothing crosses zero in reach: the position stays");
+    std::vector<float> flat ((size_t) length, 0.5f);
+    check (SampleRange::nearestZeroCrossing (flat.data(), nullptr, length, 500.0, 200) == 500.0, "a wave that never crosses zero leaves the position");
+    check (SampleRange::nearestZeroCrossing (nullptr, nullptr, 0, 5.0, 8) == 5.0 && SampleRange::nearestZeroCrossing (sine.data(), nullptr, length, -50.0, 8) < 60.0,
+           "the edges of the sample are safe");
+    std::vector<float> opposite ((size_t) length);
+    for (size_t i = 0; i < opposite.size(); ++i)
+        opposite[i] = -sine[i];
+    const auto mixed = SampleRange::nearestZeroCrossing (sine.data(), opposite.data(), length, 1013.0, 40);
+    check (mixed == 1013.0 || std::abs (mixed - 1013.0) < 1.0, "channels that cancel have no crossing to find");
+}
+
 void runSampleOscTest()
 {
     constexpr double sampleRate = 48000.0;

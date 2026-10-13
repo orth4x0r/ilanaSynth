@@ -238,6 +238,7 @@ struct VoiceParams
         float sampleRoot = 60.0f;   // step 29: a plain sample's recorded note (C3 = 60)
         bool sampleLoopOwn = false; // step 27: LOOP uses its own span
         float sampleLoopStart = 0.25f, sampleLoopEnd = 0.75f;
+        float sampleLoopXfade = 0.0f; // step 28: crossfade at the loop wrap
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
@@ -306,6 +307,7 @@ struct VoiceParams
     int fmMode = 0;               // 0 phase, 1 through-zero, 2 exponential
     float fmNoise[numOscillators] {}; // M5: the noise operator into each oscillator
     float fmNoiseColour = 1.0f;   // 0 dark (about 200 Hz) .. 1 white
+    int fmNoiseType = 0;          // 0: the colour-knob noise (older patches); 1..6: NoiseColours::Type + 1
     std::array<bool, numOscillators> oscOut { true, true, true };
     float ringMod = 0.0f;
     bool hardSync = false;
@@ -824,6 +826,17 @@ private:
     // oscillator's key-scaled level.
     juce::Random fmNoiseRandom { 31337 };
     float fmNoiseState = 0.0f;
+
+    // One sample of the noise operator: the colour-knob noise (type 0, as
+    // every older patch) or one of the NOISE card's colours.
+    void stepFmNoise (float coefficient)
+    {
+        const auto white = fmNoiseRandom.nextFloat() * 2.0f - 1.0f;
+        if (params.fmNoiseType <= 0)
+            fmNoiseState += coefficient * (white - fmNoiseState);
+        else
+            fmNoiseState = fmNoiseGenerator.process (params.fmNoiseType - 1, white);
+    }
     float feedbackHistory[VoiceParams::numOscillators] {};
     float feedbackFiltered[VoiceParams::numOscillators] {};
     float feedbackCoeff[VoiceParams::numOscillators] {};
@@ -837,7 +850,7 @@ private:
     juce::SmoothedValue<float> noiseSmooth;
     float noiseLow = 0.0f; // the heard noise's low-pass, while NOISE COLOUR is under white
     juce::SmoothedValue<float> noiseEnableSmooth, subOscColourSmooth;
-    NoiseColours::Generator noiseGenerator;
+    NoiseColours::Generator noiseGenerator, fmNoiseGenerator;
     juce::SmoothedValue<float> oscEnableSmooth[VoiceParams::numOscillators];
     WavetableOscillator subOsc;
     juce::SmoothedValue<float> subOscLevelSmooth, subOscEnableSmooth;

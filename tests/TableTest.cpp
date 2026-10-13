@@ -675,6 +675,7 @@ int main()
     timedRun ("runSampleRangeTest", [] { runSampleRangeTest(); });
     timedRun ("runSampleLoopPointsTest", [] { runSampleLoopPointsTest(); });
     timedRun ("runSampleRootTest", [] { runSampleRootTest(); });
+    timedRun ("runSampleLoopCrossfadeTest", [] { runSampleLoopCrossfadeTest(); });
     timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
     timedRun ("runOsc2Test", [] { runOsc2Test(); });
     timedRun ("runOscLevelTest", [] { runOscLevelTest(); });

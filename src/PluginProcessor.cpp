@@ -213,8 +213,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
                                            prefix + "_sample_fade_out" };
             sampleRootIds[(size_t) i] = prefix + "_sample_root";
-            sampleRootFineIds[(size_t) i] = prefix + "_sample_root_fine";
-            sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end" };
+            sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end", prefix + "_sample_loop_xfade" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
@@ -1451,10 +1450,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleFadeIn = getParam (ids[5]);
         osc.sampleFadeOut = getParam (ids[6]);
         const auto& loopIds = sampleLoopIds[(size_t) oscIndex];
-        osc.sampleRoot = getParam (sampleRootIds[(size_t) oscIndex]) + getParam (sampleRootFineIds[(size_t) oscIndex]) * 0.01f;
+        osc.sampleRoot = getParam (sampleRootIds[(size_t) oscIndex]);
         osc.sampleLoopOwn = getParam (loopIds[0]) > 0.5f;
         osc.sampleLoopStart = getParam (loopIds[1]);
         osc.sampleLoopEnd = getParam (loopIds[2]);
+        osc.sampleLoopXfade = getParam (loopIds[3]);
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);
@@ -1640,6 +1640,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         p.fmNoise[osc] = getParam (fmNoiseIds[(size_t) osc]);
     }
     p.fmNoiseColour = getParam ("fm_noise_color");
+    p.fmNoiseType = juce::jlimit (0, (int) NoiseColours::count, (int) getParam ("fm_noise_type"));
 
     for (int env = 0; env < 16; ++env)
     {
@@ -2175,9 +2176,11 @@ juce::String IlanaSynthAudioProcessor::detectSampleRoot (int oscIndex)
             parameter->endChangeGesture();
         }
     };
+    // The cents go to the oscillator's FINE (its play-pitch offset), the same
+    // correction a sample that is a little off its note needs.
     set ("_sample_root", (float) note);
-    set ("_sample_root_fine", (float) cents);
-    return "Root set to " + describeValue (prefix + "_sample_root", (float) note) + (cents != 0 ? " " + juce::String (cents > 0 ? "+" : "") + juce::String (cents) + " c" : juce::String())
+    set ("_fine", (float) -cents);
+    return "Root set to " + describeValue (prefix + "_sample_root", (float) note) + (cents != 0 ? ", FINE " + juce::String (-cents) + " ct" : juce::String())
            + " (" + juce::String (found.frequency, 1) + " Hz).";
 }
 

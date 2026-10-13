@@ -790,6 +790,61 @@ void IlanaSynthAudioProcessor::applyPresetVoicing (const char* presetName, std::
     }
 }
 
+// Playability the way ilana sets it in her own presets (2026-10-13: "be
+// mindful of things like portamento time"). Portamento: never on polyphonic
+// patches (a chord's notes slid in from the last chord), and on mono ones
+// only between overlapping notes and only a touch of it. Basses and leads
+// speak at once and stop when let go: an amp attack of at most 20 ms (bass)
+// or 80 ms (lead), a release of at most 0.6 s or 0.8 s; a slow swell made
+// fast lines vanish. The presets named for their slide or their bow keep them.
+static void applyPlayStyle (const char* presetName, const juce::String& category,
+                            std::vector<std::pair<juce::String, float>>& values)
+{
+    static const juce::StringArray slides { "Theremin", "Legato Glide Lead", "Slide Fiddle", "Rubber Mono", "Stick-Slip Growl" };
+    const auto exempt = slides.contains (presetName);
+
+    if (! exempt && (category == "Bass" || category == "Lead"))
+    {
+        const auto bass = category == "Bass";
+        for (auto& entry : values)
+        {
+            if (entry.first == "amp_attack")
+                entry.second = juce::jmin (entry.second, bass ? 0.02f : 0.08f);
+            else if (entry.first == "amp_release")
+                entry.second = juce::jmin (entry.second, bass ? 0.6f : 0.8f);
+        }
+    }
+
+    std::pair<juce::String, float>* glide = nullptr;
+    auto poly = true;
+    for (auto& entry : values)
+    {
+        if (entry.first == "glide")
+            glide = &entry;
+        else if (entry.first == "voice_mode")
+            poly = juce::roundToInt (entry.second) == 0;
+    }
+    if (glide == nullptr || glide->second <= 0.0f)
+        return;
+
+    if (poly)
+    {
+        glide->second = 0.0f;
+        return;
+    }
+
+    if (! exempt)
+        glide->second = juce::jmin (glide->second, 0.015f);
+
+    for (auto& entry : values)
+        if (entry.first == "glide_legato")
+        {
+            entry.second = 1.0f;
+            return;
+        }
+    values.push_back ({ "glide_legato", 1.0f });
+}
+
 void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const juce::String& category,
                                                   std::vector<std::pair<juce::String, float>>& values)
 {
@@ -802,6 +857,8 @@ void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const j
         for (auto& entry : values)
             if (entry.first == "glide")
                 entry.second /= 3.0f;
+
+    applyPlayStyle (presetName, category, values);
 
     const Presets::Trim* trim = nullptr;
     for (const auto& candidate : Presets::getTrims())

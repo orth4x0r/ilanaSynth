@@ -19,6 +19,7 @@
 #include "DisplayStyle.h"
 #include "TableBrowser.h"
 #include "PhysicalView.h"
+#include "SamplePortability.h"
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
@@ -544,6 +545,7 @@ public:
     {
         juce::PopupMenu menu;
         constexpr int loadFileItem = 10000;
+        constexpr int embedItem = 10001, embedAllItem = 10002, collectItem = 10003, relinkItem = 10004;
         menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
         menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
@@ -554,6 +556,22 @@ public:
 
         for (int i = 0; i < SampleFactory::getNumFactorySamples(); ++i)
             menu.addItem (i + 1, SampleFactory::getFactorySampleName (i), true, current == i + 1);
+
+        // Portable presets (roadmap step 31): keep the audio in the patch, copy
+        // the files into a folder, or find the ones that moved.
+        {
+            auto anyFile = false;
+            for (int i = 0; i < OscillatorIds::count; ++i)
+                anyFile = anyFile || processorRef.isSampleFromFile (i);
+            const auto embedded = processorRef.isSampleEmbedded (oscIndex);
+            menu.addSeparator();
+            menu.addSectionHeader ("Portable Preset");
+            menu.addItem (embedItem, embedded ? "This Sample Is Stored in the Patch" : "Store This Sample in the Patch",
+                          processorRef.isSampleFromFile (oscIndex), embedded);
+            menu.addItem (embedAllItem, "Store All Samples in the Patch", anyFile);
+            menu.addItem (collectItem, "Collect Sample Files Into a Folder...", anyFile);
+            menu.addItem (relinkItem, "Find Missing Samples...", ! processorRef.getMissingSamples().empty());
+        }
 
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
@@ -566,6 +584,19 @@ public:
                                 if (result == loadFileItem)
                                 {
                                     safeThis->chooseSampleFile();
+                                    return;
+                                }
+
+                                if (result >= embedItem)
+                                {
+                                    auto& processor = safeThis->processorRef;
+                                    if (result == embedItem || result == embedAllItem)
+                                        SamplePortability::embed (processor, safeThis->oscIndex, result == embedAllItem);
+                                    else if (result == collectItem)
+                                        SamplePortability::collect (processor, safeThis.getComponent());
+                                    else
+                                        SamplePortability::promptMissing (processor, safeThis.getComponent());
+                                    safeThis->repaint();
                                     return;
                                 }
 
@@ -1473,7 +1504,12 @@ private:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             // (A hint, so a sentence: UI review 9, I9-22.)
             const auto hint = well.withSizeKeepingCentre (well.getWidth() - 20.0f, 40.0f).translated (0.0f, -26.0f);
-            IlanaTheme::drawFitted (g, "Drop a .wav or .sfz here", hint.toNearestInt(), juce::Justification::centred, 2);
+            // A patch whose file moved says so, instead of looking like an empty slot.
+            const auto lost = processorRef.getMissingSamples();
+            const auto lostHere = std::find_if (lost.begin(), lost.end(), [this] (const auto& entry) { return entry.osc == oscIndex; });
+            IlanaTheme::drawFitted (g, lostHere != lost.end() ? "Missing file: " + juce::File (lostHere->path).getFileName()
+                                                              : juce::String ("Drop a .wav or .sfz here"),
+                                    hint.toNearestInt(), juce::Justification::centred, 2);
             const auto pill = juce::Rectangle<float> (110.0f, 28.0f).withCentre (well.getCentre().translated (0.0f, 20.0f));
             g.setColour (IlanaTheme::Ui::raised);
             g.fillRoundedRectangle (pill, 6.0f);

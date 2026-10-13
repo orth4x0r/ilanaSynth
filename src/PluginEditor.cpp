@@ -1414,6 +1414,10 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
 
     updateMasterTooltip();
 
+    // Sample files a loaded patch could not find: one prompt per change.
+    if (processorRef.takeMissingSamplesPrompt())
+        SamplePortability::promptMissing (processorRef, this);
+
     // "Edited" marker: cheap checksum of every parameter against the one
     // taken when the preset was loaded.
     if (presetLoadFlash <= 0.01f)

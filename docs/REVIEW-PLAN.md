@@ -73,7 +73,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 ## Next, in order
 1. ~~Gate on Linux~~ (done).
 2. ~~Re-render the Lead A/B clips~~ (done; all categories re-rendered again after step 3).
-3. **Preset diversity** (first pass done, see Done; left: the user's A/B verdicts on the redesigns,
+3. **Preset diversity** (**DONE** 2026-10-01: passes 1-3 and the vote-based rework, merged in PR #5; left: the user's A/B verdicts on the redesigns,
    and the crowds). Was: **Preset diversity (the user's top complaint after levels):** presets sound alike. Measured spread against
    the references: Bass 57 %, Pad 53 %, Lead 66 %, Keys 76 %, Pluck 68 %; 50 of 57 pads form one crowd.
    Causes: reverb on nearly everything (Hall 111x), FX chains nearly all Reverb / Delay+Reverb / Chorus+Reverb,
@@ -107,7 +107,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    **Done** 2026-09-30: Grand Piano renamed Felt Hammer Board (same slot and sound); the editor's pages in
    `src/gui/pages/*.h`, the processor's areas in `src/processor/*.cpp`; `ILANA_TEST_TIMES=1` prints each suite's time
    (on Linux M81 and the arp tests take 4-7 s; the slow ones were two polish tests, 180 s to 48 s; full run ~300 s).
-9. **Airwindows filters** (the user, 2026-09-30): Low / Band / High Pass and Notch replaced by Airwindows' Y filters
+9. **Airwindows filters** (the user, 2026-09-30; **DONE** 2026-10-01, PR #5): Low / Band / High Pass and Notch replaced by Airwindows' Y filters
    (done, `docs/filter-overhaul-status.md`); Airwindows character filters (Z, X, YNot, Acid, Holt, Angle, Pear) and a
    tuneable **Disperser** (all-pass chain at the cutoff, key-tracked) as appended types; then a second diversity pass
    that uses them on the crowds. Presets may change tone "as long as they don't sound bad"; the level rule stands.
@@ -250,7 +250,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
    The scope as a dock is done too (2026-10-09, after PR #20's dock): the scope panel's WINDOW button opens it in its
    own resizable window beside the synth, so it covers no page (the page area can't spare a strip's height). Step 14
    has nothing left.
-15. **UI review 6 fixes** (the user, 2026-10-02: "full adversarial review pass and fix ... what feels separate from the normal
+15. **UI review 6 fixes** (**DONE**: cycles 1 and 2 merged, see Status below; the user, 2026-10-02: "full adversarial review pass and fix ... what feels separate from the normal
    engines ... a powerhouse, yet one thats not unwieldy"; "implement all ui suggestions the review process gave us"; the DX7
    fold-in reviewed too; "do two full cycles"). Reviews and the package plan (P1-P7) in `docs/ui-review/`. **Cycle 1 done**
    2026-10-04 (branch `claude/project-thread-smvgfk`): every finding of reviews 5 and 6 fixed except the ones HANDOFF lists
@@ -277,12 +277,12 @@ Steps 16 to 49 run in the execution order below, not in ID order. ilana's 2026-1
    Size: large. Touches `src/PluginEditor.cpp` (the KEYBOARD button and window size) and the design scale (height / 720), which makes everything shrink when the keyboard adds height; decoupling the scale from the window height is the main work.
    Order 2. Why here: the window scale comes from the window height. Changing it later would re-lay-out and re-snapshot every page, so it goes before any layout work.
 
-A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A node-and-cable model and the cable widget: drag from an output to an input, with the menus from 18. No audio change of its own.
+A. **Shared patch-graph foundation** (**DONE**, PR #56; no ID of its own; needed by 16 and 17). A node-and-cable model and the cable widget: drag from an output to an input, with the menus from 18. No audio change of its own.
    Checks (ilana, 2026-10-10, approved): a CPU budget (feedback and parallel routes must not blow CPU; measure against the current chain with the stress and held-note probes, and say what it costs) and preset migration (old patches load and sound the same on the new routing, checked with the fingerprint workflow). Builders follow `docs/ROUTING-CPU.md`, which the CPU-friendly FX and routing research thread is writing now.
    Size: medium-large. Touches a new set of files under `src/gui` and a small model under `src/processor`.
    Order 3. Why here: 16 and 17 both need it. Build it once and test it on the FX side first.
 
-17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided, not started; do not build yet). Her
+17. **FX patching and multiple instances of one effect** (ilana, 2026-10-10: decided; **DONE** 2026-10-11/12, the FX patcher in PRs #57-#62 and #84, shown on the PATCH tab with step 16). Her
    words: patch FX from one output to the next, so complex parallel or feedback routes can be built, and allow more than
    one instance of the same effect. This pairs with step 16's cable routing: the same cables could carry FX-to-FX links.
    ilana's follow-up (2026-10-10): the patching works like FL Studio's Patcher, as its own sub-tab under FX, a node graph
@@ -330,14 +330,14 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    **Rules when it starts:** the change is deliberate and reviewed. A fingerprint change is written up per preset, not hidden in a general pass.
    Order 8. Why here: after step 26, so the envelope graphs use the shared display helper, and after routing (16), so the new envelopes are tested on the final voice chain.
 
-23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided, not started). Scrolling in the synth's
+23. **Scrolling feels good on a touchpad** (ilana, 2026-10-10: bug; decided; **DONE** 2026-10-11, PR #78). Scrolling in the synth's
    lists and editors does not feel right on a touchpad. Fix the scroll speed and the smooth, two-finger motion for the
    pages and the clip editor.
    **Rules when it starts:** UI only; no sound or preset change.
    Size: small-medium. Touches `mouseWheelMove` in `src/gui/ClipEditor.h`, the only custom wheel handling; the other pages use JUCE's default scrolling. Tune the wheel delta and trackpad handling.
    Order 9. Why here: small, and it changes the same wheel code that step 22 rewrites next.
 
-24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided, not started). The spray tool in
+24. **Clip editor spray tool does not work properly** (ilana, 2026-10-10: bug; decided; **DONE** 2026-10-11, PR #85). The spray tool in
    the clip editor does not place notes correctly. Find what it does wrong, fix it, and add a test that sprays notes
    and checks where they land.
    **Rules when it starts:** no sound or preset change.
@@ -372,16 +372,16 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium, Sonnet. Touches `src/gui/ParamInfo.h`, `src/gui/XtraDisplays.h`, `src/gui/ScopeDisplay.h`, `src/gui/SequencerEditors.h` and `src/gui/DisplayStyle.h`.
    Order 14. Why here: the displays it restyles are the ones the routing and UI steps before it touch, so the shared style lands once, on the final layout, and before the sample player group adds its own displays.
 
-49. **Split the test file into topic files** (ilana approved, 2026-10-11, same thread). `tests/TableTest.cpp` (10,020 lines) is split into topic files like the existing `.inc` suites (for example `FilterTests.inc` and `ClipTests.inc`). There is no behaviour change: the same tests run and the gate result is the same.
+49. **Split the test file into topic files** (ilana approved, 2026-10-11, same thread; **DONE** 2026-10-12, PR #94). `tests/TableTest.cpp` (10,020 lines) is split into topic files like the existing `.inc` suites (for example `FilterTests.inc` and `ClipTests.inc`). There is no behaviour change: the same tests run and the gate result is the same.
    Size: small, Haiku. Touches `tests/TableTest.cpp` and new `.inc` files in `tests/`.
    Order 15. Why here: it is independent and easy, and it follows step 48 so the new parameter tests can go into their own file.
 
-50. **Review 19 UI fixes** (ilana, 2026-10-12: "yes, do ur suggestions! add to roadmap"; report https://claude.ai/artifact/YMqXvTGfPXJ1UzsoUMAWFb, notes `docs/ui-review/UI-REVIEW-19.md`). R19-1 PATCH: the fitted graph fills the canvas height (taller layout, bigger boxes and labels) and the summary strip is one line. R19-2 FX tab: no CHAIN 1 / 2 or SERIES / PARALLEL / PATCHER switches; one ROUTING ON PATCH button opens PATCH (routing lives there). R19-3 SEQ: checked, the control column is already one knob plus gap per row (about 129 px), so it stays as is. R19-4 VECTOR: "OSC 4: none" once, not twice.
+50. **Review 19 UI fixes** (**DONE** 2026-10-12, commit 563f23b; ilana, 2026-10-12: "yes, do ur suggestions! add to roadmap"; report https://claude.ai/artifact/YMqXvTGfPXJ1UzsoUMAWFb, notes `docs/ui-review/UI-REVIEW-19.md`). R19-1 PATCH: the fitted graph fills the canvas height (taller layout, bigger boxes and labels) and the summary strip is one line. R19-2 FX tab: no CHAIN 1 / 2 or SERIES / PARALLEL / PATCHER switches; one ROUTING ON PATCH button opens PATCH (routing lives there). R19-3 SEQ: checked, the control column is already one knob plus gap per row (about 129 px), so it stays as is. R19-4 VECTOR: "OSC 4: none" once, not twice.
    **Rules:** UI only, 0 audio / preset changes. Keep the `fx_routing`, `fx_patcher` and `route_cables` parameters and IDs (old presets sound identical, same lazy migration as #83). Routing safety (finite output, recovery after unpatching, loop tests) and docs/ROUTING-CPU.md (CPU measured against main) apply.
    Size: medium, Sonnet. Touches `src/gui/pages/FxPage.h`, `src/gui/pages/PatchPage.h`, `src/gui/PatchCableView.h`, `src/gui/pages/SeqPage.h`, `src/gui/pages/FilterVectorPhysicalPages.h` and their UI tests.
    Order 15b. Why here: ilana's go came with the review and it is UI-only, so it runs alongside 48 and before the sample player group.
 
-51. **Adversarial polish and debug pass: animations, flair, CPU** (ilana, approved 2026-10-12: "a full adversarial polish and debug pass, focused on animations and flair, and also stuff like optimization of the cpu usage. feel free to research ways to optimize further using haiku to browse the web"). A hostile read of every page and effect for what looks or feels off: animation glitches, timing and easing, hover and press feedback, repaint cost, flicker, anything that stutters or lags; then the bugs that turn up. Plus a CPU pass: profile the audio thread and the UI, apply the best optimizations found. Research (Haiku subagents browsing the web for CPU and animation techniques) goes in a separate research thread whose notes feed this step; it does not start the pass.
+51. **Adversarial polish and debug pass: animations, flair, CPU** (**DONE** 2026-10-13, PRs #98 and #106; ilana, approved 2026-10-12: "a full adversarial polish and debug pass, focused on animations and flair, and also stuff like optimization of the cpu usage. feel free to research ways to optimize further using haiku to browse the web"). A hostile read of every page and effect for what looks or feels off: animation glitches, timing and easing, hover and press feedback, repaint cost, flicker, anything that stutters or lags; then the bugs that turn up. Plus a CPU pass: profile the audio thread and the UI, apply the best optimizations found. Research (Haiku subagents browsing the web for CPU and animation techniques) goes in a separate research thread whose notes feed this step; it does not start the pass.
    **Rules:** sound changes only where the fingerprint check says they are inaudible (ilana's standing OK for minor CPU-driven changes); routing safety and docs/ROUTING-CPU.md apply, CPU measured before and after on a fixed set of presets.
    Size: large, Opus for the profiling and restructuring, Sonnet for page work, Haiku fan-out for the sweeps.
    Order 15c. Why here: after the R19 fixes (50) and steps 48 and 49, so it works on settled layouts and the shared display style, and before the sample player group adds more displays.
@@ -398,11 +398,13 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium. Touches the loop wrap in `src/dsp/SamplePlayer.h` and the snap in `src/gui/WaveDisplay.h`. Depends on step 27.
    Order 18. Why here: a crossfade only makes sense once the loop is its own range (27).
 
+**Remaining sampler steps grouped (ilana, 2026-10-13: "merge all the sampler work in the roadmap into one step").** After 29 and 31, steps 42, 43, 44, 32, 33, 34, 35, 39, 36, 37 and 38 are built together as ONE sampler step in its own thread and branch, which marks them done here itself. **45** granular controls has nothing to do with the sampler work and runs in parallel (in progress, its own thread). The step texts below keep their original wording and "Order" lines.
+
 29. **Root-note control and pitch detection** (ilana, 2026-10-10: decided, not started). Set the original note of a plain sample instead of assuming C4, and offer a detected note that the user can adjust.
    Size: medium. Today the root is the zone's or C4 (`rootNote` in `src/dsp/SamplePlayer.h`). Touches that, the OSC card's control on `src/gui/pages/OscPage.h`, and a new pitch detector in `src/dsp`.
    Order 19. Why here: each sample (and later each slice) needs its own root, so it goes in before slicing adds per-slice tuning.
 
-31. **Portable sample presets** (ilana, 2026-10-10: decided, not started). Add Embed samples and Collect samples, plus a missing-file dialog with relinking and folder search. Include the SFZ dependencies.
+31. **Portable sample presets** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/project-thread-ilp559`: the sample menu's PORTABLE PRESET items store one or all samples in the patch (16-bit, up to 64 MB in all), or collect the files into a folder (an SFZ gets a folder of its own with the audio it names; names outside its folder are flattened into `samples/`) and point the patch at the copies; a patch whose files are gone opens a prompt that locates one file or searches a folder for all of them, and an empty slot says which file is missing; an SFZ that loads without some audio is listed too. Old patches load unchanged, no parameter or format change). Add Embed samples and Collect samples, plus a missing-file dialog with relinking and folder search. Include the SFZ dependencies.
    Size: medium-large. Samples are saved by path and come back only if the file is still there (the features file, `/mnt/project-files/ilanasynth/sample-player/sample-player-features.md`). Touches the patch and preset save and load (`src/processor`, `src/Presets.h`) and the missing-file dialog. Changes the saved format, so old patches must still load.
    Order 20. Why here: samples are saved by path today. Portable saving should exist before slicing and multisample resampling add more data to a patch.
 
@@ -450,7 +452,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium. A new browser component for samples, plus the favourites and recent lists. Level matching uses the synth's existing level tools.
    Order 31. Why here: a browser for samples. It comes after step 31 so favourites can store portable paths.
 
-45. **Granular controls** (ilana, 2026-10-10: decided, not started). Separate Grain Position from Sample Start, add scan speed and freeze, and expose grain stereo spread as a modulation destination.
+45. **Granular controls** (ilana, 2026-10-10: decided; **IN PROGRESS** 2026-10-13, own thread, runs in parallel with the sampler steps). Separate Grain Position from Sample Start, add scan speed and freeze, and expose grain stereo spread as a modulation destination.
    Size: small-medium. Touches `src/dsp/GranularOsc.h`, the parameter layout (new parameters, appended), and the modulation destination list for grain stereo spread.
    Order 32. Why here: separate from the core sample work, so it stays after it.
 
@@ -458,11 +460,11 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: very large. A new time-stretch engine, plus host tempo in the processor. Touches `src/dsp/SamplePlayer.h` and the processor's transport.
    Order 33. Why here: the largest engine change in this group. It comes after the playback modes (33) and quality modes (39), which it builds on.
 
-41. **Multisample resampling** (ilana, 2026-10-10: decided; **first version built** 2026-10-12, branch `claude/multisample-resampling-step-41-a4yo8y`: RESAMPLE > "As a multisample", note range and spacing, 1-4 velocity layers, tail, FX capture; zones are saved inside the patch; saving as portable files waits for step 31, zone editing for step 36). Extend RESAMPLE to capture several notes and velocities automatically, then build zones from those renders, with note spacing, tail length and FX capture.
+41. **Multisample resampling** (ilana, 2026-10-10: decided; **DONE** 2026-10-12, branch `claude/multisample-resampling-step-41-a4yo8y`: RESAMPLE > "As a multisample", note range and spacing, 1-4 velocity layers, tail, FX capture; zones are saved inside the patch; embedding and collecting the zones are step 31's, zone editing is step 36). Extend RESAMPLE to capture several notes and velocities automatically, then build zones from those renders, with note spacing, tail length and FX capture.
    Size: large. Extends RESAMPLE (`src/processor/Bounce.cpp`) and writes zones through `src/dsp/MultiSample.h`. Depends on steps 36 and 31.
    Order 34. Why here: it needs the zone map (36) to edit its zones and portable presets (31) to save them.
 
-25. **Better trance gate presets** (ilana, 2026-10-10: decided; **built** 2026-10-12, PR open, see HANDOFF; ilana still has to listen). The current trance gate presets are not
+25. **Better trance gate presets** (ilana, 2026-10-10: decided; **DONE** 2026-10-12, PR #76 merged, see HANDOFF; ilana still has to listen). The current trance gate presets are not
    good enough. Make new ones, judged by how they sound (ilana listens to them herself).
    **Rules when it starts:** new presets are appended, so no existing preset changes sound.
    Size: content only. Touches `src/PresetVoicing.h` and `src/PresetPackM10.h` (the Euclid Trance Gate and the new presets), with level tuning. Judged by ilana's ear.

@@ -4,6 +4,8 @@
 // sample browser. Included by TableTest.cpp after MultiSampleTests.inc (it
 // reuses MultiSampleLab's helpers); ILANA_SAMPLER_TEST=1 runs only these.
 
+#include "gui/SampleBrowserModel.h"
+
 namespace SamplerLab
 {
 inline juce::File scratchFolder (const char* name)
@@ -785,6 +787,148 @@ void runSoundFontPresetTest()
     folder.deleteRecursively();
 }
 
+// Step 42: the sample browser's logic (lists, folder listing, preview level)
+// and the processor's level-matched preview.
+void runSampleBrowserTest()
+{
+    using namespace SamplerLab;
+    namespace Model = SampleBrowserModel;
+
+    // Favourites and recent lists.
+    juce::StringArray favourites;
+    check (Model::toggleEntry (favourites, "/a/one.wav") && Model::toggleEntry (favourites, "/a/two.wav"), "starring adds");
+    check (! Model::toggleEntry (favourites, "/a/one.wav") && favourites.size() == 1 && favourites[0] == "/a/two.wav", "starring again removes");
+
+    juce::StringArray recent;
+    for (int i = 0; i < 40; ++i)
+        Model::addRecent (recent, "/r/" + juce::String (i) + ".wav");
+    check (recent.size() == Model::maxRecent && recent[0] == "/r/39.wav" && recent[29] == "/r/10.wav", "recent keeps the newest 30, newest first");
+    Model::addRecent (recent, "/r/20.wav");
+    check (recent.size() == Model::maxRecent && recent[0] == "/r/20.wav" && recent.indexOf ("/r/20.wav", false, 1) < 0,
+           "loading a file again moves it to the front without a repeat");
+
+    const auto parsed = Model::parseList (Model::serialiseList (favourites) + "\n\n/a/two.wav\n/b/three.wav\n");
+    check (parsed.size() == 2 && parsed[0] == "/a/two.wav" && parsed[1] == "/b/three.wav", "a list survives its string, minus blanks and repeats");
+
+    const auto folder = scratchFolder ("ilana-sample-browser");
+    const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    check (Model::fromPortablePath (Model::toPortablePath (folder)) == folder, "a path survives the portable form");
+    if (folder.isAChildOf (home))
+        check (Model::toPortablePath (folder).startsWith ("~/"), "a path under the home folder is stored relative to it");
+    check (Model::toPortablePath (home.getChildFile ("Music/a.wav")) == "~/Music/a.wav", "home-relative paths use forward slashes");
+    check (Model::fromPortablePath ("~/Music/a.wav") == home.getChildFile ("Music/a.wav"), "the home mark expands");
+
+    // Folder listing: subfolders first, then audio files by name, filtered.
+    folder.getChildFile ("zeta").createDirectory();
+    folder.getChildFile ("Alpha").createDirectory();
+    folder.getChildFile (".hidden").createDirectory();
+    for (const auto* name : { "kick10.wav", "kick2.wav", "Snare.flac", "pad.sf2", "notes.txt", "loop.AIFF", ".secret.wav", "song.mp3" })
+        folder.getChildFile (name).replaceWithText ("x");
+
+    const auto listing = Model::listFolder (folder);
+    juce::StringArray names;
+    for (const auto& entry : listing)
+        names.add (entry.file.getFileName());
+    check (names.joinIntoString ("|") == "Alpha|zeta|kick2.wav|kick10.wav|loop.AIFF|pad.sf2|Snare.flac|song.mp3",
+           "folders first, then audio files by name with numbers in order (" + names.joinIntoString ("|") + ")");
+    check (listing[0].isFolder && listing[1].isFolder && ! listing[2].isFolder, "entries know if they are folders");
+
+    const auto filtered = Model::listFolder (folder, "KICK wav");
+    check (filtered.size() == 2 && filtered[0].file.getFileName() == "kick2.wav", "the filter keeps names with every word");
+    check (Model::listFolder (folder, "nothing like this").empty(), "a filter with no match lists nothing");
+
+    juce::StringArray stored { Model::toPortablePath (folder.getChildFile ("kick2.wav")), Model::toPortablePath (folder.getChildFile ("gone.wav")) };
+    check (Model::dropMissing (stored) && stored.size() == 1, "a missing file leaves the list");
+    check (Model::isPreviewable (folder.getChildFile ("a.wav")) && ! Model::isPreviewable (folder.getChildFile ("a.sf2"))
+               && ! Model::isPreviewable (folder.getChildFile ("a.SFZ")) && ! Model::isPreviewable (folder.getChildFile ("a.txt")),
+           "only plain audio files preview");
+
+    // Preview level.
+    check (std::abs (juce::Decibels::gainToDecibels (Model::previewGain (0.05f, 0.1f) * 0.05f) - Model::previewTargetDb) < 0.01f,
+           "a quiet file is lifted to the target RMS");
+    check (std::abs (juce::Decibels::gainToDecibels (Model::previewGain (0.5f, 0.9f) * 0.5f) - Model::previewTargetDb) < 0.01f,
+           "a loud file is lowered to the target RMS");
+    check (Model::previewGain (0.01f, 1.0f) * 1.0f <= 0.981f, "a peaky file is held under full scale");
+    check (Model::previewGain (0.0f, 0.0f) == 1.0f, "silence keeps its level");
+
+    // The processor's preview: a quiet and a loud WAV come out alike.
+    const auto quiet = folder.getChildFile ("quiet.wav");
+    const auto loud = folder.getChildFile ("loud.wav");
+    auto scaled = [] (double hz, float amplitude, int length)
+    {
+        auto buffer = MultiSampleLab::sine (hz, 44100.0, length);
+        buffer.applyGain (amplitude / 0.5f);
+        return buffer;
+    };
+    MultiSampleLab::writeWav (quiet, scaled (330.0, 0.02f, 44100), 44100.0);
+    MultiSampleLab::writeWav (loud, scaled (220.0, 0.8f, 44100), 44100.0);
+
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    juce::MidiBuffer noMidi;
+    juce::AudioBuffer<float> block (2, 512);
+
+    const auto renderBlocks = [&] (int count)
+    {
+        double sum = 0.0;
+        float peak = 0.0f;
+        long samples = 0;
+        for (int b = 0; b < count; ++b)
+        {
+            block.clear();
+            processor.processBlock (block, noMidi);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 512; ++i)
+                {
+                    const auto v = block.getSample (c, i);
+                    sum += (double) v * (double) v;
+                    peak = juce::jmax (peak, std::abs (v));
+                    ++samples;
+                }
+        }
+        return std::make_pair (std::sqrt (sum / (double) juce::jmax (1L, samples)), peak);
+    };
+
+    check (renderBlocks (4).second < 1.0e-4f, "no preview, no output");
+    check (! processor.isSamplePreviewPlaying(), "nothing previews before it is started");
+
+    check (processor.startSamplePreview (quiet), "a quiet file starts a preview");
+    renderBlocks (2); // the fade in
+    const auto quietLevel = renderBlocks (40).first;
+    check (processor.isSamplePreviewPlaying(), "the preview plays");
+    processor.stopSamplePreview();
+    renderBlocks (3);
+
+    check (processor.startSamplePreview (loud), "a loud file starts a preview");
+    renderBlocks (2);
+    const auto loudLevel = renderBlocks (40).first;
+    const auto targetRms = (double) juce::Decibels::decibelsToGain (Model::previewTargetDb);
+    check (std::abs (juce::Decibels::gainToDecibels ((float) quietLevel) - juce::Decibels::gainToDecibels ((float) loudLevel)) < 0.5f,
+           "quiet and loud files preview at the same level (" + juce::String (quietLevel) + " and " + juce::String (loudLevel) + ")");
+    check (std::abs (juce::Decibels::gainToDecibels ((float) loudLevel) - Model::previewTargetDb) < 1.0f,
+           "the level is about " + juce::String ((int) Model::previewTargetDb) + " dBFS RMS (" + juce::String (loudLevel / targetRms) + " of the target)");
+
+    processor.stopSamplePreview();
+    renderBlocks (3);
+    check (renderBlocks (4).second < 1.0e-4f && ! processor.isSamplePreviewPlaying(), "stopping silences the preview");
+
+    check (! processor.startSamplePreview (folder.getChildFile ("notes.txt")), "a file that is not audio does not preview");
+
+    // Only the first ten seconds are decoded, and a short file plays out and ends.
+    const auto longFile = folder.getChildFile ("long.wav");
+    MultiSampleLab::writeWav (longFile, MultiSampleLab::sine (200.0, 8000.0, 8000 * 14), 8000.0);
+    check (processor.startSamplePreview (longFile), "a long file previews");
+    renderBlocks (4);
+    check (processor.isSamplePreviewPlaying(), "a long file is still playing after a fraction of a second");
+    const auto shortFile = folder.getChildFile ("short.wav");
+    MultiSampleLab::writeWav (shortFile, scaled (440.0, 0.3f, 2000), 44100.0);
+    check (processor.startSamplePreview (shortFile), "a short file previews");
+    renderBlocks (8);
+    check (! processor.isSamplePreviewPlaying() && renderBlocks (2).second < 1.0e-4f, "a short file plays out and ends");
+
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -796,4 +940,5 @@ void runSamplerTests()
     runSampleZoneMapTest();
     runSampleRoundRobinTest();
     runSoundFontPresetTest();
+    runSampleBrowserTest();
 }

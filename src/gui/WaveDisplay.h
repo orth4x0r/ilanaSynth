@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 #include "../PluginProcessor.h"
@@ -21,6 +22,14 @@
 #include "TableBrowser.h"
 #include "PhysicalView.h"
 #include "SamplePortability.h"
+
+// Roadmap step 42: the editor sets this to open the sample browser for an
+// oscillator (given how to load a chosen file into it); empty without an editor.
+inline std::function<void (int, std::function<bool (const juce::File&)>)>& sampleBrowserHook()
+{
+    static std::function<void (int, std::function<bool (const juce::File&)>)> hook;
+    return hook;
+}
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
@@ -547,6 +556,8 @@ public:
         juce::PopupMenu menu;
         constexpr int loadFileItem = 10000;
         constexpr int embedItem = 10001, embedAllItem = 10002, collectItem = 10003, relinkItem = 10004;
+        constexpr int browseItem = 10005;
+        menu.addItem (browseItem, "Browse Samples...", sampleBrowserHook() != nullptr);
         menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
 
         // Roadmap step 38: a SoundFont's presets, by bank, to switch between.
@@ -618,6 +629,20 @@ public:
                                     return;
                                 }
 
+                                if (result == browseItem)
+                                {
+                                    if (auto hook = sampleBrowserHook())
+                                        hook (safeThis->oscIndex, [safeThis] (const juce::File& file)
+                                        {
+                                            if (safeThis == nullptr || ! safeThis->processorRef.loadUserSample (safeThis->oscIndex, file, true))
+                                                return false;
+                                            safeThis->switchToSampleMode();
+                                            safeThis->repaint();
+                                            return true;
+                                        });
+                                    return;
+                                }
+
                                 if (result >= presetItemBase && result - presetItemBase < (int) presets.size())
                                 {
                                     const auto preset = presets[(size_t) (result - presetItemBase)];
@@ -633,7 +658,7 @@ public:
                                     return;
                                 }
 
-                                if (result >= embedItem)
+                                if (result >= embedItem && result != browseItem)
                                 {
                                     auto& processor = safeThis->processorRef;
                                     if (result == embedItem || result == embedAllItem)

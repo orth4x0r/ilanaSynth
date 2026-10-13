@@ -619,6 +619,18 @@ public:
     // sample source (the SOURCE menu goes back to the loaded sample).
     bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
 
+    // Roadmap step 42: the sample browser's audition. startSamplePreview decodes
+    // the file on the calling (message) thread, up to previewSeconds of it, sets
+    // a gain from its RMS so every preview plays at the same level, and hands it
+    // to the audio thread, which mixes it into the output after the effects (no
+    // lock, no allocation there). It returns false for a file it cannot read.
+    // stopSamplePreview fades it out. Nothing of this reaches a preset.
+    bool startSamplePreview (const juce::File& file);
+    void stopSamplePreview();
+    bool isSamplePreviewPlaying() const noexcept { return previewPlaying.load(); }
+    // The gain the running preview was given (1 with none).
+    float getSamplePreviewGain() const noexcept { return previewGain.load(); }
+
     // Portable sample presets (roadmap step 31; src/processor/SamplePortability.cpp).
     // Embedded audio is held to this many bytes of 16-bit samples in the patch.
     static constexpr juce::int64 maxEmbeddedSampleBytes = 64 * 1024 * 1024;
@@ -1200,6 +1212,28 @@ private:
     std::array<std::array<std::shared_ptr<SampleData>, 3>, (size_t) numSampleOscs> retiredSamples;
     std::array<int, (size_t) numSampleOscs> retiredIndex {};
     mutable juce::SpinLock sampleLock;
+
+    // Sample browser preview (step 42). The message thread fills previewPending
+    // under previewLock and bumps previewSerial; the audio thread try-locks to
+    // pick it up. Clips it replaced wait in previewRetired, so the audio thread
+    // never frees one.
+    struct PreviewClip
+    {
+        juce::AudioBuffer<float> buffer;
+        double sampleRate = 44100.0;
+        float gain = 1.0f;
+    };
+    void mixSamplePreview (juce::AudioBuffer<float>& buffer) noexcept;
+    mutable juce::SpinLock previewLock;
+    std::shared_ptr<PreviewClip> previewPending;
+    std::array<std::shared_ptr<PreviewClip>, 4> previewRetired;
+    int previewRetiredIndex = 0;
+    std::atomic<int> previewSerial { 0 };
+    std::atomic<bool> previewPlaying { false };
+    std::atomic<float> previewGain { 1.0f };
+    std::shared_ptr<PreviewClip> previewActive; // audio thread only
+    int previewSeenSerial = 0, previewFadeIn = 0, previewFadeOut = 0;
+    double previewPosition = 0.0;
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
     std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock

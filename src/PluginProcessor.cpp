@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "dsp/MultiSample.h"
+#include "gui/SampleBrowserModel.h"
 
 #ifdef ILANA_TEST_BUILD
 #include "dsp/Modulation.h"
@@ -967,6 +968,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     if (total <= expectedBlockSize)
     {
         processChunk (buffer, midiMessages);
+        mixSamplePreview (buffer);
         return;
     }
 
@@ -980,6 +982,124 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         chunkMidi.addEvents (midiMessages, start, length, -start);
         processChunk (chunk, chunkMidi);
     }
+
+    mixSamplePreview (buffer);
+}
+
+void IlanaSynthAudioProcessor::mixSamplePreview (juce::AudioBuffer<float>& buffer) noexcept
+{
+    // A new clip (or a stop) from the message thread; if it holds the lock
+    // right now, the next block picks it up.
+    const auto serial = previewSerial.load (std::memory_order_acquire);
+    if (serial != previewSeenSerial)
+    {
+        const juce::SpinLock::ScopedTryLockType lock (previewLock);
+        if (lock.isLocked())
+        {
+            previewSeenSerial = serial;
+            if (previewPending != nullptr)
+            {
+                previewActive = previewPending;
+                previewPosition = 0.0;
+                previewFadeIn = 128;
+                previewFadeOut = 0;
+                previewPlaying.store (true);
+            }
+            else if (previewActive != nullptr && previewPlaying.load())
+            {
+                previewFadeOut = 512;
+            }
+        }
+    }
+
+    if (previewActive == nullptr || ! previewPlaying.load())
+        return;
+
+    const auto& clip = *previewActive;
+    const auto length = clip.buffer.getNumSamples();
+    const auto step = clip.sampleRate / juce::jmax (1.0, baseSampleRate);
+    const auto clipChannels = clip.buffer.getNumChannels();
+    const auto outChannels = buffer.getNumChannels();
+    const auto fadeOutLength = 512;
+
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+    {
+        const auto index = (int) previewPosition;
+        if (index >= length - 1)
+        {
+            previewPlaying.store (false);
+            return;
+        }
+
+        const auto fraction = (float) (previewPosition - (double) index);
+        auto gain = clip.gain;
+        if (previewFadeIn > 0)
+            gain *= 1.0f - (float) --previewFadeIn / 128.0f;
+        if (previewFadeOut > 0)
+        {
+            gain *= (float) previewFadeOut / (float) fadeOutLength;
+            if (--previewFadeOut == 0)
+            {
+                previewPlaying.store (false);
+                return;
+            }
+        }
+
+        for (int c = 0; c < outChannels && c < 2; ++c)
+        {
+            const auto* data = clip.buffer.getReadPointer (juce::jmin (c, clipChannels - 1));
+            buffer.getWritePointer (c)[i] += (data[index] + (data[index + 1] - data[index]) * fraction) * gain;
+        }
+
+        previewPosition += step;
+    }
+}
+
+bool IlanaSynthAudioProcessor::startSamplePreview (const juce::File& file)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+
+    if (reader == nullptr || reader->lengthInSamples <= 1 || reader->sampleRate <= 0.0)
+        return false;
+
+    const auto numSamples = (int) juce::jmin (reader->lengthInSamples,
+                                              (juce::int64) (reader->sampleRate * SampleBrowserModel::previewSeconds));
+    auto clip = std::make_shared<PreviewClip>();
+    clip->sampleRate = reader->sampleRate;
+    clip->buffer.setSize (juce::jlimit (1, 2, (int) reader->numChannels), numSamples);
+
+    if (! reader->read (&clip->buffer, 0, numSamples, 0, true, true))
+        return false;
+
+    scrubAudio (clip->buffer);
+    const auto level = SampleBrowserModel::measureLevel (clip->buffer);
+    clip->gain = SampleBrowserModel::previewGain (level.rms, level.peak);
+    previewGain.store (clip->gain);
+
+    {
+        const juce::SpinLock::ScopedLockType lock (previewLock);
+        previewRetired[(size_t) previewRetiredIndex] = std::move (previewPending);
+        previewRetiredIndex = (previewRetiredIndex + 1) % (int) previewRetired.size();
+        previewPending = std::move (clip);
+        previewSerial.fetch_add (1, std::memory_order_release);
+    }
+
+    return true;
+}
+
+void IlanaSynthAudioProcessor::stopSamplePreview()
+{
+    const juce::SpinLock::ScopedLockType lock (previewLock);
+    if (previewPending == nullptr)
+        return;
+
+    previewRetired[(size_t) previewRetiredIndex] = std::move (previewPending);
+    previewRetiredIndex = (previewRetiredIndex + 1) % (int) previewRetired.size();
+    previewPending = nullptr;
+    previewGain.store (1.0f);
+    previewSerial.fetch_add (1, std::memory_order_release);
 }
 
 void IlanaSynthAudioProcessor::captureLiveInput (juce::AudioBuffer<float>& buffer)

@@ -34,6 +34,7 @@
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
 #include "gui/ZoneMapEditor.h"
+#include "gui/SampleBrowser.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
 #include "gui/ModulationCardView.h"
@@ -460,6 +461,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     // Any page can open the FM page on an operator (-1: as it was), and
     // MOD on OP PITCH and OP LFO (the FM card's link to them).
+    sampleBrowserHook() = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
+                          (int osc, std::function<bool (const juce::File&)> loadFile)
+    {
+        if (safe != nullptr)
+            safe->openSampleBrowser (osc, std::move (loadFile));
+    };
     FmOperatorInfo::hooks().openOperator = [this, fmPage] (int osc)
     {
         if (osc >= 0)
@@ -926,11 +933,59 @@ void IlanaSynthAudioProcessorEditor::closeZoneEditor()
     }
 }
 
+void IlanaSynthAudioProcessorEditor::openSampleBrowser (int oscIndex, std::function<bool (const juce::File&)> loadFile)
+{
+    closeSampleBrowser();
+    closeZoneEditor();
+    closeWavetableEditor();
+    oscIndex = juce::jlimit (0, OscillatorIds::count - 1, oscIndex);
+
+    if (loadFile == nullptr)
+    {
+        loadFile = [this, oscIndex] (const juce::File& file)
+        {
+            if (! processorRef.loadUserSample (oscIndex, file, true))
+                return false;
+
+            // The oscillator plays the sample (Sample or Granular mode as it is).
+            const auto modeId = juce::String (OscillatorIds::prefixes[(size_t) oscIndex]) + "_mode";
+            if (auto* mode = processorRef.apvts.getRawParameterValue (modeId))
+            {
+                const auto current = (int) mode->load();
+                if (current != 2 && current != 3)
+                    processorRef.setOscillatorMode (oscIndex, OscMode::sample);
+            }
+            return true;
+        };
+    }
+
+    sampleBrowser = std::make_unique<SampleBrowser> (processorRef, oscIndex, IlanaTheme::oscColour (oscIndex), settings.get(), std::move (loadFile));
+    sampleBrowser->onClose = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
+    {
+        if (safe != nullptr)
+            safe->closeSampleBrowser();
+    };
+    content.addAndMakeVisible (*sampleBrowser);
+    sampleBrowser->setBounds (content.getLocalBounds().reduced (24, 62));
+    sampleBrowser->grabKeyboardFocus();
+}
+
+void IlanaSynthAudioProcessorEditor::closeSampleBrowser()
+{
+    if (sampleBrowser != nullptr)
+    {
+        content.removeChildComponent (sampleBrowser.get());
+        sampleBrowser.reset();
+    }
+}
+
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+    sampleBrowser.reset();
     zoneEditor.reset();
     setGpuRendering (false); // before any child goes: the render thread paints them
     scopeWindow.reset();
+    sampleBrowserHook() = nullptr;
     FmOperatorInfo::hooks().openOperator = nullptr;
     FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
     ModNames::openMatrixRow() = nullptr;
@@ -949,6 +1004,7 @@ void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadca
         setPresetDockShown (false);
 
     closeWavetableEditor();
+    closeSampleBrowser();
 
     layoutTabRow();
 
@@ -3123,6 +3179,12 @@ bool IlanaSynthAudioProcessorEditor::closeTopPopup()
         return true;
     }
 
+    if (sampleBrowser != nullptr)
+    {
+        closeSampleBrowser();
+        return true;
+    }
+
     if (tutorial.isVisible())
     {
         tutorial.dismiss();
@@ -3218,7 +3280,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     // an octave with W E T Y U O P for the black ones, Z and X shift the
     // octave. Only here, in the editor's own key handler, so a host that
     // keeps its keys never sees a conflict; never while a text field has focus.
-    if (keyboard != nullptr && wavetableEditor == nullptr && zoneEditor == nullptr && ! modifiers.isCommandDown() && ! modifiers.isCtrlDown()
+    if (keyboard != nullptr && wavetableEditor == nullptr && zoneEditor == nullptr && sampleBrowser == nullptr && ! modifiers.isCommandDown() && ! modifiers.isCtrlDown()
         && ! modifiers.isAltDown()
         && dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) == nullptr)
     {

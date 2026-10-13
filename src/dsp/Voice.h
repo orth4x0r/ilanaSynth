@@ -235,6 +235,7 @@ struct VoiceParams
         bool sampleLoop = false;
         bool sampleReverse = false;
         float sampleStart = 0.0f;
+        float sampleRoot = 60.0f;   // step 29: a plain sample's recorded note (C3 = 60)
         bool sampleLoopOwn = false; // step 27: LOOP uses its own span
         float sampleLoopStart = 0.25f, sampleLoopEnd = 0.75f;
         float sampleEnd = 1.0f;

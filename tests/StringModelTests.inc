@@ -596,6 +596,92 @@ void runSampleLoopPointsTest()
            "a fast read (several loops per block) wraps cleanly");
 }
 
+void runSampleRootTest()
+{
+    // Step 29: ROOT sets the note a plain sample was recorded at; DETECT's
+    // pitch finder (YIN) reads it from the sample.
+    constexpr double sampleRate = 48000.0;
+    const auto make = [&] (const std::function<float (int)>& at, int length)
+    {
+        auto data = std::make_shared<SampleData>();
+        data->sampleRate = sampleRate;
+        data->buffer.setSize (1, length);
+        for (int i = 0; i < length; ++i)
+            data->buffer.setSample (0, i, at (i));
+        return data;
+    };
+    const auto twoPi = juce::MathConstants<double>::twoPi;
+    const auto sine = [&] (double hz) { return [=] (int i) { return (float) (0.8 * std::sin (twoPi * hz * i / sampleRate)); }; };
+    const auto near = [] (double a, double b, double tolerance) { return std::abs (a - b) < tolerance; };
+
+    const auto a2 = PitchDetect::detect (make (sine (110.0), 48000)->buffer, sampleRate);
+    check (a2.found() && near (a2.midiNote, 45.0, 0.05), "a 110 Hz sine reads as A1 (MIDI 45), got " + juce::String (a2.midiNote, 3));
+    const auto high = PitchDetect::detect (make (sine (1318.5), 48000)->buffer, sampleRate);
+    check (high.found() && near (high.midiNote, 88.0, 0.1), "a 1318.5 Hz sine reads as E6 (MIDI 88), got " + juce::String (high.midiNote, 3));
+    const auto low = PitchDetect::detect (make (sine (41.2), 96000)->buffer, sampleRate);
+    check (low.found() && near (low.midiNote, 28.0, 0.1), "a 41.2 Hz sine reads as E0 (MIDI 28), got " + juce::String (low.midiNote, 3));
+
+    // Rich in harmonics, with the second one louder than the fundamental.
+    const auto rich = PitchDetect::detect (make ([&] (int i)
+    {
+        const auto t = (double) i / sampleRate;
+        return (float) (0.3 * std::sin (twoPi * 196.0 * t) + 0.5 * std::sin (twoPi * 392.0 * t) + 0.3 * std::sin (twoPi * 588.0 * t));
+    }, 48000)->buffer, sampleRate);
+    check (rich.found() && near (rich.frequency, 196.0, 1.0), "a loud second harmonic does not make it an octave up (" + juce::String (rich.frequency, 2) + " Hz)");
+
+    // A sample that is off the note keeps its cents.
+    const auto sharp = PitchDetect::detect (make (sine (440.0 * std::exp2 (0.3 / 12.0)), 48000)->buffer, sampleRate);
+    check (sharp.found() && near (sharp.midiNote, 69.3, 0.03), "30 cents sharp is kept (" + juce::String (sharp.midiNote, 3) + ")");
+
+    // A note with a click and a quiet start still reads.
+    const auto decaying = PitchDetect::detect (make ([&] (int i)
+    {
+        return (float) (std::exp (-3.0 * i / sampleRate) * std::sin (twoPi * 330.0 * i / sampleRate)) * (i < 200 ? 0.02f * (float) i : 1.0f);
+    }, 48000)->buffer, sampleRate);
+    check (decaying.found() && near (decaying.frequency, 330.0, 1.0), "a decaying note with a soft start reads (" + juce::String (decaying.frequency, 2) + " Hz)");
+
+    juce::Random random (7);
+    const auto noise = PitchDetect::detect (make ([&] (int) { return random.nextFloat() * 2.0f - 1.0f; }, 48000)->buffer, sampleRate);
+    check (! noise.found(), "white noise has no pitch");
+    check (! PitchDetect::detect (make ([] (int) { return 0.0f; }, 48000)->buffer, sampleRate).found(), "silence has no pitch");
+    check (! PitchDetect::detect (make (sine (220.0), 100)->buffer, sampleRate).found(), "a sample too short to judge has no pitch");
+
+    // The voice: a 130.81 Hz sample (C2) played at C3 is heard at C3 only
+    // when ROOT says so; at the default root the C3 key plays it as recorded.
+    auto sample = make (sine (130.8128), 9600);
+    const auto render = [&] (int note, float root)
+    {
+        auto voiceOwner = std::make_unique<Voice>();
+        auto& voice = *voiceOwner;
+        voice.setCurrentPlaybackSampleRate (sampleRate);
+        VoiceParams p;
+        p.oscillators[0].sampleMode = true;
+        p.oscillators[0].sample = sample.get();
+        p.oscillators[0].sampleTuned = true;
+        p.oscillators[0].sampleLoop = true;
+        p.oscillators[0].sampleRoot = root;
+        p.oscillators[0].level = 0.9f;
+        p.oscillators[0].unison = 1;
+        p.filter1.cutoffHz = 20000.0f;
+        p.filter2.cutoffHz = 20000.0f;
+        p.ampEnv = { 0.001f, 1.0f, 1.0f, 0.1f };
+        voice.setParams (p);
+        voice.startNote (note, 1.0f, nullptr, 8192);
+        juce::AudioBuffer<float> buffer (1, 16384);
+        buffer.clear();
+        voice.renderNextBlock (buffer, 0, 16384);
+        return std::vector<float> (buffer.getReadPointer (0), buffer.getReadPointer (0) + 16384);
+    };
+    const auto atDefault = fundamentalOf (render (60, 60.0f), sampleRate);
+    check (near (atDefault, 130.81, 4.0), "the default root (C3) plays the C3 key at the sample's own speed, as every older patch (" + juce::String (atDefault, 2) + " Hz)");
+    const auto atRoot = fundamentalOf (render (60, 48.0f), sampleRate);
+    check (near (atRoot, 261.63, 6.0), "root C2: the C3 key sounds C3 (" + juce::String (atRoot, 2) + " Hz)");
+    const auto atRootNote = fundamentalOf (render (48, 48.0f), sampleRate);
+    check (near (atRootNote, 130.81, 4.0), "root C2: the C2 key plays the sample as recorded (" + juce::String (atRootNote, 2) + " Hz)");
+    const auto cents = fundamentalOf (render (60, 60.5f), sampleRate);
+    check (near (cents, 130.81 * std::exp2 (-0.5 / 12.0), 3.0), "a root half a semitone up lowers the playback by 50 cents (" + juce::String (cents, 2) + " Hz)");
+}
+
 void runSampleOscTest()
 {
     constexpr double sampleRate = 48000.0;

@@ -398,7 +398,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium. Touches the loop wrap in `src/dsp/SamplePlayer.h` and the snap in `src/gui/WaveDisplay.h`. Depends on step 27.
    Order 18. Why here: a crossfade only makes sense once the loop is its own range (27).
 
-29. **Root-note control and pitch detection** (ilana, 2026-10-10: decided, not started). Set the original note of a plain sample instead of assuming C4, and offer a detected note that the user can adjust.
+29. **Root-note control and pitch detection** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/project-thread-fwlgep`: ROOT (a note, default C3 = 60 = what every old patch assumed) and ROOT FINE (cents) knobs on the OSC tab's sample card, row 3; a DETECT button in the card header runs a YIN pitch finder (`src/dsp/PitchDetect.h`) and sets both. Plain samples only: a multisample keeps its zone roots and ROOT dims. 0 existing preset changes). Set the original note of a plain sample instead of assuming C4, and offer a detected note that the user can adjust.
    Size: medium. Today the root is the zone's or C4 (`rootNote` in `src/dsp/SamplePlayer.h`). Touches that, the OSC card's control on `src/gui/pages/OscPage.h`, and a new pitch detector in `src/dsp`.
    Order 19. Why here: each sample (and later each slice) needs its own root, so it goes in before slicing adds per-slice tuning.
 

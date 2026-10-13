@@ -1144,6 +1144,19 @@ public:
             card.sampleExportButton.onClick = [this, i] { showExportMenu (i); };
             styleHeaderButton (card.sampleExportButton);
             addChildComponent (card.sampleExportButton);
+
+            // Roadmap step 36: the zone map editor.
+            card.sampleZonesButton.setButtonText ("ZONES");
+            card.sampleZonesButton.setTooltip ("Edit the zone map: drag each zone's keys and velocities, set its root note and level, "
+                                               "add samples, hear a zone, and choose what plays outside the zones, round robin and "
+                                               "velocity blending.");
+            card.sampleZonesButton.onClick = [this, i]
+            {
+                if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
+                    editor->openZoneEditor (i, oscColour (i));
+            };
+            styleHeaderButton (card.sampleZonesButton);
+            addChildComponent (card.sampleZonesButton);
         }
 
         // The TABLE lists open the wavetable browser.
@@ -1988,7 +2001,7 @@ private:
             osc.on.setBounds (juce::Rectangle<int> (40, 22).withCentre ({ card.header.getRight() - 8 - 20, centre }));
             auto right = card.header.withRight (osc.on.getX() - 8);
 
-            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
+            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleZonesButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
                                   editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
                 if (button != nullptr && button->isVisible())
                 {
@@ -2425,7 +2438,7 @@ private:
         UnisonSpreadView spreadView;
         StringPartialsView partials;
         OscStatusView status;
-        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton, sampleZonesButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -2733,7 +2746,7 @@ private:
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
-                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton };
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.sampleZonesButton };
     }
 
     // The cards show every shown oscillator with its own controls; the strip
@@ -2783,6 +2796,7 @@ private:
             loadButton (index).setVisible (kind == Kind::wavetable);
             pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
             pieces.sampleExportButton.setVisible (kind == Kind::sample);
+            pieces.sampleZonesButton.setVisible (kind == Kind::sample);
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
             pieces.opEnvButton.setVisible (opEnv);
             pieces.stringButton.setVisible (kind == Kind::physical);
@@ -2942,6 +2956,7 @@ private:
             pieces.stringButton.setAlpha (alpha);
             pieces.sampleLoadButton.setAlpha (alpha);
             pieces.sampleExportButton.setAlpha (alpha);
+            pieces.sampleZonesButton.setAlpha (alpha);
         }
 
         effectRules.apply();

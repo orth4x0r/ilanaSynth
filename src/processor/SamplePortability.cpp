@@ -283,9 +283,14 @@ IlanaSynthAudioProcessor::CollectResult IlanaSynthAudioProcessor::collectSamples
         }
 
         // The patch now plays the copy (the audio in memory is the same).
-        const juce::SpinLock::ScopedLockType lock (stateLock);
-        if (samplePaths[(size_t) osc] == jobs[job].second)
-            samplePaths[(size_t) osc] = destination;
+        auto moved = false;
+        {
+            const juce::SpinLock::ScopedLockType lock (stateLock);
+            if (samplePaths[(size_t) osc] == jobs[job].second)
+                samplePaths[(size_t) osc] = destination, moved = true;
+        }
+        if (moved)
+            retargetSampleOptions (osc, destination); // step 36: an edited zone map follows its file
         ++result.oscillators;
     }
     ++dataEpoch;
@@ -294,7 +299,10 @@ IlanaSynthAudioProcessor::CollectResult IlanaSynthAudioProcessor::collectSamples
 
 bool IlanaSynthAudioProcessor::relinkSample (int oscIndex, const juce::File& file)
 {
-    if (! file.existsAsFile() || ! loadUserSample (oscIndex, file, false))
+    if (! file.existsAsFile())
+        return false;
+    retargetSampleOptions (oscIndex, file.getFullPathName()); // step 36: an edited zone map follows its file
+    if (! loadUserSample (oscIndex, file, false))
         return false;
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);

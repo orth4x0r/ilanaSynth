@@ -401,6 +401,126 @@ void runSampleQualityTest()
            "the quality reads stay finite at the sample's edges");
 }
 
+// Step 36: the zone map: silence outside the zones, edits that survive a
+// save and undo, and samples added to a map.
+void runSampleZoneMapTest()
+{
+    using namespace SamplerLab;
+    const auto folder = scratchFolder ("ilana-sampler-zones");
+    MultiSampleLab::writeWav (folder.getChildFile ("low.wav"), MultiSampleLab::sine (220.0, 44100.0, 44100), 44100.0);
+    MultiSampleLab::writeWav (folder.getChildFile ("high.wav"), MultiSampleLab::sine (880.0, 44100.0, 44100), 44100.0);
+    MultiSampleLab::writeWav (folder.getChildFile ("extra.wav"), MultiSampleLab::sine (440.0, 44100.0, 44100), 44100.0);
+    const auto sfz = folder.getChildFile ("map.sfz");
+    sfz.replaceWithText ("<region> sample=low.wav lokey=40 hikey=59 pitch_keycenter=57\n<region> sample=high.wav lokey=60 hikey=80 pitch_keycenter=81\n");
+
+    // The zone choice: nearest outside the map, or nothing.
+    juce::String error;
+    const auto data = MultiSample::load (sfz, error);
+    check (data != nullptr && data->zones.size() == 2 && data->zones[0].origin == 0 && data->zones[1].origin == 1, "zones know their place in the file");
+    if (data == nullptr || data->zones.size() != 2)
+        return;
+    check (data->zoneFor (20, 100) == &data->zones[0] && data->zoneFor (100, 100) == &data->zones[1], "outside the map the nearest zone plays");
+    check (data->zoneFor (20, 100, true) == nullptr && data->zoneFor (50, 100, true) == &data->zones[0], "with Silence a key outside plays nothing");
+
+    IlanaSynthAudioProcessor processor;
+    MultiSampleLab::setUp (processor);
+    check (processor.loadUserSample (0, sfz, true), "the map loads");
+    const auto loudness = [&processor] (int note)
+    {
+        // All notes off and a few blocks to let the last note die.
+        juce::AudioBuffer<float> quiet (2, 512);
+        for (int block = 0; block < 60; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::allSoundOff (1), 0);
+            processor.processBlock (quiet, midi);
+        }
+        const auto out = MultiSampleLab::play (processor, note, 20);
+        double sum = 0.0;
+        for (size_t i = 4096; i < out.size(); ++i)
+            sum += (double) out[i] * out[i];
+        return std::sqrt (sum / (double) (out.size() - 4096));
+    };
+    check (loudness (20) > 0.01, "a key below the map plays the nearest zone");
+    samplerSet (processor, "osc1_sample_unmapped", 1.0f);
+    check (loudness (20) < 1.0e-5, "OUTSIDE ZONES Silence: the key plays nothing");
+    check (loudness (50) > 0.01, "a key inside the map still plays");
+    samplerSet (processor, "osc1_sample_unmapped", 0.0f);
+
+    // Edits to a file's map: saved as edits, they come back with the patch.
+    auto zones = processor.getSampleZones (0);
+    check (zones.size() == 2, "the editor reads the zones");
+    zones[0].hiKey = 50;
+    zones[1].loKey = 51;
+    zones[1].rootNote = 76.0;
+    check (processor.setSampleZones (0, zones, "Edit zones"), "the edited zones are set");
+    check (processor.getSampleZones (0)[0].hiKey == 50 && processor.getSampleZones (0)[1].loKey == 51, "the edit plays at once");
+
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor reloaded;
+    reloaded.prepareToPlay (48000.0, 512);
+    reloaded.setStateInformation (saved.getData(), (int) saved.getSize());
+    reloaded.flushAsyncUpdates();
+    const auto back = reloaded.getSampleZones (0);
+    check (back.size() == 2 && back[0].hiKey == 50 && back[1].loKey == 51 && std::abs (back[1].rootNote - 76.0) < 1.0e-9,
+           "an edited file map comes back with the patch (" + juce::String ((int) back.size()) + " zones)");
+
+    // Undo puts the file's own map back.
+    processor.getUndoManager().undo();
+    check (processor.getSampleZones (0).size() == 2 && processor.getSampleZones (0)[0].hiKey == 59, "undo puts the map back as the file had it");
+    processor.getUndoManager().redo();
+    check (processor.getSampleZones (0)[0].hiKey == 50, "redo brings the edit back");
+
+    // Adding a sample: a third zone, saved by its file.
+    check (processor.addSampleZone (0, folder.getChildFile ("extra.wav"), 90, 100, 1, 127, 95, error), "a sample is added to the map (" + error + ")");
+    check (processor.getSampleZones (0).size() == 3 && processor.getSampleZones (0)[2].loKey == 90, "the added zone covers its keys");
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor again;
+    again.prepareToPlay (48000.0, 512);
+    again.setStateInformation (saved.getData(), (int) saved.getSize());
+    again.flushAsyncUpdates();
+    check (again.getSampleZones (0).size() == 3, "the added zone comes back with the patch");
+
+    // A plain sample turns into a map when a sample is added.
+    IlanaSynthAudioProcessor plain;
+    MultiSampleLab::setUp (plain);
+    check (plain.loadUserSample (0, folder.getChildFile ("low.wav"), true) && plain.getSampleZones (0).empty(), "a plain sample has no zones");
+    check (plain.addSampleZone (0, folder.getChildFile ("high.wav"), 72, 127, 1, 127, 81, error), "adding to a plain sample works");
+    const auto made = plain.getSampleZones (0);
+    check (made.size() == 2 && made[0].loKey == 0 && made[0].hiKey == 127 && made[1].loKey == 72 && made[0].data != nullptr,
+           "the plain sample is the first zone, the added file the second");
+
+    // A zone map kept in the patch (no file) keeps its edits in the patch.
+    IlanaSynthAudioProcessor embedded;
+    embedded.prepareToPlay (48000.0, 512);
+    auto multi = std::make_shared<SampleData>();
+    multi->sampleRate = 48000.0;
+    for (int z = 0; z < 2; ++z)
+    {
+        SampleZone zone;
+        zone.data = std::make_shared<SampleData>();
+        zone.data->sampleRate = 48000.0;
+        zone.data->buffer = MultiSampleLab::sine (z == 0 ? 220.0 : 440.0, 48000.0, 4800);
+        zone.loKey = z == 0 ? 0 : 64;
+        zone.hiKey = z == 0 ? 63 : 127;
+        multi->zones.push_back (zone);
+    }
+    MultiSample::finish (*multi);
+    embedded.setUserSample (0, multi, {});
+    auto inPatch = embedded.getSampleZones (0);
+    inPatch[1].loKey = 70;
+    check (embedded.setSampleZones (0, inPatch, "Edit zones") && embedded.isSampleEmbedded (0), "a resampled map stays in the patch");
+    embedded.getStateInformation (saved);
+    IlanaSynthAudioProcessor embeddedBack;
+    embeddedBack.prepareToPlay (48000.0, 512);
+    embeddedBack.setStateInformation (saved.getData(), (int) saved.getSize());
+    check (embeddedBack.getSampleZones (0).size() == 2 && embeddedBack.getSampleZones (0)[1].loKey == 70, "its edit is saved with the patch");
+    check (! embedded.setSampleZones (0, {}, "Delete everything"), "a map can't lose its last zone");
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -409,4 +529,5 @@ void runSamplerTests()
     runSamplePingPongTest();
     runSampleRandomStartTest();
     runSampleQualityTest();
+    runSampleZoneMapTest();
 }

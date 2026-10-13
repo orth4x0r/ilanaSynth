@@ -1179,6 +1179,7 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_quality"), "How the sample is read between its samples. Linear: light, a little dull when pitched down and "
       "rough when pitched far up. Cubic: smoother. Sinc: the cleanest. Sinc + Anti-Alias: also filters the harsh folded tones a "
       "note far above the sample's own pitch would make (costs more CPU the higher it goes)." },
+    { ends ("_sample_unmapped"), "A key or velocity that no zone covers: Nearest Zone plays the closest one (stretched to the note), Silence plays nothing." },
     { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
 };
 

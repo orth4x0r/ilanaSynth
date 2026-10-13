@@ -1282,5 +1282,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_quality", name + " Sample Quality", { "Linear", "Cubic", "Sinc", "Sinc + Anti-Alias" }, 0);
     }
 
+    // Roadmap step 36: a key no zone covers plays the nearest zone, as in
+    // every older patch, or nothing.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_unmapped", name + " Sample Outside Zones", { "Nearest Zone", "Silence" }, 0);
+    }
+
     return layout;
 }

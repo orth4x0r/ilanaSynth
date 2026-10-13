@@ -186,8 +186,11 @@ void Voice::syncSamplePlayers()
     {
         const auto start = juce::jlimit (0.0f, 0.98f, osc.sampleStart + startMod);
         const auto end = juce::jlimit (start + 0.01f, 1.0f, osc.sampleEnd + endMod);
-        // A multisample plays the region the note picked, with its loop.
-        const auto* sample = zone != nullptr ? zone->data.get() : osc.sample;
+        // A multisample plays the region the note picked, with its loop; a
+        // key outside every zone, with OUTSIDE ZONES on Silence, nothing.
+        const auto* sample = zone != nullptr ? zone->data.get()
+                             : osc.sample != nullptr && ! osc.sample->zones.empty() && osc.sampleSilenceOutside ? nullptr
+                                                                                                                 : osc.sample;
         // A rendered copy is the whole sample stretched, so the region's
         // start and end stay where they were; a region loop scales with it.
         const auto loopScale = copy != nullptr && sample != nullptr && sample->getNumSamples() > 0
@@ -265,7 +268,7 @@ void Voice::syncSamplePlayers()
         {
             const auto& settings = params.oscillators[osc];
             const auto* sample = settings.sample;
-            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity) : nullptr;
+            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity, settings.sampleSilenceOutside) : nullptr;
             const auto* origin = sampleZone[osc] != nullptr ? sampleZone[osc]->data.get() : sample;
             const auto* copy = settings.granularMode ? nullptr : stretchCopyFor (osc, origin);
             const auto sameSound = origin != nullptr && origin == stretchOrigin[osc];

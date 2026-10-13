@@ -38,6 +38,11 @@ struct SampleZone
     float gain = 1.0f;
     bool loop = false;
     int loopStart = 0, loopEnd = 0; // samples into data
+    // Roadmap step 36: where the zone came from, so an edited map can be
+    // saved as edits to its file: its index in the file it was read from,
+    // or (origin -1) the audio file it was added from.
+    int origin = -1;
+    juce::String file;
 
     bool covers (int note, int velocity) const noexcept
     {
@@ -78,9 +83,18 @@ struct SampleData
     int getNumSamples() const noexcept { return buffer.getNumSamples(); }
 
     // The region a note plays: the one that covers it, else the nearest by
-    // key (a velocity outside every range takes the closest layer).
-    const SampleZone* zoneFor (int note, int velocity) const noexcept
+    // key (a velocity outside every range takes the closest layer), or none
+    // when silenceOutside asks for silence there (step 36).
+    const SampleZone* zoneFor (int note, int velocity, bool silenceOutside = false) const noexcept
     {
+        if (silenceOutside)
+        {
+            for (const auto& zone : zones)
+                if (zone.data != nullptr && zone.covers (note, velocity))
+                    return &zone;
+            return nullptr;
+        }
+
         const SampleZone* best = nullptr;
         auto bestDistance = 1 << 30;
         for (const auto& zone : zones)

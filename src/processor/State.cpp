@@ -60,6 +60,20 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
                 state.removeProperty (property, nullptr);
         }
 
+        // Step 36: a file's saved options (an edited zone map, an SF2 preset).
+        state.removeChild (state.getChildWithName ("SampleOptions"), nullptr);
+        juce::ValueTree options ("SampleOptions");
+        for (int i = 0; i < numSampleOscs; ++i)
+            if (samplePaths[(size_t) i].isNotEmpty() && sampleOptions[(size_t) i].isNotEmpty())
+                if (const auto xml = juce::parseXML (sampleOptions[(size_t) i]))
+                    if (auto tree = juce::ValueTree::fromXml (*xml); tree.isValid() && tree.getProperty ("path").toString() == samplePaths[(size_t) i])
+                    {
+                        tree.setProperty ("osc", i, nullptr);
+                        options.appendChild (tree, nullptr);
+                    }
+        if (options.getNumChildren() > 0)
+            state.appendChild (options, nullptr);
+
         for (int i = 0; i < numUserSlots; ++i)
         {
             const auto number = juce::String (i + 1);
@@ -932,19 +946,39 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
 
+        // Step 36: the files' saved options come back with their paths; a
+        // file already loaded reloads when its options changed.
+        std::array<juce::String, (size_t) numSampleOscs> savedOptions;
+        {
+            const auto options = state.getChildWithName ("SampleOptions");
+            for (const auto& tree : options)
+            {
+                const auto osc = (int) tree.getProperty ("osc", -1);
+                if (osc >= 0 && osc < numSampleOscs)
+                {
+                    auto copy = tree.createCopy();
+                    copy.removeProperty ("osc", nullptr);
+                    savedOptions[(size_t) osc] = copy.toXmlString();
+                }
+            }
+            state.removeChild (options, nullptr);
+        }
+
         // Whatever an earlier load left queued is stale: each slot below either
         // queues its own change or is cancelled (same path as the live one).
         for (int i = 0; i < numSampleOscs; ++i)
         {
             const auto path = state.getProperty ("osc" + juce::String (i + 1) + "SamplePath").toString();
             missingSamplePaths[(size_t) i].clear();
+            const auto optionsChanged = savedOptions[(size_t) i] != sampleOptions[(size_t) i];
+            sampleOptions[(size_t) i] = savedOptions[(size_t) i];
 
             if (restoredSamples[(size_t) i])
             {
                 pendingSamplePaths[(size_t) i].clear();
                 pendingSampleClear[(size_t) i] = false;
             }
-            else if (path.isNotEmpty() && path != samplePaths[(size_t) i])
+            else if (path.isNotEmpty() && (path != samplePaths[(size_t) i] || optionsChanged))
             {
                 pendingSamplePaths[(size_t) i] = path;
                 pendingSampleClear[(size_t) i] = false;
@@ -1201,6 +1235,12 @@ IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData()
         data.tables = userTableDocs;
         data.embedded = embeddedSamples;
         data.samplePaths = samplePaths;
+        data.sampleOptions = sampleOptions;
+    }
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        for (size_t i = 0; i < data.liveSamples.size() && i < sampleSlots.size(); ++i)
+            data.liveSamples[i] = sampleSlots[i];
     }
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
@@ -1252,7 +1292,7 @@ bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchDat
     if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
         return false;
 
-    if (a.tables != b.tables || a.embedded != b.embedded || a.samplePaths != b.samplePaths
+    if (a.tables != b.tables || a.embedded != b.embedded || a.samplePaths != b.samplePaths || a.sampleOptions != b.sampleOptions
         || a.macroNames != b.macroNames || a.macroCcs != b.macroCcs || a.reveal != b.reveal
         || a.tuningScale != b.tuningScale || a.tuningMapping != b.tuningMapping)
         return false;
@@ -1309,10 +1349,20 @@ void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const Pa
     {
         const auto i = (size_t) osc;
 
-        if (data.embedded[i] == reference.embedded[i] && data.samplePaths[i] == reference.samplePaths[i])
+        if (data.embedded[i] == reference.embedded[i] && data.samplePaths[i] == reference.samplePaths[i]
+            && data.sampleOptions[i] == reference.sampleOptions[i])
             continue;
 
         auto restored = false;
+        // Step 36: the same file with other options (a zone map edit): the
+        // sample as it played then comes back, without reading the file.
+        if (data.embedded[i] == nullptr && data.samplePaths[i].isNotEmpty() && data.liveSamples[i] != nullptr)
+        {
+            setUserSample (osc, data.liveSamples[i], data.samplePaths[i]);
+            setSampleOptions (osc, data.sampleOptions[i]);
+            continue;
+        }
+        setSampleOptions (osc, data.sampleOptions[i]);
 
         if (data.embedded[i] != nullptr)
         {
@@ -1518,6 +1568,7 @@ juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
     for (size_t osc = 0; osc < data.samplePaths.size(); ++osc)
     {
         addText (data.samplePaths[osc]);
+        addText (data.sampleOptions[osc]);
         const auto* audio = data.embedded[osc].get();
         add (&audio, sizeof (audio));
     }

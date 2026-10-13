@@ -33,6 +33,7 @@
 #include "gui/TutorialOverlay.h"
 
 class WavetableEditor;
+class ZoneMapEditor;
 
 class IlanaSynthAudioProcessorEditor : public juce::AudioProcessorEditor,
                                        public juce::DragAndDropContainer,
@@ -54,6 +55,11 @@ public:
     // whole window.
     void openWavetableEditor (int slot, juce::Colour colour);
     void closeWavetableEditor();
+    // Roadmap step 36: an oscillator's zone map, over the page like the
+    // wavetable editor.
+    void openZoneEditor (int oscIndex, juce::Colour colour);
+    void closeZoneEditor();
+    ZoneMapEditor* getZoneEditor() const { return zoneEditor.get(); }
     WavetableEditor* getWavetableEditor() const { return wavetableEditor.get(); }
 
     // Pages by id ("MAIN", "VECTOR", "OSC", "FILTER", "ENV/LFO",
@@ -240,6 +246,7 @@ private:
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<WavetableEditor> wavetableEditor;
+    std::unique_ptr<ZoneMapEditor> zoneEditor;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<PresetPanel> presetPanel;
     ModHoverPopup modHoverPopup { processorRef };

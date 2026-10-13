@@ -214,7 +214,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end", prefix + "_sample_loop_xfade" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             samplePlayIds[(size_t) i] = { prefix + "_sample_playback", prefix + "_sample_pingpong", prefix + "_sample_start_rand",
-                                          prefix + "_sample_start_safe", prefix + "_sample_quality" };
+                                          prefix + "_sample_start_safe", prefix + "_sample_quality", prefix + "_sample_unmapped" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
                                          prefix + "_grain_spread" };
@@ -1460,6 +1460,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleStartRandom = getParam (play[2]);
         osc.sampleStartSafe = getParam (play[3]) > 0.5f;
         osc.sampleQuality = juce::roundToInt (getParam (play[4]));
+        osc.sampleSilenceOutside = getParam (play[5]) > 0.5f;
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);
@@ -2189,45 +2190,18 @@ juce::String describeDuration (double seconds)
 }
 } // namespace
 
-bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file, bool fromUser)
+std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeAudioFile (const juce::File& file, juce::String& error)
 {
-    ++sampleEpoch;
-    ++dataEpoch; // what the editor draws changes
-    lastSampleError.clear();
-    if (oscIndex < 0 || oscIndex >= numSampleOscs)
-        return false;
-
-    // Roadmap step 43: every way out says why, so a file that does nothing
-    // is never a mystery.
-    const auto fail = [this, &file] (const juce::String& why)
-    {
-        lastSampleError = "Couldn't load " + file.getFileName() + ": " + why;
-        return false;
-    };
+    error.clear();
     if (! file.existsAsFile())
-        return fail ("the file is not there any more.");
-    if (file.getSize() == 0)
-        return fail ("the file is empty.");
-
-    // SoundFont and SFZ instruments: a multisample, its regions picked per note.
-    if (MultiSample::isMultiSampleFile (file))
     {
-        juce::String error;
-        MultiSample::SfzReport sfz;
-        auto multi = MultiSample::load (file, error, &sfz);
-        if (multi == nullptr)
-            return fail (error.isNotEmpty() ? error + "." : juce::String ("the instrument could not be read."));
-        setUserSample (oscIndex, std::move (multi), file.getFullPathName());
-        {
-            juce::StringArray lost;
-            for (const auto& missing : sfz.missing())
-                lost.addIfNotAlreadyThere (missing.getFileName());
-            const juce::SpinLock::ScopedLockType lock (stateLock);
-            sfzMissingFiles[(size_t) oscIndex] = lost;
-        }
-        ++missingSamplesVersion;
-        useLoadedSample (oscIndex, fromUser);
-        return true;
+        error = "the file is not there any more.";
+        return nullptr;
+    }
+    if (file.getSize() == 0)
+    {
+        error = "the file is empty.";
+        return nullptr;
     }
 
     juce::AudioFormatManager formats;
@@ -2238,20 +2212,27 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     if (reader == nullptr)
     {
         if (formats.findFormatForFileExtension (file.getFileExtension()) == nullptr)
-            return fail ("this kind of file (" + file.getFileExtension().toLowerCase()
-                         + ") can't be read here. WAV, AIFF, FLAC, OGG and MP3 can.");
-        return fail ("the audio in it could not be decoded. It may be damaged, or use a codec that isn't supported "
-                     "(for example compressed WAV). Saving it again as a plain WAV usually helps.");
+            error = "this kind of file (" + file.getFileExtension().toLowerCase() + ") can't be read here. WAV, AIFF, FLAC, OGG and MP3 can.";
+        else
+            error = "the audio in it could not be decoded. It may be damaged, or use a codec that isn't supported "
+                    "(for example compressed WAV). Saving it again as a plain WAV usually helps.";
+        return nullptr;
     }
 
     if (reader->lengthInSamples <= 1 || reader->sampleRate <= 0.0)
-        return fail ("it holds no audio.");
+    {
+        error = "it holds no audio.";
+        return nullptr;
+    }
 
     const auto maxSamples = (juce::int64) (reader->sampleRate * 120.0);
     const auto numSamples = (int) juce::jmin (reader->lengthInSamples, maxSamples);
 
     if (numSamples <= 1)
-        return fail ("it holds no audio.");
+    {
+        error = "it holds no audio.";
+        return nullptr;
+    }
 
     const auto numChannels = juce::jlimit (1, 2, (int) reader->numChannels);
 
@@ -2261,7 +2242,10 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     data->buffer.setSize (numChannels, numSamples);
 
     if (! reader->read (&data->buffer, 0, numSamples, 0, true, true))
-        return fail ("reading the audio stopped part way. The file may be damaged.");
+    {
+        error = "reading the audio stopped part way. The file may be damaged.";
+        return nullptr;
+    }
 
     // Samples stop at two minutes: say so, with how long the file was.
     if (reader->lengthInSamples > maxSamples)
@@ -2272,9 +2256,310 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
                           << (int) reader->numChannels << " channels are played.";
 
     scrubAudio (data->buffer);
+    return data;
+}
+
+bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file, bool fromUser)
+{
+    ++sampleEpoch;
+    ++dataEpoch; // what the editor draws changes
+    lastSampleError.clear();
+    if (oscIndex < 0 || oscIndex >= numSampleOscs)
+        return false;
+
+    // A file chosen by hand starts clean; a reload (a patch, undo, a preset)
+    // brings back the file's saved options (step 36: an edited zone map).
+    juce::ValueTree options;
+    if (fromUser)
+        setSampleOptions (oscIndex, {});
+    else if (const auto xml = juce::parseXML (getSampleOptions (oscIndex)))
+        if (const auto tree = juce::ValueTree::fromXml (*xml); tree.isValid() && tree.getProperty ("path").toString() == file.getFullPathName())
+            options = tree;
+
+    // Roadmap step 43: every way out says why, so a file that does nothing
+    // is never a mystery.
+    const auto fail = [this, &file] (const juce::String& why)
+    {
+        lastSampleError = "Couldn't load " + file.getFileName() + ": " + why;
+        return false;
+    };
+
+    if (! file.existsAsFile())
+        return fail ("the file is not there any more.");
+    if (file.getSize() == 0)
+        return fail ("the file is empty.");
+
+    std::shared_ptr<SampleData> data;
+    juce::String error;
+    const auto multi = MultiSample::isMultiSampleFile (file);
+    MultiSample::SfzReport sfz;
+    // SoundFont and SFZ instruments: a multisample, its regions picked per note.
+    if (multi)
+    {
+        data = MultiSample::load (file, error, &sfz);
+        if (data == nullptr)
+            return fail (error.isNotEmpty() ? error + "." : juce::String ("the instrument could not be read."));
+    }
+    else
+    {
+        data = decodeAudioFile (file, error);
+        if (data == nullptr)
+            return fail (error);
+    }
+
+    if (options.isValid())
+        data = applyZoneOptions (std::move (data), options, file);
+
     setUserSample (oscIndex, std::move (data), file.getFullPathName());
+    if (multi)
+    {
+        juce::StringArray lost;
+        for (const auto& missing : sfz.missing())
+            lost.addIfNotAlreadyThere (missing.getFileName());
+        {
+            const juce::SpinLock::ScopedLockType lock (stateLock);
+            sfzMissingFiles[(size_t) oscIndex] = lost;
+        }
+        ++missingSamplesVersion;
+    }
     useLoadedSample (oscIndex, fromUser);
     return true;
+}
+
+juce::String IlanaSynthAudioProcessor::getSampleOptions (int oscIndex) const
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs)
+        return {};
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    return sampleOptions[(size_t) oscIndex];
+}
+
+void IlanaSynthAudioProcessor::setSampleOptions (int oscIndex, const juce::String& options)
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs)
+        return;
+    ++dataEpoch;
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    sampleOptions[(size_t) oscIndex] = options;
+}
+
+void IlanaSynthAudioProcessor::retargetSampleOptions (int oscIndex, const juce::String& newPath)
+{
+    if (const auto xml = juce::parseXML (getSampleOptions (oscIndex)))
+        if (auto tree = juce::ValueTree::fromXml (*xml); tree.isValid())
+        {
+            tree.setProperty ("path", newPath, nullptr);
+            setSampleOptions (oscIndex, tree.toXmlString());
+        }
+}
+
+std::shared_ptr<SampleData> IlanaSynthAudioProcessor::applyZoneOptions (std::shared_ptr<SampleData> loaded, const juce::ValueTree& options,
+                                                                        const juce::File& file)
+{
+    const auto map = options.getChildWithName ("Zones");
+    if (! map.isValid() || map.getNumChildren() == 0 || loaded == nullptr)
+        return loaded;
+
+    // Each saved zone: one of the file's own (by its index) or an added
+    // audio file, with its edited keys, velocities, root and level.
+    std::map<juce::String, std::shared_ptr<SampleData>> added;
+    added[file.getFullPathName()] = loaded->zones.empty() ? loaded : nullptr;
+    std::vector<SampleZone> zones;
+    juce::StringArray missing;
+    for (const auto& entry : map)
+    {
+        SampleZone zone;
+        const auto origin = (int) entry.getProperty ("origin", -1);
+        const auto path = entry.getProperty ("file").toString();
+        if (origin >= 0 && origin < (int) loaded->zones.size())
+            zone = loaded->zones[(size_t) origin];
+        else if (path.isNotEmpty())
+        {
+            auto& audio = added[path];
+            if (audio == nullptr)
+            {
+                juce::String error;
+                audio = decodeAudioFile (juce::File (path), error);
+            }
+            if (audio == nullptr)
+            {
+                missing.addIfNotAlreadyThere (juce::File (path).getFileName());
+                continue;
+            }
+            zone.data = audio;
+            zone.file = path;
+        }
+        else
+            continue;
+        zone.loKey = juce::jlimit (0, 127, (int) entry.getProperty ("loKey", zone.loKey));
+        zone.hiKey = juce::jlimit (zone.loKey, 127, (int) entry.getProperty ("hiKey", zone.hiKey));
+        zone.loVel = juce::jlimit (1, 127, (int) entry.getProperty ("loVel", zone.loVel));
+        zone.hiVel = juce::jlimit (zone.loVel, 127, (int) entry.getProperty ("hiVel", zone.hiVel));
+        zone.rootNote = juce::jlimit (-24.0, 151.0, (double) entry.getProperty ("root", zone.rootNote));
+        zone.gain = juce::jlimit (0.0f, 8.0f, (float) (double) entry.getProperty ("gain", (double) zone.gain));
+        zones.push_back (std::move (zone));
+    }
+    if (zones.empty())
+        return loaded;
+
+    auto data = std::make_shared<SampleData>();
+    data->name = loaded->name;
+    data->zones = std::move (zones);
+    data->loadWarning = loaded->loadWarning;
+    if (! missing.isEmpty())
+        data->loadWarning << (data->loadWarning.isEmpty() ? "" : " ") << "Zones whose files are gone were left out ("
+                          << missing.joinIntoString (", ") << ").";
+    MultiSample::finish (*data);
+    return data;
+}
+
+std::vector<SampleZone> IlanaSynthAudioProcessor::getSampleZones (int oscIndex) const
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs || (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0)
+        return {};
+    std::shared_ptr<SampleData> user;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        user = sampleSlots[(size_t) oscIndex];
+    }
+    return user != nullptr ? user->zones : std::vector<SampleZone> {};
+}
+
+bool IlanaSynthAudioProcessor::setSampleZones (int oscIndex, std::vector<SampleZone> zones, const juce::String& undoName)
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs || zones.empty() || (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0)
+        return false;
+    std::shared_ptr<SampleData> current;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        current = sampleSlots[(size_t) oscIndex];
+    }
+    if (current == nullptr)
+        return false;
+    zones.erase (std::remove_if (zones.begin(), zones.end(), [] (const SampleZone& zone) { return zone.data == nullptr; }), zones.end());
+    if (zones.empty())
+        return false;
+    for (auto& zone : zones)
+    {
+        zone.loKey = juce::jlimit (0, 127, zone.loKey);
+        zone.hiKey = juce::jlimit (zone.loKey, 127, zone.hiKey);
+        zone.loVel = juce::jlimit (1, 127, zone.loVel);
+        zone.hiVel = juce::jlimit (zone.loVel, 127, zone.hiVel);
+    }
+
+    auto data = std::make_shared<SampleData>();
+    data->name = current->name;
+    data->loadWarning = current->loadWarning;
+    data->zones = zones;
+    MultiSample::finish (*data);
+    // (finish numbers zones by place only when they came from no file: an
+    // edited zone keeps the origin it was read with.)
+
+    juce::String path;
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        path = samplePaths[(size_t) oscIndex];
+    }
+
+    beginEdit (undoName);
+    if (path.isNotEmpty())
+    {
+        // Saved as edits to the file: which of its zones (or which added
+        // file) each one plays, with its keys, velocities, root and level.
+        juce::ValueTree options ("SampleOptions");
+        if (const auto xml = juce::parseXML (getSampleOptions (oscIndex)))
+            if (const auto old = juce::ValueTree::fromXml (*xml); old.isValid() && old.getProperty ("path").toString() == path)
+                options = old.createCopy();
+        options.setProperty ("path", path, nullptr);
+        options.removeChild (options.getChildWithName ("Zones"), nullptr);
+        juce::ValueTree map ("Zones");
+        for (const auto& zone : zones)
+        {
+            juce::ValueTree entry ("Zone");
+            if (zone.file.isNotEmpty())
+                entry.setProperty ("file", zone.file, nullptr);
+            else
+                entry.setProperty ("origin", zone.origin, nullptr);
+            entry.setProperty ("loKey", zone.loKey, nullptr);
+            entry.setProperty ("hiKey", zone.hiKey, nullptr);
+            entry.setProperty ("loVel", zone.loVel, nullptr);
+            entry.setProperty ("hiVel", zone.hiVel, nullptr);
+            entry.setProperty ("root", zone.rootNote, nullptr);
+            entry.setProperty ("gain", (double) zone.gain, nullptr);
+            map.appendChild (entry, nullptr);
+        }
+        options.appendChild (map, nullptr);
+        setUserSample (oscIndex, data, path);
+        setSampleOptions (oscIndex, options.toXmlString());
+    }
+    else
+        setUserSample (oscIndex, data, {}); // kept in the patch: the zones travel with it
+    endEdit();
+    return true;
+}
+
+bool IlanaSynthAudioProcessor::addSampleZone (int oscIndex, const juce::File& file, int loKey, int hiKey, int loVel, int hiVel, int rootKey,
+                                              juce::String& error)
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs)
+        return false;
+    auto audio = decodeAudioFile (file, error);
+    if (audio == nullptr)
+    {
+        error = "Couldn't add " + file.getFileName() + ": " + error;
+        return false;
+    }
+    audio->findOnsets();
+
+    std::shared_ptr<SampleData> current;
+    juce::String path;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        current = (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0 ? nullptr : sampleSlots[(size_t) oscIndex];
+    }
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        path = samplePaths[(size_t) oscIndex];
+    }
+
+    std::vector<SampleZone> zones;
+    if (current != nullptr && ! current->zones.empty())
+        zones = current->zones;
+    else if (current != nullptr && current->getNumSamples() > 1)
+    {
+        // A plain sample becomes the map's first zone: every key, rooted at middle C as it plays now.
+        SampleZone first;
+        first.data = current;
+        first.file = path;
+        zones.push_back (first);
+    }
+
+    SampleZone zone;
+    zone.data = audio;
+    zone.file = file.getFullPathName();
+    zone.loKey = juce::jlimit (0, 127, juce::jmin (loKey, hiKey));
+    zone.hiKey = juce::jlimit (zone.loKey, 127, juce::jmax (loKey, hiKey));
+    zone.loVel = juce::jlimit (1, 127, juce::jmin (loVel, hiVel));
+    zone.hiVel = juce::jlimit (zone.loVel, 127, juce::jmax (loVel, hiVel));
+    zone.rootNote = juce::jlimit (0, 127, rootKey);
+    zones.push_back (zone);
+
+    if (current == nullptr)
+    {
+        // Nothing loaded: the added file is the whole multisample.
+        auto data = std::make_shared<SampleData>();
+        data->name = file.getFileNameWithoutExtension();
+        data->zones = zones;
+        MultiSample::finish (*data);
+        beginEdit ("Add a zone");
+        setUserSample (oscIndex, data, {});
+        endEdit();
+        if (auto* parameter = apvts.getParameter (sampleFactoryIds[(size_t) oscIndex]))
+            if ((int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0)
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.0f));
+        return true;
+    }
+    return setSampleZones (oscIndex, std::move (zones), "Add a zone");
 }
 
 void IlanaSynthAudioProcessor::useLoadedSample (int oscIndex, bool fromUser)

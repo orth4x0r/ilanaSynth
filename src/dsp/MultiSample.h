@@ -28,6 +28,10 @@ inline bool isMultiSampleFile (const juce::File& file)
 // buffer, for the displays.
 inline void finish (SampleData& data)
 {
+    // Step 36: each zone knows its place in the file, for saved edits.
+    for (size_t i = 0; i < data.zones.size(); ++i)
+        if (data.zones[i].file.isEmpty())
+            data.zones[i].origin = (int) i;
     const auto* shown = data.zoneFor (60, 100);
     if (shown != nullptr && shown->data != nullptr)
     {

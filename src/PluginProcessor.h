@@ -659,6 +659,20 @@ public:
     // plays it (REVERSE and the fades applied, pitch not); else all of it. A
     // multisample writes its shown region (the one under middle C).
     bool exportSampleWav (int oscIndex, const juce::File& target, bool playedRange, juce::String& error) const;
+
+    // Roadmap step 36: the zone map. The zones the oscillator plays (a copy;
+    // empty for a plain sample).
+    std::vector<SampleZone> getSampleZones (int oscIndex) const;
+    // Replaces the zones (their audio is shared, not copied): one undo step.
+    // A sample loaded from a file keeps its file and saves the map as edits
+    // to it; a sample kept in the patch (a resample) keeps the new zones.
+    bool setSampleZones (int oscIndex, std::vector<SampleZone> zones, const juce::String& undoName);
+    // Adds a zone playing an audio file; a plain sample becomes the map's
+    // first zone (over every key, rooted at middle C).
+    bool addSampleZone (int oscIndex, const juce::File& file, int loKey, int hiKey, int loVel, int hiVel, int rootKey, juce::String& error);
+    // A file's audio as a plain sample (step 43's messages in error, what
+    // was left out in loadWarning); null on failure.
+    static std::shared_ptr<SampleData> decodeAudioFile (const juce::File& file, juce::String& error);
     // The audio thread calls this at the top of each block's rack (a staged slot swap goes in here, FX-14).
     void beginFxBlock() noexcept;
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
@@ -856,6 +870,10 @@ private:
         std::array<std::shared_ptr<const WavetableDoc>, (size_t) numUserSlots> tables;
         std::array<std::shared_ptr<SampleData>, (size_t) OscillatorIds::count> embedded;
         std::array<juce::String, (size_t) OscillatorIds::count> samplePaths;
+        // Step 36: a file's edited zone map (and SF2 preset) and the sample
+        // as it played, so undo puts it back without reading the file again.
+        std::array<juce::String, (size_t) OscillatorIds::count> sampleOptions;
+        std::array<std::shared_ptr<SampleData>, (size_t) OscillatorIds::count> liveSamples;
         std::array<juce::String, (size_t) Mod::numMacros> macroNames;
         std::array<int, (size_t) Mod::numMacros> macroCcs {};
         std::array<int, 3> reveal {};
@@ -894,6 +912,15 @@ private:
     bool bounceReady = false;
     juce::String bounceMessage;
     juce::String lastSampleError; // step 43, message thread
+    // Step 36 / 38: what a file-backed sample needs besides its path (an SF2
+    // preset, an edited zone map), as XML of a "SampleOptions" tree whose
+    // path property names the file it belongs to. Under stateLock.
+    std::array<juce::String, (size_t) OscillatorIds::count> sampleOptions;
+    juce::String getSampleOptions (int oscIndex) const;
+    void setSampleOptions (int oscIndex, const juce::String& options);
+    void retargetSampleOptions (int oscIndex, const juce::String& newPath); // the file moved (collect, relink)
+    // Puts a saved zone map back on a freshly loaded file's sample.
+    std::shared_ptr<SampleData> applyZoneOptions (std::shared_ptr<SampleData> loaded, const juce::ValueTree& options, const juce::File& file);
     static juce::ValueTree encodeSample (const SampleData& data);
     static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree, int depth = 0);
 
@@ -1158,7 +1185,7 @@ private:
     std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27), crossfade (step 28)
-    std::array<std::array<ParamRef, 5>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39)
+    std::array<std::array<ParamRef, 6>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39), outside zones (36)
     std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;

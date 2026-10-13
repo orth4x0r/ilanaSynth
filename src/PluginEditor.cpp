@@ -33,6 +33,7 @@
 #include "gui/ClipEditor.h"
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
+#include "gui/ZoneMapEditor.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
 #include "gui/ModulationCardView.h"
@@ -901,8 +902,33 @@ void IlanaSynthAudioProcessorEditor::closeWavetableEditor()
     }
 }
 
+void IlanaSynthAudioProcessorEditor::openZoneEditor (int oscIndex, juce::Colour colour)
+{
+    closeZoneEditor();
+    closeWavetableEditor();
+    zoneEditor = std::make_unique<ZoneMapEditor> (processorRef, oscIndex, colour);
+    zoneEditor->onClose = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
+    {
+        if (safe != nullptr)
+            safe->closeZoneEditor();
+    };
+    content.addAndMakeVisible (*zoneEditor);
+    zoneEditor->setBounds (content.getLocalBounds().reduced (24, 62));
+    zoneEditor->grabKeyboardFocus();
+}
+
+void IlanaSynthAudioProcessorEditor::closeZoneEditor()
+{
+    if (zoneEditor != nullptr)
+    {
+        content.removeChildComponent (zoneEditor.get());
+        zoneEditor.reset();
+    }
+}
+
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+    zoneEditor.reset();
     setGpuRendering (false); // before any child goes: the render thread paints them
     scopeWindow.reset();
     FmOperatorInfo::hooks().openOperator = nullptr;
@@ -3091,6 +3117,12 @@ bool IlanaSynthAudioProcessorEditor::closeTopPopup()
         return true;
     }
 
+    if (zoneEditor != nullptr)
+    {
+        closeZoneEditor();
+        return true;
+    }
+
     if (tutorial.isVisible())
     {
         tutorial.dismiss();
@@ -3186,7 +3218,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     // an octave with W E T Y U O P for the black ones, Z and X shift the
     // octave. Only here, in the editor's own key handler, so a host that
     // keeps its keys never sees a conflict; never while a text field has focus.
-    if (keyboard != nullptr && wavetableEditor == nullptr && ! modifiers.isCommandDown() && ! modifiers.isCtrlDown()
+    if (keyboard != nullptr && wavetableEditor == nullptr && zoneEditor == nullptr && ! modifiers.isCommandDown() && ! modifiers.isCtrlDown()
         && ! modifiers.isAltDown()
         && dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) == nullptr)
     {

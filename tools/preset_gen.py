@@ -322,9 +322,11 @@ def cmd_pick(args):
             return True, ""
         level, peak = float(rep["level_db"]), float(rep["peak"])
         high = float(rep.get("high_fraction", 0) or 0)
-        gain = 10 ** ((targets.get(row["category"], targets["Pad"]) - level) / 20)
-        if peak * gain > 1.0:
-            return False, "clips at its level"
+        # The bake stops short of the category's level when the peaks would
+        # pass -1 dB (a sharp attack): only far short of it counts against it.
+        short = (targets.get(row["category"], targets["Pad"]) - level) + 20 * math.log10(max(peak, 1e-6) / 0.89)
+        if short > 10.0:
+            return False, f"{short:.0f} dB under its category at full scale"
         if level < -40:
             return False, "silent"
         if high > 0.12:
@@ -349,11 +351,23 @@ def cmd_pick(args):
                 best, best_score = row, score
         chosen.append(best["embedding"])
         level = float(best["report"]["level_db"]) if best["report"] else None
-        picks.append({"concept": name, "stem": best["name"], "category": best["category"], "level_db": level,
+        peak = float(best["report"]["peak"]) if best["report"] else 1.0
+        picks.append({"concept": name, "stem": best["name"], "category": best["category"], "level_db": level, "peak": peak,
                       **best["scores"]})
         print(f"{name:32s} {best['name']:36s} taste {best['scores']['taste']:.3f} "
               f"novelty {best['scores']['novelty']:.3f} {'' if best['scores']['ok'] else 'NOT OK: ' + best['scores']['why']}")
     (GEN / "picks.json").write_text(json.dumps(picks, indent=1))
+
+
+# The Curve shape's starting points (an LFO nobody drew on).
+DEFAULT_CURVE = "0.0000,0.0000,-0.450;0.2500,1.0000,0.450;0.5000,0.0000,-0.450;0.7500,-1.0000,0.450;1.0000,0.0000,0.000"
+
+
+def cpp_float(value):
+    text = f"{value:.7g}"
+    if "." not in text and "e" not in text:
+        text += ".0"
+    return text + "f"
 
 
 def cpp_string(text):
@@ -403,15 +417,17 @@ def cmd_bake(args):
                 continue
             if pid in ("master", "output_trim"):
                 continue
-            values.append(f"{{ {cpp_string(pid)}, {value:.7g}f }}")
+            values.append(f"{{ {cpp_string(pid)}, {cpp_float(value)} }}")
         # The level: the draft's (MASTER plus OUTPUT TRIM) moved to the
         # category's median loudness, into MASTER (a factory load moves it to
         # the trim).
         gain = params.get("master", defaults["master"]) + params.get("output_trim", defaults.get("output_trim", 0.0))
         target = targets.get(pick["category"], targets.get("Pad"))
         if pick.get("level_db") is not None:
-            gain += target - pick["level_db"]
-        values.append(f"{{ \"master\", {max(-30.0, min(12.0, gain)):.2f}f }}")
+            # to the category's level, but with the peaks at -1 dB at most
+            peak = pick.get("peak", 1.0)
+            gain += min(target - pick["level_db"], -20 * math.log10(max(peak, 1e-6) / 0.89))
+        values.append(f"{{ \"master\", {cpp_float(round(max(-30.0, min(12.0, gain)), 2))} }}")
         lines.append("        p.values = {")
         for i in range(0, len(values), 4):
             lines.append("            " + ", ".join(values[i:i + 4]) + ",")
@@ -419,7 +435,7 @@ def cmd_bake(args):
         names = [m for m, _ in concept.get("macros", [])]
         if names:
             lines.append("        p.macroNames = { " + ", ".join(cpp_string(n) for n in names) + " };")
-        curves = [attrs.get(k) for k in CURVE_ATTRS]
+        curves = [attrs.get(k) if attrs.get(k) != DEFAULT_CURVE else None for k in CURVE_ATTRS]
         if any(curves):
             lines.append("        p.lfoCurves = { " + ", ".join(cpp_string(c or "") for c in curves) + " };")
         lines.append("        add (p);")

@@ -181,6 +181,15 @@ public:
         extrasOpen = ! anyOperatorEnv();
         selectOperator (shown.empty() ? 0 : shown.front());
         startTimerHz (12);
+        flow.tick = [this]
+        {
+            if (cablesAnimated && IlanaAnim::showing (*this))
+            {
+                flowPhase = std::fmod (flowPhase + 0.014f, 1.0f);
+                repaint (matrixCard);
+            }
+        };
+        flow.startTimerHz (24);
     }
 
     static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }
@@ -1097,6 +1106,8 @@ private:
             }
         };
 
+        paintCableLayers (g, ops);
+
         for (const auto source : ops)
         {
             for (const auto target : ops)
@@ -1182,6 +1193,174 @@ private:
         IlanaTheme::drawFitted (g, "RING MOD: OSC 1 times OSC 2. SYNC: OSC 1 restarts OSC 2.",
                           pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 2);
     }
+
+    // Review 20 (ilana: "virtual cables illustrating what connects to what",
+    // "under the UI, blurred like Windows Aero", "thinner, animated"): each
+    // route with an amount is a thin cable from its row's output dot along the
+    // row into the target's cell and up to that column's heading, the PATCH
+    // cables' look: the source's colour, brighter and a little thicker the
+    // deeper the route, a soft pulse running along it. The cells are frosted
+    // glass over them: outside a cell the cable is sharp, behind it blurred.
+    // Only on the BASIC matrix (four rows or fewer): a DX7 algorithm's cells
+    // are many and small.
+    struct RouteCable
+    {
+        juce::Colour colour;
+        float amount = 0.0f, length = 0.0f;
+        std::vector<juce::Point<float>> points;
+    };
+
+    std::vector<RouteCable> routeCables (const std::vector<int>& ops) const
+    {
+        std::vector<RouteCable> result;
+        if (ops.empty() || ops.size() > 4)
+            return result;
+        const auto first = ops.front();
+        const auto add = [&] (int source, int target, juce::Colour colour)
+        {
+            const auto amount = cellAmount (source, target);
+            if (amount <= 0.001f || source == target || ! isLiveCell (source, target))
+                return;
+            const auto row = (source < 0 ? noiseCells[(size_t) first] : cells[(size_t) source][(size_t) first]).toFloat();
+            const auto cell = (source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target]).toFloat();
+            const auto head = columnHeads[(size_t) target].toFloat();
+            const juce::Point<float> port (row.getX() - 8.0f, row.getCentreY());
+            const juce::Point<float> socket (cell.getCentreX(), head.getBottom() + 1.0f);
+            // Hangs under its own weight: a diagonal from the dot to the heading
+            // with a sag below the straight line.
+            const auto straight = port.getDistanceFrom (socket);
+            const auto sag = juce::jlimit (14.0f, 46.0f, straight * 0.22f);
+            const juce::Point<float> control ((port.x + socket.x) * 0.5f, (port.y + socket.y) * 0.5f + sag * 2.0f);
+            RouteCable cable;
+            cable.colour = colour;
+            cable.amount = amount;
+            for (int k = 0; k <= 24; ++k)
+            {
+                const auto t = (float) k / 24.0f, u = 1.0f - t;
+                cable.points.push_back ({ u * u * port.x + 2 * u * t * control.x + t * t * socket.x,
+                                          u * u * port.y + 2 * u * t * control.y + t * t * socket.y });
+            }
+            for (size_t k = 1; k < cable.points.size(); ++k)
+                cable.length += cable.points[k].getDistanceFrom (cable.points[k - 1]);
+            result.push_back (std::move (cable));
+        };
+        for (const auto target : ops)
+        {
+            for (const auto source : ops)
+                add (source, target, FmDiagram::oscColour (source));
+            if (! noiseHead.isEmpty())
+                add (-1, target, noiseColour());
+        }
+        return result;
+    }
+
+    static juce::Point<float> pointAlong (const RouteCable& cable, float distance)
+    {
+        for (size_t k = 1; k < cable.points.size(); ++k)
+        {
+            const auto segment = cable.points[k].getDistanceFrom (cable.points[k - 1]);
+            if (distance <= segment || k + 1 == cable.points.size())
+                return cable.points[k - 1] + (cable.points[k] - cable.points[k - 1]) * (segment > 0.0f ? juce::jmin (1.0f, distance / segment) : 0.0f);
+            distance -= segment;
+        }
+        return cable.points.back();
+    }
+
+    void paintCableLayers (juce::Graphics& g, const std::vector<int>& ops)
+    {
+        const auto cables = routeCables (ops);
+        cablesAnimated = ! cables.empty();
+        if (cables.empty())
+            return;
+
+        // Glass: every cell's rectangle.
+        juce::Array<juce::Rectangle<int>> glass;
+        for (const auto target : ops)
+        {
+            for (const auto source : ops)
+                glass.add (cells[(size_t) source][(size_t) target]);
+            if (! noiseHead.isEmpty())
+                glass.add (noiseCells[(size_t) target]);
+        }
+
+        // The still cables, drawn once into an image and a blurred copy of it
+        // (redrawn only when a route or the layout changes).
+        const auto area = matrixCard.expanded (4);
+        juce::String key;
+        key << area.toString();
+        for (const auto& cable : cables)
+            key << ";" << cable.colour.toString() << ":" << juce::roundToInt (cable.amount * 100.0f) << ":"
+                << cable.points.front().toString() << cable.points.back().toString();
+        if (key != cableKey || ! cableSharp.isValid())
+        {
+            cableKey = key;
+            cableSharp = juce::Image (juce::Image::ARGB, area.getWidth(), area.getHeight(), true);
+            juce::Graphics ig (cableSharp);
+            ig.addTransform (juce::AffineTransform::translation ((float) -area.getX(), (float) -area.getY()));
+            for (const auto& cable : cables)
+            {
+                juce::Path path;
+                path.startNewSubPath (cable.points.front());
+                for (size_t k = 1; k < cable.points.size(); ++k)
+                    path.lineTo (cable.points[k]);
+                ig.setColour (cable.colour.withAlpha (0.65f + 0.3f * cable.amount));
+                ig.strokePath (path, juce::PathStrokeType (0.8f + 1.3f * cable.amount, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                for (auto point : { cable.points.front(), cable.points.back() })
+                    ig.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (point));
+            }
+            cableBlur = cableSharp.createCopy();
+            cableBlur.getPixelData()->applyGaussianBlurEffect (2.4f);
+        }
+
+        const auto pulses = [&] (float alpha, float size)
+        {
+            for (size_t index = 0; index < cables.size(); ++index)
+                for (int k = 0; k < 2; ++k)
+                {
+                    const auto& cable = cables[index];
+                    const auto t = std::fmod (flowPhase + 0.5f * (float) k + 0.19f * (float) index, 1.0f);
+                    const auto at = pointAlong (cable, t * cable.length);
+                    const auto fade = std::sin (t * juce::MathConstants<float>::pi);
+                    const auto radius = (1.6f + 1.4f * cable.amount) * size;
+                    g.setColour (cable.colour.brighter (0.5f).withAlpha (alpha * 0.2f * fade));
+                    g.fillEllipse (juce::Rectangle<float> (radius * 5.0f, radius * 5.0f).withCentre (at));
+                    g.setColour (cable.colour.brighter (0.7f).withAlpha (alpha * fade));
+                    g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (at));
+                }
+        };
+
+        // Outside the cells: sharp.
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            for (const auto& rect : glass)
+                g.excludeClipRegion (rect);
+            g.drawImageAt (cableSharp, area.getX(), area.getY());
+            pulses (0.85f, 1.0f);
+        }
+        // Behind the glass: the blurred copy and a softer pulse.
+        for (const auto& rect : glass)
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (rect.toFloat(), 6.0f);
+            g.reduceClipRegion (clip);
+            g.drawImageAt (cableBlur, area.getX(), area.getY());
+            pulses (0.3f, 1.2f);
+        }
+    }
+
+    juce::Image cableSharp, cableBlur;
+    juce::String cableKey;
+    float flowPhase = 0.0f;
+    bool cablesAnimated = false;
+
+    // The pulses on the cables: 24 frames a second, only while the page is
+    // showing and a route has an amount.
+    struct FlowTimer : IlanaAnim::FrameTimer
+    {
+        std::function<void()> tick;
+        void timerCallback() override { if (tick != nullptr) tick(); }
+    } flow;
 
     // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import
     // as 2^(n - 8)), else empty.

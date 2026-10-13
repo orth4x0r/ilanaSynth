@@ -8502,6 +8502,36 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_FMCABLES: the FM matrix with three routes (OSC 2 into OSC 1, OSC 1 into
+    // OSC 2, noise into OSC 2 and OSC 1): the cables under the frosted cells, three frames
+    // apart (the pulses run); fmcables-0/1/2.png, then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FMCABLES", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        const auto setParam = [&] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        setParam ("fm_amount", 0.30f);   // OSC 2 into OSC 1
+        setParam ("fm_1to2", 0.15f);     // OSC 1 into OSC 2
+        setParam ("fm_noise2", 0.45f);   // noise into OSC 2
+        setParam ("fm_noise1", 0.20f);   // noise into OSC 1
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        pages->showPage ("FM");
+        settle (500);
+        for (int i = 0; i < 3; ++i)
+        {
+            save (*editor, outDir.getChildFile ("fmcables-" + juce::String (i) + ".png"));
+            settle (250);
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_SWEEP: a held chord with LFO 1 on filter 1's cutoff, the
     // filter graph with its sweep band: sweep-0.png before any audio, then
     // sweep-1.png and sweep-2.png after about 0.6 s and 1.3 s of playing; stop.

@@ -38,6 +38,7 @@ public:
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
         addAll (*this, picker, slope, cutoff, reso, drive, env, key, fm, morph);
+        panels[index == 1 ? 0 : 1] = this;
         for (auto* knob : { &cutoff, &reso, &drive, &env, &key, &fm, &morph })
             knob->setSizeRole (38);
 
@@ -87,6 +88,13 @@ public:
                           note.reduced (10, 2), juce::Justification::centred, 2);
     }
 
+    ~FilterPanel() override
+    {
+        for (auto*& panel : panels)
+            if (panel == this)
+                panel = nullptr;
+    }
+
     void resized() override
     {
         // The design's matched card: a 30 px header (title, F2's switch), then
@@ -106,9 +114,13 @@ public:
 
         std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
 
-        // (Seven columns always, MORPH's empty when the type has none: FILTER 1's
-        // and FILTER 2's knobs share one column pitch, P-3.)
-        knobs.push_back (morph.isVisible() ? &morph : nullptr);
+        // (FILTER 1's and FILTER 2's knobs share one column pitch, P-3: seven
+        // columns while either card has a MORPH, else six spread across the
+        // whole card; review 20, R20-3.)
+        const auto anyMorph = morph.isVisible() || std::any_of (std::begin (panels), std::end (panels),
+                                                                [] (const FilterPanel* panel) { return panel != nullptr && panel->morph.isVisible(); });
+        if (anyMorph)
+            knobs.push_back (morph.isVisible() ? &morph : nullptr);
 
         layoutRow (area, knobs);
     }
@@ -123,6 +135,8 @@ public:
     }
 
 private:
+    static inline FilterPanel* panels[2] {};
+
     // Only the classic models have a slope; FilterType::usesMorph says which use MORPH.
     void refreshType()
     {
@@ -134,6 +148,9 @@ private:
         slope.setVisible (hasSlope);
         morph.setVisible (FilterType::usesMorph (type));
         resized();
+        for (auto* panel : panels)
+            if (panel != nullptr && panel != this)
+                panel->resized();
         repaint();
     }
 

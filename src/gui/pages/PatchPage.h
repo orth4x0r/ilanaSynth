@@ -630,6 +630,11 @@ private:
     // strip of it; five or six sources keep 70 so they still fit.)
     static constexpr float columnStep = 160.0f;
     static float rowStepFor (size_t sourceCount) { return sourceCount <= 4 ? 100.0f : 70.0f; }
+    // (R20-1: and stretched, on the 10 px grid, up to 1.8 times, so the fitted graph fills the canvas's height.)
+    static float stepOf (size_t sourceCount, float stretch) { return std::round (rowStepFor (sourceCount) * stretch / 10.0f) * 10.0f; }
+    float rowStretch = 1.0f;
+    bool stretching = false;
+    size_t lastSourceCount = 0;
     static constexpr float rackStep = 180.0f; // PatchGraph::rackGraph's
 
     static int localKind (const PatchGraph::Node& node) { return node.kind - voiceKind; }
@@ -1193,6 +1198,26 @@ private:
     {
         if (animated)
             autoFit = true;
+        view.fitContentInto (view.getLocalBounds(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f, animated);
+
+        // Review 20, R20-1: the fit is limited by the width, so the rows of
+        // the per-note column spread until the graph also fills the height.
+        if (! hasVoice || ! autoFit || stretching || view.getHeight() <= 0)
+            return;
+        const auto content = view.getContentArea();
+        const auto zoom = view.getTargetZoom();
+        const auto bandHeight = 100.0f; // (the per-note band: 40 px above the boxes, 60 below)
+        const auto nodesNow = content.getHeight() - PatchCableView::nodeHeight;
+        if (zoom <= 0.0f || nodesNow <= 1.0f)
+            return;
+        const auto nodesWanted = (float) view.getHeight() * 0.92f / zoom - bandHeight - PatchCableView::nodeHeight;
+        const auto wanted = juce::jlimit (1.0f, 1.8f, rowStretch * nodesWanted / nodesNow);
+        if (stepOf (lastSourceCount, wanted) == stepOf (lastSourceCount, rowStretch))
+            return;
+        rowStretch = wanted;
+        stretching = true;
+        refresh (true);
+        stretching = false;
         view.fitContentInto (view.getLocalBounds(), maxZoom, minZoom, 60.0f, 90.0f, 0.05f, animated);
     }
 
@@ -1851,7 +1876,8 @@ private:
             node.label = voiceName (kind).toStdString();
             graph.restoreNode (node);
         };
-        const auto rowStep = rowStepFor (sources.size());
+        lastSourceCount = sources.size();
+        const auto rowStep = stepOf (sources.size(), rowStretch);
         const auto middle = (float) ((int) sources.size() - 1) * rowStep * 0.5f;
         for (size_t row = 0; row < sources.size(); ++row)
         {

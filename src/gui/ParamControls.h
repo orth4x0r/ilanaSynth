@@ -1388,6 +1388,15 @@ public:
                 g.strokePath (now, rounded);
             }
 
+            // The white dot at the live position: where the source has the
+            // knob right now (the stretch's leading end).
+            if (! quiet)
+            {
+                const auto dotAt = centre.getPointOnCircumference (radius, liveAngle);
+                g.setColour (juce::Colours::white.withAlpha (0.95f * ringIn));
+                g.fillEllipse (juce::Rectangle<float> (width + 1.6f, width + 1.6f).withCentre (dotAt));
+            }
+
             if (hot)
             {
                 const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));

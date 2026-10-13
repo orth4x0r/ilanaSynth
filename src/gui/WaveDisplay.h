@@ -10,6 +10,7 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/SampleFactory.h"
+#include "../dsp/SampleRange.h"
 #include "../dsp/Voice.h"
 #include "IlanaLookAndFeel.h"
 #include "ParamControls.h"
@@ -99,7 +100,11 @@ public:
         startTimerHz (30);
     }
 
-    ~WaveDisplay() override { endGestures(); }
+    ~WaveDisplay() override
+    {
+        stopPreview();
+        endGestures();
+    }
 
     // PLAY's strips: the picture only (no view switch, names or readouts).
     void setCompact (bool shouldBeCompact)
@@ -601,6 +606,8 @@ public:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        stopPreview();
+
         if (std::exchange (pressInHeader, false))
             return;
 
@@ -618,6 +625,22 @@ public:
     // Double-click on a warped table sets the warp amount back to zero.
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        if (hasZoomableSample() && ! event.mods.isPopupMenu() && event.position.y >= (float) headerHeight)
+        {
+            if (const auto handle = sampleHandleAt (event.position.x); handle != 0)
+                openPositionEditor (handle);
+            else if (! sampleView.isFull())
+                setSampleView ({});
+            else
+            {
+                const auto plot = samplePlotArea();
+                setSampleView (SampleRange::zoomed (sampleView, (event.position.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()),
+                                                    4.0, sampleLength()));
+            }
+
+            return;
+        }
+
         if (event.mods.isPopupMenu() || ! isTableMode() || ! canDragWarp())
             return;
 
@@ -946,6 +969,231 @@ private:
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
     }
 
+    // ---- Step 30: zoom, typed positions and the preview note (a plain or multi
+    // sample on a full-size display; grains and the small PLAY cards keep their own). ----
+
+    bool hasZoomableSample() const
+    {
+        if (! isSampleMode() || compact || isGranularMode())
+            return false;
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        return sample != nullptr && sample->getNumSamples() >= 2;
+    }
+
+    int sampleLength() const
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        return sample != nullptr ? sample->getNumSamples() : 1;
+    }
+
+    void setSampleView (SampleRange::View view)
+    {
+        sampleView = view;
+        repaint();
+    }
+
+    struct SampleChips { juce::Rectangle<float> zoomOut, zoomIn, play; };
+
+    // The three chips at the header's right: zoom out, zoom in and the
+    // preview note.
+    SampleChips sampleChips() const
+    {
+        const auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
+        const auto height = 16.0f;
+        const auto y = header.getY() + (header.getHeight() - height) * 0.5f;
+        SampleChips chips;
+        chips.play = { header.getRight() - 28.0f, y, 28.0f, height };
+        chips.zoomIn = { chips.play.getX() - 3.0f - 20.0f, y, 20.0f, height };
+        chips.zoomOut = { chips.zoomIn.getX() - 2.0f - 20.0f, y, 20.0f, height };
+        return chips;
+    }
+
+    void paintSampleChips (juce::Graphics& g) const
+    {
+        const auto chips = sampleChips();
+        const auto atMinimum = sampleView.span() <= SampleRange::minSpan (sampleLength()) * 1.001;
+
+        const auto chip = [&g] (juce::Rectangle<float> area, bool lit, bool dim)
+        {
+            g.setColour (lit ? IlanaTheme::Ui::raised.brighter (0.25f) : IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (area, 3.0f);
+            g.setColour ((dim ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text).withAlpha (dim ? 0.5f : 1.0f));
+        };
+
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        chip (chips.zoomOut, false, sampleView.isFull());
+        g.drawText (juce::String::fromUTF8 ("\xe2\x88\x92"), chips.zoomOut, juce::Justification::centred, false);
+        chip (chips.zoomIn, false, atMinimum);
+        g.drawText ("+", chips.zoomIn, juce::Justification::centred, false);
+        chip (chips.play, previewing, false);
+        juce::Path triangle;
+        const auto centre = chips.play.getCentre();
+        triangle.addTriangle (centre.x - 3.5f, centre.y - 4.5f, centre.x - 3.5f, centre.y + 4.5f, centre.x + 4.5f, centre.y);
+        g.fillPath (triangle);
+    }
+
+    // The preview is the patch itself holding middle C, so START, END, LOOP,
+    // the fades and the filter are all heard as they will play.
+    void startPreview()
+    {
+        if (previewing)
+            return;
+        previewing = true;
+        processorRef.triggerPreviewNote (previewNote, true, 0.8f);
+        repaint();
+    }
+
+    void stopPreview()
+    {
+        if (! std::exchange (previewing, false))
+            return;
+        processorRef.triggerPreviewNote (previewNote, false);
+        repaint();
+    }
+
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
+    {
+        if (hasZoomableSample())
+        {
+            const auto plot = samplePlotArea();
+            const auto anchor = (event.position.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth());
+
+            if (event.mods.isCommandDown() || event.mods.isCtrlDown())
+            {
+                setSampleView (SampleRange::zoomed (sampleView, anchor, std::exp ((double) wheel.deltaY * 3.0), sampleLength()));
+                return;
+            }
+
+            if (! sampleView.isFull())
+            {
+                const auto delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+                setSampleView (SampleRange::panned (sampleView, -(double) delta * 1.5));
+                return;
+            }
+        }
+
+        juce::Component::mouseWheelMove (event, wheel);
+    }
+
+    void mouseMagnify (const juce::MouseEvent& event, float scaleFactor) override
+    {
+        if (! hasZoomableSample() || scaleFactor <= 0.0f)
+        {
+            juce::Component::mouseMagnify (event, scaleFactor);
+            return;
+        }
+
+        const auto plot = samplePlotArea();
+        setSampleView (SampleRange::zoomed (sampleView, (event.position.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()),
+                                            (double) scaleFactor, sampleLength()));
+    }
+
+    // Type a START or END: milliseconds by default, "s" for seconds, "smp" for
+    // sample frames.
+    void openPositionEditor (int handle)
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr)
+            return;
+
+        const auto id = handle == 1 ? startId : endId;
+        const auto plot = samplePlotArea();
+        const auto x = sampleFractionToX (plot, readPlain (id));
+
+        positionEditor = std::make_unique<juce::TextEditor>();
+        auto& editor = *positionEditor;
+        editor.setMultiLine (false);
+        editor.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        editor.setColour (juce::TextEditor::backgroundColourId, IlanaTheme::Ui::raised);
+        editor.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
+        editor.setColour (juce::TextEditor::outlineColourId, traceColour);
+        editor.setColour (juce::TextEditor::focusedOutlineColourId, traceColour);
+        editor.setTooltip ((handle == 1 ? "START" : "END") + juce::String (": a time in ms (120), seconds (0.5 s) or sample frames (4410 smp). Return sets it, Escape keeps it."));
+        editor.setText (SampleRange::formatPosition (readPlain (id), sample->sampleRate, sample->getNumSamples()), false);
+
+        const auto width = 96, height = 18;
+        const auto left = juce::jlimit (plot.getX(), plot.getRight() - (float) width, x - (float) width * 0.5f);
+        const auto top = handle == 1 ? plot.getY() + 15.0f : plot.getBottom() - (float) height - 15.0f;
+        editor.setBounds (juce::Rectangle<int> (width, height).withPosition ((int) left, (int) top));
+
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        editor.onReturnKey = [safeThis, handle]
+        {
+            if (safeThis != nullptr)
+                safeThis->commitPositionEditor (handle);
+        };
+        const auto close = [safeThis]
+        {
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr)
+                    safeThis->positionEditor.reset();
+            });
+        };
+        editor.onEscapeKey = close;
+        editor.onFocusLost = close;
+
+        addAndMakeVisible (editor);
+        editor.grabKeyboardFocus();
+        editor.selectAll();
+    }
+
+    void commitPositionEditor (int handle)
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (positionEditor == nullptr || sample == nullptr)
+            return;
+
+        const auto typed = SampleRange::parsePosition (positionEditor->getText(), sample->sampleRate, sample->getNumSamples());
+        if (! typed.has_value())
+        {
+            positionEditor->setColour (juce::TextEditor::textColourId, juce::Colour (0xffff6b6b));
+            positionEditor->applyColourToAllText (juce::Colour (0xffff6b6b));
+            return;
+        }
+
+        setSamplePosition (handle, (float) *typed);
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->positionEditor.reset();
+        });
+    }
+
+public:
+    // START (handle 1) or END (2) to a position as a fraction of the sample,
+    // as a typed entry sets it: one undo step, and the zoom window follows a
+    // position that is outside it (the UI test calls this).
+    void setSamplePosition (int handle, float fraction)
+    {
+        const auto gap = sampleGap();
+        const auto id = handle == 1 ? startId : endId;
+        const auto value = handle == 1 ? juce::jmin (fraction, readPlain (endId) - gap)
+                                       : juce::jmax (fraction, readPlain (startId) + gap);
+
+        processorRef.performEdit (editName(), [this, id, value]
+        {
+            beginGesture (id);
+            setPlain (id, juce::jlimit (0.0f, 1.0f, value));
+            endGestures();
+        });
+
+        if ((double) value < sampleView.lo || (double) value > sampleView.hi)
+            sampleView = SampleRange::centred (sampleView, (double) value);
+
+        repaint();
+    }
+
+    // The typed-position box, for the UI test.
+    void showPositionEditor (int handle) { openPositionEditor (handle); }
+
+    // The zoom window, for the UI test.
+    SampleRange::View getSampleView() const { return sampleView; }
+    void zoomSample (double anchor, double factor) { setSampleView (SampleRange::zoomed (sampleView, anchor, factor, sampleLength())); }
+
+private:
+
     // The sample's plot as drawSample lays it out horizontally.
     juce::Rectangle<float> samplePlotArea() const { return wellArea().reduced (10.0f, compact ? 5.0f : 10.0f); }
 
@@ -958,23 +1206,41 @@ private:
             return 0;
 
         const auto plot = samplePlotArea();
-        const auto startX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (startId)) * plot.getWidth();
-        const auto endX = plot.getX() + juce::jlimit (0.0f, 1.0f, readPlain (endId)) * plot.getWidth();
-        const auto nearStart = std::abs (x - startX), nearEnd = std::abs (x - endX);
+        // (A handle outside the zoomed window can't be grabbed.)
+        const auto startX = sampleFractionToX (plot, juce::jlimit (0.0f, 1.0f, readPlain (startId)));
+        const auto endX = sampleFractionToX (plot, juce::jlimit (0.0f, 1.0f, readPlain (endId)));
+        const auto inside = [&plot] (float handleX) { return handleX >= plot.getX() - 1.0f && handleX <= plot.getRight() + 1.0f; };
+        const auto nearStart = inside (startX) ? std::abs (x - startX) : 1.0e9f;
+        const auto nearEnd = inside (endX) ? std::abs (x - endX) : 1.0e9f;
         if (juce::jmin (nearStart, nearEnd) > 9.0f)
             return 0;
         return nearStart <= nearEnd ? 1 : 2;
     }
 
+    // Where a position (0..1 of the whole sample) sits in the plot, given the
+    // zoom window.
+    float sampleFractionToX (juce::Rectangle<float> plot, double fraction) const
+    {
+        return plot.getX() + (float) sampleView.toView (fraction) * plot.getWidth();
+    }
+
+    // The least START and END may be apart: 1 % of the sample, or 16 sample
+    // frames of a long one (zoomed in, a handle can be placed that close).
+    float sampleGap() const
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        return sample == nullptr ? 0.01f : juce::jmin (0.01f, 16.0f / (float) juce::jmax (1, sample->getNumSamples()));
+    }
+
     void setHandleFromX (float x)
     {
         const auto plot = samplePlotArea();
-        const auto position = juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()));
-        // (They never cross: at least 1 % of the sample stays between them.)
+        const auto position = (float) sampleView.fromView (juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth())));
+        // (They never cross: a little of the sample stays between them.)
         if (handleDrag == 1)
-            setPlain (startId, juce::jmin (position, readPlain (endId) - 0.01f));
+            setPlain (startId, juce::jmin (position, readPlain (endId) - sampleGap()));
         else
-            setPlain (endId, juce::jmax (position, readPlain (startId) + 0.01f));
+            setPlain (endId, juce::jmax (position, readPlain (startId) + sampleGap()));
         repaint();
     }
 
@@ -1127,21 +1393,26 @@ private:
         if (! compact && ! isGranularMode() && plot.getHeight() > 80.0f)
         {
             const auto ruler = plot.removeFromBottom (12.0f);
-            const auto seconds = (double) sample->getNumSamples() / juce::jmax (1.0, sample->sampleRate);
-            auto step = 0.001;
-            for (const auto candidate : { 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0 })
+            const auto total = (double) sample->getNumSamples() / juce::jmax (1.0, sample->sampleRate);
+            // (Zoomed in, the ruler covers the window only, down to 0.1 ms ticks.)
+            const auto visible = total * sampleView.span();
+            const auto first = total * sampleView.lo;
+            auto step = 0.0001;
+            for (const auto candidate : { 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0 })
             {
                 step = candidate;
-                if (candidate / seconds * (double) plot.getWidth() >= 70.0)
+                if (candidate / visible * (double) plot.getWidth() >= 70.0)
                     break;
             }
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-            for (double t = 0.0; t <= seconds + 1.0e-9; t += step)
+            for (double t = std::ceil (first / step - 1.0e-9) * step; t <= first + visible + 1.0e-9; t += step)
             {
-                const auto x = plot.getX() + (float) (t / seconds) * plot.getWidth();
+                const auto x = plot.getX() + (float) ((t - first) / visible) * plot.getWidth();
                 g.setColour (IlanaTheme::Ui::text3.withAlpha (0.6f));
                 g.fillRect (x, ruler.getY(), 1.0f, 4.0f);
-                const auto text = step < 1.0 ? juce::String (juce::roundToInt ((float) (t * 1000.0))) + " ms" : juce::String (t, step < 1.0 ? 2 : (step == std::floor (step) ? 0 : 1)) + " s";
+                const auto text = step < 0.001 ? juce::String (t * 1000.0, 1) + " ms"
+                                  : step < 1.0 ? juce::String (juce::roundToInt ((float) (t * 1000.0))) + " ms"
+                                               : juce::String (t, step == std::floor (step) ? 0 : 1) + " s";
                 if (x + 44.0f < plot.getRight())
                     g.drawText (text, juce::Rectangle<float> (x + 3.0f, ruler.getY(), 44.0f, ruler.getHeight()), juce::Justification::centredLeft, false);
             }
@@ -1159,16 +1430,18 @@ private:
         const auto centreY = plot.getCentreY();
         const auto halfHeight = plot.getHeight() * 0.42f;
 
-        if (cachedSample != sample || cachedSampleEpoch != processorRef.getSampleEpoch() || (int) cachedPeaks.size() != width)
+        if (cachedSample != sample || cachedSampleEpoch != processorRef.getSampleEpoch() || (int) cachedPeaks.size() != width
+            || cachedView.lo != sampleView.lo || cachedView.hi != sampleView.hi)
         {
             cachedSample = sample;
             cachedSampleEpoch = processorRef.getSampleEpoch();
+            cachedView = sampleView;
             cachedPeaks.assign ((size_t) width, 0.0f);
 
             for (int x = 0; x < width; ++x)
             {
-                const auto from = (int) ((float) x / (float) width * (float) numSamples);
-                const auto to = juce::jmin (numSamples, (int) ((float) (x + 1) / (float) width * (float) numSamples) + 1);
+                const auto from = juce::jlimit (0, numSamples - 1, (int) (sampleView.fromView ((double) x / (double) width) * (double) numSamples));
+                const auto to = juce::jmin (numSamples, juce::jmax (from + 1, (int) (sampleView.fromView ((double) (x + 1) / (double) width) * (double) numSamples) + 1));
                 auto peak = 0.0f;
 
                 for (int i = from; i < to; ++i)
@@ -1224,8 +1497,13 @@ private:
             return;
         }
 
-        const auto startX = plot.getX() + start * plot.getWidth();
-        const auto endX = plot.getX() + end * plot.getWidth();
+        const auto startX = sampleFractionToX (plot, start);
+        const auto endX = sampleFractionToX (plot, end);
+
+        // (Zoomed in, a handle or marker can lie outside the window: everything
+        // from here on is clipped to the plot.)
+        g.saveState();
+        g.reduceClipRegion (plot.getSmallestIntegerContainer());
 
         g.setColour (juce::Colours::black.withAlpha (0.45f));
         g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getY(), juce::jmax (0.0f, startX - plot.getX()), plot.getHeight()));
@@ -1267,8 +1545,8 @@ private:
         if (loop && ! compact && ! sample->zones.empty() && numSamples > 1)
             if (const auto* zone = sample->zoneFor (60, 100); zone != nullptr && zone->loop && zone->loopEnd > zone->loopStart)
             {
-                const auto inX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopStart / (float) numSamples) * plot.getWidth();
-                const auto outX = plot.getX() + juce::jlimit (0.0f, 1.0f, (float) zone->loopEnd / (float) numSamples) * plot.getWidth();
+                const auto inX = sampleFractionToX (plot, juce::jlimit (0.0f, 1.0f, (float) zone->loopStart / (float) numSamples));
+                const auto outX = sampleFractionToX (plot, juce::jlimit (0.0f, 1.0f, (float) zone->loopEnd / (float) numSamples));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 for (const auto& [x, name, leftOf] : { std::tuple<float, juce::String, bool> { inX, "LOOP IN", false }, { outX, "LOOP OUT", true } })
                 {
@@ -1308,7 +1586,7 @@ private:
 
         if (playPosition >= 0.0f)
         {
-            const auto cursorX = plot.getX() + playPosition * plot.getWidth();
+            const auto cursorX = sampleFractionToX (plot, playPosition);
             const auto readIndex = juce::jlimit (0, numSamples - 1, (int) (playPosition * (float) numSamples));
             const auto readValue = sample->buffer.getSample (0, readIndex)
                                    + (sample->getNumChannels() > 1 ? sample->buffer.getSample (1, readIndex) : 0.0f);
@@ -1326,10 +1604,17 @@ private:
             g.fillEllipse (juce::Rectangle<float> (5.5f, 5.5f).withCentre ({ cursorX, cursorY }));
         }
 
+        g.restoreState();
+
         if (! compact)
+        {
+            paintSampleChips (g);
+            const auto chipsWidth = getLocalBounds().toFloat().getRight() - sampleChips().zoomOut.getX() + 4.0f;
             drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
                                                                            : juce::String())
-                                                 + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"));
+                                                 + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"),
+                            chipsWidth);
+        }
     }
 
     // The zones as boxes on a keyboard strip: the used key range across
@@ -1533,7 +1818,9 @@ private:
                                             "A swing that reaches over the bends barks (tine) or growls (reed). DISTANCE and OFFSET move them."
                         : isLiveInput() ? "The audio coming into ilanaSynth FX."
                         : isGranularMode() ? "Grains are read from around the white line: drag to move it. Right-click for factory samples, or drop a wav."
-                        : isSampleMode() ? "Showing the loaded sample. Drop a new wav here to replace it."
+                        : isSampleMode() ? "Showing the loaded sample. Drag the START and END flags (double-click one to type a time: 120 ms, 0.5 s or 4410 smp). "
+                                         "Ctrl + wheel, + / - or a pinch zooms; the wheel then slides the view and a double-click fits it. "
+                                         "The play chip holds a note so you hear the range. Drop a new wav here to replace it."
                                        : tableTooltip);
         }
 
@@ -1544,6 +1831,8 @@ private:
             lastSample = sample;
             lastSampleEpoch = processorRef.getSampleEpoch();
             loadFlash = sample != nullptr ? 1.0f : 0.0f;
+            sampleView = {};
+            positionEditor.reset();
         }
 
         loadFlash = IlanaAnim::decay (loadFlash, 0.93f, frameTicks());
@@ -1825,9 +2114,10 @@ private:
 
     // A title and a quieter caption in the header line; the caption only
     // where both fit (with a gap).
-    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption) const
+    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f) const
     {
         auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
+        header.removeFromRight (rightReserve);
         const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
@@ -1924,6 +2214,22 @@ private:
 
     void mouseDownOnHeader (const juce::MouseEvent& event)
     {
+        if (hasZoomableSample())
+        {
+            const auto chips = sampleChips();
+            const auto at = event.position;
+            const auto centre = 0.5;
+
+            if (chips.play.contains (at))
+                startPreview();
+            else if (chips.zoomIn.contains (at))
+                setSampleView (SampleRange::zoomed (sampleView, centre, 2.0, sampleLength()));
+            else if (chips.zoomOut.contains (at))
+                setSampleView (SampleRange::zoomed (sampleView, centre, 0.5, sampleLength()));
+
+            return;
+        }
+
         if (slim)
         {
             const auto areas = slimAreas();
@@ -2087,6 +2393,11 @@ private:
     mutable const SampleData* cachedSample = nullptr;
     mutable unsigned cachedSampleEpoch = 0;
     mutable std::vector<float> cachedPeaks;
+    mutable SampleRange::View cachedView;
+    SampleRange::View sampleView; // the part of the sample on show (step 30: zoom)
+    std::unique_ptr<juce::TextEditor> positionEditor; // a typed START / END
+    bool previewing = false;
+    static constexpr int previewNote = 60;
     const SampleData* lastSample = nullptr;
     unsigned lastSampleEpoch = 0;
     float loadFlash = 0.0f;

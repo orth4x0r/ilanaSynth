@@ -4349,6 +4349,48 @@ int runUiTests()
                 "a bounce puts OSC 2 in Sample mode with the sample controls showing");
     }
 
+    // Step 30: the sample display zooms, and a typed position sets START / END.
+    {
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (*editor, waves);
+        WaveDisplay* wave = nullptr;
+        for (auto* candidate : waves)
+            if (visibleInTree (candidate) && candidate->getOscIndex() == 1)
+                wave = candidate;
+        expect (wave != nullptr, "OSC 2's sample display is shown");
+
+        if (wave != nullptr)
+        {
+            const auto read = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+            expect (wave->getSampleView().isFull(), "a sample display starts fitted");
+            // ILANA_UITEST_SHOTS=<dir>: pictures of the zoom, for review.
+            const auto shotsDir = juce::SystemStats::getEnvironmentVariable ("ILANA_UITEST_SHOTS", "");
+            const auto shot = [&] (const char* name)
+            {
+                if (shotsDir.isNotEmpty())
+                {
+                    settle (150);
+                    save (*editor, juce::File (shotsDir).getChildFile (name));
+                }
+            };
+            shot ("sample-fitted.png");
+            wave->zoomSample (0.5, 4.0);
+            expect (std::abs (wave->getSampleView().span() - 0.25) < 1.0e-6, "zooming in 4x shows a quarter of the sample");
+            wave->setSamplePosition (1, 0.9f);
+            const auto start = read ("osc2_sample_start"), end = read ("osc2_sample_end");
+            expect (start < end && start > 0.8f, "a typed START lands, and stays under END (" + juce::String (start, 3) + " < " + juce::String (end, 3) + ")");
+            const auto view = wave->getSampleView();
+            expect ((double) start >= view.lo - 1.0e-6 && (double) start <= view.hi + 1.0e-6, "the zoom window follows a typed position");
+            shot ("sample-zoomed.png");
+            wave->showPositionEditor (1);
+            shot ("sample-typed-start.png");
+            wave->zoomSample (0.5, 0.001);
+            expect (wave->getSampleView().isFull(), "zooming out fits the sample");
+            wave->setSamplePosition (1, 0.0f);
+            expect (read ("osc2_sample_start") < 0.001f, "a typed START of zero goes back to the head");
+        }
+    }
+
     // The string has one editor, its oscillator's card (the PHYSICAL tab
     // folded in, 2026-10-10): every control of the physical list is on the
     // card, in its order, with the moving string in the well; the body is a
@@ -6758,6 +6800,88 @@ int runUiTests()
             expect ((int) atNote == 1 && (int) later == 3,
                     "a new note starts the dot at the attack and runs it on (" + juce::String (atNote) + ", then " + juce::String (later) + ")");
         }
+
+        // The dot rides the drawn line, curved or not, through a whole note,
+        // an early key up and a retrigger; it leaves a trail while it moves
+        // and no repaints are asked for once it is gone.
+        for (const auto curveValue : { 0.0f, 0.8f, -0.8f })
+        {
+            IlanaSynthAudioProcessor local;
+            local.prepareToPlay (48000.0, 512);
+            const auto setLocal = [&local] (const juce::String& id, float plain)
+            {
+                if (auto* parameter = local.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+            };
+            setLocal ("amp_attack", 0.15f);
+            setLocal ("amp_decay", 0.3f);
+            setLocal ("amp_sustain", 0.5f);
+            setLocal ("amp_release", 0.4f);
+            setLocal ("amp_curve", curveValue);
+            EnvelopeDisplay display (local, "amp");
+            display.setSize (400, 160);
+            juce::AudioBuffer<float> buffer (2, 512);
+            auto worst = 0.0f;
+            auto seen = 0;
+            const auto frame = [&] (int note, bool on)
+            {
+                for (int block = 0; block < 3; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0 && note >= 0)
+                        midi.addEvent (on ? juce::MidiMessage::noteOn (1, note, 0.8f) : juce::MidiMessage::noteOff (1, note), 0);
+                    buffer.clear();
+                    local.processBlock (buffer, midi);
+                }
+                juce::Thread::sleep (20);
+                display.createComponentSnapshot (display.getLocalBounds()); // paints: the trail follows the dot
+                const auto off = display.playheadOffLine();
+                if (off >= 0.0f)
+                {
+                    worst = juce::jmax (worst, off);
+                    ++seen;
+                }
+            };
+            frame (60, true);
+            for (int i = 0; i < 25; ++i) frame (-1, false);   // attack, decay, sustain
+            frame (60, false);
+            for (int i = 0; i < 8; ++i) frame (-1, false);    // part of the release
+            frame (64, true);                                  // a new note, on the way down
+            for (int i = 0; i < 3; ++i) frame (-1, false);
+            frame (64, false);                                 // let go in the attack
+            for (int i = 0; i < 30; ++i) frame (-1, false);
+            expect (seen > 20 && worst < 1.0f,
+                    "the envelope dot rides the drawn line at curve " + juce::String (curveValue, 1) + " (worst " + juce::String (worst, 2)
+                        + " px over " + juce::String (seen) + " frames)");
+        }
+
+        {
+            IlanaSynthAudioProcessor local;
+            local.prepareToPlay (48000.0, 512);
+            EnvelopeDisplay display (local, "amp");
+            display.setSize (400, 160);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 0);
+            local.processBlock (buffer, midi);
+            display.createComponentSnapshot (display.getLocalBounds());
+            const auto lit = display.trailIsLit();
+            juce::MidiBuffer off;
+            off.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+            local.processBlock (buffer, off);
+            for (int i = 0; i < 400; ++i)
+            {
+                buffer.clear();
+                juce::MidiBuffer none;
+                local.processBlock (buffer, none);
+            }
+            for (int i = 0; i < 60; ++i) // the display's timer, 30 frames a second
+            {
+                juce::Thread::sleep (30);
+                display.createComponentSnapshot (display.getLocalBounds());
+            }
+            expect (lit && ! display.trailIsLit(), "the envelope's trail lights with a note and has died away (no repaints asked) once it is over");
+        }
     }
 
     // UI review 4, batch E: oscillators, filter, PLAY.
@@ -8124,6 +8248,63 @@ static juce::Image renderMenuSheet (juce::LookAndFeel& lf, std::vector<std::pair
     return image;
 }
 
+// --envdot <dir> [curve]: frames of the amp envelope graph while a note is
+// held and let go, for judging the playhead's motion and trail (ffmpeg joins
+// them into a GIF). `curve` is the CURVE knob, -1 to 1.
+int runEnvDot (const juce::File& outDir, float curve)
+{
+    outDir.createDirectory();
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    const auto setParam = [&processor] (const juce::String& id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+    setParam ("amp_attack", 0.3f);
+    setParam ("amp_decay", 0.7f);
+    setParam ("amp_sustain", 0.55f);
+    setParam ("amp_release", 0.9f);
+    setParam ("amp_curve", curve);
+
+    EnvelopeDisplay display (processor, "amp");
+    display.setSize (480, 190);
+    juce::AudioBuffer<float> buffer (2, 512);
+    auto frame = 0;
+    const auto step = [&] (bool noteOn, bool noteOff)
+    {
+        // About 33 ms of audio, then the picture.
+        for (int block = 0; block < 3; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0 && noteOn)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, 0.8f), 0);
+            if (block == 0 && noteOff)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 57), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+        }
+        juce::Thread::sleep (33);
+        const auto image = display.createComponentSnapshot (display.getLocalBounds(), true, 2.0f);
+        juce::FileOutputStream stream (outDir.getChildFile (juce::String::formatted ("f%03d.png", frame++)));
+        if (stream.openedOk())
+        {
+            stream.setPosition (0);
+            stream.truncate();
+            juce::PNGImageFormat().writeImageToStream (image, stream);
+        }
+    };
+    step (false, false);
+    for (int i = 0; i < 60; ++i)
+        step (i == 0, false); // 2 s held
+    for (int i = 0; i < 45; ++i)
+        step (false, i == 0); // 1.5 s released
+    for (int i = 0; i < 15; ++i)
+        step (false, false);  // and quiet
+    std::cout << frame << " frames in " << outDir.getFullPathName() << std::endl;
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -8137,6 +8318,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--uitest")
         return runUiTests();
+
+    if (juce::String (argv[1]) == "--envdot" && argc > 2)
+        return runEnvDot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]), argc > 3 ? juce::String (argv[3]).getFloatValue() : 0.0f);
 
     if (juce::String (argv[1]) == "--idlecpu")
         return runIdleCpu();
@@ -8315,6 +8499,53 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("flash-1.png"));
         settle (190);
         save (*editor, outDir.getChildFile ("flash-2.png"));
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_SWEEP: a held chord with LFO 1 on filter 1's cutoff, the
+    // filter graph with its sweep band: sweep-0.png before any audio, then
+    // sweep-1.png and sweep-2.png after about 0.6 s and 1.3 s of playing; stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SWEEP", "").isNotEmpty())
+    {
+       #if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+       #endif
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        processor.loadPresetByIndex (0);
+        set ("f1_cutoff", 900.0f);
+        set ("f1_reso", 0.45f);
+        set ("mod1_src", (float) Mod::Source::Lfo1);
+        set ("mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        set ("mod1_amt", 0.8f);
+        settle (400);
+        save (*editor, outDir.getChildFile ("sweep-0.png"));
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto play = [&] (int blocks, bool chord)
+        {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::MidiBuffer midi;
+                if (chord && b == 0)
+                    for (const auto note : { 48, 55, 60, 64 })
+                        midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                if (b % 8 == 0)
+                    settle (20);
+            }
+        };
+        play (56, true);
+        save (*editor, outDir.getChildFile ("sweep-1.png"));
+        play (64, false);
+        save (*editor, outDir.getChildFile ("sweep-2.png"));
         return 0;
     }
 

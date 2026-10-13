@@ -140,17 +140,34 @@ public:
                                .withCentre (point));
         }
 
+        paintTrail (g, geo);
+
         // The last played note's place on the curve.
-        if (const auto playhead = playheadPoint (geo); playhead.has_value())
+        if (const auto playhead = playheadPoint (geo); playhead.has_value() || dotFade > 0.0f)
         {
-            // In the curve's colour with a white rim, so it doesn't read as
-            // one of the white stage handles.
-            g.setColour (curveColour.withAlpha (0.3f));
-            g.fillEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (*playhead));
-            g.setColour (curveColour.interpolatedWith (juce::Colours::white, 0.15f));
-            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (*playhead));
-            g.setColour (juce::Colours::white.withAlpha (0.9f));
-            g.drawEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (*playhead), 1.4f);
+            if (playhead.has_value())
+                lastDot = *playhead;
+
+            const auto fade = playhead.has_value() ? 1.0f : dotFade;
+            const auto at = lastDot;
+
+            // A soft halo, a ring in the curve's colour with a white rim,
+            // and one ripple when a note starts.
+            juce::ColourGradient halo (curveColour.withAlpha (0.45f * fade), at.x, at.y,
+                                       curveColour.withAlpha (0.0f), at.x + 15.0f, at.y, true);
+            g.setGradientFill (halo);
+            g.fillEllipse (juce::Rectangle<float> (30.0f, 30.0f).withCentre (at));
+            g.setColour (curveColour.interpolatedWith (juce::Colours::white, 0.15f).withAlpha (fade));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (at));
+            g.setColour (juce::Colours::white.withAlpha (0.9f * fade));
+            g.drawEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (at), 1.4f);
+
+            if (const auto age = (juce::Time::getMillisecondCounterHiRes() - pingMs) / 450.0; age >= 0.0 && age < 1.0)
+            {
+                const auto size = 9.0f + 22.0f * (float) (1.0 - (1.0 - age) * (1.0 - age));
+                g.setColour (curveColour.withAlpha (0.55f * (1.0f - (float) age)));
+                g.drawEllipse (juce::Rectangle<float> (size, size).withCentre (at), 1.2f);
+            }
         }
         else if (const auto monitor = readMonitor(); monitor > 0.002f)
         {
@@ -234,7 +251,9 @@ private:
 
     static void addSegment (juce::Path& path, float x1, float y1, float x2, float y2, bool rising, double rate)
     {
-        constexpr int steps = 20;
+        // A step about every 2 px, so the dot (which sits on the exact
+        // curve) never leaves the drawn line on a strong bend.
+        const auto steps = juce::jlimit (24, 160, (int) (juce::jmax (std::abs (x2 - x1), std::abs (y2 - y1)) / 2.0f));
 
         for (int i = 1; i <= steps; ++i)
         {
@@ -335,6 +354,24 @@ private:
     }
 
 public:
+    // Whether the trail or the dot still needs frames (false: nothing to animate).
+    bool trailIsLit() const { return trailAlive; }
+
+    // How far the dot is from the drawn line, in pixels (-1: no dot). The
+    // dot is meant to ride the line exactly.
+    float playheadOffLine() const
+    {
+        const auto geo = layoutGeometry();
+        const auto dot = playheadPoint (geo);
+
+        if (! dot.has_value())
+            return -1.0f;
+
+        juce::Point<float> nearest;
+        curvePath (geo).getNearestPoint (*dot, nearest);
+        return dot->getDistanceFrom (nearest);
+    }
+
     // Where the dot for the last played note sits: on the curve at its
     // stage and progress (in the release, at its actual level, since a
     // note let go early releases from below the sustain). None while idle.
@@ -343,40 +380,151 @@ public:
 private:
     std::optional<juce::Point<float>> playheadPoint (const Geometry& geo) const
     {
-        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()),
-                                                    processorRef.getEnvMonitorSeconds (envelopeIndex()),
-                                                    processorRef.getNoteSerial());
+        const auto position = shownPosition();
 
         // Idle, or an envelope that isn't running (it waits at the start).
         if (position <= 0.0f)
             return std::nullopt;
 
-        const auto stage = juce::jlimit (0, 5, (int) position);
-        const auto u = juce::jlimit (0.0f, 1.0f, position - (float) stage);
+        return pointAt (geo, position, processorRef.getEnvMonitorStageStart (envelopeIndex()));
+    }
+
+    float shownPosition() const
+    {
+        const auto position = positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()),
+                                                    processorRef.getEnvMonitorSeconds (envelopeIndex()),
+                                                    processorRef.getNoteSerial());
+        updateTrail (position);
+        return position;
+    }
+
+    // The point on the drawn line at position `p` (stage + progress; 4 is
+    // the sustain, whose dot slides in along the line). The attack and the
+    // release ride the drawn curve by the level they really have: a
+    // retrigger's attack starts partway up, a release from below the
+    // sustain starts partway down, and the dot goes to where on the line
+    // that level sits, so it never leaves the line.
+    juce::Point<float> pointAt (const Geometry& geo, float p, float from) const
+    {
+        const auto stage = juce::jlimit (0, 5, (int) p);
+        const auto u = juce::jlimit (0.0f, 1.0f, p - (float) stage);
         const auto height = geo.yBottom - geo.yTop;
+        from = juce::jlimit (0.0f, 1.0f, from);
 
         switch (stage)
         {
-            case 0: return juce::Point<float> (geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom);
+            case 0: return { geo.x0 + u * (geo.xStart - geo.x0), geo.yBottom };
             case 1:
             {
-                // From zero, or from where a retrigger found the level.
-                const auto from = juce::jlimit (0.0f, 1.0f, processorRef.getEnvMonitorStageStart (envelopeIndex()));
-                return juce::Point<float> (geo.xStart + u * (geo.xA - geo.xStart),
-                                           geo.yBottom - (from + (1.0f - from) * (float) TensionCurve::shape (u, geo.rates[0])) * height);
+                const auto level = from + (1.0f - from) * (float) TensionCurve::shape (u, geo.rates[0]);
+                const auto along = from > 0.0f ? (float) TensionCurve::inverse (level, geo.rates[0]) : u;
+                return { geo.xStart + along * (geo.xA - geo.xStart), geo.yBottom - level * height };
             }
-            case 2: return juce::Point<float> (geo.xA + u * (geo.xH - geo.xA), geo.yTop);
-            case 3: return juce::Point<float> (geo.xH + u * (geo.xD - geo.xH),
-                                               geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - (float) TensionCurve::shape (1.0f - u, geo.rates[1])));
-            case 4: return juce::Point<float> (geo.xD + 0.25f * (geo.xS - geo.xD), geo.ySustain);
+            case 2: return { geo.xA + u * (geo.xH - geo.xA), geo.yTop };
+            case 3: return { geo.xH + u * (geo.xD - geo.xH),
+                             geo.yTop + (geo.ySustain - geo.yTop) * (1.0f - (float) TensionCurve::shape (1.0f - u, geo.rates[1])) };
+            case 4: return { geo.xD + u * (geo.xS - geo.xD), geo.ySustain };
             default:
             {
-                // The release runs the curve from the level the key was let
-                // go at (the sustain, or lower when let go early).
-                const auto from = juce::jlimit (0.0f, 1.0f, processorRef.getEnvMonitorStageStart (envelopeIndex()));
-                return juce::Point<float> (geo.xS + u * (geo.xR - geo.xS),
-                                           geo.yBottom - from * (float) TensionCurve::shape (1.0f - u, geo.rates[2]) * height);
+                // (Let go above the sustain, the dot takes the drawn
+                // release from the top, as the line has no part above it.)
+                const auto sustain = (geo.yBottom - geo.ySustain) / juce::jmax (1.0f, height);
+                const auto below = from < sustain - 1.0e-4f && sustain > 1.0e-4f;
+                const auto level = (below ? from : sustain) * (float) TensionCurve::shape (1.0f - u, geo.rates[2]);
+                const auto along = below ? 1.0f - (float) TensionCurve::inverse (juce::jlimit (0.0f, 1.0f, level / sustain), geo.rates[2]) : u;
+                return { geo.xS + along * (geo.xR - geo.xS), geo.yBottom - level * height };
             }
+        }
+    }
+
+    // The glowing trail the dot leaves on the line: a brightness for each
+    // slice of the curve (a stage and its progress), lit as the dot
+    // passes and fading in about half a second, as in Vital.
+    static constexpr int trailBinsPerStage = 48, trailBins = 6 * trailBinsPerStage;
+
+    void updateTrail (float position) const
+    {
+        if (position <= 0.0f && ! trailAlive)
+        {
+            trailHead = -1.0f;
+            trailMs = 0.0;
+            return;
+        }
+
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto dt = trailMs > 0.0 ? juce::jlimit (0.0, 0.1, (now - trailMs) / 1000.0) : 0.0;
+        trailMs = now;
+        const auto fade = (float) std::exp (-dt / 0.4);
+        auto alive = false;
+
+        for (auto& value : trail)
+        {
+            value *= fade;
+            if (value < 0.03f)
+                value = 0.0f;
+            alive = alive || value > 0.0f;
+        }
+
+        if (position > 0.0f)
+        {
+            const auto bin = [] (float p) { return juce::jlimit (0, trailBins - 1, (int) (p * (float) trailBinsPerStage)); };
+            const auto from = trailHead >= 0.0f && position >= trailHead - 1.0e-4f ? bin (trailHead) : bin (position);
+
+            for (int i = from; i <= bin (position); ++i)
+                trail[(size_t) i] = 1.0f;
+
+            // A new note rings once from the dot.
+            if (trailHead < 0.0f || position < trailHead - 0.05f)
+                pingMs = now;
+
+            trailHead = position;
+            alive = true;
+            dotFade = 1.0f;
+        }
+        else
+        {
+            trailHead = -1.0f;
+            dotFade = juce::jmax (0.0f, dotFade - (float) dt / 0.25f);
+        }
+
+        trailAlive = alive || dotFade > 0.0f || now - pingMs < 450.0;
+    }
+
+    void paintTrail (juce::Graphics& g, const Geometry& geo) const
+    {
+        if (! trailAlive)
+            return;
+
+        const auto from = juce::jlimit (0.0f, 1.0f, processorRef.getEnvMonitorStageStart (envelopeIndex()));
+        const auto step = 1.0f / (float) trailBinsPerStage;
+        const auto bottom = geo.yBottom;
+        auto previous = pointAt (geo, 0.0001f, from);
+        // The wash under the line fades in over the last 24 px before the
+        // dot, so it has no hard front edge.
+        const auto headX = trailHead > 0.0f ? pointAt (geo, trailHead, from).x : 1.0e9f;
+
+        for (int i = 0; i < trailBins; ++i)
+        {
+            const auto next = pointAt (geo, juce::jmin (5.999f, (float) (i + 1) * step), from);
+            const auto lit = trail[(size_t) i];
+
+            if (lit > 0.0f && (std::abs (next.x - previous.x) > 0.01f || std::abs (next.y - previous.y) > 0.01f))
+            {
+                // The area under the line brightens, then the line itself:
+                // a wide soft stroke and a bright core.
+                juce::Path wash;
+                wash.addQuadrilateral (previous.x, previous.y, next.x, next.y, next.x, bottom, previous.x, bottom);
+                const auto front = juce::jlimit (0.0f, 1.0f, (headX - next.x) / 24.0f);
+                g.setGradientFill (juce::ColourGradient (curveColour.withAlpha (0.3f * lit * front), 0.0f, juce::jmin (previous.y, next.y),
+                                                         curveColour.withAlpha (0.02f * lit * front), 0.0f, bottom, false));
+                g.fillPath (wash);
+                g.setColour (curveColour.withAlpha (0.22f * lit));
+                g.drawLine (previous.x, previous.y, next.x, next.y, 5.0f);
+                g.setColour (curveColour.interpolatedWith (juce::Colours::white, 0.45f).withAlpha (0.9f * lit));
+                g.drawLine (previous.x, previous.y, next.x, next.y, 2.2f);
+            }
+
+            previous = next;
         }
     }
 
@@ -534,13 +682,20 @@ private:
 
         appear = juce::jmin (1.0f, appear + 0.12f * frameTicks());
 
-        if (IlanaAnim::showing (*this) && (appear < 1.0f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
-                                                                ^ IlanaAnim::phaseSignature (positionSmoother.get (processorRef.getEnvMonitorPosition (envelopeIndex()), processorRef.getEnvMonitorSeconds (envelopeIndex()), processorRef.getNoteSerial()), 31))))
+        const auto position = shownPosition();
+
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || trailAlive || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
+                                                                ^ IlanaAnim::phaseSignature (position, 31))))
             repaint();
     }
 
     IlanaAnim::ChangeGate changeGate;
     IlanaAnim::EnvTracker positionSmoother;
+    mutable std::array<float, trailBins> trail {};
+    mutable float trailHead = -1.0f, dotFade = 0.0f;
+    mutable double trailMs = 0.0, pingMs = -1.0e9;
+    mutable bool trailAlive = false;
+    mutable juce::Point<float> lastDot;
     IlanaAnim::BlockSmoother levelSmoother; // monitors glided between audio blocks
 
     float readSeconds (const char* suffix) const

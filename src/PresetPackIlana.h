@@ -29,7 +29,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "voice_mode", 2.0f },
             { "voice_spread", 0.523819f }, { "west_fold", 0.7702401f }, { "west_on", 1.0f }, { "west_open", 0.365268f },
             { "west_res", 0.322425f }, { "west_src", 4.0f }, { "west_stages", 3.0f }, { "west_strike", 0.564488f },
-            { "master", -3.89f },
+            { "master", -3.39f },
         };
         p.macroNames = { "ACID", "FOLD", "RESO", "SPACE" };
         add (p);
@@ -82,7 +82,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_chord", 3.0f }, { "sub_detune", 0.0f }, { "sub_frame", 0.011f }, { "sub_level", 0.4f },
             { "sub_on", 1.0f }, { "sub_semi", 24.0f }, { "sub_shape", 1.0f }, { "sub_spread", 0.522f },
             { "sub_table", 17.0f }, { "sub_unison", 5.0f }, { "unison_random", 0.136f }, { "voice_spread", 0.607f },
-            { "master", -13.92f },
+            { "master", -15.51f },
         };
         p.macroNames = { "CHOP", "CUTOFF", "SQUASH", "DRIVE" };
         add (p);
@@ -105,7 +105,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_string_damp", 0.491758f }, { "osc2_string_decay", 0.819516f }, { "osc2_string_excite_pos", 0.0463437f }, { "osc2_string_stiffness", 0.7312f },
             { "osc2_string_sustain", 0.352727f }, { "osc2_uni_mode", 1.0f }, { "osc2_unison", 8.0f }, { "osc4_fb_type", 1.0f },
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f },
-            { "subosc_level", 0.3f }, { "master", 11.65f },
+            { "subosc_level", 0.3f }, { "master", 3.18f },
         };
         p.macroNames = { "VOWEL", "BOW", "TONE", "SPACE" };
         add (p);
@@ -127,7 +127,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_register", 0.175076f }, { "osc2_string_damp", 0.491758f }, { "osc2_string_decay", 0.819516f }, { "osc2_string_excite_pos", 0.0463437f },
             { "osc2_string_stiffness", 0.7312f }, { "osc2_string_sustain", 0.352727f }, { "osc2_uni_mode", 1.0f }, { "osc4_fb_type", 1.0f },
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "poly_voices", 1.0f }, { "sub_fb_type", 1.0f },
-            { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "voice_mode", 2.0f }, { "master", 6.52f },
+            { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "voice_mode", 2.0f }, { "master", 0.01f },
         };
         p.macroNames = { "PRESSURE", "SPEED", "TONE", "ECHO" };
         add (p);
@@ -154,7 +154,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc6_fb_type", 1.0f }, { "res_amount", 0.607374f }, { "res_on", 1.0f }, { "sb_mix", 0.355458f },
             { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f },
             { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f }, { "west_fold", 0.432153f },
-            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", -0.69f },
+            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", -1.67f },
         };
         p.macroNames = { "BOW", "PRESSURE", "BOARD", "SPACE" };
         add (p);
@@ -179,7 +179,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.740836f }, { "sub_fb_type", 1.0f },
             { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "voice_spread", 0.523819f },
             { "west_fold", 0.277923f }, { "west_on", 1.0f }, { "west_open", 0.365268f }, { "west_res", 0.322425f },
-            { "west_src", 4.0f }, { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -6.11f },
+            { "west_src", 4.0f }, { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -7.12f },
         };
         p.macroNames = { "BRASS", "FOLD", "WIDTH", "SPACE" };
         add (p);
@@ -202,7 +202,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_string_damp", 0.491758f }, { "osc2_string_decay", 0.819516f }, { "osc2_string_excite_pos", 0.0463437f }, { "osc2_string_stiffness", 0.7312f },
             { "osc2_string_sustain", 0.352727f }, { "osc2_uni_mode", 1.0f }, { "osc2_unison", 8.0f }, { "osc4_fb_type", 1.0f },
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f },
-            { "subosc_level", 0.3f }, { "master", 5.71f },
+            { "subosc_level", 0.3f }, { "master", -0.2f },
         };
         p.macroNames = { "BREATH", "SMOOTH", "BOW", "SPACE" };
         add (p);
@@ -232,7 +232,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_table", 37.0f }, { "osc2_warp2", 9.0f }, { "osc4_fb_type", 1.0f }, { "osc5_fb_type", 1.0f },
             { "osc6_fb_type", 1.0f }, { "route_cables", 1.0f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f },
             { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "west_fold", 1.0f }, { "west_mode", 1.0f },
-            { "west_on", 1.0f }, { "west_stages", 1.0f }, { "west_strike", 0.6037403f }, { "master", -3.54f },
+            { "west_on", 1.0f }, { "west_stages", 1.0f }, { "west_strike", 0.6037403f }, { "master", -3.38f },
         };
         p.macroNames = { "FOLD", "BRIGHT", "TONE", "DIRT" };
         add (p);
@@ -257,7 +257,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "pseq_on", 1.0f }, { "res_amount", 0.607374f }, { "res_on", 1.0f }, { "sb_mix", 0.355458f },
             { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f },
             { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f }, { "west_fold", 0.432153f },
-            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", -1.92f },
+            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", -2.09f },
         };
         p.macroNames = { "BODY", "DAMP", "BOARD", "SPACE" };
         add (p);
@@ -353,7 +353,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_grain_size", 80.07f }, { "osc2_level", 0.4f }, { "osc2_on", 1.0f }, { "osc2_semi", 12.0f },
             { "osc2_table", 9.0f }, { "osc4_grain_size", 80.07f }, { "osc5_grain_size", 80.07f }, { "osc6_grain_size", 80.07f },
             { "poly_voices", 1.0f }, { "sub_grain_size", 80.07f }, { "sub_shape", 2.0f }, { "subosc_on", 1.0f },
-            { "voice_mode", 2.0f }, { "master", -0.5f },
+            { "voice_mode", 2.0f }, { "master", -0.48f },
         };
         p.macroNames = { "ZAP", "CUTOFF", "CHORUS", "GLUE" };
         add (p);
@@ -384,7 +384,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_mix", 0.0f }, { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.7323f },
             { "sub_fb_type", 1.0f }, { "subosc_level", 0.770852f }, { "subosc_on", 1.0f }, { "voice_spread", 0.382004f },
             { "west_decay", 0.3619244f }, { "west_fold", 0.233059f }, { "west_on", 1.0f }, { "west_open", 0.728625f },
-            { "west_res", 0.774146f }, { "west_stages", 4.0f }, { "west_strike", 0.96431f }, { "master", -9.53f },
+            { "west_res", 0.774146f }, { "west_stages", 4.0f }, { "west_strike", 0.96431f }, { "master", -9.66f },
         };
         p.macroNames = { "FOLD", "DECAY", "TONE", "SPACE" };
         add (p);
@@ -410,7 +410,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "res_amount", 0.607374f }, { "res_on", 1.0f }, { "sb_mix", 0.355458f }, { "sb_model", 1.0f },
             { "sb_on", 1.0f }, { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f },
             { "subosc_on", 1.0f }, { "voice_spread", 0.287019f }, { "west_fold", 0.432153f }, { "west_on", 1.0f },
-            { "west_open", 0.712386f }, { "master", -2.79f },
+            { "west_open", 0.712386f }, { "master", -2.74f },
         };
         p.macroNames = { "BRIGHT", "BODY", "DAMP", "SPACE" };
         add (p);
@@ -436,7 +436,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f },
             { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "sym_amount", 0.39057f }, { "sym_decay", 0.5006318f },
             { "sym_on", 1.0f }, { "voice_spread", 0.287019f }, { "west_fold", 0.432153f }, { "west_open", 0.712386f },
-            { "master", 2.18f },
+            { "master", 1.33f },
         };
         p.macroNames = { "HAMMER", "DAMPER", "SYMPATHY", "ROOM" };
         add (p);
@@ -537,7 +537,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "poly_voices", 16.0f }, { "pseq_gate", 0.5003f }, { "spray_strum_time", 30.024f }, { "sub_amp_env", 4.0f },
             { "sub_detune", 0.0f }, { "sub_fb_type", 1.0f }, { "sub_grain_size", 80.07f }, { "sub_on", 1.0f },
             { "sub_shape", 1.0f }, { "sub_table", 8.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f },
-            { "master", -9.87f },
+            { "master", -10.17f },
         };
         p.macroNames = { "FM", "TONE", "ECHO", "SPACE" };
         add (p);
@@ -562,7 +562,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_on", 1.0f }, { "sb_size", 0.740836f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f },
             { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "voice_spread", 0.523819f }, { "west_fold", 0.277923f },
             { "west_on", 1.0f }, { "west_open", 0.365268f }, { "west_res", 0.322425f }, { "west_src", 4.0f },
-            { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -4.83f },
+            { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -4.58f },
         };
         p.macroNames = { "FOLD", "GLOW", "TONE", "SPACE" };
         add (p);
@@ -640,7 +640,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_unison", 4.0f }, { "sub_chord", 3.0f }, { "sub_detune", 0.0f }, { "sub_frame", 0.011f },
             { "sub_level", 0.4f }, { "sub_on", 1.0f }, { "sub_semi", 24.0f }, { "sub_shape", 1.0f },
             { "sub_spread", 0.522f }, { "sub_table", 17.0f }, { "sub_unison", 5.0f }, { "unison_random", 0.136f },
-            { "voice_spread", 0.607f }, { "master", -14.85f },
+            { "voice_spread", 0.607f }, { "master", -16.68f },
         };
         p.macroNames = { "CHOP", "CUTOFF", "SQUASH", "DRIVE" };
         add (p);
@@ -740,7 +740,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc4_grain_size", 80.07f }, { "osc5_grain_size", 80.07f }, { "osc6_grain_size", 80.07f }, { "poly_voices", 16.0f },
             { "pseq_gate", 0.5003f }, { "spray_strum_time", 30.024f }, { "sub_amp_env", 4.0f }, { "sub_detune", 0.0f },
             { "sub_fb_type", 1.0f }, { "sub_grain_size", 80.07f }, { "sub_on", 1.0f }, { "sub_shape", 1.0f },
-            { "sub_table", 8.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "master", -13.62f },
+            { "sub_table", 8.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "master", -13.33f },
         };
         p.macroNames = { "CHOP", "FM", "TONE", "SPACE" };
         add (p);
@@ -769,7 +769,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "res_amount", 0.607374f }, { "res_on", 1.0f },
             { "sb_mix", 0.355458f }, { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.842771f },
             { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f },
-            { "west_fold", 0.0f }, { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", -0.57f },
+            { "west_fold", 0.0f }, { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", 1.8f },
         };
         p.macroNames = { "GLASS", "RING", "WARP", "SPACE" };
         add (p);
@@ -807,7 +807,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "vec_py7", 1.0f }, { "vec_py8", 0.300682f }, { "vec_rate", 0.38035f }, { "vec_x", 0.518443f },
             { "vec_y", 0.491868f }, { "voice_spread", 0.395428f }, { "west_decay", 1.10662f }, { "west_fold", 0.508886f },
             { "west_on", 1.0f }, { "west_open", 0.569107f }, { "west_res", 0.403492f }, { "west_src", 1.0f },
-            { "west_stages", 3.0f }, { "west_strike", 0.925759f }, { "west_sym", 1.0f }, { "master", -6.11f },
+            { "west_stages", 3.0f }, { "west_strike", 0.925759f }, { "west_sym", 1.0f }, { "master", -6.06f },
         };
         p.macroNames = { "CUTOFF", "RESO", "FOLD", "SPACE" };
         add (p);
@@ -836,7 +836,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "res_amount", 0.607374f }, { "res_on", 1.0f },
             { "sb_mix", 0.355458f }, { "sb_model", 1.0f }, { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f },
             { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f }, { "west_fold", 0.0f },
-            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", 1.25f },
+            { "west_on", 1.0f }, { "west_open", 0.712386f }, { "master", 1.27f },
         };
         p.macroNames = { "TINE", "BODY", "ECHO", "SPACE" };
         add (p);
@@ -866,7 +866,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "res_on", 1.0f }, { "sb_mix", 0.355458f }, { "sb_model", 1.0f }, { "sb_on", 1.0f },
             { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f }, { "subosc_on", 1.0f },
             { "voice_spread", 0.287019f }, { "west_fold", 0.0f }, { "west_on", 1.0f }, { "west_open", 0.712386f },
-            { "master", -13.68f },
+            { "master", -13.66f },
         };
         p.macroNames = { "ZAP", "SNAP", "WARP", "SPACE" };
         add (p);
@@ -919,7 +919,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_eg_rate_key", 3.0f }, { "sub_eg_vel", 2.0f }, { "sub_fb_type", 3.0f }, { "sub_level", 0.5f },
             { "sub_mode", 5.0f }, { "sub_on", 1.0f }, { "sub_ratio_snap", 0.0f }, { "sub_table", 8.0f },
             { "sub_tune", 1.0f }, { "west_fold", 0.670749f }, { "west_on", 1.0f }, { "west_open", 0.290935f },
-            { "west_sym", 0.401644f }, { "master", 5.9f },
+            { "west_sym", 0.401644f }, { "master", 7.02f },
         };
         p.macroNames = { "FM", "TONE", "DRIVE", "SUB" };
         add (p);
@@ -971,7 +971,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_eg_r3", 20.0f }, { "sub_eg_r4", 50.0f }, { "sub_eg_rate_key", 3.0f }, { "sub_eg_vel", 2.0f },
             { "sub_fb_type", 3.0f }, { "sub_level", 0.5f }, { "sub_mode", 5.0f }, { "sub_on", 1.0f },
             { "sub_ratio_snap", 0.0f }, { "sub_table", 8.0f }, { "sub_tune", 1.0f }, { "west_fold", 0.670749f },
-            { "west_on", 1.0f }, { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 5.4f },
+            { "west_on", 1.0f }, { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 6.4f },
         };
         p.macroNames = { "FUNK", "BITE", "DRIVE", "CHORUS" };
         add (p);
@@ -1024,7 +1024,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_eg_rate_key", 3.0f }, { "sub_eg_vel", 2.0f }, { "sub_fb_type", 3.0f }, { "sub_level", 0.5f },
             { "sub_mode", 5.0f }, { "sub_on", 1.0f }, { "sub_ratio_snap", 0.0f }, { "sub_table", 8.0f },
             { "sub_tune", 1.0f }, { "voice_mode", 2.0f }, { "west_fold", 0.670749f }, { "west_on", 1.0f },
-            { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 9.18f },
+            { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 10.75f },
         };
         p.macroNames = { "FM", "DRIVE", "TONE", "ECHO" };
         add (p);
@@ -1076,7 +1076,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sub_eg_r4", 50.0f }, { "sub_eg_rate_key", 3.0f }, { "sub_eg_vel", 2.0f }, { "sub_fb_type", 3.0f },
             { "sub_level", 0.5f }, { "sub_mode", 5.0f }, { "sub_on", 1.0f }, { "sub_ratio_snap", 0.0f },
             { "sub_table", 8.0f }, { "sub_tune", 1.0f }, { "west_fold", 0.670749f }, { "west_on", 1.0f },
-            { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 5.41f },
+            { "west_open", 0.290935f }, { "west_sym", 0.401644f }, { "master", 6.42f },
         };
         p.macroNames = { "TINE", "CHORUS", "TONE", "SPACE" };
         add (p);
@@ -1115,7 +1115,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "vec_y", 0.491868f }, { "voice_mode", 2.0f }, { "voice_spread", 0.395428f }, { "west_decay", 1.10662f },
             { "west_fold", 0.508886f }, { "west_on", 1.0f }, { "west_open", 0.569107f }, { "west_res", 0.403492f },
             { "west_src", 1.0f }, { "west_stages", 3.0f }, { "west_strike", 0.925759f }, { "west_sym", 1.0f },
-            { "master", 0.63f },
+            { "master", 0.25f },
         };
         p.macroNames = { "CUTOFF", "FOLD", "WIDTH", "ECHO" };
         add (p);
@@ -1158,7 +1158,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "mseg_time2", 0.25045f }, { "mseg_time3", 0.25045f }, { "mseg_time4", 0.25045f }, { "osc1_detune", 30.0f },
             { "osc1_frame", 0.3f }, { "osc1_spread", 0.6f }, { "osc1_unison", 4.0f }, { "osc2_excite", 3.0f },
             { "osc2_mode", 1.0f }, { "osc2_on", 1.0f }, { "osc2_string_slap", 1.0f }, { "osc2_unison", 3.0f },
-            { "sub_level", 0.5f }, { "sub_on", 1.0f }, { "sub_shape", 1.0f }, { "master", -5.78f },
+            { "sub_level", 0.5f }, { "sub_on", 1.0f }, { "sub_shape", 1.0f }, { "master", -5.72f },
         };
         p.macroNames = { "PICK", "STRING", "DRIVE", "ECHO" };
         add (p);
@@ -1188,7 +1188,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_warp2", 9.0f }, { "osc4_fb_type", 1.0f }, { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f },
             { "route_cables", 1.0f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f }, { "subosc_level", 0.3f },
             { "subosc_on", 1.0f }, { "west_fold", 0.7585766f }, { "west_mode", 1.0f }, { "west_on", 1.0f },
-            { "west_stages", 1.0f }, { "west_strike", 0.289397f }, { "master", -5.1f },
+            { "west_stages", 1.0f }, { "west_strike", 0.289397f }, { "master", -5.06f },
         };
         p.macroNames = { "GROWL", "ACID", "REED", "DIRT" };
         add (p);
@@ -1219,7 +1219,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "poly_voices", 1.0f }, { "route_cables", 1.0f },
             { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "subosc_on", 1.0f },
             { "voice_mode", 2.0f }, { "west_fold", 1.0f }, { "west_mode", 1.0f }, { "west_on", 1.0f },
-            { "west_stages", 1.0f }, { "west_strike", 0.289397f }, { "master", -5.56f },
+            { "west_stages", 1.0f }, { "west_strike", 0.289397f }, { "master", -4.7f },
         };
         p.macroNames = { "REED", "FOLD", "TONE", "DIRT" };
         add (p);
@@ -1244,7 +1244,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_mode", 1.0f }, { "osc2_semi", 12.0f }, { "osc2_string_damp", 0.866571f }, { "osc2_string_pickup", 0.278906f },
             { "osc2_string_slap", 1.0f }, { "osc2_unison", 4.0f }, { "pedal_res", 0.5f }, { "sb_mix", 0.786f },
             { "sb_on", 1.0f }, { "sb_size", 0.751f }, { "sb_tone", 0.0965f }, { "stretch", 0.8f },
-            { "master", 7.23f },
+            { "master", 4.79f },
         };
         p.macroNames = { "BREATH", "WIDTH", "BOARD", "SPACE" };
         add (p);
@@ -1267,7 +1267,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_string_stiffness", 0.7312f }, { "osc2_string_sustain", 0.352727f }, { "osc2_uni_mode", 1.0f }, { "osc2_unison", 8.0f },
             { "osc4_fb_type", 1.0f }, { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "res_amount", 0.5223363f },
             { "res_on", 1.0f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f }, { "subosc_level", 0.3f },
-            { "sym_amount", 0.7504728f }, { "sym_on", 1.0f }, { "master", 1.68f },
+            { "sym_amount", 0.7504728f }, { "sym_on", 1.0f }, { "master", -2.43f },
         };
         p.macroNames = { "SYMPATHY", "BOW", "SPEED", "SPACE" };
         add (p);
@@ -1290,7 +1290,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_string_stiffness", 0.7312f }, { "osc2_string_sustain", 0.352727f }, { "osc2_uni_mode", 1.0f }, { "osc2_unison", 8.0f },
             { "osc4_fb_type", 1.0f }, { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "sb_mix", 0.5133683f },
             { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.7421494f }, { "sub_fb_type", 1.0f },
-            { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "master", 4.78f },
+            { "sub_shape", 1.0f }, { "subosc_level", 0.3f }, { "master", -1.15f },
         };
         p.macroNames = { "BOARD", "BOW", "SPEED", "SPACE" };
         add (p);
@@ -1311,7 +1311,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc1_level", 0.7f }, { "osc1_mode", 1.0f }, { "osc1_spread", 0.6f }, { "osc1_string_decay", 0.8f },
             { "osc1_unison", 2.0f }, { "osc2_fine", 0.0f }, { "osc2_frame", 0.4f }, { "osc2_level", 0.3f },
             { "osc2_on", 1.0f }, { "osc2_table", 118.0f }, { "spray_count", 2.0f }, { "spray_on", 1.0f },
-            { "spray_spread", 173.9674f }, { "spray_strum", 1.0f }, { "spray_strum_time", 60.0f }, { "master", -6.93f },
+            { "spray_spread", 173.9674f }, { "spray_strum", 1.0f }, { "spray_strum_time", 60.0f }, { "master", -7.19f },
         };
         p.macroNames = { "SPRAY", "STRUM", "CHORUS", "SPACE" };
         add (p);
@@ -1332,7 +1332,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc1_level", 0.7f }, { "osc1_mode", 1.0f }, { "osc1_spread", 0.6f }, { "osc1_string_decay", 0.8f },
             { "osc1_unison", 2.0f }, { "osc2_fine", 0.0f }, { "osc2_frame", 0.4f }, { "osc2_level", 0.3f },
             { "osc2_on", 1.0f }, { "osc2_table", 118.0f }, { "spray_strum", 1.0f }, { "spray_strum_time", 60.0f },
-            { "sym_amount", 0.6873908f }, { "sym_decay", 0.776374f }, { "sym_on", 1.0f }, { "master", -6.96f },
+            { "sym_amount", 0.6873908f }, { "sym_decay", 0.776374f }, { "sym_on", 1.0f }, { "master", -7.09f },
         };
         p.macroNames = { "SYMPATHY", "STRUM", "CHORUS", "SPACE" };
         add (p);
@@ -1357,7 +1357,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "res_amount", 0.607374f }, { "res_on", 1.0f },
             { "sb_mix", 0.355458f }, { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.842771f },
             { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f },
-            { "west_fold", 0.432153f }, { "west_on", 1.0f }, { "west_open", 0.8665079f }, { "master", -5.3f },
+            { "west_fold", 0.432153f }, { "west_on", 1.0f }, { "west_open", 0.8665079f }, { "master", -5.73f },
         };
         p.macroNames = { "BELL", "BODY", "WOOL", "SPACE" };
         add (p);
@@ -1383,7 +1383,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "res_amount", 0.607374f }, { "res_on", 1.0f }, { "sb_mix", 0.355458f }, { "sb_model", 1.0f },
             { "sb_size", 0.842771f }, { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f }, { "subosc_on", 1.0f },
             { "voice_spread", 0.287019f }, { "west_fold", 0.432153f }, { "west_on", 1.0f }, { "west_open", 0.712386f },
-            { "master", -1.32f },
+            { "master", 0.48f },
         };
         p.macroNames = { "LO-FI", "TAPE", "HAMMER", "SPACE" };
         add (p);
@@ -1407,7 +1407,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc4_fb_type", 1.0f }, { "osc5_fb_type", 1.0f }, { "osc6_fb_type", 1.0f }, { "res_amount", 0.607374f },
             { "res_on", 1.0f }, { "sb_mix", 0.355458f }, { "sb_model", 1.0f }, { "sb_size", 0.842771f },
             { "sub_fb_type", 1.0f }, { "subosc_level", 0.128614f }, { "subosc_on", 1.0f }, { "voice_spread", 0.287019f },
-            { "west_fold", 0.432153f }, { "west_on", 1.0f }, { "west_open", 0.5077671f }, { "master", -3.54f },
+            { "west_fold", 0.432153f }, { "west_on", 1.0f }, { "west_open", 0.5077671f }, { "master", -3.64f },
         };
         p.macroNames = { "THUMP", "WOOD", "OPEN", "ROOM" };
         add (p);
@@ -1446,7 +1446,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "vec_x", 0.518443f }, { "vec_y", 0.491868f }, { "voice_spread", 0.395428f }, { "west_decay", 1.10662f },
             { "west_fold", 0.508886f }, { "west_on", 1.0f }, { "west_open", 0.569107f }, { "west_res", 0.403492f },
             { "west_src", 1.0f }, { "west_stages", 3.0f }, { "west_strike", 0.925759f }, { "west_sym", 1.0f },
-            { "master", -3.99f },
+            { "master", -4.54f },
         };
         p.macroNames = { "DRIFT", "CUTOFF", "FOLD", "SPACE" };
         add (p);
@@ -1542,7 +1542,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_table", 9.0f }, { "osc4_grain_size", 80.07f }, { "osc5_grain_size", 80.07f }, { "osc6_grain_size", 80.07f },
             { "poly_voices", 1.0f }, { "sub_grain_size", 80.07f }, { "sub_shape", 2.0f }, { "subosc_on", 1.0f },
             { "voice_mode", 2.0f }, { "west_decay", 0.6793051f }, { "west_fold", 0.4748677f }, { "west_mode", 1.0f },
-            { "west_on", 1.0f }, { "west_open", 0.5709052f }, { "master", -13.18f },
+            { "west_on", 1.0f }, { "west_open", 0.5709052f }, { "master", -13.96f },
         };
         p.macroNames = { "FOLD", "OPEN", "CUTOFF", "CHORUS" };
         add (p);
@@ -1567,7 +1567,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_on", 1.0f }, { "sb_size", 0.740836f }, { "sub_fb_type", 1.0f }, { "sub_shape", 1.0f },
             { "subosc_level", 0.3f }, { "subosc_on", 1.0f }, { "voice_spread", 0.523819f }, { "west_fold", 0.277923f },
             { "west_on", 1.0f }, { "west_open", 0.527113f }, { "west_res", 0.322425f }, { "west_src", 4.0f },
-            { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -12.91f },
+            { "west_stages", 3.0f }, { "west_strike", 0.564488f }, { "master", -13.13f },
         };
         p.macroNames = { "GLOW", "FOLD", "TONE", "SPACE" };
         add (p);
@@ -1598,7 +1598,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "sb_mix", 0.0f }, { "sb_model", 1.0f }, { "sb_on", 1.0f }, { "sb_size", 0.7323f },
             { "sub_fb_type", 1.0f }, { "subosc_level", 0.770852f }, { "subosc_on", 1.0f }, { "voice_spread", 0.382004f },
             { "west_decay", 0.6329722f }, { "west_fold", 0.216855f }, { "west_on", 1.0f }, { "west_open", 0.728625f },
-            { "west_res", 0.774146f }, { "west_stages", 4.0f }, { "west_strike", 0.8020856f }, { "master", -4.41f },
+            { "west_res", 0.774146f }, { "west_stages", 4.0f }, { "west_strike", 0.8020856f }, { "master", -5.42f },
         };
         p.macroNames = { "FOLD", "OPEN", "BODY", "SPACE" };
         add (p);
@@ -1693,7 +1693,7 @@ inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& a
             { "osc2_fine", 0.0f }, { "osc2_grain_size", 80.07f }, { "osc2_level", 0.4f }, { "osc2_on", 1.0f },
             { "osc2_semi", 12.0f }, { "osc2_table", 9.0f }, { "osc4_grain_size", 80.07f }, { "osc5_grain_size", 80.07f },
             { "osc6_grain_size", 80.07f }, { "poly_voices", 1.0f }, { "sub_grain_size", 80.07f }, { "sub_shape", 2.0f },
-            { "subosc_on", 1.0f }, { "voice_mode", 2.0f }, { "master", -7.46f },
+            { "subosc_on", 1.0f }, { "voice_mode", 2.0f }, { "master", -7.25f },
         };
         p.macroNames = { "CUTOFF", "ENV", "CHORUS", "SPACE" };
         add (p);

@@ -26,6 +26,10 @@ Steps (each writes into build/gen/):
     python tools/preset_critic.py build/gen/drafts-render
     python tools/preset_gen.py pick           choose one draft per concept -> build/gen/picks.json
     python tools/preset_gen.py bake           write src/PresetPackIlana.h from the picks
+    (build, render the factory library into build/gen/pack-render, then)
+    python tools/preset_gen.py bake --trim build/gen/pack-render
+                                              correct each level as a factory load plays it
+    then add tag rows for the new presets (tools/tag_presets.py) to src/PresetTags.h
 
 `ILANA_DUMP_DEFAULTS=build/gen/defaults.txt ilanaPresetRender x` writes the
 parameter defaults the drafts are measured against (draft and bake need it).
@@ -389,6 +393,15 @@ def cmd_bake(args):
 
     defaults = read_defaults()
     targets = category_levels(args.factory)
+    # A second pass: the baked presets as the factory list plays them (a
+    # factory load leaves the exciter level trims off, for one), moved the
+    # rest of the way to their level.
+    measured = {}
+    if args.trim:
+        with open(Path(args.trim) / "report.csv", newline="", encoding="utf-8") as f:
+            measured = {r["name"]: r for r in csv.DictReader(f)}
+        previous = {m.group(1): float(m.group(2)) for m in re.finditer(
+            r'FactoryPreset p \{ "([^"]+)".*?\{ "master", (-?[0-9.]+)f \}', PACK.read_text(), re.S)}
     concepts = {c["name"]: c for c in CONCEPTS}
     picks = json.loads((GEN / "picks.json").read_text())
     lines = [
@@ -427,6 +440,10 @@ def cmd_bake(args):
             # to the category's level, but with the peaks at -1 dB at most
             peak = pick.get("peak", 1.0)
             gain += min(target - pick["level_db"], -20 * math.log10(max(peak, 1e-6) / 0.89))
+        if concept["name"] in measured:
+            row = measured[concept["name"]]
+            gain = previous[concept["name"]] + min(target - float(row["level_db"]),
+                                                   -20 * math.log10(max(float(row["peak"]), 1e-6) / 0.89))
         values.append(f"{{ \"master\", {cpp_float(round(max(-30.0, min(12.0, gain)), 2))} }}")
         lines.append("        p.values = {")
         for i in range(0, len(values), 4):
@@ -456,6 +473,7 @@ def main():
     pick.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
     bake = sub.add_parser("bake")
     bake.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
+    bake.add_argument("--trim", help="a render of the baked pack (ilanaPresetRender from its first index) to correct levels from")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     {"refs": cmd_refs, "draft": cmd_draft, "pick": cmd_pick, "bake": cmd_bake}[args.cmd](args)

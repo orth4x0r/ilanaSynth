@@ -7,6 +7,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include "CascadePair.h"
 #include "FilterCore.h"
 
 #include <array>
@@ -82,6 +83,75 @@ public:
         const auto a = step (first);
         const auto b = step (second);
         return (float) oversampler.downsample (a, b);
+    }
+
+    // Two of them (a voice's left and right) over a block, as the lanes of
+    // SSE registers: bit for bit what two separate runs give (CascadePair.h).
+    static void processPairBlock (DriveLadder& l, DriveLadder& r, const float* inL, const float* inR, float* outL, float* outR, int n)
+    {
+       #if ILANA_HAS_CASCADE_PAIR
+        if (l.k == r.k && l.bandPass == r.bandPass && CascadePair::sameSettings (l.cascade, r.cascade))
+        {
+            CascadePair pair (l.cascade, r.cascade);
+            __m128d up0[4], up1[4], dn0[4], dn1[4];
+            const auto lanes = [] (const std::array<double, 4>& a, const std::array<double, 4>& b, __m128d* out)
+            {
+                for (size_t i = 0; i < 4; ++i)
+                    out[i] = _mm_set_pd (b[i], a[i]);
+            };
+            lanes (l.oversampler.up0, r.oversampler.up0, up0);
+            lanes (l.oversampler.up1, r.oversampler.up1, up1);
+            lanes (l.oversampler.down0, r.oversampler.down0, dn0);
+            lanes (l.oversampler.down1, r.oversampler.down1, dn1);
+            const auto* c = FilterCore::Halfband2x::c;
+            const auto section2 = [&] (__m128d x, int first, int second, __m128d* m)
+            { return CascadePair::allpass (CascadePair::allpass (x, c[first], m[0], m[1]), c[second], m[2], m[3]); };
+            const auto bandPass = l.bandPass;
+            const auto inputScale = 1.0 + 0.5 * l.k;
+            const auto tap = [&] (const __m128d* y)
+            {
+                return bandPass ? _mm_mul_pd (_mm_sub_pd (y[1], y[2]), _mm_set1_pd (bandGain)) : _mm_mul_pd (y[3], _mm_set1_pd (lowGain));
+            };
+            for (int s = 0; s < n; ++s)
+            {
+                const auto x = _mm_mul_pd (_mm_mul_pd (_mm_set_pd ((double) inR[s], (double) inL[s]), _mm_set1_pd (inputScale)), _mm_set1_pd (inputGain));
+                const auto first = section2 (x, 0, 2, up0);
+                const auto second = section2 (x, 1, 3, up1);
+                __m128d y[4], u;
+                pair.step (first, y, u);
+                const auto a = tap (y);
+                pair.step (second, y, u);
+                const auto b = tap (y);
+                const auto da = section2 (b, 0, 2, dn0);
+                const auto db = section2 (a, 1, 3, dn1);
+                const auto out = _mm_mul_pd (_mm_set1_pd (0.5), _mm_add_pd (da, db));
+                alignas (16) double v[2];
+                _mm_store_pd (v, out);
+                outL[s] = (float) v[0];
+                outR[s] = (float) v[1];
+            }
+            pair.store();
+            const auto unlanes = [] (const __m128d* in, std::array<double, 4>& a, std::array<double, 4>& b)
+            {
+                alignas (16) double v[2];
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    _mm_store_pd (v, in[i]);
+                    a[i] = v[0];
+                    b[i] = v[1];
+                }
+            };
+            unlanes (up0, l.oversampler.up0, r.oversampler.up0);
+            unlanes (up1, l.oversampler.up1, r.oversampler.up1);
+            unlanes (dn0, l.oversampler.down0, r.oversampler.down0);
+            unlanes (dn1, l.oversampler.down1, r.oversampler.down1);
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i]);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i]);
     }
 
     // Stage saturation (0.5 keeps the self-oscillation within 0.2 % of the
@@ -175,6 +245,34 @@ public:
         const auto in = (double) input * (bandPass ? bandInput : 1.0 + lowComp * k);
         cascade.process (in, y, u);
         return (float) (bandPass ? y[3] * (bandGain + bandPerK * k) : y[3] * lowGain);
+    }
+
+    // Two of them over a block as SSE lanes (CascadePair.h): bit for bit two separate runs.
+    static void processPairBlock (OtaFilter& l, OtaFilter& r, const float* inL, const float* inR, float* outL, float* outR, int n)
+    {
+       #if ILANA_HAS_CASCADE_PAIR
+        if (l.k == r.k && l.bandPass == r.bandPass && CascadePair::sameSettings (l.cascade, r.cascade))
+        {
+            CascadePair pair (l.cascade, r.cascade);
+            const auto inScale = _mm_set1_pd (l.bandPass ? bandInput : 1.0 + lowComp * l.k);
+            const auto outScale = _mm_set1_pd (l.bandPass ? bandGain + bandPerK * l.k : lowGain);
+            for (int s = 0; s < n; ++s)
+            {
+                __m128d y[4], u;
+                pair.step (_mm_mul_pd (_mm_set_pd ((double) inR[s], (double) inL[s]), inScale), y, u);
+                alignas (16) double v[2];
+                _mm_store_pd (v, _mm_mul_pd (y[3], outScale));
+                outL[s] = (float) v[0];
+                outR[s] = (float) v[1];
+            }
+            pair.store();
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i]);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i]);
     }
 
     // Fitted to the old models' level tables (every cell within 1 dB).

@@ -4343,6 +4343,48 @@ int runUiTests()
                 "a bounce puts OSC 2 in Sample mode with the sample controls showing");
     }
 
+    // Step 30: the sample display zooms, and a typed position sets START / END.
+    {
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (*editor, waves);
+        WaveDisplay* wave = nullptr;
+        for (auto* candidate : waves)
+            if (visibleInTree (candidate) && candidate->getOscIndex() == 1)
+                wave = candidate;
+        expect (wave != nullptr, "OSC 2's sample display is shown");
+
+        if (wave != nullptr)
+        {
+            const auto read = [&processor] (const char* id) { return processor.apvts.getRawParameterValue (id)->load(); };
+            expect (wave->getSampleView().isFull(), "a sample display starts fitted");
+            // ILANA_UITEST_SHOTS=<dir>: pictures of the zoom, for review.
+            const auto shotsDir = juce::SystemStats::getEnvironmentVariable ("ILANA_UITEST_SHOTS", "");
+            const auto shot = [&] (const char* name)
+            {
+                if (shotsDir.isNotEmpty())
+                {
+                    settle (150);
+                    save (*editor, juce::File (shotsDir).getChildFile (name));
+                }
+            };
+            shot ("sample-fitted.png");
+            wave->zoomSample (0.5, 4.0);
+            expect (std::abs (wave->getSampleView().span() - 0.25) < 1.0e-6, "zooming in 4x shows a quarter of the sample");
+            wave->setSamplePosition (1, 0.9f);
+            const auto start = read ("osc2_sample_start"), end = read ("osc2_sample_end");
+            expect (start < end && start > 0.8f, "a typed START lands, and stays under END (" + juce::String (start, 3) + " < " + juce::String (end, 3) + ")");
+            const auto view = wave->getSampleView();
+            expect ((double) start >= view.lo - 1.0e-6 && (double) start <= view.hi + 1.0e-6, "the zoom window follows a typed position");
+            shot ("sample-zoomed.png");
+            wave->showPositionEditor (1);
+            shot ("sample-typed-start.png");
+            wave->zoomSample (0.5, 0.001);
+            expect (wave->getSampleView().isFull(), "zooming out fits the sample");
+            wave->setSamplePosition (1, 0.0f);
+            expect (read ("osc2_sample_start") < 0.001f, "a typed START of zero goes back to the head");
+        }
+    }
+
     // The string has one editor, its oscillator's card (the PHYSICAL tab
     // folded in, 2026-10-10): every control of the physical list is on the
     // card, in its order, with the moving string in the well; the body is a

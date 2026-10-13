@@ -120,6 +120,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Presets.cpp
     src/processor/State.cpp
     src/processor/Bounce.cpp
+    src/processor/SamplePortability.cpp
     src/processor/Dx7.cpp
 )
 

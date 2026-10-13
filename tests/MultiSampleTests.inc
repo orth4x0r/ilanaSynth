@@ -171,6 +171,123 @@ inline void setUp (IlanaSynthAudioProcessor& processor)
 }
 } // namespace MultiSampleLab
 
+// Portable sample presets (roadmap step 31): embed, collect, search and relink.
+inline void runSamplePortabilityTests (const juce::File& folder)
+{
+    using namespace MultiSampleLab;
+    const auto stateOf = [] (IlanaSynthAudioProcessor& processor)
+    {
+        juce::MemoryBlock block;
+        processor.getStateInformation (block);
+        return block;
+    };
+    const auto restore = [] (IlanaSynthAudioProcessor& processor, const juce::MemoryBlock& block)
+    {
+        processor.setStateInformation (block.getData(), (int) block.getSize());
+    };
+
+    const auto work = folder.getChildFile ("portable");
+    work.deleteRecursively();
+    work.getChildFile ("lib/samples").createDirectory();
+    writeWav (work.getChildFile ("lib/samples/a.wav"), sine (220.0, 44100.0, 8000), 44100.0);
+    writeWav (work.getChildFile ("lib/samples/b.wav"), sine (440.0, 44100.0, 6000), 44100.0);
+    writeWav (work.getChildFile ("solo.wav"), sine (330.0, 44100.0, 5000), 44100.0);
+    const auto sfz = work.getChildFile ("lib/inst.sfz");
+    sfz.replaceWithText ("<control> default_path=samples/\n<region> sample=a.wav lokey=0 hikey=59 pitch_keycenter=57\n"
+                         "<region> sample=b.wav lokey=60 hikey=127 pitch_keycenter=69\n");
+
+    // The SFZ report names its audio, and the ones that are gone.
+    {
+        MultiSample::SfzReport scan;
+        scan.scanOnly = true;
+        juce::String ignored;
+        MultiSample::loadSfz (sfz, ignored, &scan);
+        check (scan.files.size() == 2 && scan.missing().empty(), "portable: an SFZ scan lists its two audio files");
+        work.getChildFile ("lib/samples/b.wav").moveFileTo (work.getChildFile ("b-moved.wav"));
+        MultiSample::SfzReport again;
+        MultiSample::loadSfz (sfz, ignored, &again);
+        check (again.missing().size() == 1 && again.missing()[0].getFileName() == "b.wav", "portable: a missing SFZ audio file is reported");
+        work.getChildFile ("b-moved.wav").moveFileTo (work.getChildFile ("lib/samples/b.wav"));
+    }
+
+    // Embedding keeps the audio when the files are gone.
+    {
+        IlanaSynthAudioProcessor processor;
+        setUp (processor);
+        check (processor.loadUserSample (0, work.getChildFile ("solo.wav")) && processor.loadUserSample (1, sfz), "portable: a WAV and an SFZ load");
+        check (processor.isSampleFromFile (0) && ! processor.isSampleEmbedded (0), "portable: loaded from a file, not embedded");
+        juce::String error;
+        check (processor.embedAllSamples (error) == 2 && error.isEmpty(), "portable: both samples embed (" + error + ")");
+        check (! processor.isSampleFromFile (0) && processor.isSampleEmbedded (0) && processor.isSampleEmbedded (1), "portable: embedded samples have no path");
+        const auto block = stateOf (processor);
+        work.deleteRecursively();
+
+        IlanaSynthAudioProcessor other;
+        setUp (other);
+        restore (other, block);
+        const auto plain = other.getSampleForOsc (0);
+        const auto multi = other.getSampleForOsc (1);
+        check (plain != nullptr && plain->getNumSamples() == 5000 && plain->zones.empty(), "portable: the embedded WAV comes back without its file");
+        check (multi != nullptr && multi->zones.size() == 2 && multi->zones[1].loKey == 60, "portable: the embedded SFZ keeps both zones");
+        check (other.getMissingSamples().empty(), "portable: nothing is missing once embedded");
+    }
+
+    // Collecting copies the files (an SFZ with its audio) and repoints the patch.
+    work.getChildFile ("src/samples").createDirectory();
+    writeWav (work.getChildFile ("src/solo.wav"), sine (330.0, 44100.0, 5000), 44100.0);
+    writeWav (work.getChildFile ("src/samples/a.wav"), sine (220.0, 44100.0, 8000), 44100.0);
+    writeWav (work.getChildFile ("elsewhere-b.wav"), sine (440.0, 44100.0, 6000), 44100.0);
+    const auto instrument = work.getChildFile ("src/inst.sfz");
+    // One audio file sits outside the SFZ's folder, so the copy flattens its names.
+    instrument.replaceWithText ("<control> default_path=samples/\n<region> sample=a.wav lokey=0 hikey=59 pitch_keycenter=57\n"
+                                "<region> sample=" + work.getChildFile ("elsewhere-b.wav").getFullPathName().replaceCharacter ('\\', '/')
+                                + " lokey=60 hikey=127 pitch_keycenter=69\n");
+    {
+        IlanaSynthAudioProcessor processor;
+        setUp (processor);
+        processor.loadUserSample (0, work.getChildFile ("src/solo.wav"));
+        processor.loadUserSample (1, instrument);
+        const auto target = work.getChildFile ("collected");
+        const auto result = processor.collectSamples (target);
+        check (result.error.isEmpty() && result.oscillators == 2 && result.files == 4 && result.missing.isEmpty(),
+               "portable: collect copies the WAV, the SFZ and its two audio files (4 files) (" + result.error + ")");
+        check (juce::File (processor.getSamplePath (0)).getParentDirectory() == target && juce::File (processor.getSamplePath (1)).existsAsFile(),
+               "portable: the patch points at the copies");
+        check (processor.getSamplePath (0).startsWith (target.getFullPathName()) && processor.getSamplePath (1).startsWith (target.getFullPathName()),
+               "portable: both copies are inside the folder");
+        const auto block = stateOf (processor);
+        work.getChildFile ("src").deleteRecursively();
+        work.getChildFile ("elsewhere-b.wav").deleteFile();
+
+        IlanaSynthAudioProcessor other;
+        setUp (other);
+        restore (other, block);
+        const auto multi = other.getSampleForOsc (1);
+        check (other.getMissingSamples().empty() && multi != nullptr && multi->zones.size() == 2,
+               "portable: the collected SFZ plays after the originals are deleted");
+
+        // Moving the folder breaks the paths; a folder search finds them again.
+        const auto moved = work.getChildFile ("moved/deeper");
+        moved.createDirectory();
+        target.moveFileTo (moved.getChildFile ("collected"));
+        IlanaSynthAudioProcessor third;
+        setUp (third);
+        restore (third, block);
+        const auto missing = third.getMissingSamples();
+        check (missing.size() == 2, "portable: moved files are listed as missing (" + juce::String ((int) missing.size()) + ")");
+        check (third.takeMissingSamplesPrompt() && ! third.takeMissingSamplesPrompt(), "portable: the missing prompt fires once");
+        const auto found = third.findMissingSampleFiles (work.getChildFile ("moved"), true);
+        check (found.size() == 2, "portable: a recursive search finds both (" + juce::String ((int) found.size()) + ")");
+        check (third.findMissingSampleFiles (work.getChildFile ("moved"), false).empty(), "portable: a flat search does not look in sub-folders");
+        for (const auto& [osc, file] : found)
+            check (third.relinkSample (osc, file), "portable: relinks osc " + juce::String (osc + 1));
+        check (third.getMissingSamples().empty() && third.getSampleForOsc (1) != nullptr && third.getSampleForOsc (1)->zones.size() == 2,
+               "portable: relinked samples play and nothing is missing");
+    }
+
+    work.deleteRecursively();
+}
+
 void runMultiSampleTests()
 {
     using namespace MultiSampleLab;
@@ -277,5 +394,6 @@ void runMultiSampleTests()
         check (MultiSample::load (badFile, badError) == nullptr, "SF2: an oversized chunk is refused, not looped on");
     }
 
+    runSamplePortabilityTests (folder);
     folder.deleteRecursively();
 }

@@ -618,6 +618,39 @@ public:
     // fromUser: a file the player chose or dropped; it replaces a factory
     // sample source (the SOURCE menu goes back to the loaded sample).
     bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
+
+    // Portable sample presets (roadmap step 31; src/processor/SamplePortability.cpp).
+    // Embedded audio is held to this many bytes of 16-bit samples in the patch.
+    static constexpr juce::int64 maxEmbeddedSampleBytes = 64 * 1024 * 1024;
+    struct MissingSample
+    {
+        int osc = 0;
+        juce::String path;         // the file the patch names
+        juce::StringArray partial; // an SFZ that loaded but could not find these audio files
+    };
+    juce::String getSamplePath (int oscIndex) const; // empty: embedded, factory or none
+    bool isSampleFromFile (int oscIndex) const;
+    std::vector<MissingSample> getMissingSamples() const;
+    // True once per change of the missing list, while it holds something (the editor's prompt).
+    bool takeMissingSamplesPrompt();
+    // Keep the audio in the patch instead of the file's path (message thread).
+    bool embedSample (int oscIndex, juce::String& error);
+    int embedAllSamples (juce::String& error); // how many were embedded; error holds the first refusal
+    struct CollectResult
+    {
+        int oscillators = 0, files = 0;
+        juce::StringArray missing;
+        juce::String error;
+        bool cancelled = false;
+    };
+    // Copies every sample file the patch plays into `folder` (an SFZ with its
+    // audio, in a folder of its own) and points the patch at the copies. Any
+    // thread; progress gets 0..1 and returns false to cancel.
+    CollectResult collectSamples (const juce::File& folder, const std::function<bool (float)>& progress = {});
+    bool relinkSample (int oscIndex, const juce::File& file);
+    // Files in `folder` that have a missing sample's name (any thread). Relink each with relinkSample.
+    std::vector<std::pair<int, juce::File>> findMissingSampleFiles (const juce::File& folder, bool recursive,
+                                                                    const std::function<bool()>& shouldStop = {}) const;
     // The audio thread calls this at the top of each block's rack (a staged slot swap goes in here, FX-14).
     void beginFxBlock() noexcept;
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
@@ -1135,6 +1168,10 @@ private:
     // A path the state names whose file would not load: the slot is empty,
     // and a save still writes the path (the file may be back next time).
     std::array<juce::String, (size_t) numSampleOscs> missingSamplePaths;
+    // An SFZ that loaded without some of its audio files (under stateLock).
+    std::array<juce::StringArray, (size_t) numSampleOscs> sfzMissingFiles;
+    std::atomic<int> missingSamplesVersion { 0 };
+    int missingSamplesPrompted = 0;
     std::array<juce::String, (size_t) numUserSlots> missingTablePaths;
     int missingTableModes[numUserSlots] {};
     bool samplesReloadPending = false;

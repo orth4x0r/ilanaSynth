@@ -2326,6 +2326,8 @@ private:
 
             if (slider.isMouseOverOrDragging())
                 activity = 1.0f;
+            else if (IlanaAnim::presetJustLoaded() && pulse <= 0.0f)
+                startPulse (juce::Colours::white.withAlpha (0.8f)); // a preset load moved it
         }
 
         activity = IlanaAnim::decay (activity, 0.88f, frameTicks());

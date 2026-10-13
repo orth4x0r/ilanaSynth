@@ -478,6 +478,44 @@ void runWeirdDspTest()
     }
 }
 
+void runSampleRangeTest()
+{
+    // Step 30: the zoom window and the typed START / END positions.
+    using namespace SampleRange;
+    const auto near = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
+
+    check (near (*parsePosition ("500", 44100.0, 44100), 0.5), "a plain number is milliseconds");
+    check (near (*parsePosition ("500 ms", 44100.0, 44100), *parsePosition ("500", 44100.0, 44100)), "ms is the default unit");
+    check (near (*parsePosition ("0.25 s", 44100.0, 44100), 0.25), "seconds");
+    check (near (*parsePosition ("0.25s", 44100.0, 44100), 0.25), "seconds without a space");
+    check (near (*parsePosition ("11025 smp", 44100.0, 44100), 0.25), "sample frames");
+    check (near (*parsePosition ("22050 samples", 44100.0, 44100), 0.5), "sample frames, spelled out");
+    check (near (*parsePosition ("5 s", 44100.0, 44100), 1.0), "a position past the end clamps to the end");
+    check (! parsePosition ("", 44100.0, 44100).has_value(), "empty text is no position");
+    check (! parsePosition ("abc", 44100.0, 44100).has_value(), "words are no position");
+    check (! parsePosition ("-5", 44100.0, 44100).has_value(), "a negative time is no position");
+    check (! parsePosition ("1.2.3", 44100.0, 44100).has_value(), "two decimal points are no position");
+    check (! parsePosition ("12 furlongs", 44100.0, 44100).has_value(), "an unknown unit is no position");
+    check (std::abs (*parsePosition (formatPosition (0.37, 48000.0, 96000), 48000.0, 96000) - 0.37) < 1.0e-4, "a formatted position reads back");
+
+    View view;
+    check (view.isFull(), "the view starts on the whole sample");
+    const auto in = zoomed (view, 0.25, 4.0, 44100);
+    check (near (in.span(), 0.25) && near (in.fromView (0.25), 0.25), "zooming in 4x about a quarter keeps that point put");
+    const auto edge = zoomed (view, 1.0, 8.0, 44100);
+    check (near (edge.hi, 1.0) && near (edge.span(), 0.125), "zooming about the right edge stays inside the sample");
+    const auto deep = zoomed (view, 0.5, 1.0e9, 44100);
+    check (near (deep.span(), 32.0 / 44100.0), "the window never gets under 32 samples");
+    const auto out = zoomed (in, 0.5, 0.001, 44100);
+    check (out.isFull(), "zooming far out fits the whole sample again");
+    const auto slid = panned (in, 100.0);
+    check (near (slid.hi, 1.0) && near (slid.span(), in.span()), "panning stops at the end");
+    const auto home = panned (in, -100.0);
+    check (near (home.lo, 0.0), "panning stops at the start");
+    const auto middle = centred (in, 0.9);
+    check (std::abs ((middle.lo + middle.hi) * 0.5 - 0.9) < 0.07 && middle.hi <= 1.0 + 1.0e-12, "centring on a position moves the window to it");
+}
+
 void runSampleOscTest()
 {
     constexpr double sampleRate = 48000.0;

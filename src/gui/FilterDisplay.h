@@ -252,6 +252,16 @@ public:
             if (std::abs (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) > 1.5)
                 return false;
         }
+        // Above 5 kHz too, at a looser 3 dB: a low pass at 8 kHz was flat to
+        // 5 kHz, counted as open, and Filter 2's switch could not turn it on.
+        for (const auto frequency : { 8000.0, 12000.0 })
+        {
+            const auto h = FilterType::response (type, read ("_slope") > 0.5f, (double) read ("_reso"),
+                                                 std::complex<double> (0.0, frequency / cutoff),
+                                                 juce::jlimit (0.0, 1.0, (double) read ("_morph")), cutoff);
+            if (std::abs (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) > 3.0)
+                return false;
+        }
         return true;
     }
 

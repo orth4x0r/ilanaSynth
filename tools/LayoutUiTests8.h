@@ -251,6 +251,12 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         settle (400);
         expect (! FilterDisplay::isPassThrough (processor, 1) && reso != nullptr && reso->getAlpha() > 0.99f,
                 "FILTER: Filter 2 at 800 Hz is no longer dimmed");
+        // ilana 2026-10-13: Filter 2 at 8 kHz (E.Piano 1) counted as open (the
+        // check stopped at 5 kHz), so its switch showed off and could not turn on.
+        setParam ("f2_cutoff", 8000.0f);
+        setParam ("f2_reso", 0.48f);
+        expect (! FilterDisplay::isPassThrough (processor, 1), "FILTER: Filter 2 low-passing at 8 kHz is not open");
+        setParam ("f2_reso", 0.0f);
         setParam ("f2_cutoff", 20000.0f);
         setParam ("west_on", 1.0f);
         settle (400);

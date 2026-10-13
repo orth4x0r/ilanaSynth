@@ -453,6 +453,7 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
                 {
                     const juce::SpinLock::ScopedLockType lock (stateLock);
                     missingSamplePaths[(size_t) i] = path; // a save keeps the path
+                    ++missingSamplesVersion;
                     tableNotice = (tableNotice.isEmpty() ? juce::String() : tableNotice + "\n")
                                   + "Sample not loaded (missing or unreadable): " + file.getFullPathName();
                 }

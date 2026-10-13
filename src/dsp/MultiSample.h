@@ -57,7 +57,31 @@ inline int parseNote (const juce::String& text)
     return juce::jlimit (0, 127, note + (rest.getIntValue() + 1) * 12);
 }
 
-inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String& error)
+// What an SFZ asked for (portable sample presets, roadmap step 31): every
+// audio file its regions name, as written and as found, and the ones that
+// are not on disk. scanOnly reads the text without decoding any audio.
+struct SfzReport
+{
+    struct Entry
+    {
+        juce::String written; // the sample= value, slashes normalised
+        juce::File file;
+        bool found = false;
+    };
+    std::vector<Entry> files;
+    bool scanOnly = false;
+
+    std::vector<juce::File> missing() const
+    {
+        std::vector<juce::File> out;
+        for (const auto& entry : files)
+            if (! entry.found)
+                out.push_back (entry.file);
+        return out;
+    }
+};
+
+inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String& error, SfzReport* report = nullptr)
 {
     const auto text = file.loadFileAsString();
     if (text.isEmpty())
@@ -84,7 +108,17 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         const auto key = audioFile.getFullPathName();
         if (const auto found = loaded.find (key); found != loaded.end())
             return found->second;
+        if (report != nullptr)
+            report->files.push_back ({ path, audioFile, audioFile.existsAsFile() });
         std::shared_ptr<SampleData> data;
+        if (report != nullptr && report->scanOnly)
+        {
+            data = std::make_shared<SampleData>(); // a stand-in: only the names matter
+            data->buffer.setSize (1, 2);
+            data->buffer.clear();
+            loaded[key] = data;
+            return data;
+        }
         if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (audioFile) }; reader != nullptr && reader->lengthInSamples > 1)
         {
             const auto length = (int) juce::jmin (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 120.0));
@@ -537,8 +571,8 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
     return data;
 }
 
-inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error)
+inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error, SfzReport* report = nullptr)
 {
-    return file.hasFileExtension ("sfz") ? loadSfz (file, error) : loadSf2 (file, error);
+    return file.hasFileExtension ("sfz") ? loadSfz (file, error, report) : loadSf2 (file, error);
 }
 } // namespace MultiSample

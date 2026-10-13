@@ -2215,10 +2215,19 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     if (MultiSample::isMultiSampleFile (file))
     {
         juce::String error;
-        auto multi = MultiSample::load (file, error);
+        MultiSample::SfzReport sfz;
+        auto multi = MultiSample::load (file, error, &sfz);
         if (multi == nullptr)
             return false;
         setUserSample (oscIndex, std::move (multi), file.getFullPathName());
+        {
+            juce::StringArray lost;
+            for (const auto& missing : sfz.missing())
+                lost.addIfNotAlreadyThere (missing.getFileName());
+            const juce::SpinLock::ScopedLockType lock (stateLock);
+            sfzMissingFiles[(size_t) oscIndex] = lost;
+        }
+        ++missingSamplesVersion;
         useLoadedSample (oscIndex, fromUser);
         return true;
     }
@@ -2284,6 +2293,7 @@ void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<Samp
     const juce::SpinLock::ScopedLockType lock (stateLock);
     samplePaths[(size_t) oscIndex] = path;
     embeddedSamples[(size_t) oscIndex] = embedded;
+    sfzMissingFiles[(size_t) oscIndex].clear();
     encodedSamples[(size_t) oscIndex] = {};
     // The latest sample wins over a clear or reload still queued.
     pendingSampleClear[(size_t) oscIndex] = false;

@@ -72,7 +72,70 @@ void runSampleImportFeedbackTest()
     folder.deleteRecursively();
 }
 
+// Step 44: the sample out as a WAV, whole or the played range.
+void runSampleExportTest()
+{
+    using namespace SamplerLab;
+    const auto folder = scratchFolder ("ilana-sampler-export");
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::String error;
+    check (! processor.exportSampleWav (0, folder.getChildFile ("none.wav"), false, error) && error.isNotEmpty(),
+           "nothing loaded: export says there is no sample");
+
+    // A ramp (the value is the position) shows which frames were written.
+    juce::AudioBuffer<float> ramp (2, 10000);
+    for (int i = 0; i < 10000; ++i)
+    {
+        ramp.setSample (0, i, (float) i / 10000.0f);
+        ramp.setSample (1, i, -(float) i / 10000.0f);
+    }
+    auto data = std::make_shared<SampleData>();
+    data->buffer = ramp;
+    data->sampleRate = 22050.0;
+    data->name = "ramp";
+    processor.setUserSample (0, data, {});
+
+    const auto read = [] (const juce::File& file, double& rate)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        juce::AudioBuffer<float> out;
+        if (reader != nullptr)
+        {
+            rate = reader->sampleRate;
+            out.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);
+            reader->read (&out, 0, out.getNumSamples(), 0, true, true);
+        }
+        return out;
+    };
+
+    const auto whole = folder.getChildFile ("whole.wav");
+    check (processor.exportSampleWav (0, whole, false, error), "the whole sample exports (" + error + ")");
+    double rate = 0.0;
+    auto back = read (whole, rate);
+    check (back.getNumSamples() == 10000 && back.getNumChannels() == 2 && rate == 22050.0, "whole: every frame, both channels, its own rate");
+    check (std::abs (back.getSample (0, 5000) - 0.5f) < 1.0e-4f && std::abs (back.getSample (1, 5000) + 0.5f) < 1.0e-4f, "whole: the audio is unchanged (24-bit)");
+
+    setParam (processor, "osc1_sample_start", 0.2f);
+    setParam (processor, "osc1_sample_end", 0.6f);
+    setParam (processor, "osc1_sample_reverse", 1.0f);
+    const auto range = folder.getChildFile ("range.wav");
+    check (processor.exportSampleWav (0, range, true, error), "the played range exports");
+    back = read (range, rate);
+    check (back.getNumSamples() == 4000, "range: START to END only (" + juce::String (back.getNumSamples()) + " frames)");
+    check (back.getNumSamples() == 4000 && back.getSample (0, 0) > 0.59f && back.getSample (0, 3999) < 0.201f,
+           "range: REVERSE is applied, as the card plays it");
+
+    // Overwriting keeps a valid file.
+    check (processor.exportSampleWav (0, range, false, error) && read (range, rate).getNumSamples() == 10000, "exporting over a file replaces it");
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
+    runSampleExportTest();
 }

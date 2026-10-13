@@ -1126,6 +1126,14 @@ public:
             card.sampleLoadButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleLoadButton); };
             styleHeaderButton (card.sampleLoadButton);
             addChildComponent (card.sampleLoadButton);
+
+            // Roadmap step 44: the sample (a resampled sound too) out as a WAV.
+            card.sampleExportButton.setButtonText ("EXPORT");
+            card.sampleExportButton.setTooltip ("Save this sample as a WAV file: the played range (START to END, with REVERSE and the "
+                                                "fades, as the card plays it) or the whole sample. A resampled sound is saved the same way.");
+            card.sampleExportButton.onClick = [this, i] { showExportMenu (i); };
+            styleHeaderButton (card.sampleExportButton);
+            addChildComponent (card.sampleExportButton);
         }
 
         // The TABLE lists open the wavetable browser.
@@ -1948,7 +1956,7 @@ private:
             osc.on.setBounds (juce::Rectangle<int> (40, 22).withCentre ({ card.header.getRight() - 8 - 20, centre }));
             auto right = card.header.withRight (osc.on.getX() - 8);
 
-            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.opEnvButton, &pieces.stringButton,
+            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
                                   editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
                 if (button != nullptr && button->isVisible())
                 {
@@ -2385,7 +2393,7 @@ private:
         UnisonSpreadView spreadView;
         StringPartialsView partials;
         OscStatusView status;
-        juce::TextButton opEnvButton, stringButton, sampleLoadButton;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -2693,7 +2701,7 @@ private:
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
-                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton };
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton };
     }
 
     // The cards show every shown oscillator with its own controls; the strip
@@ -2742,6 +2750,7 @@ private:
             // 7, I7-24).
             loadButton (index).setVisible (kind == Kind::wavetable);
             pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
+            pieces.sampleExportButton.setVisible (kind == Kind::sample);
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
             pieces.opEnvButton.setVisible (opEnv);
             pieces.stringButton.setVisible (kind == Kind::physical);
@@ -2900,6 +2909,7 @@ private:
             pieces.opEnvButton.setAlpha (alpha);
             pieces.stringButton.setAlpha (alpha);
             pieces.sampleLoadButton.setAlpha (alpha);
+            pieces.sampleExportButton.setAlpha (alpha);
         }
 
         effectRules.apply();
@@ -2999,6 +3009,47 @@ public:
                             });
     }
 
+    // Step 44: EXPORT's choices, then where to save.
+    void showExportMenu (int index)
+    {
+        const auto* sample = processorRef.getSampleForOsc (index);
+        juce::PopupMenu menu;
+        if (sample == nullptr || sample->getNumSamples() < 2)
+        {
+            menu.addItem (1, "Load a sample first", false);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&aux[(size_t) index]->sampleExportButton));
+            return;
+        }
+        menu.addItem (1, "Export Played Range as WAV...");
+        menu.addItem (2, sample->zones.empty() ? juce::String ("Export Whole Sample as WAV...")
+                                               : juce::String ("Export Whole Region as WAV (the one under middle C)..."));
+        const auto name = sample->name.isNotEmpty() ? sample->name : juce::String ("Sample");
+        juce::Component::SafePointer<OscPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&aux[(size_t) index]->sampleExportButton),
+                            [safe, index, name] (int result)
+                            {
+                                if (safe == nullptr || result == 0)
+                                    return;
+                                const auto range = result == 1;
+                                const auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                                                           .getChildFile (juce::File::createLegalFileName (name + (range ? " (range)" : "")) + ".wav");
+                                safe->exportChooser = std::make_unique<juce::FileChooser> ("Export sample as WAV", suggested, "*.wav");
+                                safe->exportChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                                                      | juce::FileBrowserComponent::warnAboutOverwriting,
+                                                                  [safe, index, range] (const juce::FileChooser& chooser)
+                                                                  {
+                                                                      auto target = chooser.getResult();
+                                                                      if (safe == nullptr || target == juce::File())
+                                                                          return;
+                                                                      target = target.withFileExtension ("wav");
+                                                                      juce::String error;
+                                                                      if (! safe->processorRef.exportSampleWav (index, target, range, error))
+                                                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                                                                                  "Export sample", error);
+                                                                  });
+                            });
+    }
+
     void updateBounce()
     {
         const auto state = processorRef.getBounceState();
@@ -3093,7 +3144,7 @@ private:
     static constexpr int addFmWidth = 150;
     juce::TextButton moreButton { "MORE" };
     OscPicker oscTabs;
-    std::unique_ptr<juce::FileChooser> tableChooser;
+    std::unique_ptr<juce::FileChooser> tableChooser, exportChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
     // Each oscillator's controls by parameter suffix, for the shared
     // physical list.

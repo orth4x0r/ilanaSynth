@@ -350,6 +350,81 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
     return true;
 }
 
+bool IlanaSynthAudioProcessor::exportSampleWav (int oscIndex, const juce::File& target, bool playedRange, juce::String& error) const
+{
+    const auto sample = getSharedSampleForOsc (oscIndex);
+    if (sample == nullptr || sample->getNumSamples() < 2 || sample->sampleRate <= 0.0)
+    {
+        error = "There is no sample on this oscillator to export.";
+        return false;
+    }
+
+    const auto length = sample->getNumSamples();
+    auto from = 0, to = length;
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) oscIndex]);
+    const auto plain = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    if (playedRange)
+    {
+        // The same rounding as the player's region.
+        const auto start = juce::jlimit (0.0f, 0.999f, plain (prefix + "_sample_start"));
+        from = juce::jlimit (0, length - 1, (int) ((double) start * length));
+        to = juce::jlimit (from + 1, length, (int) ((double) juce::jlimit (0.0f, 1.0f, plain (prefix + "_sample_end")) * length));
+    }
+
+    const auto frames = to - from;
+    juce::AudioBuffer<float> out (sample->getNumChannels(), frames);
+    for (int ch = 0; ch < out.getNumChannels(); ++ch)
+        out.copyFrom (ch, 0, sample->buffer, ch, from, frames);
+    if (playedRange)
+    {
+        if (plain (prefix + "_sample_reverse") > 0.5f)
+            out.reverse (0, frames);
+        // FADE IN / OUT are fractions of the played range, as the player has them.
+        const auto fadeIn = (int) (plain (prefix + "_sample_fade_in") * (float) frames);
+        const auto fadeOut = (int) (plain (prefix + "_sample_fade_out") * (float) frames);
+        if (fadeIn > 1)
+            out.applyGainRamp (0, juce::jmin (fadeIn, frames), 0.0f, 1.0f);
+        if (fadeOut > 1)
+            out.applyGainRamp (frames - juce::jmin (fadeOut, frames), juce::jmin (fadeOut, frames), 1.0f, 0.0f);
+    }
+
+    // Write beside the target first, so a failed write never leaves half a file in its place.
+    juce::TemporaryFile temp (target);
+    {
+        std::unique_ptr<juce::OutputStream> stream (temp.getFile().createOutputStream());
+        if (stream == nullptr)
+        {
+            error = "Couldn't write to " + target.getParentDirectory().getFullPathName() + ".";
+            return false;
+        }
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            wav.createWriterFor (stream.get(), sample->sampleRate, (unsigned int) out.getNumChannels(), 24, {}, 0));
+        if (writer == nullptr)
+        {
+            error = "This sample rate can't be written as a WAV.";
+            return false;
+        }
+        stream.release(); // the writer owns it now
+        if (! writer->writeFromAudioSampleBuffer (out, 0, frames))
+        {
+            error = "Writing the WAV stopped part way (is the disk full?).";
+            return false;
+        }
+    }
+    if (! temp.overwriteTargetFileWithTemporary())
+    {
+        error = "Couldn't replace " + target.getFileName() + ".";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
 juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
 {
     juce::ValueTree tree ("Sample");

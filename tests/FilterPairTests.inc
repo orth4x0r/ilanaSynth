@@ -1,16 +1,17 @@
-// The Ladder's stereo pair path (LadderFilter::processPairBlock, SSE lanes)
-// must give bit for bit what two separate runs give, for both models, both
+// The stereo pair paths (LadderFilter::processPairBlock, DriveLadder and
+// OtaFilter::processPairBlock via CascadePair.h; SSE lanes) must give bit for bit what two separate runs give, for both models, both
 // slopes, any coefficients and any mix of pair and single blocks.
 // Included by TableTest.cpp; ILANA_FILTERPAIR_TEST=1 runs only these.
 
 void runFilterPairTests()
 {
-    std::cout << "--- ladder stereo pair path ---" << std::endl;
+    std::cout << "--- stereo pair paths (ladder, drive ladder, OTA) ---" << std::endl;
     juce::Random random (4242);
     auto worstMismatch = 0;
     auto worstCase = juce::String();
 
-    for (const auto type : { FilterType::LadderLow, FilterType::LadderHigh })
+    for (const auto type : { FilterType::LadderLow, FilterType::LadderHigh, FilterType::LadderBand, FilterType::LadderDrive,
+                              FilterType::OtaLow, FilterType::OtaBand })
         for (const auto slope24 : { false, true })
             for (const auto cutoff : { 60.0, 400.0, 3000.0, 12000.0, 21000.0 })
                 for (const auto resonance : { 0.0, 0.5, 0.95, 1.0 })
@@ -68,6 +69,6 @@ void runFilterPairTests()
                     }
                 }
 
-    check (worstMismatch == 0, "ladder pair path matches two single runs bit for bit (worst: " + juce::String (worstMismatch)
+    check (worstMismatch == 0, "pair paths match two single runs bit for bit (worst: " + juce::String (worstMismatch)
                                + " samples differ, " + worstCase + ")");
 }

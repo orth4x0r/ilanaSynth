@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/LfoShape.h"
+#include "DisplayStyle.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 
@@ -209,15 +210,8 @@ public:
         const auto endPoint = juce::Point<float> (plot.getRight(), centreY - (isLooping() ? readLevel (0) : readLevel (3)) * halfHeight);
         path.lineTo (endPoint);
 
-        auto filled = path;
-        filled.lineTo (plot.getRight(), centreY);
-        filled.lineTo (plot.getX(), centreY);
-        filled.closeSubPath();
-        g.setColour (colour().withAlpha (0.07f));
-        g.fillPath (filled);
-
-        g.setColour (colour());
-        g.strokePath (path, juce::PathStrokeType (1.8f));
+        IlanaTrace::paintArea (g, path, colour(), centreY, plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, colour());
 
         // The end: hollow, it isn't a point of its own.
         g.setColour (colour().withAlpha (0.7f));

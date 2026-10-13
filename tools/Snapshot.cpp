@@ -4479,6 +4479,45 @@ int runUiTests()
             wave->setSamplePosition (1, 0.0f);
             set ("osc2_sample_loop_own", 0.0f);
             set ("osc2_sample_loop", 0.0f);
+
+            // Step 28: SNAP puts a typed marker on a zero crossing of the wave.
+            if (const auto* bounced = processor.getSampleForOsc (1); bounced != nullptr && bounced->getNumSamples() > 4000)
+            {
+                const auto frames = bounced->getNumSamples();
+                const auto* left = bounced->buffer.getReadPointer (0);
+                const auto* right = bounced->getNumChannels() > 1 ? bounced->buffer.getReadPointer (1) : nullptr;
+                const auto mix = [&] (int i) { return right != nullptr ? (left[i] + right[i]) * 0.5f : left[i]; };
+                const auto crossesAt = [&] (float fraction)
+                {
+                    const auto i = juce::jlimit (0, frames - 2, juce::roundToInt (fraction * (float) frames));
+                    for (int k = -2; k <= 2; ++k)
+                        if (i + k >= 0 && i + k + 1 < frames && ((mix (i + k) <= 0.0f) != (mix (i + k + 1) <= 0.0f)))
+                            return true;
+                    return false;
+                };
+                set ("osc2_sample_snap", 0.0f);
+                wave->setSamplePosition (1, 0.31337f);
+                expect (std::abs (read ("osc2_sample_start") - 0.31337f) < 0.0001f, "SNAP off: a typed START stays where typed");
+                set ("osc2_sample_snap", 1.0f);
+                wave->setSamplePosition (1, 0.31337f);
+                expect (crossesAt (read ("osc2_sample_start")) && std::abs (read ("osc2_sample_start") - 0.31337f) < 0.02f,
+                        "SNAP on: a typed START lands on a zero crossing of the wave");
+                set ("osc2_sample_snap", 0.0f);
+                wave->setSamplePosition (1, 0.0f);
+            }
+
+            // The crossfade knob and SNAP sit on the sample card's third row.
+            std::vector<KnobControl*> loopKnobs;
+            findAll<KnobControl> (*editor, loopKnobs);
+            auto xfadeShown = false;
+            for (auto* knob : loopKnobs)
+                xfadeShown = xfadeShown || (knob->getParameterId() == "osc2_sample_loop_xfade" && visibleInTree (knob));
+            expect (xfadeShown, "the XFADE knob shows on a sample card");
+            set ("osc2_sample_loop", 1.0f);
+            set ("osc2_sample_loop_xfade", 0.5f);
+            shot ("sample-loop-xfade.png");
+            set ("osc2_sample_loop_xfade", 0.0f);
+            set ("osc2_sample_loop", 0.0f);
         }
     }
 

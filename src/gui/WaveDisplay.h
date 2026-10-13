@@ -61,6 +61,7 @@ public:
         loopOwnId = samplePrefix + "_sample_loop_own";
         loopFromId = samplePrefix + "_sample_loop_start";
         loopToId = samplePrefix + "_sample_loop_end";
+        snapId = samplePrefix + "_sample_snap";
 
         displayedFrame = readValue (frameId);
 
@@ -1113,6 +1114,25 @@ private:
         return SampleRange::resolveLoop (readPlain (startId), readPlain (endId), readPlain (loopFromId), readPlain (loopToId), 0.0);
     }
 
+    // Roadmap step 28: with SNAP on, a marker jumps to the nearest zero crossing
+    // of the wave, within about 12 px of the view (at most 50 ms), so a cut or
+    // a loop point does not click.
+    float snapToZero (float fraction) const
+    {
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || sample->getNumSamples() < 2 || readPlain (snapId) < 0.5f)
+            return fraction;
+
+        const auto frames = sample->getNumSamples();
+        const auto plot = samplePlotArea();
+        const auto framesPerPixel = sampleView.span() * (double) frames / (double) juce::jmax (1.0f, plot.getWidth());
+        const auto radius = juce::jlimit (8, juce::jmax (8, juce::roundToInt (0.05 * sample->sampleRate)), (int) (framesPerPixel * 12.0));
+        const auto* left = sample->buffer.getReadPointer (0);
+        const auto* right = sample->getNumChannels() > 1 ? sample->buffer.getReadPointer (1) : nullptr;
+        const auto snapped = SampleRange::nearestZeroCrossing (left, right, frames, (double) fraction * frames, radius);
+        return juce::jlimit (0.0f, 1.0f, (float) (snapped / (double) frames));
+    }
+
     // A handle's position held where it may go: START and END keep a gap,
     // the loop's markers stay between them.
     float clampHandle (int handle, float fraction) const
@@ -1213,7 +1233,7 @@ public:
     void setSamplePosition (int handle, float fraction)
     {
         const auto id = handleParamId (handle);
-        const auto value = clampHandle (handle, fraction);
+        const auto value = clampHandle (handle, snapToZero (fraction));
 
         processorRef.performEdit (editName(), [this, id, value]
         {
@@ -1314,7 +1334,7 @@ private:
         const auto position = (float) sampleView.fromView (juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth())));
         // (They never cross: a little of the sample stays between them, and the
         // loop's edges stay between START and END.)
-        setPlain (handleParamId (handleDrag), clampHandle (handleDrag, position));
+        setPlain (handleParamId (handleDrag), clampHandle (handleDrag, snapToZero (position)));
         repaint();
     }
 
@@ -2490,7 +2510,7 @@ private:
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
-    juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId;
+    juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;

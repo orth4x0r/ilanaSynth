@@ -103,6 +103,11 @@ public:
         // as before: LOOP wraps the whole played range.
         bool ownLoop = false;
         float loopFrom = 0.25f, loopTo = 0.75f;
+        // Roadmap step 28: at the wrap, the loop's end is blended into the
+        // sound just before its start (reversed: the sound after its end) for
+        // this fraction of half the loop. 0, as before, is a hard wrap.
+        // LOOP only; not the SF2 / SFZ zone loops or STRETCH.
+        float loopCrossfade = 0.0f;
         // Roadmap step 40: STRETCH keeps the pitch apart from the speed. The
         // read position moves at the time rate and short overlapping grains
         // read it at the pitch rate (setRates). Off, as before: one read at
@@ -176,6 +181,21 @@ public:
             ownLoopOn = resolved.valid;
             ownLoopStart = resolved.from;
             ownLoopEnd = resolved.to;
+        }
+
+        // The crossfade's reach: the loop's span (the whole played range
+        // without LOOP PTS), blended over at most half of it and only as far
+        // as there is sound beyond the loop's far side to blend in.
+        xfadeLength = 0.0;
+        const auto zoneLoop = ! ownLoopOn && params.loopEnd > params.loopStart;
+        if (params.loop && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop)
+        {
+            xfadeStart = ownLoopOn ? ownLoopStart : regionStart;
+            xfadeEnd = ownLoopOn ? ownLoopEnd : regionEnd;
+            const auto room = params.reverse ? length - xfadeEnd : xfadeStart;
+            xfadeLength = juce::jmin ((double) juce::jlimit (0.0f, 1.0f, params.loopCrossfade) * 0.5 * (xfadeEnd - xfadeStart), room - 2.0);
+            if (xfadeLength < 2.0)
+                xfadeLength = 0.0;
         }
 
         if (newSample && params.keepPosition && oldSample != nullptr && oldLength > 1)
@@ -291,8 +311,32 @@ public:
             return data[index] + (data[next] - data[index]) * frac;
         };
 
-        const auto readL = readChannel (0);
-        const auto readR = sample->getNumChannels() > 1 ? readChannel (1) : readL;
+        auto readL = readChannel (0);
+        auto readR = sample->getNumChannels() > 1 ? readChannel (1) : readL;
+
+        // Step 28: near the wrap the loop's end gives way to the sound just
+        // beyond its other side, so the jump lands on matching material.
+        if (xfadeLength > 0.0)
+        {
+            const auto distance = params.reverse ? position - xfadeStart : xfadeEnd - position;
+            if (distance >= 0.0 && distance < xfadeLength)
+            {
+                const auto partner = params.reverse ? xfadeEnd + distance : xfadeStart - distance;
+                const auto partnerIndex = juce::jlimit (0, numSamples - 1, (int) std::floor (partner));
+                const auto partnerNext = juce::jmin (partnerIndex + 1, numSamples - 1);
+                const auto partnerFrac = (float) (partner - (double) partnerIndex);
+                const auto readPartner = [&] (int channel)
+                {
+                    const auto* data = sample->buffer.getReadPointer (juce::jmin (channel, sample->getNumChannels() - 1));
+                    return data[partnerIndex] + (data[partnerNext] - data[partnerIndex]) * partnerFrac;
+                };
+                // Linear: the blend never exceeds the louder of the two reads.
+                const auto blend = (float) (1.0 - distance / xfadeLength);
+                const auto keep = 1.0f - blend;
+                readL = readL * keep + readPartner (0) * blend;
+                readR = readR * keep + readPartner (sample->getNumChannels() > 1 ? 1 : 0) * blend;
+            }
+        }
 
         const auto posSinceStart = params.reverse ? (regionEnd - position) : (position - regionStart);
         const auto posToEnd = params.reverse ? (position - regionStart) : (regionEnd - position);
@@ -530,6 +574,8 @@ private:
     // The loop's own span in sample frames, when one is in use.
     static constexpr double minLoopLength = 16.0;
     double ownLoopStart = 0.0, ownLoopEnd = 0.0;
+    // The loop crossfade (step 28): the wrapping span and the blend's length.
+    double xfadeStart = 0.0, xfadeEnd = 0.0, xfadeLength = 0.0;
     bool ownLoopOn = false;
     double ratio = 1.0;
     bool active = false;

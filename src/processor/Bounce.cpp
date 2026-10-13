@@ -34,6 +34,7 @@ bool IlanaSynthAudioProcessor::startBounce (const BounceRequest& request)
         bounceThread->stopThread (10000); // finished; just reap it
 
     pendingBounce = request;
+    bounceGeneration = patchGeneration.load(); // handleAsyncUpdate drops the result if another patch was loaded since
     bounceProgress = 0.0f;
     bounceState = BounceState::Rendering;
     {
@@ -389,16 +390,18 @@ juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
     return tree;
 }
 
-std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::ValueTree& tree)
+std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::ValueTree& tree, int depth)
 {
     if (tree.getNumChildren() > 0)
     {
+        if (depth > 0) // a multisample's regions are plain samples, never multisamples again
+            return nullptr;
         auto data = std::make_shared<SampleData>();
         data->name = tree.getProperty ("name").toString();
         for (int i = 0; i < tree.getNumChildren() && (int) data->zones.size() < 256; ++i)
         {
             const auto child = tree.getChild (i);
-            auto audio = decodeSample (child);
+            auto audio = decodeSample (child, depth + 1);
             if (audio == nullptr)
                 continue;
             SampleZone zone;
@@ -427,6 +430,10 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::
         return nullptr;
     juce::MemoryBlock block;
     if (! block.fromBase64Encoding (tree.getProperty ("data").toString()))
+        return nullptr;
+    // Deflate never packs better than about 1000:1: a claimed length far beyond
+    // that is false, and is refused before the buffer is allocated.
+    if ((juce::int64) length * channels * 2 > (juce::int64) block.getSize() * 1100)
         return nullptr;
     juce::MemoryInputStream in (block, false);
     juce::GZIPDecompressorInputStream zip (in);

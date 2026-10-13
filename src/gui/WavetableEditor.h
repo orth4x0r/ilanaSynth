@@ -20,14 +20,12 @@ public:
     WavetableEditor (IlanaSynthAudioProcessor& p, int slotIn, juce::Colour colourIn)
         : processorRef (p), slot (slotIn), colour (colourIn)
     {
-        doc = processorRef.getUserTableDoc (slot);
-        if (doc.frames.empty())
-            doc = WavetableDoc::sine();
-        doc.recipes.resize (doc.frames.size());
+        bind();
 
         nameEditor.setText (doc.name, false);
         nameEditor.setJustification (juce::Justification::centredLeft);
         nameEditor.onTextChange = [this] { doc.name = nameEditor.getText(); commitSoon(); };
+        nameEditor.onEscapeKey = [this] { close(); }; // the field would keep the key
         addAndMakeVisible (nameEditor);
 
         for (auto* button : { &closeButton, &undoButton, &importButton, &exportButton, &libraryButton,
@@ -37,7 +35,7 @@ public:
             addAndMakeVisible (*button);
 
         closeButton.onClick = [this] { close(); };
-        undoButton.onClick = [this] { undo(); };
+        undoButton.onClick = [this] { stepHistory (false); };
         importButton.onClick = [this] { showImportMenu(); };
         exportButton.onClick = [this] { exportTable(); };
         libraryButton.onClick = [this] { showLibraryMenu(); };
@@ -94,6 +92,7 @@ public:
                                   "sin cos tan tanh abs sqrt exp log floor fract sign min max pow clamp mix, "
                                   "saw square tri pulse(x, width), pi, ^ for powers");
         formulaEditor.onReturnKey = [this] { applyFormula (false); };
+        formulaEditor.onEscapeKey = [this] { close(); };
         addAndMakeVisible (formulaEditor);
         addAndMakeVisible (formulaMessage);
         formulaMessage.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
@@ -111,11 +110,13 @@ public:
         setMode (Mode::Draw);
         setWantsKeyboardFocus (true);
         refresh();
+        startTimerHz (20); // commits what was edited, and notices a load or undo that changes the table
     }
 
     ~WavetableEditor() override
     {
-        if (isTimerRunning())
+        stopTimer();
+        if (commitPending || gestureOpen)
             commitNow();
     }
 
@@ -159,11 +160,37 @@ public:
         return applyFormula (allFrames);
     }
 
-    void commitNow()
+    // Sends the doc to the sound. The edit is a step of the global undo:
+    // one drag is one step (opened at the mouse-down, closed here), any
+    // other change is a step of its own. endsStep is false for a commit in the
+    // middle of a drag. A load or an undo that changed the slot since the
+    // editor last looked wins over the editor's pending edit.
+    void commitNow (bool endsStep = true)
     {
-        stopTimer();
+        commitPending = false;
+
+        if (changedElsewhere())
+        {
+            if (gestureOpen)
+                processorRef.endEdit();
+            bind();
+            refresh();
+            return;
+        }
+
         doc.recipes.resize (doc.frames.size());
-        processorRef.setUserTable (slot, doc);
+
+        if (! gestureOpen && endsStep)
+            processorRef.beginEdit ("Edit wavetable");
+
+        if (processorRef.setUserTable (slot, doc))
+            boundDoc = processorRef.getUserTableDocPtr (slot);
+
+        if (endsStep)
+        {
+            gestureOpen = false;
+            processorRef.endEdit();
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -249,10 +276,15 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
-        if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0))
+        const auto modifiers = key.getModifiers();
+        if (modifiers.isCommandDown() || modifiers.isCtrlDown())
         {
-            undo();
-            return true;
+            const auto code = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode());
+            if (code == 'Z' || code == 'Y')
+            {
+                stepHistory (code == 'Y' || modifiers.isShiftDown());
+                return true;
+            }
         }
         if (key == juce::KeyPress::escapeKey)
         {
@@ -300,6 +332,7 @@ private:
 
         void mouseDown (const juce::MouseEvent& event) override
         {
+            owner->grabKeyboardFocus(); // Esc and undo work from here on
             owner->selectFrame (event.y / rowHeight);
         }
     };
@@ -315,9 +348,16 @@ private:
             owner->paintCanvas (g, getLocalBounds().toFloat());
         }
 
-        void mouseDown (const juce::MouseEvent& event) override { owner->canvasMouse (event, true); }
+        void mouseDown (const juce::MouseEvent& event) override { owner->grabKeyboardFocus(); owner->canvasMouse (event, true); }
         void mouseDrag (const juce::MouseEvent& event) override { owner->canvasMouse (event, false); }
-        void mouseUp (const juce::MouseEvent&) override { owner->commitSoon (1); }
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (owner->dragging)
+            {
+                owner->dragging = false;
+                owner->commitSoon (1);
+            }
+        }
     };
 
     static constexpr int drawPoints = 256;
@@ -434,7 +474,6 @@ private:
     // The selected frame as a Draw recipe (a drawn copy of whatever it was).
     void beginDraw()
     {
-        pushUndo();
         auto& recipe = doc.recipes[(size_t) selected];
         if (recipe.kind != FrameRecipe::Kind::Draw || (int) recipe.points.size() != drawPoints * 2)
         {
@@ -495,6 +534,7 @@ private:
             const auto y = juce::jlimit (-1.0f, 1.0f, (area.getCentreY() - event.position.y) / (area.getHeight() * 0.47f));
             if (down)
             {
+                beginDrag();
                 beginDraw();
                 lastDraw = { x, y };
             }
@@ -511,7 +551,7 @@ private:
             const auto harmonic = juce::jlimit (1, shownHarmonics, 1 + (int) (x * (float) shownHarmonics));
             if (down)
             {
-                pushUndo();
+                beginDrag();
                 spectrumDragPhase = phaseArea.contains (event.position);
             }
             auto& recipe = asHarmonics();
@@ -830,13 +870,19 @@ private:
         repaint();
     }
 
-    // Runs a change to the doc with undo, then refreshes the view and sends
-    // the table to the sound shortly.
+    // Runs a change to the doc, then refreshes the view and sends the table
+    // to the sound shortly. (Undo is the patch's: see commitNow.)
     template <typename Change>
-    void edit (Change&& change, bool withUndo = true)
+    void edit (Change&& change, bool /*withUndo*/ = true)
     {
-        if (withUndo)
-            pushUndo();
+        // The table is read again first: a patch loaded since the last edit
+        // has its own, which the change must start from.
+        if (! commitPending && ! dragging && changedElsewhere())
+        {
+            bind();
+            refresh();
+        }
+
         change();
         doc.factoryIndex = -1; // edited: no longer the factory table
         doc.recipes.resize (doc.frames.size());
@@ -845,28 +891,63 @@ private:
         commitSoon();
     }
 
-    void pushUndo()
+    // Takes the slot's table from the patch (a new editor, or a load or an
+    // undo changed it).
+    void bind()
     {
-        undoStack.push_back (doc);
-        undoSelected.push_back (selected);
-        if (undoStack.size() > 30)
+        boundDoc = processorRef.getUserTableDocPtr (slot);
+        boundGeneration = processorRef.getPatchGeneration();
+        doc = processorRef.getUserTableDoc (slot);
+        if (doc.frames.empty())
+            doc = WavetableDoc::sine();
+        doc.recipes.resize (doc.frames.size());
+        selected = juce::jlimit (0, doc.getNumFrames() - 1, selected);
+        nameEditor.setText (doc.name, false);
+        gestureOpen = false;
+        dragging = false;
+        commitPending = false;
+    }
+
+    bool changedElsewhere() const
+    {
+        return processorRef.getUserTableDocPtr (slot) != boundDoc || processorRef.getPatchGeneration() != boundGeneration;
+    }
+
+    // A drag is one undo step: the patch's state is taken at the mouse-down.
+    void beginDrag()
+    {
+        if (! commitPending && changedElsewhere())
         {
-            undoStack.erase (undoStack.begin());
-            undoSelected.erase (undoSelected.begin());
+            bind();
+            refresh();
+        }
+
+        dragging = true;
+        if (! gestureOpen)
+        {
+            processorRef.beginEdit ("Edit wavetable");
+            gestureOpen = true;
         }
     }
 
-    void undo()
+    // UNDO and Ctrl+Z are the patch's undo (the table edits are in it).
+    void stepHistory (bool redo)
     {
-        if (undoStack.empty())
-            return;
-        doc = std::move (undoStack.back());
-        selected = undoSelected.back();
-        undoStack.pop_back();
-        undoSelected.pop_back();
-        nameEditor.setText (doc.name, false);
+        if (commitPending || gestureOpen)
+            commitNow();
+
+        processorRef.endEdit();
+        processorRef.apvts.copyState();
+
+        if (redo)
+            processorRef.getUndoManager().redo();
+        else
+            processorRef.getUndoManager().undo();
+
+        if (changedElsewhere())
+            bind();
+
         refresh();
-        commitNow();
     }
 
     void refresh()
@@ -882,7 +963,7 @@ private:
         deleteButton.setEnabled (doc.getNumFrames() > 1);
         upButton.setEnabled (selected > 0);
         downButton.setEnabled (selected < doc.getNumFrames() - 1);
-        undoButton.setEnabled (! undoStack.empty());
+        undoButton.setEnabled (processorRef.getUndoManager().canUndo());
         frameStrip.setSize (juce::jmax (10, frameView.getWidth() - 8),
                             juce::jmax (frameView.getHeight(), doc.getNumFrames() * FrameStrip::rowHeight));
         const auto rowTop = selected * FrameStrip::rowHeight;
@@ -895,17 +976,29 @@ private:
 
     void commitSoon (int milliseconds = 120)
     {
-        startTimer (milliseconds);
+        commitPending = true;
+        commitDue = juce::Time::getMillisecondCounter() + (juce::uint32) milliseconds;
     }
 
     void timerCallback() override
     {
-        commitNow();
+        if (commitPending)
+        {
+            if ((juce::int32) (juce::Time::getMillisecondCounter() - commitDue) >= 0)
+                commitNow (! dragging);
+        }
+        else if (! dragging && changedElsewhere())
+        {
+            bind();
+            refresh();
+        }
+
+        undoButton.setEnabled (processorRef.getUndoManager().canUndo());
     }
 
     void close()
     {
-        if (isTimerRunning())
+        if (commitPending || gestureOpen)
             commitNow();
         if (onClose != nullptr)
         {
@@ -922,8 +1015,12 @@ private:
     Mode mode = Mode::Draw;
     bool spectrumDragPhase = false;
     juce::Point<float> lastDraw;
-    std::vector<WavetableDoc> undoStack;
-    std::vector<int> undoSelected;
+    // What the patch held in the slot when the editor last read or wrote it
+    // (by identity), and the patch load it belongs to.
+    std::shared_ptr<const WavetableDoc> boundDoc;
+    unsigned boundGeneration = 0;
+    bool commitPending = false, gestureOpen = false, dragging = false;
+    juce::uint32 commitDue = 0;
     std::unique_ptr<juce::FileChooser> chooser;
 
     juce::Rectangle<int> titleArea, statusArea, kindArea;

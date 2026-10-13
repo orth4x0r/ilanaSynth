@@ -617,7 +617,7 @@ public:
         g.fillRect (outputSeparator);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("after the rack, before the master volume", outputHint, juce::Justification::centredRight, true);
+        g.drawText ("After the rack, before the master volume.", outputHint, juce::Justification::centredRight, true);
 
         if (library->isVisible())
         {
@@ -1274,8 +1274,8 @@ private:
     juce::String routingHintText() const
     {
         if (patcherOn)
-            return "the cables on PATCH decide what feeds what";
-        return parallelRouting ? "parallel: every effect hears the input, outputs are summed" : "series: each effect feeds the next one";
+            return "The cables on PATCH decide what feeds what.";
+        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Series: each effect feeds the next one.";
     }
 
     void chainABChanged()
@@ -1442,7 +1442,7 @@ private:
     static constexpr int addTileHeight = 36, suggestCaptionHeight = 22, suggestMinHeight = 70, suggestMaxHeight = 104, rowGrowMax = 90;
     static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
-    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
+    static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 18; // (the foot clears the last row's level chip, P-6)
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 
@@ -1936,9 +1936,15 @@ private:
         }
 
         const auto rowHeight = knobsArea.getHeight() / juce::jmax (1, rows);
+        // An Airwindows card's algorithm menu stands alone in the first column and its knobs
+        // fill the other columns in every row, so the rows share columns (P-6).
+        const auto menuLead = isAirwindowsType (type) && columns > 1 && rows > 1 && dynamic_cast<ComboControl*> (items[0]) != nullptr
+                              && (count - 1 + columns - 2) / (columns - 1) == rows;
         for (int i = 0; i < count; ++i)
         {
-            auto cell = juce::Rectangle<int> (knobsArea.getX() + (i % columns) * cellWidth, knobsArea.getY() + (i / columns) * rowHeight,
+            const auto column = menuLead && i > 0 ? 1 + (i - 1) % (columns - 1) : i % columns;
+            const auto rowIndex = menuLead && i > 0 ? (i - 1) / (columns - 1) : i / columns;
+            auto cell = juce::Rectangle<int> (knobsArea.getX() + column * cellWidth, knobsArea.getY() + rowIndex * rowHeight,
                                               cellWidth, rowHeight);
             auto* item = items[(size_t) i];
 
@@ -2901,7 +2907,7 @@ private:
             return [=] (double v) { return ms (88200.0 / (std::pow (knob.toPlugin ((float) v), 4.0) * scale + 1.0) / sampleRate * 1000.0); };
         }
         if (key == "TapeDelay2|Regen" || key == "PitchDelay|Regen")
-            return [=] (double v) { return juce::String (juce::roundToInt (100.0 * std::pow (knob.toPlugin ((float) v), 2.0))) + " %"; };
+            return [=] (double v) { return juce::String (juce::roundToInt (100.0 * std::pow (knob.toPlugin ((float) v), 2.0))) + "%"; };
         if (key == "TapeDelay2|Freq" || key == "PitchDelay|Freq")
             return [=] (double v) { return hz ((std::pow (knob.toPlugin ((float) v), 3.0) * 0.4 + 0.0001) * sampleRate); };
         if (key == "Baxandall2|Treble" || key == "Baxandall2|Bass")

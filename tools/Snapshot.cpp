@@ -3664,7 +3664,7 @@ int runUiTests()
             return nullptr;
         };
 
-        auto* starter = findButton ("MOD WHEEL  >  VIBRATO");
+        auto* starter = findButton ("MOD WHEEL  >  Vibrato");
         expect (starter != nullptr, "an empty matrix shows the starter routings");
 
         if (starter != nullptr)
@@ -3676,7 +3676,7 @@ int runUiTests()
                         && slot.destination == (int) Mod::Destination::Osc1Pitch
                         && processor.readModSlot (2).destination == (int) Mod::Destination::SubPitch,
                     "WHEEL > VIBRATO routes LFO 2 via the wheel to OSC 1-3 pitch");
-            expect (findButton ("MOD WHEEL  >  VIBRATO") == nullptr, "the starters hide once something is routed");
+            expect (findButton ("MOD WHEEL  >  Vibrato") == nullptr, "the starters hide once something is routed");
         }
 
         pages->showPage ("FX");
@@ -3753,7 +3753,7 @@ int runUiTests()
             }
             expect (engineTabs->isTabOn (0) && engineTabs->isTabOn (2) && ! engineTabs->isTabOn (1) && ! engineTabs->isTabOn (3),
                     "the ARP and PROB SEQ tabs light while they are on, EUCLID's and CLIP's don't");
-            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ replaces the ARP",
+            expect (chain != nullptr && visibleInTree (chain) && arpWaits && seqPlays && note == "PROB SEQ replaces the ARP.",
                     "the note path shows PROB SEQ playing and the ARP waiting ('" + note + "')");
 
             // S12-4: the chain lists the engines in the tab order, and each opens its tab.

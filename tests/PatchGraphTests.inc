@@ -399,6 +399,22 @@ void runPatchGraphTests (bool everyPreset = true)
         check (plan.ok && plan.loops.size() == 2 && plan.chunkSize == 64, "compile: two loops, rendered in 64-sample chunks");
     }
 
+    // The newest cable on a loop is the feedback one, whatever the order of
+    // the walk: drawing B -> A must not turn the older A -> B into the loop.
+    {
+        Graph graph;
+        const auto a = graph.addNode (1, 1, 1);
+        const auto b = graph.addNode (1, 1, 1);
+        graph.connect ({ inputNodeId, 0 }, { b, 0 });
+        graph.connect ({ inputNodeId, 0 }, { a, 0 });
+        graph.connect ({ a, 0 }, { b, 0 });
+        graph.connect ({ b, 0 }, { outputNodeId, 0 });
+        graph.connect ({ b, 0 }, { a, 0 });
+        const auto feedback = graph.feedbackCables();
+        check (feedback.size() == 5 && ! feedback[0] && ! feedback[1] && ! feedback[2] && ! feedback[3] && feedback[4],
+               "graph: the cable just drawn closes the loop, not an older one");
+    }
+
     // Compiled shapes: a plain chain costs no copies; parallel shares the
     // input; dead, kept-alive and bypassed nodes.
     {

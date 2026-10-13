@@ -31,10 +31,12 @@ public:
           curveColour (curveColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("Drag a handle to set its stage (it follows the mouse). Drag the dot on the attack, decay or "
-                    "release to curve that segment alone (CURVE curves all three); double-click a handle or a dot to "
-                    "reset it.\nEach stage gets room by the square root of its time; the ruler under the graph gives the time since "
+        setTooltip ("Drag a handle to set its stage (it follows the mouse).\n"
+                    "Drag the dot on the attack, decay or release to curve that segment alone (CURVE curves all three).\n"
+                    "Double-click a handle or a dot to reset it. Esc cancels a drag.\n"
+                    "Each stage gets room by the square root of its time; the ruler under the graph gives the time since "
                     "the note started, up to KEY UP (the release's own time is on its knob). The dot is the last note played.");
+        setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
 
@@ -669,6 +671,7 @@ private:
 
         lastMousePosition = event.position;
         frozenScale = fitScale (getPlotArea());
+        cancelled = false;
 
         // The handle keeps its place under the press: the pointer may be up
         // to the hit radius off its centre, and the drag moves the handle by
@@ -683,6 +686,7 @@ private:
             if (dragParameter != nullptr)
             {
                 dragNormalised = dragParameter->getValue();
+                startNormalised = dragNormalised;
                 processorRef.beginEdit (dragParameter->getName (64));
                 dragParameter->beginChangeGesture();
 
@@ -690,7 +694,10 @@ private:
                 sustainGesture = dragHandle == 1 ? parameterFor ("sustain") : nullptr;
 
                 if (sustainGesture != nullptr)
+                {
+                    startSustain = sustainGesture->getValue();
                     sustainGesture->beginChangeGesture();
+                }
                 updateReadout();
             }
         }
@@ -716,9 +723,26 @@ private:
         repaint();
     }
 
+    // Esc during a drag puts the stage (and the sustain a decay drag moves) back.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || dragParameter == nullptr || cancelled)
+            return false;
+
+        dragParameter->setValueNotifyingHost (startNormalised);
+
+        if (sustainGesture != nullptr)
+            sustainGesture->setValueNotifyingHost (startSustain);
+
+        cancelled = true;
+        readout.clear();
+        repaint();
+        return true;
+    }
+
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        if (dragHandle < 0 || dragParameter == nullptr)
+        if (dragHandle < 0 || dragParameter == nullptr || cancelled)
             return;
 
         const auto geo = layoutGeometry();
@@ -859,6 +883,8 @@ private:
     juce::RangedAudioParameter* dragParameter = nullptr;
     juce::RangedAudioParameter* sustainGesture = nullptr;
     float dragNormalised = 0.5f;
+    float startNormalised = 0.0f, startSustain = 0.0f; // at the press, for Esc
+    bool cancelled = false;
     float frozenScale = 1.0f;
     juce::Point<float> lastMousePosition, dragPoint;
     juce::String readout;

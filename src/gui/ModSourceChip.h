@@ -240,10 +240,8 @@ public:
             {
                 const auto second = getSecondOutputBounds();
                 const auto dragsSecond = second.contains (event.mouseDownPosition);
-                auto image = createComponentSnapshot (dragsSecond ? second.toNearestInt() : getLocalBounds(), true, 1.0f);
-                image.multiplyAllAlphas (0.75f);
                 container->startDragging ("modsource:" + juce::String (dragsSecond ? secondIndex : index), this,
-                                          juce::ScaledImage (image), true);
+                                          IlanaTheme::dragGhost (*this, dragsSecond ? second.toNearestInt() : getLocalBounds(), 0.75f), true);
             }
         }
     }

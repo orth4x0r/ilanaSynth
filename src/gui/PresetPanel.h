@@ -1844,6 +1844,15 @@ private:
             return;
         }
 
+        // The list was scanned when the panel opened: if a file came or went
+        // since (a second instance saving), the row may name another preset
+        // now. Rescan and let the player click again, rather than load that.
+        if (processorRef.getAllPresetNames() != names)
+        {
+            refresh();
+            return;
+        }
+
         stopAudition();
         selectedPreset = filtered[row];
         updateDeleteButton();

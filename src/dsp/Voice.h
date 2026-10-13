@@ -380,6 +380,10 @@ struct VoiceParams
 
     float glideTime = 0.0f;
     float pitchBendRange = 2.0f;
+    // MPE: member channels bend by pitchBendRange (48), the master channel
+    // (1) bends every voice by masterBendRange (the BEND knob).
+    bool mpe = false;
+    float masterBendRange = 2.0f;
 
     float macros[Mod::numMacros] {};
     float vectorX = 0.5f, vectorY = 0.5f; // M8.5
@@ -444,6 +448,19 @@ struct VoiceParams
 
         activeDestinations[numActiveDestinations++] = (int) destination;
     }
+};
+
+// What the synth knows that a note starting later must still see: the last
+// mod wheel, expression and channel pressure per MIDI channel (a voice only
+// hears the controllers that arrive while it plays), the MPE master-channel
+// bend and the pitch of the last note started (poly glide).
+struct VoiceSharedState
+{
+    float modWheel[17] {};
+    float expression[17] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    float pressure[17] {};
+    double masterBendSemitones = 0.0;
+    double lastNoteFrequency = 0.0; // 0: none yet
 };
 
 class Voice : public juce::SynthesiserVoice
@@ -574,6 +591,17 @@ public:
     void controllerMoved (int controllerNumber, int newValue) override;
     void channelPressureChanged (int newValue) override;
     void aftertouchChanged (int newValue) override;
+    void setSharedState (VoiceSharedState* state) noexcept { shared = state; }
+    // MPE master-channel bend, in semitones (added to this voice's own bend).
+    void setMasterBend (double semitones) noexcept { masterBend = semitones; bendSemitones = memberBend + masterBend; }
+    bool isMpe() const noexcept { return params.mpe; }
+    // What the note started with (the regression tests read these).
+    float getModWheel() const noexcept { return modWheel; }
+    float getExpression() const noexcept { return expressionValue; }
+    float getAftertouch() const noexcept { return aftertouchValue; }
+    double getBendSemitones() const noexcept { return bendSemitones; }
+    double getCurrentFrequency() const noexcept { return currentFrequency; }
+    float getMasterBendRange() const noexcept { return params.masterBendRange; }
     void renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSample, int numSamples) override;
 
 private:
@@ -856,7 +884,9 @@ private:
     double sampleRate = 44100.0;
     double baseFrequency = 440.0;
     double currentFrequency = 440.0;
-    double bendSemitones = 0.0;
+    double bendSemitones = 0.0; // memberBend + masterBend
+    double memberBend = 0.0, masterBend = 0.0;
+    VoiceSharedState* shared = nullptr;
     float velocityLevel = 1.0f;
     // The note and velocity (1-127) a multisample picks its region by, and the
     // region each oscillator plays (null for a plain sample).

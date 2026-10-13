@@ -1215,5 +1215,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch", "Signalsmith", "Bungee", "PGHI", "Paulstretch" }, 0);
     }
 
+    // Review (E-7): a MIDI program change no longer replaces the patch
+    // unless asked (it loaded a factory preset, silently, before).
+    addBool ("midi_program_change", "MIDI Program Change Loads Presets", false);
+
     return layout;
 }

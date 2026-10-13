@@ -724,16 +724,17 @@ private:
         // (Clear of the LFO graph's GRID menu and of EDIT OP ENV.)
         auto pill = graphArea.reduced (8).withHeight (20);
         pill.setRight (opEnvLink.isVisible() ? opEnvLink.getX() - 6 : pill.getRight());
-        // An LFO's hint sits across the middle of its graph, where the whole
-        // sentence fits (A16-6: it was cut by the GRID menu's corner).
+        // An LFO's hint sits along the foot of its graph, where the whole
+        // sentence fits (A16-6: it was cut by the GRID menu's corner) and the
+        // curve rarely runs (P-1: in the middle it cut the sine).
         if (kind == Kind::lfo)
-            pill = pill.withY (graphArea.getCentreY() - 10);
+            pill = pill.withBottomY (graphArea.getBottom() - 8);
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::label);
         // A solid plate hugging the sentence (A17: the old translucent strip let the curve run through
         // the words); it is never wider than its strip, and the text shrinks before it is cut.
         const auto wanted = (int) std::ceil (juce::GlyphArrangement::getStringWidth (font, unusedNote)) + 20;
         if (kind == Kind::lfo && wanted < pill.getWidth())
-            pill = pill.withSizeKeepingCentre (wanted, pill.getHeight());
+            pill = pill.withWidth (wanted);
         g.setColour (IlanaTheme::Ui::well.withAlpha (0.97f));
         g.fillRoundedRectangle (pill.toFloat(), 4.0f);
         g.setColour (IlanaTheme::Ui::line2);
@@ -1030,9 +1031,8 @@ public:
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (getLocalBounds(), true, 1.0f);
-                image.multiplyAllAlphas (0.75f);
-                container->startDragging ("modsource:" + juce::String (source), this, juce::ScaledImage (image), true);
+                container->startDragging ("modsource:" + juce::String (source), this,
+                                          IlanaTheme::dragGhost (*this, getLocalBounds(), 0.75f), true);
             }
     }
 

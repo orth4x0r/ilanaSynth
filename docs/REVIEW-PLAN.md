@@ -390,7 +390,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
    Order 16. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.
 
-27. **Independent loop points** (ilana, 2026-10-10: decided, not started). Separate Loop Start and Loop End handles from the played Start and End, so the attack can play once and the sustain section repeats.
+27. **Independent loop points** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/sample-loop-points-step-27-ogfrjq`: a LOOP PTS toggle on the OSC tab's sample card gives LOOP its own span; two more handles, LOOP START and LOOP END, appear on the wave and are dragged or typed like START / END; the note plays from START once, then repeats the span and never goes back to the attack. LOOP PTS off is the old behaviour, so 0 existing preset changes. SF2 / SFZ zone loops stay the default when LOOP PTS is off). Separate Loop Start and Loop End handles from the played Start and End, so the attack can play once and the sustain section repeats.
    Size: medium. Today the loop wraps the played range (`src/dsp/SamplePlayer.h`, the loop branch around lines 145 to 151). Touches that, the parameter layout (new loop parameters, appended), the handles in `WaveDisplay.h`, and the SFZ and SF2 loop reads in `src/dsp/MultiSample.h`.
    Order 17. Why here: slicing and the loop crossfade both build on loop bounds that are separate from the played range.
 

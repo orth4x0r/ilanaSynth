@@ -1067,6 +1067,7 @@ private:
     std::array<ParamRef, 16> gateStepIds;
     std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
+    std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27)
     std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;

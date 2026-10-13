@@ -823,6 +823,7 @@ class OscPage : public juce::Component,
               sampleTuned (state, prefix + "_sample_tuned", "TUNED"),
               sampleLoop (state, prefix + "_sample_loop", "LOOP"),
               sampleReverse (state, prefix + "_sample_reverse", "REVERSE"),
+              sampleLoopOwn (state, prefix + "_sample_loop_own", "LOOP PTS"),
               sampleStart (state, prefix + "_sample_start", "START"),
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
@@ -871,7 +872,7 @@ class OscPage : public juce::Component,
                 knob->setIdentityColour (colour);
         }
 
-        ToggleControl on, sampleTuned, sampleLoop, sampleReverse;
+        ToggleControl on, sampleTuned, sampleLoop, sampleReverse, sampleLoopOwn;
         ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral, scale, scaleRoot;
         // M6: the PD chain's second stage and the warp (DCW) envelope.
         ComboControl warp2, pdEnv;
@@ -1003,7 +1004,7 @@ public:
                                 osc.frame, osc.level, osc.pan, osc.semi, osc.fine,
                                 osc.unison, osc.detune, osc.spread, osc.stringDecay,
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
-                                osc.sampleLoop, osc.sampleReverse, osc.sampleStart,
+                                osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleStart,
                                 osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
                                 osc.sampleSync, osc.sampleBpm, osc.sampleStretch,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
@@ -1023,7 +1024,7 @@ public:
             for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch })
                 menu->setCompactLayout (true);
-            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.grainLive })
+            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.grainLive })
                 toggle->setInlineLabel (true);
             osc.on.setBareSwitch (true);
             osc.on.setSwitchColour (oscColour (i));
@@ -1229,6 +1230,14 @@ public:
                                      return sample != nullptr && sample->getNumSamples() >= 2;
                                  },
                                  "load a sample first");
+
+            // Step 27: LOOP PTS only acts while LOOP is on.
+            effectRules.add (osc.sampleLoopOwn, [this, i, loopOn = effectRules.isOn (prefix + "_sample_loop")]
+                             {
+                                 const auto* sample = processorRef.getSampleForOsc (i);
+                                 return sample != nullptr && sample->getNumSamples() >= 2 && loopOn();
+                             },
+                             "turn LOOP on (and load a sample) first");
         }
 
         // One way to add an oscillator here: the dashed row under the last card
@@ -1647,6 +1656,8 @@ private:
                 add (osc.sampleSync, 2, 0);
                 add (osc.sampleBpm, 2, 1);
                 add (osc.sampleStretch, 2, 2);
+                // Step 27: the loop's own span (the handles are on the wave).
+                add (osc.sampleLoopOwn, 2, 3);
                 // More than one voice: the unison's own row (review 11, I11-11).
                 if (readFloat (prefix + "_unison") > 1.5f)
                 {
@@ -2641,7 +2652,7 @@ private:
         auto& osc = *controls[(size_t) i];
         auto& phys = *physical[(size_t) i];
         auto& pieces = *aux[(size_t) i];
-        return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.mode, &osc.table,
+        return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.mode, &osc.table,
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
@@ -2812,7 +2823,7 @@ private:
             setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
                                &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune,
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
-                               &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse,
+                               &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
                                &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,

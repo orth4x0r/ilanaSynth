@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "SampleRange.h"
 #include "SampleTempo.h"
 
 #include <array>
@@ -84,6 +85,12 @@ public:
         float gain = 1.0f;
         // A multisample region's own loop (samples); used when loopEnd > loopStart.
         int loopStart = 0, loopEnd = 0;
+        // Roadmap step 27: with LOOP on, the loop is its own span (fractions of
+        // the sample, held inside START..END): the note plays from START once
+        // and then repeats loopFrom..loopTo, never going back to START. Off,
+        // as before: LOOP wraps the whole played range.
+        bool ownLoop = false;
+        float loopFrom = 0.25f, loopTo = 0.75f;
         // Roadmap step 40: STRETCH keeps the pitch apart from the speed. The
         // read position moves at the time rate and short overlapping grains
         // read it at the pitch rate (setRates). Off, as before: one read at
@@ -145,6 +152,16 @@ public:
         regionEnd = juce::jlimit (regionStart + 1.0, length, (double) juce::jlimit (0.0f, 1.0f, params.end) * length);
         regionLength = regionEnd - regionStart;
 
+        ownLoopOn = false;
+        if (params.ownLoop && params.loop)
+        {
+            const auto resolved = SampleRange::resolveLoop (regionStart, regionEnd, (double) params.loopFrom * length,
+                                                            (double) params.loopTo * length, minLoopLength);
+            ownLoopOn = resolved.valid;
+            ownLoopStart = resolved.from;
+            ownLoopEnd = resolved.to;
+        }
+
         if (newSample && params.keepPosition && oldSample != nullptr && oldSample->getNumSamples() > 1)
         {
             if (active)
@@ -195,8 +212,22 @@ public:
         if (! active || params.sample == nullptr)
             return;
 
+        // The loop's own span (roadmap step 27): the first pass through the
+        // attack is not repeated. Reversed, the note runs the other way and
+        // wraps when it falls below the loop's start.
+        if (ownLoopOn)
+        {
+            const auto length = ownLoopEnd - ownLoopStart;
+            if (params.reverse)
+            {
+                if (position < ownLoopStart)
+                    position = ownLoopEnd - std::fmod (ownLoopStart - position, length);
+            }
+            else if (position >= ownLoopEnd)
+                position = ownLoopStart + std::fmod (position - ownLoopStart, length);
+        }
         // A region's sustain loop: forward only, inside the played range.
-        if (params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
+        else if (params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
             && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
             position -= (double) (params.loopEnd - params.loopStart);
 
@@ -473,6 +504,10 @@ private:
     double regionStart = 0.0;
     double regionEnd = 0.0;
     double regionLength = 0.0;
+    // The loop's own span in sample frames, when one is in use.
+    static constexpr double minLoopLength = 16.0;
+    double ownLoopStart = 0.0, ownLoopEnd = 0.0;
+    bool ownLoopOn = false;
     double ratio = 1.0;
     bool active = false;
 };

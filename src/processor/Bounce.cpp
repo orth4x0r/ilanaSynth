@@ -319,7 +319,8 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         // multisample's zones each carry their root note.
         set (prefix + "_semi", audio->zones.empty() ? (float) juce::jlimit (-24, 24, 60 - request.note) : 0.0f);
         for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out",
-                                "_sample_sync", "_sample_bpm", "_sample_stretch" })
+                                "_sample_sync", "_sample_bpm", "_sample_stretch",
+                                "_sample_loop_own", "_sample_loop_start", "_sample_loop_end" })
             reset (prefix + id);
         if (! audio->zones.empty())
         {

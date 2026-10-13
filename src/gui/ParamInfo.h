@@ -1154,6 +1154,10 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_end"), "End of the playback region, as a fraction of the sample." },
     { ends ("_sample_fade_in"), "Fade-in, as a fraction of the region. Loops and one-shots never click." },
     { ends ("_sample_fade_out"), "Fades out over this fraction of the region." },
+    { ends ("_sample_loop_own"), "LOOP PTS: with LOOP on, the loop is its own span between LOOP START and LOOP END (drag the two handles on the wave, "
+      "or double-click one to type it). The note plays from START once, then repeats that span. Off, LOOP repeats the whole START to END region." },
+    { ends ("_sample_loop_start"), "Where the loop begins. Held between START and LOOP END." },
+    { ends ("_sample_loop_end"), "Where the loop ends and jumps back. Held between LOOP START and END." },
     { ends ("_sample_sync"), "Follows the host tempo. BPM: the sample's own tempo is the BPM knob. A length (1 beat to 16 bars): "
       "the region from START to END lasts that long at the sample's tempo. Off plays at the sample's own speed." },
     { ends ("_sample_bpm"), "The sample's own tempo, when SYNC is set to BPM. At the host's tempo it plays at its own speed." },

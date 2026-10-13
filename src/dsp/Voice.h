@@ -242,6 +242,7 @@ struct VoiceParams
         bool samplePingPong = false;  // step 34: the loop runs forward and back
         float sampleStartRandom = 0.0f; // step 35: random start amount
         bool sampleStartSafe = false;   // step 35: random starts land on attacks
+        int sampleQuality = 0;          // step 39: SampleInterpolation::Quality
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;

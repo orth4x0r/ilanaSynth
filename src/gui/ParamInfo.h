@@ -1176,6 +1176,9 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_start_rand"), "Each note starts at a random place, up to this far into the played range. "
       "Every unison voice gets its own, so a stack sounds like several takes." },
     { ends ("_sample_start_safe"), "A random start moves back to the attack before it and onto a zero crossing, so no note starts in the middle of a hit." },
+    { ends ("_sample_quality"), "How the sample is read between its samples. Linear: light, a little dull when pitched down and "
+      "rough when pitched far up. Cubic: smoother. Sinc: the cleanest. Sinc + Anti-Alias: also filters the harsh folded tones a "
+      "note far above the sample's own pitch would make (costs more CPU the higher it goes)." },
     { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
 };
 

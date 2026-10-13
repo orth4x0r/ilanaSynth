@@ -369,6 +369,38 @@ void runSampleRandomStartTest()
     check (std::abs (spread[2] - plain[2]) > 1.0e-4f, "a random start changes what the unison voices play");
 }
 
+// Step 39: higher-quality reads; Linear stays the default and unchanged.
+void runSampleQualityTest()
+{
+    using namespace SamplerLab;
+    // A bright tone (11.3 kHz at 48 kHz) read an octave and a half up folds back
+    // into the audible range unless the read filters it.
+    auto bright = std::make_shared<SampleData>();
+    bright->sampleRate = 48000.0;
+    bright->buffer.setSize (1, 48000);
+    for (int i = 0; i < 48000; ++i)
+        bright->buffer.setSample (0, i, 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * 11300.0 * i / 48000.0));
+    const auto level = [&] (int quality, double rate)
+    {
+        const auto run = runPlayer (*bright, [quality] (SamplePlayer::Params& p) { p.loop = true; p.quality = quality; }, 8000, -1, rate);
+        double sum = 0.0;
+        for (size_t i = 1000; i < run.out.size(); ++i)
+            sum += (double) run.out[i] * run.out[i];
+        return std::sqrt (sum / (double) (run.out.size() - 1000));
+    };
+    const auto linearPlain = runPlayer (*bright, [] (SamplePlayer::Params& p) { p.loop = true; }, 4000, -1, 1.37);
+    const auto linearSet = runPlayer (*bright, [] (SamplePlayer::Params& p) { p.loop = true; p.quality = 0; }, 4000, -1, 1.37);
+    check (linearPlain.out == linearSet.out, "Linear is the old read, bit for bit");
+    for (int quality = 1; quality <= 3; ++quality)
+        check (level (quality, 0.73) > 0.3, "quality " + juce::String (quality) + " keeps an in-band tone (" + juce::String (level (quality, 0.73), 3) + ")");
+    const auto aliased = level (2, 2.8), filtered = level (3, 2.8);
+    check (filtered < 0.05 && aliased > 0.2, "Sinc + Anti-Alias removes the folded tone of a strong transposition ("
+                                                 + juce::String (aliased, 3) + " -> " + juce::String (filtered, 3) + ")");
+    const auto edges = runPlayer (*bright, [] (SamplePlayer::Params& p) { p.quality = 3; p.reverse = true; }, 30000, -1, 3.9);
+    check (std::all_of (edges.out.begin(), edges.out.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 2.0f; }),
+           "the quality reads stay finite at the sample's edges");
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -376,4 +408,5 @@ void runSamplerTests()
     runSamplePlaybackModeTest();
     runSamplePingPongTest();
     runSampleRandomStartTest();
+    runSampleQualityTest();
 }

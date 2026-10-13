@@ -215,6 +215,7 @@ void Voice::syncSamplePlayers()
         sampleParams.pingPong = osc.samplePingPong;
         sampleParams.startRandom = osc.sampleStartRandom;
         sampleParams.startSafe = osc.sampleStartSafe;
+        sampleParams.quality = osc.sampleQuality;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
         sampleParams.end = end;

@@ -830,6 +830,7 @@ class OscPage : public juce::Component,
               samplePingPong (state, prefix + "_sample_pingpong", "PING-PONG"),
               sampleStartSafe (state, prefix + "_sample_start_safe", "TRANSIENT SAFE"),
               sampleStartRandom (state, prefix + "_sample_start_rand", "RANDOM START"),
+              sampleQuality (state, prefix + "_sample_quality", "QUALITY"),
               sampleStart (state, prefix + "_sample_start", "START"),
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
@@ -889,7 +890,7 @@ class OscPage : public juce::Component,
         // Step 40: the sample follows the host tempo.
         ComboControl sampleSync, sampleStretch;
         // The sampler steps: the PLAYBACK row (33...).
-        ComboControl samplePlayback;
+        ComboControl samplePlayback, sampleQuality;
         ToggleControl samplePingPong, sampleStartSafe;
         KnobControl sampleStartRandom;
         KnobControl sampleBpm;
@@ -1016,7 +1017,7 @@ public:
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleSnap, osc.sampleLoopXfade, osc.sampleStart,
                                 osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
-                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback, osc.samplePingPong, osc.sampleStartRandom, osc.sampleStartSafe,
+                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback, osc.samplePingPong, osc.sampleStartRandom, osc.sampleStartSafe, osc.sampleQuality,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
         }
@@ -1033,7 +1034,7 @@ public:
                 knob->setInlineKnob (true);
             for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
-                                &osc.samplePlayback })
+                                &osc.samplePlayback, &osc.sampleQuality })
                 menu->setCompactLayout (true);
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe, &osc.grainLive })
                 toggle->setInlineLabel (true);
@@ -1246,7 +1247,7 @@ public:
             for (juce::Component* control : { (juce::Component*) &osc.sampleLoop, (juce::Component*) &osc.sampleReverse, (juce::Component*) &osc.sampleSnap, (juce::Component*) &osc.sampleStart,
                                               (juce::Component*) &osc.sampleEnd, (juce::Component*) &osc.sampleFadeIn, (juce::Component*) &osc.sampleFadeOut,
                                               (juce::Component*) &osc.sampleSync, (juce::Component*) &osc.sampleBpm, (juce::Component*) &osc.sampleStretch,
-                                              (juce::Component*) &osc.samplePlayback, (juce::Component*) &osc.sampleStartRandom })
+                                              (juce::Component*) &osc.samplePlayback, (juce::Component*) &osc.sampleStartRandom, (juce::Component*) &osc.sampleQuality })
                 effectRules.add (*control, [this, i]
                                  {
                                      const auto* sample = processorRef.getSampleForOsc (i);
@@ -1711,6 +1712,7 @@ private:
                 add (osc.samplePingPong, 3, 1);
                 add (osc.sampleStartRandom, 3, 2);
                 add (osc.sampleStartSafe, 3, 3);
+                add (osc.sampleQuality, 3, 4);
                 // More than one voice: the unison's own row (review 11, I11-11).
                 if (readFloat (prefix + "_unison") > 1.5f)
                 {
@@ -2721,7 +2723,7 @@ private:
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
@@ -2891,7 +2893,7 @@ private:
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
-                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe,
+                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,

@@ -1272,5 +1272,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_sample_start_safe", name + " Sample Transient Safe", false);
     }
 
+    // Roadmap step 39: how the sample is read between its samples. Linear,
+    // as in every older patch; Sinc + Anti-Alias filters what a strong
+    // upward transposition would fold back.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_quality", name + " Sample Quality", { "Linear", "Cubic", "Sinc", "Sinc + Anti-Alias" }, 0);
+    }
+
     return layout;
 }

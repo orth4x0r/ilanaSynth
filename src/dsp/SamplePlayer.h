@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "SampleInterpolation.h"
 #include "SampleOnsets.h"
 #include "SampleRange.h"
 #include "SampleTempo.h"
@@ -152,6 +153,11 @@ public:
         // it, onto a zero crossing, so no note starts mid-hit. 0, as before.
         float startRandom = 0.0f;
         bool startSafe = false;
+        // Roadmap step 39: how the read between samples is worked out
+        // (SampleInterpolation::Quality): Linear, as before; Cubic; Sinc;
+        // Sinc with anti-aliasing for strong upward transposition. STRETCH's
+        // grains stay linear.
+        int quality = 0;
     };
 
     enum Playback { gate = 0, oneShot = 1, sustainLoop = 2 };
@@ -365,9 +371,12 @@ public:
         const auto next = juce::jmin (index + 1, numSamples - 1);
         const auto frac = (float) (position - (double) index);
 
+        const auto quality = (SampleInterpolation::Quality) juce::jlimit (0, 3, params.quality);
         const auto readChannel = [&] (int channel)
         {
             const auto* data = sample->buffer.getReadPointer (juce::jmin (channel, sample->getNumChannels() - 1));
+            if (quality != SampleInterpolation::Quality::Linear)
+                return SampleInterpolation::read (data, numSamples, position, quality, ratio);
             return data[index] + (data[next] - data[index]) * frac;
         };
 
@@ -388,6 +397,8 @@ public:
                 const auto readPartner = [&] (int channel)
                 {
                     const auto* data = sample->buffer.getReadPointer (juce::jmin (channel, sample->getNumChannels() - 1));
+                    if (quality != SampleInterpolation::Quality::Linear)
+                        return SampleInterpolation::read (data, numSamples, partner, quality, ratio);
                     return data[partnerIndex] + (data[partnerNext] - data[partnerIndex]) * partnerFrac;
                 };
                 // Linear: the blend never exceeds the louder of the two reads.

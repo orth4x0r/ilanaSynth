@@ -7,6 +7,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/Modulation.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 #include "IlanaLookAndFeel.h"
 
 namespace XtraDisplayHelpers
@@ -225,7 +226,7 @@ public:
             loop.addCentredArc (osc1Centre.x, osc1Centre.y - 4.0f, nodeSize * 0.7f, nodeSize * 0.7f, 0.0f,
                                 juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 1.8f, true);
             g.setColour (unitColour.withAlpha (0.3f + 0.6f * feedback));
-            g.strokePath (loop, juce::PathStrokeType (1.5f + feedback * 3.0f));
+            g.strokePath (loop, IlanaTrace::stroke (1.5f + feedback * 3.0f));
         }
 
         drawNode (g, osc2Centre, nodeSize, juce::Colour (0xff5b8cff), "OSC 2", sync);
@@ -262,8 +263,7 @@ public:
                 driftPath.lineTo (driftArea.getX() + (float) x, y);
         }
 
-        g.setColour (unitColour.withAlpha (0.4f + 0.5f * juce::jmin (1.0f, drift * 2.0f)));
-        g.strokePath (driftPath, juce::PathStrokeType (1.4f));
+        IlanaTrace::paintTrace (g, driftPath, unitColour.withAlpha (0.4f + 0.5f * juce::jmin (1.0f, drift * 2.0f)));
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
@@ -584,21 +584,10 @@ public:
             }
         }
 
-        juce::Path filled = response;
-        filled.lineTo (plot.getRight(), plot.getBottom());
-        filled.lineTo (plot.getX(), plot.getBottom());
-        filled.closeSubPath();
-
-        juce::ColourGradient fill (unitColour.withAlpha (on ? 0.4f : 0.08f), 0.0f, plot.getY(),
-                                   unitColour.withAlpha (0.02f), 0.0f, plot.getBottom(), false);
-        g.setGradientFill (fill);
-        g.fillPath (filled);
-
-        g.setColour (unitColour.withAlpha (on ? 0.2f : 0.06f));
-        g.strokePath (response, juce::PathStrokeType (4.0f));
-
-        g.setColour (unitColour.withAlpha (on ? 0.95f : 0.2f));
-        g.strokePath (response, juce::PathStrokeType (1.6f));
+        // The shared trace style (DisplayStyle.h); off, only a faint trace.
+        if (on)
+            IlanaTrace::paintArea (g, response, unitColour, plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, response, unitColour.withAlpha (on ? 0.95f : 0.2f));
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));

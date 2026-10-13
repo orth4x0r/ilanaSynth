@@ -224,6 +224,8 @@ Audio stretchCore (const Audio& input, int targetLen)
     analyse (mFirst, fCur);
     for (int m = mFirst; m <= mLast; ++m)
     {
+        if (cancelled())
+            return Audio{};
         const bool haveNext = (m < mLast);
         if (haveNext)
             analyse (m + 1, fNext);

@@ -489,10 +489,8 @@ public:
                 // The card's "OUT 2" tag drags the second output.
                 const auto fromB = index < IlanaSynthAudioProcessor::numLfos
                                    && outputBTag (index, boundsOfCard (index).toFloat()).contains (event.getMouseDownPosition().toFloat());
-                auto image = createComponentSnapshot (boundsOfCard (index), true, 1.0f);
-                image.multiplyAllAlphas (0.75f);
                 container->startDragging ("modsource:" + juce::String ((int) (fromB ? Mod::lfoBSourceFor (index) : sourceOf (index))), this,
-                                          juce::ScaledImage (image), true);
+                                          IlanaTheme::dragGhost (*this, boundsOfCard (index), 0.75f), true);
             }
         }
     }

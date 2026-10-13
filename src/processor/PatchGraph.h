@@ -284,60 +284,60 @@ public:
         return true;
     }
 
-    // Which cables close a loop: a depth-first walk from Input (then from
-    // every node it didn't reach, in node order), following cables in the
-    // order they were made; a cable back to a node still on the walk's path
-    // is a feedback cable. Removing them leaves no loop, and the answer is the
-    // same every time for the same graph.
+    // Which cables close a loop: the cables are added one by one in the order
+    // they were made, and a cable that would close a loop with the ones
+    // before it (a path already runs from where it ends to where it starts)
+    // is a feedback cable. So on a loop it is the newest cable that is the
+    // feedback one: drawing a cable never turns an older one into the loop.
+    // Removing the feedback cables leaves no loop, and the answer is the same
+    // every time for the same graph.
     std::vector<bool> feedbackCables() const
     {
         std::vector<bool> feedback (cableList.size(), false);
-        std::vector<int> state (nodeList.size(), 0); // 0 not seen, 1 on the path, 2 done
+        std::vector<std::vector<int>> next (nodeList.size()); // forward cables kept so far, by node index
+        std::vector<int> seen (nodeList.size(), 0);
+        std::vector<int> stack;
+        auto stamp = 0;
 
-        struct Frame { int node; size_t nextCable; };
-        std::vector<Frame> stack;
-
-        const auto walkFrom = [&] (int start)
+        for (size_t c = 0; c < cableList.size(); ++c)
         {
-            stack.push_back ({ start, 0 });
-            state[(size_t) start] = 1;
-            while (! stack.empty())
+            const auto from = indexOf (cableList[c].from.node);
+            const auto to = indexOf (cableList[c].to.node);
+            if (from < 0 || to < 0)
+                continue;
+
+            // Is `from` reachable from `to`?
+            auto closes = from == to;
+            if (! closes)
             {
-                auto& frame = stack.back();
-                const auto id = nodeList[(size_t) frame.node].id;
-                auto pushed = false;
-                while (frame.nextCable < cableList.size())
+                ++stamp;
+                stack.assign (1, to);
+                seen[(size_t) to] = stamp;
+                while (! stack.empty() && ! closes)
                 {
-                    const auto c = frame.nextCable++;
-                    if (cableList[c].from.node != id)
-                        continue;
-                    const auto target = indexOf (cableList[c].to.node);
-                    if (target < 0)
-                        continue;
-                    if (state[(size_t) target] == 1)
-                    {
-                        feedback[c] = true;
-                    }
-                    else if (state[(size_t) target] == 0)
-                    {
-                        state[(size_t) target] = 1;
-                        stack.push_back ({ target, 0 });
-                        pushed = true;
-                        break;
-                    }
-                }
-                if (! pushed)
-                {
-                    state[(size_t) stack.back().node] = 2;
+                    const auto node = stack.back();
                     stack.pop_back();
+                    for (const auto target : next[(size_t) node])
+                    {
+                        if (target == from)
+                        {
+                            closes = true;
+                            break;
+                        }
+                        if (seen[(size_t) target] != stamp)
+                        {
+                            seen[(size_t) target] = stamp;
+                            stack.push_back (target);
+                        }
+                    }
                 }
             }
-        };
 
-        walkFrom (indexOf (inputNodeId));
-        for (size_t i = 0; i < nodeList.size(); ++i)
-            if (state[i] == 0)
-                walkFrom ((int) i);
+            if (closes)
+                feedback[c] = true;
+            else
+                next[(size_t) from].push_back (to);
+        }
         return feedback;
     }
 

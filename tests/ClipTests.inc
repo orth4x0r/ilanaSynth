@@ -355,4 +355,41 @@ void runClipTests()
         check (! ClipState::importMidi (file, nothing, error) && error.isNotEmpty(), "clip: a file without notes is refused with a message");
         file.deleteFile();
     }
+
+    // Review (TS-3, TS-10): a shorter clip drops the notes past its end
+    // instead of piling them on the last 1/16; a bad patch's NaN or negative
+    // values never reach the audio loop.
+    {
+        ClipState state;
+        Clip clip;
+        clip.bars = 4;
+        clip.notes = { { 1.0f, 1.0f, 60, 90 }, { 9.0f, 1.0f, 62, 90 }, { 12.0f, 1.0f, 64, 90 } };
+        state.setClip (0, clip);
+        clip.bars = 2;
+        state.setClip (0, clip);
+        const auto shorter = state.getClip (0);
+        check (shorter.notes.size() == 1 && shorter.notes[0].note == 60 && shorter.notes[0].start == 1.0f,
+               "clip: shortening drops the notes past the new end");
+
+        juce::ValueTree patch ("State"), clips (ClipState::treeType), c ("Clip");
+        c.setProperty ("index", 0, nullptr);
+        c.setProperty ("bars", 1, nullptr);
+        const auto addNote = [&c] (double start, double length)
+        {
+            juce::ValueTree n ("N");
+            n.setProperty ("s", start, nullptr);
+            n.setProperty ("l", length, nullptr);
+            c.appendChild (n, nullptr);
+        };
+        addNote (std::numeric_limits<double>::quiet_NaN(), 1.0);
+        addNote (1.0, -3.0);
+        addNote (2.0, 1.0);
+        clips.appendChild (c, nullptr);
+        patch.appendChild (clips, nullptr);
+        ClipState loaded;
+        loaded.loadFrom (patch);
+        const auto bad = loaded.getClip (0);
+        check (bad.notes.size() == 2 && bad.notes[0].length > 0.0f && bad.notes[1].length > 0.0f,
+               "clip: a loaded patch's NaN note is refused and a negative length is made positive");
+    }
 }

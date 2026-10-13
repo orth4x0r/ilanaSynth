@@ -31,7 +31,7 @@ public:
         layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "loop_level", 1 }, "Loop Level",
                                                                  juce::NormalisableRange<float> (0.0f, 70.0f, 1.0f), 20.0f,
                                                                  juce::AudioParameterFloatAttributes().withStringFromValueFunction (
-                                                                     [] (float value, int) { return juce::String (juce::roundToInt (value)) + " %"; })));
+                                                                     [] (float value, int) { return juce::String (juce::roundToInt (value)) + "%"; })));
         layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "loop_delay", 1 }, "Loop Delay",
                                                                  juce::NormalisableRange<float> (1.0f, PatchGraph::maxLoopDelayMs, 0.0f, 0.3f), 1.0f,
                                                                  juce::AudioParameterFloatAttributes().withStringFromValueFunction (
@@ -710,7 +710,7 @@ private:
             if (slot < 0)
                 return {};
             const auto cpu = processorRef.getFxSlotCpu (slot);
-            return juce::String (cpu * 100.0f, cpu < 0.001f ? 2 : 1) + " % CPU";
+            return juce::String (cpu * 100.0f, cpu < 0.001f ? 2 : 1) + "% CPU";
         }
         const auto kind = localKind (node);
         if (kind >= stageKind)
@@ -947,7 +947,7 @@ private:
             const auto guard = loopCount == 0 ? juce::String ("no loops") : ringing == 0 ? juce::String ("idle")
                                                                                          : juce::String ("holding ") + juce::String (ringing) + (ringing == 1 ? " loop" : " loops");
             std::vector<std::pair<juce::String, juce::String>> cells {
-                { "EFFECTS CPU", juce::String (cpu * 100.0f, 2) + " %" },
+                { "EFFECTS CPU", juce::String (cpu * 100.0f, 2) + "%" },
                 { "LOOP GUARD", guard }
             };
             if (hasVoice)
@@ -982,7 +982,7 @@ private:
             detail = "Slot " + juce::String (slot + 1);
             if (processorRef.isFxInstance (slot) || ! processorRef.isFxSlotInFront (slot))
                 detail << (processorRef.isFxSlotInFront (slot) ? ", own settings, open on its RACK card" : ", own settings");
-            detail << ", " << juce::String (processorRef.getFxSlotCpu (slot) * 100.0f, 2) << " % CPU";
+            detail << ", " << juce::String (processorRef.getFxSlotCpu (slot) * 100.0f, 2) << "% CPU";
         }
         g.setColour (Ui::text3);
         g.setFont (font (TextSize::label));
@@ -1231,6 +1231,13 @@ private:
             refusal = "That would close a loop: the filters run in a line.";
             return false;
         }
+        // A graph the compiler can't make would play as the rack instead
+        // (too many loops, too many buffers): say so now, not by ear.
+        if (const auto plan = PatchGraph::compile (fxGraphOf (graph)); ! plan.ok)
+        {
+            refusal = "The effects can't play that: " + juce::String (plan.error) + ".";
+            return false;
+        }
         return true;
     }
 
@@ -1389,7 +1396,7 @@ private:
     {
         if (processorRef.isFxPatcherOn())
             return;
-        processorRef.setFxPatchGraph (processorRef.getFxRackGraph());
+        processorRef.setFxPatchGraph (processorRef.getFxRackGraph (true)); // (bypass stays the slot's own)
         processorRef.setFxPatcherOn (true);
     }
 
@@ -1410,8 +1417,24 @@ private:
         refresh (true);
     }
 
+    bool rackFull() const
+    {
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            if (read ("fx_slot" + juce::String (slot + 1)) < 0.5f)
+                return false;
+        return true;
+    }
+
     void duplicateEffect (int slot)
     {
+        if (rackFull())
+        {
+            // (Refused before any edit: nothing changes, not even the routing.)
+            refusal = "Every slot is in use.";
+            refusedUntil = juce::Time::getMillisecondCounter() + 3000;
+            repaint (hint);
+            return;
+        }
         const PatchGraph::Node* node = nullptr;
         for (const auto& box : shown.nodes())
             if (slotOf (&box) == slot)
@@ -1421,15 +1444,16 @@ private:
         const auto type = node->kind;
         const juce::Point<float> at (node->x, node->y + 70.0f);
         auto added = -1;
-        processorRef.performEdit ("Duplicate effect", [this, slot, type, &added]
+        processorRef.performEdit ("Duplicate effect", [this, slot, type, at, &added]
         {
             playRackAsCables();
             if (! processorRef.isFxSlotInFront (slot))
                 processorRef.focusFxInstance (slot);
             added = processorRef.addFxEffect (type);
+            if (added >= 0)
+                placeNodeNow (added, at); // (inside the edit, so redo keeps the place)
         });
-        if (added >= 0)
-            placeNode (added, at);
+        refresh (true);
     }
 
     void open (const PatchGraph::Node& node)
@@ -1608,21 +1632,14 @@ private:
             return;
         menu.addItem ("Open its window", [this, slot] { openWindow (slot); });
         menu.addItem ("Edit on the RACK page", [this, slot] { if (onOpenSlot) onOpenSlot (slot); });
-        menu.addItem ("Duplicate (its own settings)", [this, slot] { duplicateEffect (slot); });
+        menu.addItem ("Duplicate (its own settings)", ! rackFull(), false, [this, slot] { duplicateEffect (slot); });
     }
 
     void addEffectItems (juce::PopupMenu& menu, juce::Point<float> at)
     {
         menu.addItem ("Add an LFO here", (int) lfoPatch.lfos.size() < FxLfo::maxLfos, false, [this, at] { addLfo (at); });
         menu.addSeparator();
-        const auto full = [this]
-        {
-            for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
-                if (read ("fx_slot" + juce::String (slot + 1)) < 0.5f)
-                    return false;
-            return true;
-        }();
-        if (full)
+        if (rackFull())
         {
             menu.addItem (-1, "Every slot is in use", false);
             return;
@@ -1635,13 +1652,14 @@ private:
                 const auto add = [this, at] (int type, const juce::String& name)
                 {
                     auto added = -1;
-                    processorRef.performEdit ("Add " + name, [this, type, &added]
+                    processorRef.performEdit ("Add " + name, [this, type, at, &added]
                     {
                         playRackAsCables();
                         added = processorRef.addFxEffect (type);
+                        if (added >= 0)
+                            placeNodeNow (added, at); // (inside the edit, so redo keeps the place)
                     });
-                    if (added >= 0)
-                        placeNode (added, at);
+                    refresh (true);
                 };
                 sub.addItem (entry.name, [add, type = entry.type, name = juce::String (entry.name)] { add (type, name); });
                 if (entry.twin > 0)
@@ -1654,7 +1672,7 @@ private:
 
     // A new effect's box where the menu was opened (the processor wired it in
     // before OUT); at is a merged-graph position.
-    void placeNode (int slot, juce::Point<float> at)
+    void placeNodeNow (int slot, juce::Point<float> at)
     {
         auto graph = processorRef.getFxPatchGraph();
         for (const auto& node : std::vector<PatchGraph::Node> (graph.nodes()))
@@ -1664,7 +1682,6 @@ private:
                 if (processorRef.isFxPatcherOn())
                     processorRef.setFxPatchGraph (graph);
             }
-        refresh (true);
     }
 
     //==========================================================================
@@ -1973,7 +1990,8 @@ private:
     // A view edit that touched an LFO box or cable: made here (one undo step), true if so.
     bool commitLfos()
     {
-        const auto patch = processorRef.getFxPatch();
+        const auto patchPointer = processorRef.getFxPatchShared(); // (no copy)
+        const auto& patch = *patchPointer;
         std::vector<FxPatchData::LfoCable> cables;
         for (const auto& cable : shown.cables())
             if (const auto* from = shown.find (cable.from.node); from != nullptr && isLfo (*from))
@@ -2127,7 +2145,8 @@ private:
     // cabled to this effect (or stop, or how far), or make an LFO for it.
     void addKnobLfoItems (juce::PopupMenu& menu, int slot, const juce::String& param)
     {
-        const auto patch = processorRef.getFxPatch();
+        const auto patchPointer = processorRef.getFxPatchShared(); // (no copy)
+        const auto& patch = *patchPointer;
         const auto targets = processorRef.getFxLfoTargets (slot);
         if (std::none_of (targets.begin(), targets.end(), [&param] (const auto& t) { return t.first == param; }))
             return;
@@ -2152,12 +2171,12 @@ private:
             }
             juce::PopupMenu amounts;
             for (const auto percent : { 100, 50, 25, -25, -50, -100 })
-                amounts.addItem (juce::String (percent) + " %", true, juce::roundToInt (route->amount * 100.0f) == percent, [this, id, slot, param, percent]
+                amounts.addItem (juce::String (percent) + "%", true, juce::roundToInt (route->amount * 100.0f) == percent, [this, id, slot, param, percent]
                 {
                     processorRef.performEdit ("LFO amount", [this, id, slot, param, percent] { processorRef.setFxLfoAmount (id, slot, param, (float) percent / 100.0f); });
                     refresh (true);
                 });
-            menu.addSubMenu (name + " amount  (" + juce::String (juce::roundToInt (route->amount * 100.0f)) + " %)", amounts);
+            menu.addSubMenu (name + " amount  (" + juce::String (juce::roundToInt (route->amount * 100.0f)) + "%)", amounts);
             menu.addItem ("Remove from " + name, [this, id, slot, param, name]
             {
                 processorRef.performEdit ("Remove from " + name, [this, id, slot, param] { processorRef.assignFxLfo (id, slot, param, false); });
@@ -2249,7 +2268,7 @@ private:
 
     void updateZoomLabel()
     {
-        const auto text = juce::String (juce::roundToInt (view.getTargetZoom() * 100.0f)) + " %";
+        const auto text = juce::String (juce::roundToInt (view.getTargetZoom() * 100.0f)) + "%";
         if (zoomLabel.getButtonText() != text)
             zoomLabel.setButtonText (text);
         zoomOutButton.setEnabled (view.getTargetZoom() > PatchCableView::minViewZoom + 0.001f);
@@ -2267,7 +2286,7 @@ private:
     juce::Rectangle<float> voiceArea;
 
     juce::TextButton addButton { "+ ADD EFFECT" }, resetButton { "RESET" }, fitButton { "FIT" };
-    juce::TextButton zoomOutButton { juce::String::fromUTF8 ("\xe2\x88\x92") }, zoomInButton { "+" }, zoomLabel { "100 %" };
+    juce::TextButton zoomOutButton { juce::String::fromUTF8 ("\xe2\x88\x92") }, zoomInButton { "+" }, zoomLabel { "100%" };
     juce::Rectangle<int> zoomWell, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
     bool autoFit = true; // false once the user moves the view (FIT gives it back)
 

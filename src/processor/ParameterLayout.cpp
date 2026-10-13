@@ -1228,5 +1228,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (prefix + "_sample_loop_end", name + " Sample Loop End", 0.0f, 1.0f, 0.75f);
     }
 
+    // Review (E-7): a MIDI program change no longer replaces the patch
+    // unless asked (it loaded a factory preset, silently, before).
+    addBool ("midi_program_change", "MIDI Program Change Loads Presets", false);
+
     return layout;
 }

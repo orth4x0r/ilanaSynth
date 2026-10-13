@@ -26,7 +26,9 @@ public:
         // Drawn in its LFO's colour (as on its chip and card), whatever
         // colour the page asked for.
         juce::ignoreUnused (stepColourIn);
-        setTooltip ("Drag to draw the 16 step values");
+        setTooltip ("LFO steps\nDrag across the bars to draw the 16 step values.\nDouble-click a step to reset it. Esc cancels a drag.");
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        setWantsKeyboardFocus (true);
         startTimerHz (24);
     }
 
@@ -70,7 +72,13 @@ public:
             const auto x = plot.getX() + (float) step * stepWidth;
             const auto y = centreY - value * halfHeight;
 
-            g.setColour (stepColour.withAlpha (0.85f));
+            if (step == hoverStep)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.06f));
+                g.fillRect (juce::Rectangle<float> (x, plot.getY(), stepWidth, plot.getHeight()));
+            }
+
+            g.setColour (stepColour.withAlpha (step == hoverStep ? 1.0f : 0.85f));
             g.fillRect (juce::Rectangle<float> (x + 1.0f, juce::jmin (y, centreY), juce::jmax (1.0f, stepWidth - 2.0f),
                                                 std::abs (y - centreY)));
 
@@ -100,31 +108,110 @@ private:
         return 0.0f;
     }
 
-    void setFromPosition (juce::Point<float> position)
+    int stepAt (juce::Point<float> position) const
     {
         const auto plot = getLocalBounds().toFloat().reduced (8.0f, 10.0f);
 
         if (plot.getWidth() <= 1.0f)
-            return;
+            return -1;
 
-        const auto step = juce::jlimit (0, 15, (int) ((position.x - plot.getX()) / plot.getWidth() * 16.0f));
-        const auto value = juce::jlimit (-1.0f, 1.0f, 1.0f - 2.0f * (position.y - plot.getY()) / plot.getHeight());
+        return juce::jlimit (0, 15, (int) ((position.x - plot.getX()) / plot.getWidth() * 16.0f));
+    }
+
+    void writeStep (int step, float value)
+    {
         const auto id = "lfo" + juce::String (index + 1) + "_step" + juce::String (step + 1);
 
         if (auto* parameter = processorRef.apvts.getParameter (id))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            gestures.set (parameter, parameter->convertTo0to1 (value));
+    }
 
+    void setFromPosition (juce::Point<float> position)
+    {
+        const auto plot = getLocalBounds().toFloat().reduced (8.0f, 10.0f);
+        const auto step = stepAt (position);
+
+        if (step < 0)
+            return;
+
+        const auto value = juce::jlimit (-1.0f, 1.0f, 1.0f - 2.0f * (position.y - plot.getY()) / plot.getHeight());
+
+        // A fast sweep skips bars between mouse events: fill them in.
+        IlanaDrag::paintRun (lastStep, lastValue, step, value, [this] (int s, float v) { writeStep (s, v); });
+        lastStep = step;
+        lastValue = value;
         repaint();
     }
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        gestures.begin();
+        lastStep = -1;
         processorRef.beginEdit ("LFO " + juce::String (index + 1) + " steps");
         setFromPosition (event.position);
     }
 
-    void mouseDrag (const juce::MouseEvent& event) override { setFromPosition (event.position); }
-    void mouseUp (const juce::MouseEvent&) override { processorRef.endEdit(); }
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        hoverStep = stepAt (event.position);
+
+        if (! gestures.cancelled())
+            setFromPosition (event.position);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        gestures.end();
+        processorRef.endEdit();
+        lastStep = -1;
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        if (const auto step = stepAt (event.position); step != hoverStep)
+        {
+            hoverStep = step;
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverStep = -1;
+        repaint();
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        const auto step = stepAt (event.position);
+
+        if (step < 0)
+            return;
+
+        processorRef.performEdit ("Reset LFO step", [this, step]
+        {
+            if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1) + "_step" + juce::String (step + 1)))
+                gestures.set (parameter, parameter->getDefaultValue());
+
+            gestures.end();
+        });
+        repaint();
+    }
+
+    // Esc during a drag puts every step it touched back.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! gestures.isOpen() || gestures.cancelled())
+            return false;
+
+        gestures.cancel();
+        repaint();
+        return true;
+    }
+
+    IlanaDrag::Gestures gestures;
+    int lastStep = -1, hoverStep = -1;
+    float lastValue = 0.0f;
 
     IlanaSynthAudioProcessor& processorRef;
     int index = 0;
@@ -150,9 +237,11 @@ public:
     explicit MsegEditor (IlanaSynthAudioProcessor& processor)
         : processorRef (processor)
     {
-        setTooltip ("MSEG\nDrag a point: up and down sets its level, sideways moves it in time (GRID, top right, sets the snap). "
-                    "Double-click a point to reset it; right-click for shapes. The ruler gives the time into one cycle at the "
-                    "current RATE; the line and dot show where it is now.");
+        setTooltip ("MSEG\nDrag a point: up and down sets its level, sideways moves it in time.\n"
+                    "GRID, top right, sets the snap. Double-click a point to reset it.\n"
+                    "Right-click for shapes. Esc cancels a drag.\n"
+                    "The ruler gives the time into one cycle at the current RATE; the line and dot show where it is now.");
+        setWantsKeyboardFocus (true);
         startTimerHz (24);
     }
 
@@ -450,10 +539,12 @@ private:
         return 0.25f;
     }
 
+    // Every write opens the host gesture on its parameter; mouse-up closes
+    // them (a one-shot edit calls gestures.end() itself).
     void setParameter (const juce::String& id, float plainValue)
     {
         if (auto* parameter = processorRef.apvts.getParameter (id))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
+            gestures.set (parameter, parameter->convertTo0to1 (plainValue));
     }
 
     int findHandle (juce::Point<float> position) const
@@ -505,6 +596,7 @@ private:
         }
 
         dragHandle = findHandle (event.position);
+        gestures.begin();
 
         if (dragHandle >= 0)
             processorRef.beginEdit ("MSEG point " + juce::String (dragHandle + 1));
@@ -512,6 +604,8 @@ private:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        gestures.end();
+
         if (dragHandle >= 0)
             processorRef.endEdit();
 
@@ -521,7 +615,7 @@ private:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        if (dragHandle < 0)
+        if (dragHandle < 0 || gestures.cancelled())
             return;
 
         const auto plot = plotArea();
@@ -559,8 +653,21 @@ private:
         processorRef.performEdit ("Reset MSEG point " + juce::String (handle + 1), [this, handle]
         {
             if (auto* parameter = processorRef.apvts.getParameter ("mseg_level" + juce::String (handle + 1)))
-                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                gestures.set (parameter, parameter->getDefaultValue());
+
+            gestures.end();
         });
+    }
+
+    // Esc during a drag puts the point's level and times back.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || dragHandle < 0 || ! gestures.isOpen() || gestures.cancelled())
+            return false;
+
+        gestures.cancel();
+        repaint();
+        return true;
     }
 
     // The right-click menu: a few starting shapes, and flips.
@@ -616,6 +723,8 @@ private:
                     self.setParameter ("mseg_level" + juce::String (i + 1), levels[(size_t) i]);
                     self.setParameter ("mseg_time" + juce::String (i + 1), times[(size_t) i]);
                 }
+
+                self.gestures.end();
             });
             self.repaint();
         });
@@ -624,6 +733,7 @@ private:
     static constexpr float minTime = 0.05f, maxTime = 1.0f; // mseg_time's range
 
     IlanaSynthAudioProcessor& processorRef;
+    IlanaDrag::Gestures gestures;
     int dragHandle = -1;
     int hoverHandle = -1;
     int gridDivisions = 8;

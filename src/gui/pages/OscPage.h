@@ -203,7 +203,7 @@ inline juce::String depthList (const IlanaSynthAudioProcessor& p, int osc, const
     juce::StringArray names;
     for (const auto other : others)
         names.add ("OSC " + juce::String (other + 1) + " "
-                   + juce::String (juce::roundToInt (read (p, from ? FmDiagram::routeId (other, osc) : FmDiagram::routeId (osc, other)) * 100.0f)) + " %");
+                   + juce::String (juce::roundToInt (read (p, from ? FmDiagram::routeId (other, osc) : FmDiagram::routeId (osc, other)) * 100.0f)) + "%");
     return names.joinIntoString (", ");
 }
 
@@ -1167,7 +1167,10 @@ public:
         sbOn.showAsSwitch();
 
         for (auto* knob : stripKnobs())
+        {
             knob->setInlineKnob (true);
+            knob->setCapDialLikeRings (true);
+        }
         for (auto* menu : { &subShape, &subOctave, &sbModel, voiceMode.get() })
             menu->setCompactLayout (true);
         symManual.setInlineLabel (true);
@@ -2631,17 +2634,29 @@ private:
 
                                        const auto factoryCount = TableFactory::getNumFactoryTables();
                                        const auto domain = juce::jmax (0, safeThis->readTableChoiceIndex (tableId) - tableChoiceOffset);
-                                       const auto slot = domain >= factoryCount
-                                                             ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1,
-                                                                             domain - factoryCount)
-                                                             : 0;
+                                       // A User table selected is replaced; with a factory table
+                                       // selected the file goes to a free User slot (never over
+                                       // another oscillator's table).
+                                       auto slot = domain >= factoryCount
+                                                       ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1,
+                                                                       domain - factoryCount)
+                                                       : safeThis->processorRef.findFreeUserSlot();
 
+                                       if (slot < 0)
+                                       {
+                                           juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Load wavetable",
+                                                                                   "All 16 patch tables are in use. Pick a User table to replace it.");
+                                           return;
+                                       }
+
+                                       safeThis->processorRef.beginEdit ("Load wavetable"); // the table and the choice: one undo step
                                        if (safeThis->processorRef.loadUserWavetable (slot, file, mode))
                                        {
                                            if (auto* parameter = safeThis->processorRef.apvts.getParameter (tableId))
                                                parameter->setValueNotifyingHost (
                                                    parameter->convertTo0to1 ((float) (tableChoiceOffset + factoryCount + slot)));
                                        }
+                                       safeThis->processorRef.endEdit();
                                    });
     }
 
@@ -3023,6 +3038,8 @@ public:
             }
             auto doc = WavetableDoc::fromFactory (choice);
             doc.name << " edit";
+            // The copy and the switch to it are one undo step.
+            processorRef.beginEdit ("Edit a copy of the table");
             processorRef.setUserTable (slot, doc);
             if (auto* parameter = processorRef.apvts.getParameter (id))
             {
@@ -3030,6 +3047,7 @@ public:
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (factoryCount + slot)));
                 parameter->endChangeGesture();
             }
+            processorRef.endEdit();
         }
 
         if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())

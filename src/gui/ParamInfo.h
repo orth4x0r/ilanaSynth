@@ -1146,6 +1146,7 @@ inline const HelpRow helpRows[] {
     { is ("output_trim"), "The preset's own level, set when a factory preset loads (MASTER stays yours)." },
     { is ("master_clip"), "Soft-clips the output so extreme patches can't hard-clip." },
     { is ("master_clip_gain"), "Input gain into the soft clipper. Drive it to squash peaks harder." },
+    { is ("midi_program_change"), "A MIDI program change loads the factory preset with that number. Off: program changes are ignored, so a host or keyboard cannot replace your patch." },
     { is ("oversampling"), "Renders the oscillators, filters and envelopes at 2x and downsamples, cutting aliasing from FM, sync and wavefolding. Uses more CPU." },
     { ends ("_sample_tuned"), "Tuned follows the played note; untuned plays the file at its original pitch." },
     { ends ("_sample_loop"), "Loops the start/end region instead of playing once." },

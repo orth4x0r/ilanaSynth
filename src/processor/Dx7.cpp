@@ -81,19 +81,20 @@ int IlanaSynthAudioProcessor::importDx7File (const juce::File& file, juce::Strin
     const auto folder = getUserPresetDirectory().getChildFile ("DX7").getChildFile (file.getFileNameWithoutExtension());
     folder.createDirectory();
 
-    // Each voice goes through the processor (as a load would), is saved, and
-    // the patch that was open comes back afterwards.
-    const auto before = buildFullState();
+    // Each voice goes through a processor of its own (as a load would) and is
+    // saved: the open patch, its samples, tables and undo history are not
+    // touched, and the live audio does not glitch. On the heap: a processor
+    // is too big for a stack frame.
+    auto scratch = std::make_unique<IlanaSynthAudioProcessor>();
     auto count = 0;
     for (size_t i = 0; i < voices.size(); ++i)
     {
         const auto& [voice, name] = voices[i];
         const auto label = juce::String (i + 1).paddedLeft ('0', 2) + " " + juce::File::createLegalFileName (name.isEmpty() ? "VOICE" : name);
-        loadDx7Voice (voice, label);
-        if (savePresetToFile (folder.getChildFile (label + ".ilanapreset")))
+        scratch->loadDx7Voice (voice, label);
+        if (scratch->savePresetToFile (folder.getChildFile (label + ".ilanapreset")))
             ++count;
     }
-    applyFullState (before);
     message = "Imported " + juce::String (count) + (count == 1 ? " voice to " : " voices to ") + folder.getFullPathName() + ".";
     return count;
 }

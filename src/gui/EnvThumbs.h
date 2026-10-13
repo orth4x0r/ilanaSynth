@@ -234,9 +234,8 @@ public:
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (boundsOfCard (index), true, 1.0f);
-                image.multiplyAllAlphas (0.75f);
-                container->startDragging ("modsource:" + juce::String ((int) source), this, juce::ScaledImage (image), true);
+                container->startDragging ("modsource:" + juce::String ((int) source), this,
+                                          IlanaTheme::dragGhost (*this, boundsOfCard (index), 0.75f), true);
             }
         }
     }

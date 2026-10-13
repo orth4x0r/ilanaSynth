@@ -64,6 +64,12 @@ struct LfoCurve
     // in range, at least two points.
     void sanitise()
     {
+        // A damaged file can hold nan or inf, which jlimit passes through and
+        // which breaks the sort below.
+        points.erase (std::remove_if (points.begin(), points.end(),
+                                      [] (const Point& p) { return ! std::isfinite (p.x) || ! std::isfinite (p.y) || ! std::isfinite (p.tension); }),
+                      points.end());
+
         for (auto& point : points)
         {
             point.x = juce::jlimit (0.0f, 1.0f, point.x);

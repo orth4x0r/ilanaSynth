@@ -649,4 +649,44 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             settle (300);
         }
     }
+
+    // G-03, G-08, G-15: a drag's host gestures cover what it writes, a fast
+    // sweep fills the columns between mouse events, and Esc puts the
+    // starting values back.
+    {
+        auto* parameter = processor.apvts.getParameter ("lfo1_step1");
+        const auto before = parameter != nullptr ? parameter->getValue() : 0.0f;
+        IlanaDrag::Gestures gestures;
+        gestures.begin();
+        gestures.set (parameter, before > 0.5f ? 0.1f : 0.9f);
+        const auto opened = gestures.isOpen();
+        gestures.cancel();
+        const auto restored = parameter != nullptr && std::abs (parameter->getValue() - before) < 1.0e-4f && gestures.cancelled();
+        gestures.end();
+        expect (opened && restored && ! gestures.isOpen(), "a drag helper opens its gesture on the parameter it writes and Esc restores the start value");
+
+        std::vector<int> columns;
+        IlanaDrag::paintRun (2, 0.0f, 7, 1.0f, [&columns] (int column, float) { columns.push_back (column); });
+        std::vector<int> back;
+        IlanaDrag::paintRun (7, 1.0f, 3, 0.0f, [&back] (int column, float) { back.push_back (column); });
+        expect (columns == std::vector<int> { 3, 4, 5, 6, 7 } && back == std::vector<int> { 6, 5, 4, 3 },
+                "a fast sweep over the step bars fills every column between the last and this one");
+    }
+
+    // G-06: the computer keyboard plays notes through the editor's key handler, never with Ctrl held.
+    {
+        const auto handled = editor.keyPressed (juce::KeyPress ('a', juce::ModifierKeys(), 'a'));
+        const auto octave = editor.keyPressed (juce::KeyPress ('x', juce::ModifierKeys(), 'x'));
+        const auto chord = editor.keyPressed (juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 'a'));
+        editor.keyStateChanged (false); // (no key is down offscreen: the held note lets go)
+        editor.keyPressed (juce::KeyPress ('z', juce::ModifierKeys(), 'z'));
+        expect (handled && octave && ! chord, "A plays a note and X shifts the octave from the keyboard, Ctrl+A is left alone");
+    }
+
+    // G-07: the header's tooltip carries the preset's whole name.
+    {
+        PresetDisplay display;
+        display.setPreset ("Brass Section Swell with Slow Attack", "Brass", true, false);
+        expect (display.getTooltip().startsWith ("Brass Section Swell with Slow Attack"), "the preset display's tooltip leads with the full preset name");
+    }
 }

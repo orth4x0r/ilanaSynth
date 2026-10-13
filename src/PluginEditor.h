@@ -47,6 +47,8 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
+    bool keyStateChanged (bool isKeyDown) override;
+    void focusOfChildComponentChanged (FocusChangeType) override;
 
     // M7.4: opens the wavetable editor on patch table slot (0-15) over the
     // whole window.
@@ -334,6 +336,11 @@ public:
 private:
     std::function<void (int)> editOperator;
     std::unique_ptr<KeyboardStrip> keyboard;
+    // Computer-keyboard notes (G-06): the key codes held and the note each
+    // started, and the octave Z / X set (C3 = 60 at 0).
+    std::vector<std::pair<int, int>> heldNoteKeys;
+    int noteKeyOctave = 0;
+    void releaseNoteKeys (bool onlyThoseUp);
     // All eight macros exist; the strip shows the first four, and more once
     // they are named, routed or added with "+" (review 10, S10-10).
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;

@@ -72,8 +72,82 @@ public:
         Synthesiser::handleMidiEvent (message);
     }
 
+    // The voices read the last controllers, the master bend and the last
+    // note's pitch from here when a note starts.
+    void linkVoices()
+    {
+        for (auto* voice : voices)
+            if (auto* ilanaVoice = dynamic_cast<Voice*> (voice))
+                ilanaVoice->setSharedState (&shared);
+    }
+
+    void handleController (int midiChannel, int controllerNumber, int controllerValue) override
+    {
+        if (juce::isPositiveAndBelow (midiChannel, 17))
+        {
+            if (controllerNumber == 1)
+                shared.modWheel[midiChannel] = (float) controllerValue / 127.0f;
+            else if (controllerNumber == 11)
+                shared.expression[midiChannel] = (float) controllerValue / 127.0f;
+        }
+
+        Synthesiser::handleController (midiChannel, controllerNumber, controllerValue);
+    }
+
+    void handleChannelPressure (int midiChannel, int channelPressureValue) override
+    {
+        if (juce::isPositiveAndBelow (midiChannel, 17))
+            shared.pressure[midiChannel] = (float) channelPressureValue / 127.0f;
+
+        Synthesiser::handleChannelPressure (midiChannel, channelPressureValue);
+    }
+
+    // The loudest pressure on any channel: the global Aftertouch source with
+    // several MPE fingers down, instead of whichever channel spoke last.
+    float getMaxChannelPressure (int midiChannel, float value) noexcept
+    {
+        if (juce::isPositiveAndBelow (midiChannel, 17))
+            shared.pressure[midiChannel] = value;
+
+        if (! isMpe())
+            return value;
+
+        auto most = 0.0f;
+        for (auto pressure : shared.pressure)
+            most = juce::jmax (most, pressure);
+        return most;
+    }
+
+    bool isMpe() const
+    {
+        const auto* first = voices.isEmpty() ? nullptr : dynamic_cast<const Voice*> (voices.getFirst());
+        return first != nullptr && first->isMpe();
+    }
+
+    void handlePitchWheel (int midiChannel, int wheelValue) override
+    {
+        // MPE: the master channel's bend moves every voice, whatever channel it plays on.
+        if (midiChannel == 1 && isMpe())
+        {
+            const auto range = (double) static_cast<Voice*> (voices.getFirst())->getMasterBendRange();
+            shared.masterBendSemitones = ((double) wheelValue - 8192.0) / 8192.0 * range;
+
+            for (auto* voice : voices)
+                if (auto* ilanaVoice = dynamic_cast<Voice*> (voice))
+                    ilanaVoice->setMasterBend (shared.masterBendSemitones);
+        }
+
+        Synthesiser::handlePitchWheel (midiChannel, wheelValue);
+    }
+
     void noteOn (int midiChannel, int midiNoteNumber, float velocity) override
     {
+        if (! voicesLinked)
+        {
+            linkVoices();
+            voicesLinked = true;
+        }
+
         // A Scala keyboard mapping can leave keys unmapped ('x'): they are silent.
         if (tuning != nullptr && ! tuning->isMapped (midiNoteNumber))
             return;
@@ -99,6 +173,18 @@ public:
         if (mode == Mode::Poly)
         {
             Synthesiser::noteOff (midiChannel, midiNoteNumber, velocity, allowTailOff);
+
+            // MPE: a member channel with no key down has no pressure left, so
+            // it can't hold the global Aftertouch up.
+            if (juce::isPositiveAndBelow (midiChannel, 17) && midiChannel != 1)
+            {
+                auto keyDown = false;
+                for (auto* voice : voices)
+                    keyDown = keyDown || (voice->isPlayingChannel (midiChannel) && voice->isKeyDown());
+
+                if (isMpe() && ! keyDown)
+                    shared.pressure[midiChannel] = 0.0f;
+            }
             return;
         }
 
@@ -260,6 +346,8 @@ private:
         }
     }
 
+    VoiceSharedState shared;
+    bool voicesLinked = false;
     VoiceThreads voiceThreads;
     bool useVoiceThreads = false;
     int sustainVoiceCap = 0;

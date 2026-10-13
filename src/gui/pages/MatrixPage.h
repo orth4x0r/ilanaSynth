@@ -535,7 +535,9 @@ public:
     juce::Rectangle<float> emptyStateCard() const
     {
         const auto area = viewport.getBounds().withTrimmedTop (56);
-        return juce::Rectangle<float> (560.0f, 250.0f).withCentre (area.toFloat().getCentre()).withY ((float) area.getY() + 20.0f);
+        // (The dialog holds the starters and the chevron too: P-5. 346 = the 250 px of
+        // text and cable, the caption line, the 74 px of starters and the chevron.)
+        return juce::Rectangle<float> (640.0f, 346.0f).withCentre (area.toFloat().getCentre()).withY ((float) area.getY() + 20.0f);
     }
 
     // An empty matrix explains the three ways in, with a little animated
@@ -594,14 +596,14 @@ public:
         for (int i = 0; i < 3; ++i)
             g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
 
-        g.setColour (IlanaTheme::Ui::text2);
+        g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.drawText ("OR START FROM ONE OF THESE", starterArea().withHeight (16).translated (0, -22), juce::Justification::centred);
 
-        // A chevron bobbing towards the source chips, under the starters
-        // (left out when there is no room: it used to sit on a starter).
+        // A chevron bobbing towards the source chips, under the starters and
+        // inside the dialog (left out when there is no room).
         const auto bob = 4.0f * std::sin (now * 3.0f);
-        const auto tipY = juce::jmax ((float) getHeight() - 22.0f, (float) starterArea().getBottom() + 18.0f);
+        const auto tipY = card.getBottom() - 16.0f;
         if (tipY + 6.0f > (float) getHeight())
             return;
         const auto tip = juce::Point<float> (area.toFloat().getCentreX(), tipY + bob);
@@ -753,13 +755,13 @@ private:
         using S = Mod::Source;
         using D = Mod::Destination;
         static const std::vector<Starter> starters {
-            { "LFO 1  >  CUTOFF", "LFO 1 sweeps filter 1's cutoff.", S::Lfo1, S::None, { D::Filter1Cutoff }, 0.3f },
-            { "ENV 4  >  FRAME", "Envelope 4 moves OSC 1's wavetable position on every note.", S::ModEnv, S::None, { D::Osc1Frame }, 0.5f },
-            { "MOD WHEEL  >  VIBRATO", "LFO 2 wobbles the pitch of OSC 1-3, as far as the mod wheel lets it.", S::Lfo2, S::ModWheel,
+            { "LFO 1  >  Cutoff", "LFO 1 sweeps filter 1's cutoff.", S::Lfo1, S::None, { D::Filter1Cutoff }, 0.3f },
+            { "ENV 4  >  Frame", "Envelope 4 moves OSC 1's wavetable position on every note.", S::ModEnv, S::None, { D::Osc1Frame }, 0.5f },
+            { "MOD WHEEL  >  Vibrato", "LFO 2 wobbles the pitch of OSC 1-3, as far as the mod wheel lets it.", S::Lfo2, S::ModWheel,
               { D::Osc1Pitch, D::Osc2Pitch, D::SubPitch }, 0.006f },
-            { "VELOCITY  >  CUTOFF", "Harder notes open filter 1.", S::Velocity, S::None, { D::Filter1Cutoff }, 0.35f },
-            { "LFO 2  >  PAN", "LFO 2 moves OSC 1 across the stereo field.", S::Lfo2, S::None, { D::Osc1Pan }, 0.5f },
-            { "MACRO 1  >  DRIVE", "Macro 1 drives filter 1.", S::Macro1, S::None, { D::Filter1Drive }, 0.5f }
+            { "VELOCITY  >  Cutoff", "Harder notes open filter 1.", S::Velocity, S::None, { D::Filter1Cutoff }, 0.35f },
+            { "LFO 2  >  Pan", "LFO 2 moves OSC 1 across the stereo field.", S::Lfo2, S::None, { D::Osc1Pan }, 0.5f },
+            { "MACRO 1  >  Drive", "Macro 1 drives filter 1.", S::Macro1, S::None, { D::Filter1Drive }, 0.5f }
         };
         return starters;
     }
@@ -767,7 +769,7 @@ private:
     juce::Rectangle<int> starterArea() const
     {
         const auto area = viewport.getBounds().withTrimmedTop (56);
-        return juce::Rectangle<int> (600, 74).withCentre (area.getCentre()).withY (area.getY() + 20 + 250 + 36);
+        return juce::Rectangle<int> (600, 74).withCentre (area.getCentre()).withY (area.getY() + 20 + 234);
     }
 
     void layoutStarters()

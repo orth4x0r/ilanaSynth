@@ -13,6 +13,18 @@
 
 struct SampleData;
 
+// Float audio files can carry NaN, Inf or absurd values; a NaN would latch in
+// the filters. Non-finite samples become 0 and the rest is held to +-16.
+inline void scrubAudio (juce::AudioBuffer<float>& buffer) noexcept
+{
+    for (int c = 0; c < buffer.getNumChannels(); ++c)
+    {
+        auto* p = buffer.getWritePointer (c);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            p[i] = std::isfinite (p[i]) ? juce::jlimit (-16.0f, 16.0f, p[i]) : 0.0f;
+    }
+}
+
 // One region of a multisample (a SoundFont or SFZ instrument): the audio a
 // range of keys and velocities plays, the key it was recorded at and its
 // loop.
@@ -139,7 +151,11 @@ public:
         const auto newSample = newParams.sample != params.sample;
         const auto newStretch = newParams.stretch && ! params.stretch;
         const auto* oldSample = params.sample;
+        // The old length was kept, not read through oldSample: an idle voice's
+        // pointer may belong to a copy the stretch pool has since freed.
+        const auto oldLength = lastLength;
         params = newParams;
+        lastLength = params.sample != nullptr ? params.sample->getNumSamples() : 0;
 
         if (params.sample == nullptr || params.sample->getNumSamples() <= 1)
         {
@@ -162,19 +178,19 @@ public:
             ownLoopEnd = resolved.to;
         }
 
-        if (newSample && params.keepPosition && oldSample != nullptr && oldSample->getNumSamples() > 1)
+        if (newSample && params.keepPosition && oldSample != nullptr && oldLength > 1)
         {
             if (active)
             {
                 if (params.stretch)
                 {
                     tail = { oldSample, grains, tailLength() };
-                    position *= (double) params.sample->getNumSamples() / (double) oldSample->getNumSamples();
+                    position *= (double) params.sample->getNumSamples() / (double) oldLength;
                     startGrains();
                 }
                 else
                 {
-                    position *= (double) params.sample->getNumSamples() / (double) oldSample->getNumSamples();
+                    position *= (double) params.sample->getNumSamples() / (double) oldLength;
                 }
             }
         }
@@ -235,11 +251,17 @@ public:
         {
             if (! params.loop)
             {
-                active = false;
-                return;
+                // START modulated above the playhead moves it up; only the
+                // end (or a reverse note's start) finishes a one-shot.
+                if (! params.reverse && position < regionStart)
+                    position = regionStart;
+                else
+                {
+                    active = false;
+                    return;
+                }
             }
-
-            if (params.reverse)
+            else if (params.reverse)
             {
                 while (position < regionStart)
                     position += regionLength;
@@ -495,6 +517,7 @@ private:
     int tailLength() const noexcept { return juce::jmax (1, grainLength / 4); }
 
     Params params;
+    int lastLength = 0; // params.sample's length, kept so the old sample is never dereferenced
     Tail tail;
     std::vector<float> window;
     std::array<Grain, 2> grains {};

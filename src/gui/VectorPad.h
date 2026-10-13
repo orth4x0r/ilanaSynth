@@ -13,6 +13,7 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
+#include "DisplayStyle.h"
 
 // One cycle (128 points) of the wavetable frame an oscillator plays, for the
 // pictures on the VECTOR page; false while the oscillator isn't a plain
@@ -124,8 +125,10 @@ public:
     explicit VectorPadDisplay (IlanaSynthAudioProcessor& p)
         : processorRef (p)
     {
-        setTooltip ("Vector pad: drag the dot to mix the four corner oscillators. With PATH on, drag the numbered "
-                    "points; the dot then travels the path. Double-click: centre.");
+        setTooltip ("Vector pad\nDrag the dot to mix the four corner oscillators.\n"
+                    "With PATH on, drag the numbered points: the dot then travels the path.\n"
+                    "Double-click to centre the dot. Esc cancels a drag.");
+        setWantsKeyboardFocus (true);
         startTimerHz (30);
     }
 
@@ -161,8 +164,10 @@ public:
             const auto quadrant = juce::Rectangle<float> (area.getWidth() * 0.5f, area.getHeight() * 0.5f)
                                       .withPosition (c % 2 == 0 ? area.getX() : area.getCentreX(), c < 2 ? area.getY() : area.getCentreY());
             const auto tint = IlanaTheme::oscColour (osc);
-            juce::ColourGradient wash (tint.withAlpha (0.16f + 0.14f * weights[(size_t) c]), corners[c],
-                                       tint.withAlpha (0.04f), quadrant.getCentre(), true);
+            // (An oscillator that is switched off adds nothing: its quadrant and cycle step well back, S1-13.)
+            const auto presence = isCornerSounding (c) ? 1.0f : 0.3f;
+            juce::ColourGradient wash (tint.withAlpha ((0.16f + 0.14f * weights[(size_t) c]) * presence), corners[c],
+                                       tint.withAlpha (0.04f * presence), quadrant.getCentre(), true);
             g.setGradientFill (wash);
             g.fillRect (quadrant.reduced (1.0f));
 
@@ -177,7 +182,7 @@ public:
                     const auto y = plot.getCentreY() - juce::jlimit (-1.0f, 1.0f, cycle[(size_t) i]) * plot.getHeight() * 0.5f;
                     if (i == 0) wave.startNewSubPath (x, y); else wave.lineTo (x, y);
                 }
-                g.setColour (tint.withAlpha (0.28f + 0.2f * weights[(size_t) c]));
+                g.setColour (tint.withAlpha ((0.28f + 0.2f * weights[(size_t) c]) * presence));
                 g.strokePath (wave, juce::PathStrokeType (1.4f));
             }
         }
@@ -220,8 +225,8 @@ public:
 
         // Where the puck sits, over the pad's top edge (the design's readout).
         {
-            g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setColour (IlanaTheme::Ui::text2); // (ink 2: ink 3 was hard to read on the field, S1-12)
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText ("X " + juce::String (juce::roundToInt (live.x * 100.0f)) + "%  "
                             + juce::String::fromUTF8 ("\xc2\xb7") + "  Y "
                             + juce::String (juce::roundToInt (live.y * 100.0f)) + "%",
@@ -297,8 +302,9 @@ public:
             for (int i = 0; i < IlanaSynthAudioProcessor::numVectorPoints; ++i)
             {
                 const auto p = toScreen (processorRef.getVectorPathPoint (i));
-                g.setColour (i == dragPoint ? juce::Colours::white : accent);
-                g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (p));
+                const auto hot = i == dragPoint || (dragPoint < 0 && i == hoverPoint);
+                g.setColour (hot ? juce::Colours::white : accent);
+                g.fillEllipse (juce::Rectangle<float> (hot ? 11.0f : 9.0f, hot ? 11.0f : 9.0f).withCentre (p));
                 g.setColour (juce::Colours::black.withAlpha (0.8f));
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
                 g.drawText (juce::String (i + 1), juce::Rectangle<float> (9.0f, 9.0f).withCentre (p), juce::Justification::centred);
@@ -317,13 +323,42 @@ public:
         g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (now));
     }
 
-    void mouseDown (const juce::MouseEvent& event) override
+    // The path point under `position`, or -1 (also -1 while PATH is off).
+    int pointAt (juce::Point<float> position) const
     {
-        dragPoint = -1;
+        auto found = -1;
+
         if (processorRef.isVectorPathOn())
             for (int i = 0; i < IlanaSynthAudioProcessor::numVectorPoints; ++i)
-                if (toScreen (processorRef.getVectorPathPoint (i)).getDistanceFrom (event.position) < 9.0f)
-                    dragPoint = i;
+                if (toScreen (processorRef.getVectorPathPoint (i)).getDistanceFrom (position) < 9.0f)
+                    found = i;
+
+        return found;
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto point = pointAt (event.position);
+
+        if (point != hoverPoint)
+        {
+            hoverPoint = point;
+            repaint();
+        }
+
+        setMouseCursor (point >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverPoint = -1;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        dragPoint = pointAt (event.position);
         processorRef.beginEdit (dragPoint >= 0 ? "Vector path point " + juce::String (dragPoint + 1) : juce::String ("Vector position"));
         beginGesture();
         mouseDrag (event);
@@ -331,6 +366,9 @@ public:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (gestures.cancelled())
+            return;
+
         const auto p = fromScreen (event.position);
         if (dragPoint >= 0)
         {
@@ -352,13 +390,29 @@ public:
         dragPoint = -1;
     }
 
-    void mouseDoubleClick (const juce::MouseEvent&) override
+    void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        // On a path point a double-click leaves the dot where it is.
+        if (pointAt (event.position) >= 0)
+            return;
+
         processorRef.performEdit ("Centre vector position", [this]
         {
             setParam ("vec_x", 0.5f);
             setParam ("vec_y", 0.5f);
+            gestures.end();
         });
+    }
+
+    // Esc during a drag puts the dot or the path point back.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! gestures.isOpen() || gestures.cancelled())
+            return false;
+
+        gestures.cancel();
+        repaint();
+        return true;
     }
 
     // A corner's oscillator is on the page and switched on.
@@ -419,22 +473,22 @@ private:
     void setParam (const juce::String& id, float value)
     {
         if (auto* parameter = processorRef.apvts.getParameter (id))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            gestures.set (parameter, parameter->convertTo0to1 (value));
     }
 
+    // The host gesture covers the parameters this drag writes: the dot's
+    // X and Y, or the dragged path point's (G-05).
     void beginGesture()
     {
-        for (const auto* id : { "vec_x", "vec_y" })
-            if (auto* parameter = processorRef.apvts.getParameter (id))
-                parameter->beginChangeGesture();
+        gestures.begin();
+        const auto suffix = dragPoint >= 0 ? juce::String (dragPoint + 1) : juce::String();
+
+        for (const auto* prefix : dragPoint >= 0 ? std::array<const char*, 2> { "vec_px", "vec_py" }
+                                                 : std::array<const char*, 2> { "vec_x", "vec_y" })
+            gestures.open (processorRef.apvts.getParameter (juce::String (prefix) + suffix));
     }
 
-    void endGesture()
-    {
-        for (const auto* id : { "vec_x", "vec_y" })
-            if (auto* parameter = processorRef.apvts.getParameter (id))
-                parameter->endChangeGesture();
-    }
+    void endGesture() { gestures.end(); }
 
     void timerCallback() override
     {
@@ -445,5 +499,6 @@ private:
     IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
-    int dragPoint = -1;
+    IlanaDrag::Gestures gestures;
+    int dragPoint = -1, hoverPoint = -1;
 };

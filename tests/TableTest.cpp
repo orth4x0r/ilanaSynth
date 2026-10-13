@@ -81,6 +81,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "PhysModTests.inc"
 #include "FilterPairTests.inc"
 #include "CpuPassTests.inc"
+#include "StressTests.inc"
 #include "OscRoutingTests.inc"
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
@@ -311,6 +312,13 @@ int main()
 
     if (const auto spec = juce::SystemStats::getEnvironmentVariable ("ILANA_PHYSMOD_RENDER", ""); spec.isNotEmpty())
         return renderPhysModPreset (spec);
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_STRESS_TEST", "").isNotEmpty())
+    {
+        runStressTests();
+        std::cout << (failures == 0 ? "STRESS TESTS PASSED" : "STRESS TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
 
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_CPUPASS_TEST", "").isNotEmpty())
     {
@@ -752,6 +760,7 @@ int main()
     timedRun ("runPhysModTests", [] { runPhysModTests(); });
     timedRun ("runFilterPairTests", [] { runFilterPairTests(); });
     timedRun ("runCpuPassTests", [] { runCpuPassTests(); });
+    timedRun ("runStressTests", [] { runStressTests(); });
     timedRun ("runSampleTempoTests", [] { runSampleTempoTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });

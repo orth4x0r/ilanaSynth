@@ -386,7 +386,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: large, Opus for the profiling and restructuring, Sonnet for page work, Haiku fan-out for the sweeps.
    Order 15c. Why here: after the R19 fixes (50) and steps 48 and 49, so it works on settled layouts and the shared display style, and before the sample player group adds more displays.
 
-30. **Waveform zoom and audition** (ilana, 2026-10-10: decided, not started). Zoom into attacks and loop boundaries on the wave, enter a start and end in milliseconds or samples, and preview the selected range.
+30. **Waveform zoom and audition** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/project-thread-3a4c4c`: Ctrl + wheel, pinch or the header's - / + chips zoom the sample display (down to 32 samples, the ruler follows in ms), the wheel then slides the view, a double-click fits it or zooms 4x; double-clicking a START / END flag types its position (ms, "0.5 s" or "4410 smp"); the header's play chip holds middle C through the patch so START, END, LOOP and the fades are heard. Display and UI only: 0 audio / preset changes). Zoom into attacks and loop boundaries on the wave, enter a start and end in milliseconds or samples, and preview the selected range.
    Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
    Order 16. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.
 

@@ -20,6 +20,7 @@
 #include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
+#include "dsp/SampleRange.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
 #include "dsp/TableFactory.h"
@@ -670,6 +671,7 @@ int main()
     timedRun ("runFactoryTableContentTest", [] { runFactoryTableContentTest(); });
     timedRun ("runWeirdDspTest", [] { runWeirdDspTest(); });
     timedRun ("runSampleOscTest", [] { runSampleOscTest(); });
+    timedRun ("runSampleRangeTest", [] { runSampleRangeTest(); });
     timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
     timedRun ("runOsc2Test", [] { runOsc2Test(); });
     timedRun ("runOscLevelTest", [] { runOscLevelTest(); });

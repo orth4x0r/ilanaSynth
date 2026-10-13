@@ -123,6 +123,7 @@ public:
         }
 
         drawSpectrum (g, plot);
+        drawSweepBands (g, plot);
 
         // The modulated response, faint, under the set one (UI review 4,
         // V23 and S4): the curve and markers you drag stay where the knobs
@@ -392,8 +393,64 @@ private:
         if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
-        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        const auto sweeping = IlanaAnim::showing (*this) && updateSweepBands();
+
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || sweeping || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
+    }
+
+    // The stretch of the frequency axis each modulated cutoff has swept lately
+    // (as 0..1 along the axis): it grows with the swing and closes in slowly
+    // while the swing narrows; a filter with no modulation has none. True
+    // while any band is open, so a patch without modulation costs nothing.
+    bool updateSweepBands()
+    {
+        auto moving = false;
+        for (int i = 0; i < 2; ++i)
+        {
+            const auto current = frequencyToX (cutoffOf (i, true));
+            auto& lo = sweepLo[(size_t) i];
+            auto& hi = sweepHi[(size_t) i];
+
+            // (A cutoff moved by hand, not modulated, leaves no band.)
+            if (! sweepSeen[(size_t) i] || ! isModulated (i))
+            {
+                lo = hi = current;
+                sweepSeen[(size_t) i] = true;
+                continue;
+            }
+
+            const auto before = hi - lo;
+            lo = juce::jmin (current, lo + (current - lo) * 0.03 * (double) frameTicks());
+            hi = juce::jmax (current, hi + (current - hi) * 0.03 * (double) frameTicks());
+            if (hi - lo < 0.002)
+                lo = hi = current;
+
+            moving = moving || hi - lo > 0.0 || before > 0.0;
+        }
+        return moving;
+    }
+
+    // A faint column behind the curves for each modulated filter.
+    void drawSweepBands (juce::Graphics& g, juce::Rectangle<float> plot) const
+    {
+        for (int i = 1; i >= 0; --i)
+        {
+            if (i == 1 && filter2Replaced())
+                continue;
+
+            const auto lo = sweepLo[(size_t) i], hi = sweepHi[(size_t) i];
+            if (hi - lo < 0.012)
+                continue;
+
+            const auto x0 = plot.getX() + (float) lo * plot.getWidth();
+            const auto x1 = plot.getX() + (float) hi * plot.getWidth();
+            g.setColour (filterColour (i).withAlpha (0.07f));
+            g.fillRect (juce::Rectangle<float> (x0, plot.getY(), x1 - x0, plot.getHeight()));
+            g.setColour (filterColour (i).withAlpha (0.16f));
+            g.fillRect (juce::Rectangle<float> (x0, plot.getY(), 1.0f, plot.getHeight()));
+            g.fillRect (juce::Rectangle<float> (x1 - 1.0f, plot.getY(), 1.0f, plot.getHeight()));
+        }
     }
 
     static double frequencyToX (double frequency)
@@ -779,6 +836,8 @@ private:
     }
     IlanaAnim::ChangeGate changeGate;
     float appear = 1.0f;
+    double sweepLo[2] { 0.0, 0.0 }, sweepHi[2] { 0.0, 0.0 };
+    bool sweepSeen[2] { false, false };
     bool voiceOff = false;
 
     static constexpr int fftSize = 2048;

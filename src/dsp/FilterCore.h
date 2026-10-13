@@ -19,6 +19,8 @@
 #include <complex>
 
 class LadderFilter;
+class CascadePair;
+namespace Filters2 { class DriveLadder; }
 
 namespace FilterCore
 {
@@ -74,6 +76,7 @@ public:
 
 private:
     friend class ::LadderFilter; // its stereo pair path runs both channels' sections as SSE lanes
+    friend class Filters2::DriveLadder;
 
     // First-order allpass (c + z^-1) / (1 + c z^-1); x1 / y1 are its memory.
     static double section (double x, double coefficient, double& x1, double& y1)
@@ -213,6 +216,7 @@ public:
 
 private:
     friend class ::LadderFilter;
+    friend class ::CascadePair;
 
     Settings settings;
     double linearBeta = 1.0, linearBigG = 0.0;

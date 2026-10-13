@@ -1086,6 +1086,16 @@ public:
                                             left.type == FilterType::LadderHigh, left.slope24);
             return;
         }
+        if ((left.type == FilterType::LadderBand || left.type == FilterType::LadderDrive) && right.type == left.type)
+        {
+            Filters2::DriveLadder::processPairBlock (left.driveLadder, right.driveLadder, inLeft, inRight, outLeft, outRight, n);
+            return;
+        }
+        if ((left.type == FilterType::OtaLow || left.type == FilterType::OtaBand) && right.type == left.type)
+        {
+            Filters2::OtaFilter::processPairBlock (left.ota, right.ota, inLeft, inRight, outLeft, outRight, n);
+            return;
+        }
         left.processBlock (inLeft, outLeft, n);
         right.processBlock (inRight, outRight, n);
     }

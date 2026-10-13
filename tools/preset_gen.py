@@ -89,8 +89,16 @@ def read_preset(path):
     return root.attrib.copy(), params
 
 
-def write_preset(path, name, category, params, macro_names=None, curves=None):
+# The state's schema versions now (State.cpp): a file without them is migrated
+# on load as an old one.
+CURRENT_SCHEMA = {"osc3Schema": "2", "stringSchema": "2", "destSchema": "2", "tableSchema": "4", "exciterLevels": "1"}
+SCHEMA_KEYS = list(CURRENT_SCHEMA)
+
+
+def write_preset(path, name, category, params, macro_names=None, curves=None, schema=None):
     root = ET.Element("PARAMS")
+    for key, value in (schema or CURRENT_SCHEMA).items():
+        root.set(key, value)
     root.set("presetName", name)
     root.set("presetCategory", category)
     root.set("presetAuthor", "ilanaSynth generator")
@@ -98,7 +106,6 @@ def write_preset(path, name, category, params, macro_names=None, curves=None):
         root.set(f"macroName{i + 1}", macro or "")
     for key, value in (curves or {}).items():
         root.set(key, value)
-    root.set("exciterLevels", "1")
     for pid in sorted(params):
         child = ET.SubElement(root, "PARAM")
         child.set("id", pid)
@@ -164,14 +171,31 @@ def wire_macros(params, macros):
 
 
 def load_seeds(defaults):
+    """Her presets as the synth loads them (old files migrated to the current
+    schema): the parameters ilanaPresetRender listed for build/gen/refs."""
+    rendered = {}
+    render = GEN / "refs-render"
+    if (render / "index.csv").exists():
+        with open(render / "index.csv", newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                values = {}
+                for line in (render / row["index"] / "params.txt").read_text().splitlines():
+                    if "=" in line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        values[key] = float(value)
+                rendered[row["name"]] = values
     seeds = {}
     for path in sorted(USER.glob("*.ilanapreset")):
         attrs, params = read_preset(path)
         full = dict(defaults)
-        full.update({k: v for k, v in params.items() if k in defaults})
+        if path.stem in rendered:
+            full.update(rendered[path.stem])
+        else:
+            full.update({k: v for k, v in params.items() if k in defaults})
         curves = {k: attrs[k] for k in CURVE_ATTRS if k in attrs}
         macros = [attrs.get(f"macroName{i}", "") for i in range(1, 9)]
-        seeds[path.stem] = {"params": full, "curves": curves, "macros": macros,
+        schema = {k: attrs[k] for k in SCHEMA_KEYS if k in attrs}
+        seeds[path.stem] = {"params": full, "raw": params, "schema": schema, "curves": curves, "macros": macros,
                             "category": REF_CATEGORY.get(path.stem, "Other"),
                             "sample": attrs.get("osc1SamplePath")}
     return seeds
@@ -189,7 +213,10 @@ def cmd_refs(_args):
     for old in out.glob("*.ilanapreset"):
         old.unlink()
     for name, seed in load_seeds(defaults).items():
-        write_preset(out / f"{name}.ilanapreset", name, seed["category"], seed["params"], seed["macros"], seed["curves"])
+        # The raw file's values with its own schema, so the synth migrates them as it does hers.
+        raw = {k: v for k, v in seed["raw"].items() if k in defaults}
+        write_preset(out / f"{name}.ilanapreset", name, seed["category"], raw, seed["macros"], seed["curves"],
+                     schema=seed["schema"])
     print(f"staged {len(REF_CATEGORY)} presets in {out}")
 
 

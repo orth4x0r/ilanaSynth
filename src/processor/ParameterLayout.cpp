@@ -1228,7 +1228,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (prefix + "_sample_loop_end", name + " Sample Loop End", 0.0f, 1.0f, 0.75f);
         // Roadmap step 28: the loop crossfade (0 = hard wrap, as in every older
         // patch; 1 = half the loop) and the zero-crossing snap for the markers.
-        addFloat (prefix + "_sample_loop_xfade", name + " Sample Loop Crossfade", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_sample_loop_xfade", name + " Loop Xfade", 0.0f, 1.0f, 0.0f);
         addBool (prefix + "_sample_snap", name + " Sample Snap To Zero", false);
     }
 

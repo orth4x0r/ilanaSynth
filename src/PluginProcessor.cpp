@@ -211,6 +211,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
                                            prefix + "_sample_fade_out" };
+            sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
@@ -1446,6 +1447,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleEnd = getParam (ids[4]);
         osc.sampleFadeIn = getParam (ids[5]);
         osc.sampleFadeOut = getParam (ids[6]);
+        const auto& loopIds = sampleLoopIds[(size_t) oscIndex];
+        osc.sampleLoopOwn = getParam (loopIds[0]) > 0.5f;
+        osc.sampleLoopStart = getParam (loopIds[1]);
+        osc.sampleLoopEnd = getParam (loopIds[2]);
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);

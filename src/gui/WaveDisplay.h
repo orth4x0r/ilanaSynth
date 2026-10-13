@@ -5,6 +5,7 @@
 
 #include "../dsp/EpTuning.h"
 
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -57,6 +58,9 @@ public:
         fadeOutId = samplePrefix + "_sample_fade_out";
         reverseId = samplePrefix + "_sample_reverse";
         loopId = samplePrefix + "_sample_loop";
+        loopOwnId = samplePrefix + "_sample_loop_own";
+        loopFromId = samplePrefix + "_sample_loop_start";
+        loopToId = samplePrefix + "_sample_loop_end";
 
         displayedFrame = readValue (frameId);
 
@@ -501,11 +505,11 @@ public:
             // A plain or multi sample: START and END are the two handles on the wave
             // (V14 / S14-4: the loop markers are dragged where they are drawn).
             if (isSampleMode() && ! compact)
-                if (const auto handle = sampleHandleAt (event.position.x); handle != 0)
+                if (const auto handle = sampleHandleAt (event.position.x, event.position.y); handle != 0)
                 {
                     handleDrag = handle;
                     processorRef.beginEdit (editName());
-                    beginGesture (handle == 1 ? startId : endId);
+                    beginGesture (handleParamId (handle));
                     setHandleFromX (event.position.x);
                     return;
                 }
@@ -627,7 +631,7 @@ public:
     {
         if (hasZoomableSample() && ! event.mods.isPopupMenu() && event.position.y >= (float) headerHeight)
         {
-            if (const auto handle = sampleHandleAt (event.position.x); handle != 0)
+            if (const auto handle = sampleHandleAt (event.position.x, event.position.y); handle != 0)
                 openPositionEditor (handle);
             else if (! sampleView.isFull())
                 setSampleView ({});
@@ -1088,6 +1092,43 @@ private:
                                             (double) scaleFactor, sampleLength()));
     }
 
+    // The parameter and name behind a handle: 1 START, 2 END, 3 LOOP START,
+    // 4 LOOP END (roadmap step 27).
+    const juce::String& handleParamId (int handle) const
+    {
+        return handle == 1 ? startId : handle == 2 ? endId : handle == 3 ? loopFromId : loopToId;
+    }
+
+    static juce::String handleName (int handle)
+    {
+        return handle == 1 ? "START" : handle == 2 ? "END" : handle == 3 ? "LOOP START" : "LOOP END";
+    }
+
+    // Whether the loop has its own span on the wave: LOOP on and LOOP PTS on.
+    bool ownLoopShown() const { return isSampleMode() && ! compact && readPlain (loopId) > 0.5f && readPlain (loopOwnId) > 0.5f; }
+
+    // The loop's span as it plays: the markers held inside START..END.
+    SampleRange::Loop shownLoop() const
+    {
+        return SampleRange::resolveLoop (readPlain (startId), readPlain (endId), readPlain (loopFromId), readPlain (loopToId), 0.0);
+    }
+
+    // A handle's position held where it may go: START and END keep a gap,
+    // the loop's markers stay between them.
+    float clampHandle (int handle, float fraction) const
+    {
+        const auto gap = sampleGap();
+        const auto start = readPlain (startId), end = readPlain (endId);
+        const auto loop = shownLoop();
+        switch (handle)
+        {
+            case 1:  return juce::jmin (fraction, end - gap);
+            case 2:  return juce::jmax (fraction, start + gap);
+            case 3:  return juce::jlimit (start, juce::jmax (start, (float) loop.to - gap), fraction);
+            default: return juce::jlimit (juce::jmin (end, (float) loop.from + gap), end, fraction);
+        }
+    }
+
     // Type a START or END: milliseconds by default, "s" for seconds, "smp" for
     // sample frames.
     void openPositionEditor (int handle)
@@ -1096,7 +1137,7 @@ private:
         if (sample == nullptr)
             return;
 
-        const auto id = handle == 1 ? startId : endId;
+        const auto& id = handleParamId (handle);
         const auto plot = samplePlotArea();
         const auto x = sampleFractionToX (plot, readPlain (id));
 
@@ -1108,12 +1149,16 @@ private:
         editor.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
         editor.setColour (juce::TextEditor::outlineColourId, traceColour);
         editor.setColour (juce::TextEditor::focusedOutlineColourId, traceColour);
-        editor.setTooltip ((handle == 1 ? "START" : "END") + juce::String (": a time in ms (120), seconds (0.5 s) or sample frames (4410 smp). Return sets it, Escape keeps it."));
+        editor.setTooltip (handleName (handle) + juce::String (": a time in ms (120), seconds (0.5 s) or sample frames (4410 smp). Return sets it, Escape keeps it."));
         editor.setText (SampleRange::formatPosition (readPlain (id), sample->sampleRate, sample->getNumSamples()), false);
 
         const auto width = 96, height = 18;
         const auto left = juce::jlimit (plot.getX(), plot.getRight() - (float) width, x - (float) width * 0.5f);
-        const auto top = handle == 1 ? plot.getY() + 15.0f : plot.getBottom() - (float) height - 15.0f;
+        // (The loop's flags sit a row inside START's and END's.)
+        const auto top = handle == 1 ? plot.getY() + 15.0f
+                       : handle == 2 ? plot.getBottom() - (float) height - 15.0f
+                       : handle == 3 ? plot.getY() + 31.0f
+                                     : plot.getBottom() - (float) height - 31.0f;
         editor.setBounds (juce::Rectangle<int> (width, height).withPosition ((int) left, (int) top));
 
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
@@ -1162,15 +1207,13 @@ private:
     }
 
 public:
-    // START (handle 1) or END (2) to a position as a fraction of the sample,
-    // as a typed entry sets it: one undo step, and the zoom window follows a
+    // START (handle 1), END (2), LOOP START (3) or LOOP END (4) to a position
+    // as a fraction of the sample, as a typed entry sets it: one undo step, and the zoom window follows a
     // position that is outside it (the UI test calls this).
     void setSamplePosition (int handle, float fraction)
     {
-        const auto gap = sampleGap();
-        const auto id = handle == 1 ? startId : endId;
-        const auto value = handle == 1 ? juce::jmin (fraction, readPlain (endId) - gap)
-                                       : juce::jmax (fraction, readPlain (startId) + gap);
+        const auto id = handleParamId (handle);
+        const auto value = clampHandle (handle, fraction);
 
         processorRef.performEdit (editName(), [this, id, value]
         {
@@ -1185,6 +1228,12 @@ public:
         repaint();
     }
 
+    // The handle a press at this spot would grab (1 START, 2 END, 3 LOOP START,
+    // 4 LOOP END, 0 none), for the UI test.
+    int handleAtForTest (float x, float y) const { return sampleHandleAt (x, y); }
+    juce::Rectangle<float> samplePlotForTest() const { return samplePlotArea(); }
+    float sampleXForTest (double fraction) const { return sampleFractionToX (samplePlotArea(), fraction); }
+
     // The typed-position box, for the UI test.
     void showPositionEditor (int handle) { openPositionEditor (handle); }
 
@@ -1197,9 +1246,12 @@ private:
     // The sample's plot as drawSample lays it out horizontally.
     juce::Rectangle<float> samplePlotArea() const { return wellArea().reduced (10.0f, compact ? 5.0f : 10.0f); }
 
-    // 1: the START handle, 2: END, 0: neither, for a press at x (within 9 px; the
-    // nearer one when both are).
-    int sampleHandleAt (float x) const
+    // 1: the START handle, 2: END, 3: LOOP START, 4: LOOP END (the last two
+    // only while the loop has its own span), 0: none, for a press at x (within
+    // 9 px; the nearer one when several are). Handles sitting on one another
+    // (a loop edge at START) go by the height of the press: the flags at the
+    // plot's top and bottom are START's and END's.
+    int sampleHandleAt (float x, float y = -1.0f) const
     {
         const auto* sample = processorRef.getSampleForOsc (oscIndex);
         if (sample == nullptr || sample->getNumSamples() < 2)
@@ -1212,6 +1264,30 @@ private:
         const auto inside = [&plot] (float handleX) { return handleX >= plot.getX() - 1.0f && handleX <= plot.getRight() + 1.0f; };
         const auto nearStart = inside (startX) ? std::abs (x - startX) : 1.0e9f;
         const auto nearEnd = inside (endX) ? std::abs (x - endX) : 1.0e9f;
+
+        if (ownLoopShown())
+        {
+            const auto loop = shownLoop();
+            const auto loopFromX = sampleFractionToX (plot, loop.from);
+            const auto loopToX = sampleFractionToX (plot, loop.to);
+            const auto nearFrom = inside (loopFromX) ? std::abs (x - loopFromX) : 1.0e9f;
+            const auto nearTo = inside (loopToX) ? std::abs (x - loopToX) : 1.0e9f;
+            // The edge flags' rows: START's at the top, END's at the bottom.
+            const auto onStartFlag = y < plot.getY() + 15.0f, onEndFlag = y > plot.getBottom() - 15.0f;
+            // (The range's edges win on their flags, the loop's anywhere else.)
+            const auto bias = [] (bool preferRange) { return preferRange ? 0.0f : 2.0f; };
+            const std::array<std::pair<float, int>, 4> candidates { {
+                { nearStart + bias (y < 0.0f || onStartFlag), 1 },
+                { nearEnd + bias (y < 0.0f || onEndFlag), 2 },
+                { nearFrom + 1.0f, 3 },
+                { nearTo + 1.0f, 4 } } };
+            auto best = candidates[0];
+            for (const auto& candidate : candidates)
+                if (candidate.first < best.first)
+                    best = candidate;
+            return best.first > 9.0f ? 0 : best.second;
+        }
+
         if (juce::jmin (nearStart, nearEnd) > 9.0f)
             return 0;
         return nearStart <= nearEnd ? 1 : 2;
@@ -1236,11 +1312,9 @@ private:
     {
         const auto plot = samplePlotArea();
         const auto position = (float) sampleView.fromView (juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth())));
-        // (They never cross: a little of the sample stays between them.)
-        if (handleDrag == 1)
-            setPlain (startId, juce::jmin (position, readPlain (endId) - sampleGap()));
-        else
-            setPlain (endId, juce::jmax (position, readPlain (startId) + sampleGap()));
+        // (They never cross: a little of the sample stays between them, and the
+        // loop's edges stay between START and END.)
+        setPlain (handleParamId (handleDrag), clampHandle (handleDrag, position));
         repaint();
     }
 
@@ -1263,7 +1337,7 @@ private:
             return;
         }
 
-        setMouseCursor (isSampleMode() && ! compact && sampleHandleAt (event.position.x) != 0 ? juce::MouseCursor::LeftRightResizeCursor
+        setMouseCursor (isSampleMode() && ! compact && sampleHandleAt (event.position.x, event.position.y) != 0 ? juce::MouseCursor::LeftRightResizeCursor
                                                                                              : juce::MouseCursor::NormalCursor);
     }
 
@@ -1509,11 +1583,21 @@ private:
         g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getY(), juce::jmax (0.0f, startX - plot.getX()), plot.getHeight()));
         g.fillRect (juce::Rectangle<float> (endX, plot.getY(), juce::jmax (0.0f, plot.getRight() - endX), plot.getHeight()));
 
+        // With LOOP PTS (roadmap step 27) the loop has its own span between
+        // START and END: only that span is lit, the attack before it plays once.
+        const auto ownLoop = loop && ownLoopShown();
+        const auto ownSpan = shownLoop();
+        const auto loopFromX = sampleFractionToX (plot, ownSpan.from);
+        const auto loopToX = sampleFractionToX (plot, ownSpan.to);
+
         // While it loops, the loop's span is lit and the handles say LOOP.
         if (loop && ! compact)
         {
-            g.setColour (traceColour.withAlpha (0.10f));
-            g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
+            g.setColour (traceColour.withAlpha (ownLoop ? 0.16f : 0.10f));
+            if (ownLoop)
+                g.fillRect (juce::Rectangle<float> (loopFromX, plot.getY(), juce::jmax (0.0f, loopToX - loopFromX), plot.getHeight()));
+            else
+                g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
         }
 
         g.setColour (juce::Colours::white.withAlpha (0.55f));
@@ -1524,8 +1608,8 @@ private:
         if (! compact && plot.getHeight() > 60.0f)
         {
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            const auto startName = loop ? juce::String ("LOOP START") : juce::String ("START");
-            const auto endName = loop ? juce::String ("LOOP END") : juce::String ("END");
+            const auto startName = loop && ! ownLoop ? juce::String ("LOOP START") : juce::String ("START");
+            const auto endName = loop && ! ownLoop ? juce::String ("LOOP END") : juce::String ("END");
             const auto startWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), startName) + 10.0f;
             const auto endWidth = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), endName) + 10.0f;
             const auto startFlag = juce::Rectangle<float> (startX, plot.getY(), startWidth, 13.0f);
@@ -1542,7 +1626,27 @@ private:
         // A multisample region's own sustain loop (SF2 / SFZ loop points, the
         // ones the voice wraps at): dashed lines and flags while LOOP is on
         // (S15-4). Display only.
-        if (loop && ! compact && ! sample->zones.empty() && numSamples > 1)
+        if (ownLoop)
+        {
+            // The loop's own edges: solid lines in the trace colour, flags a
+            // row inside START's and END's.
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            for (const auto& [x, name, leftOf] : { std::tuple<float, juce::String, bool> { loopFromX, "LOOP START", false }, { loopToX, "LOOP END", true } })
+            {
+                g.setColour (traceColour.withAlpha (0.95f));
+                g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ x, centreY }));
+                if (plot.getHeight() > 60.0f)
+                {
+                    const auto width = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), name) + 10.0f;
+                    const auto top = leftOf ? plot.getBottom() - 29.0f : plot.getY() + 16.0f;
+                    const auto flag = juce::Rectangle<float> (leftOf ? x - width : x, top, width, 13.0f);
+                    g.fillRoundedRectangle (flag, 2.0f);
+                    g.setColour (juce::Colours::black.withAlpha (0.8f));
+                    g.drawText (name, flag, juce::Justification::centred, false);
+                }
+            }
+        }
+        else if (loop && ! compact && ! sample->zones.empty() && numSamples > 1)
             if (const auto* zone = sample->zoneFor (60, 100); zone != nullptr && zone->loop && zone->loopEnd > zone->loopStart)
             {
                 const auto inX = sampleFractionToX (plot, juce::jlimit (0.0f, 1.0f, (float) zone->loopStart / (float) numSamples));
@@ -2386,7 +2490,7 @@ private:
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
-    juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId;
+    juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;

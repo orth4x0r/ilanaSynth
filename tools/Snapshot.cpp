@@ -4388,6 +4388,47 @@ int runUiTests()
             expect (wave->getSampleView().isFull(), "zooming out fits the sample");
             wave->setSamplePosition (1, 0.0f);
             expect (read ("osc2_sample_start") < 0.001f, "a typed START of zero goes back to the head");
+
+            // Step 27: LOOP PTS gives the loop its own handles.
+            const auto set = [&processor] (const char* id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            const auto plot = wave->samplePlotForTest();
+            const auto midY = plot.getCentreY();
+            set ("osc2_sample_loop", 1.0f);
+            set ("osc2_sample_loop_own", 0.0f);
+            wave->setSamplePosition (2, 1.0f);
+            settle (150);
+            expect (wave->handleAtForTest (wave->sampleXForTest (0.25), midY) == 0, "LOOP PTS off: no loop handles on the wave");
+            shot ("sample-loop-whole.png");
+            set ("osc2_sample_loop_own", 1.0f);
+            set ("osc2_sample_loop_start", 0.25f);
+            set ("osc2_sample_loop_end", 0.75f);
+            settle (150);
+            expect (wave->handleAtForTest (wave->sampleXForTest (0.25), midY) == 3, "LOOP PTS on: the loop's start handle is on the wave");
+            expect (wave->handleAtForTest (wave->sampleXForTest (0.75), midY) == 4, "LOOP PTS on: the loop's end handle is on the wave");
+            expect (wave->handleAtForTest (plot.getX() + 1.0f, midY) == 1 && wave->handleAtForTest (plot.getRight() - 1.0f, midY) == 2,
+                    "START and END keep their handles");
+            shot ("sample-loop-points.png");
+            wave->setSamplePosition (3, 0.4f);
+            expect (std::abs (read ("osc2_sample_loop_start") - 0.4f) < 0.002f, "a typed LOOP START lands");
+            wave->setSamplePosition (4, 0.3f);
+            expect (read ("osc2_sample_loop_end") > read ("osc2_sample_loop_start"), "LOOP END stays after LOOP START");
+            wave->setSamplePosition (3, 1.0f);
+            expect (read ("osc2_sample_loop_start") < read ("osc2_sample_loop_end"), "LOOP START stays before LOOP END");
+            wave->setSamplePosition (4, 0.6f);
+            wave->setSamplePosition (3, 0.0f);
+            wave->setSamplePosition (1, 0.5f);
+            expect (wave->handleAtForTest (wave->sampleXForTest (0.5), plot.getY() + 4.0f) == 1,
+                    "a loop edge sitting on START: a press on START's flag takes START");
+            expect (wave->handleAtForTest (wave->sampleXForTest (0.5), midY) == 3,
+                    "a loop edge sitting on START: a press lower down takes the loop's edge");
+            shot ("sample-loop-attack-cut.png");
+            wave->setSamplePosition (1, 0.0f);
+            set ("osc2_sample_loop_own", 0.0f);
+            set ("osc2_sample_loop", 0.0f);
         }
     }
 

@@ -516,6 +516,86 @@ void runSampleRangeTest()
     check (std::abs ((middle.lo + middle.hi) * 0.5 - 0.9) < 0.07 && middle.hi <= 1.0 + 1.0e-12, "centring on a position moves the window to it");
 }
 
+void runSampleLoopPointsTest()
+{
+    // Step 27: LOOP can have its own span inside START..END. A ramp sample
+    // (the value is the position) shows where the player reads.
+    using namespace SampleRange;
+    const auto near = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
+
+    const auto span = resolveLoop (0.2, 0.8, 0.1, 0.9, 0.001);
+    check (near (span.from, 0.2) && near (span.to, 0.8) && span.valid, "loop edges outside START..END are held inside it");
+    const auto crossed = resolveLoop (0.0, 1.0, 0.7, 0.3, 0.001);
+    check (near (crossed.from, 0.7) && near (crossed.to, 0.7) && ! crossed.valid, "crossed loop edges never open a negative span");
+    check (! resolveLoop (0.0, 1.0, 0.5, 0.5002, 0.001).valid, "a loop under the minimum length is no loop");
+    check (resolveLoop (0.0, 1.0, 0.25, 0.75, 0.001).valid, "the default span is a loop");
+
+    constexpr int length = 10000;
+    auto ramp = std::make_shared<SampleData>();
+    ramp->sampleRate = 48000.0;
+    ramp->buffer.setSize (1, length);
+    for (int i = 0; i < length; ++i)
+        ramp->buffer.setSample (0, i, (float) i / (float) length);
+
+    struct Result
+    {
+        std::vector<float> out;
+        bool stillActive = false;
+    };
+
+    const auto run = [&] (const std::function<void (SamplePlayer::Params&)>& configure, int count, double rate = 1.0)
+    {
+        SamplePlayer player;
+        player.prepare (48000.0);
+        SamplePlayer::Params params;
+        params.sample = ramp.get();
+        configure (params);
+        player.setParams (params);
+        player.setPlaybackRatio (rate);
+        player.trigger();
+        Result result;
+        for (int i = 0; i < count; ++i)
+        {
+            float l = 0.0f, r = 0.0f;
+            player.process (l, r);
+            result.out.push_back (l);
+        }
+        result.stillActive = player.isActive();
+        return result;
+    };
+    const auto lowest = [] (const std::vector<float>& x, size_t from) { return *std::min_element (x.begin() + (long) from, x.end()); };
+    const auto highest = [] (const std::vector<float>& x, size_t from) { return *std::max_element (x.begin() + (long) from, x.end()); };
+
+    const auto own = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 60000);
+    check (own.out[100] < 0.011f && own.out[100] > 0.009f, "the attack before the loop plays from START");
+    check (own.out[3999] > 0.39f && own.out[3999] < 0.4f, "the attack plays up to the loop's start");
+    check (lowest (own.out, 4000) >= 0.4f - 1.0e-4f && highest (own.out, 4000) < 0.6f + 1.0e-4f,
+           "after the attack only the loop's span repeats (" + juce::String (lowest (own.out, 4000), 4) + ".." + juce::String (highest (own.out, 4000), 4) + ")");
+    check (own.stillActive, "an own-span loop keeps playing");
+
+    const auto whole = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = false; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 12000);
+    check (whole.out[10050] < 0.01f, "LOOP PTS off wraps the whole START..END region, as before");
+
+    const auto once = run ([] (SamplePlayer::Params& p) { p.loop = false; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 12000);
+    check (! once.stillActive, "loop points do nothing while LOOP is off");
+
+    const auto held = run ([] (SamplePlayer::Params& p)
+                           { p.loop = true; p.ownLoop = true; p.start = 0.3f; p.end = 0.7f; p.loopFrom = 0.1f; p.loopTo = 0.9f; }, 40000);
+    check (held.out[0] > 0.299f && lowest (held.out, 100) >= 0.3f - 1.0e-4f && highest (held.out, 0) < 0.7f + 1.0e-4f,
+           "loop edges outside START..END play inside it");
+
+    const auto tiny = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.5f; p.loopTo = 0.5005f; }, 12000);
+    check (tiny.out[10050] < 0.01f, "a loop under 16 samples falls back to the whole region");
+
+    const auto back = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.reverse = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 50000);
+    check (back.out[10] > 0.99f && back.out[3000] < 0.7f, "a reversed note starts from END and runs down");
+    check (lowest (back.out, 7000) >= 0.4f - 1.0e-4f && highest (back.out, 7000) < 0.6f + 1.0e-4f, "a reversed loop repeats its span, then stays in it");
+
+    const auto fast = run ([] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 30000, 7.3);
+    check (lowest (fast.out, 3000) >= 0.4f - 1.0e-4f && highest (fast.out, 3000) < 0.6f + 1.0e-4f && fast.stillActive,
+           "a fast read (several loops per block) wraps cleanly");
+}
+
 void runSampleOscTest()
 {
     constexpr double sampleRate = 48000.0;
@@ -611,6 +691,16 @@ void runSampleOscTest()
     });
     check (loopedFinite && peakOf (looped, 8000, 16384) > 0.2f,
            "looped sample keeps playing (tail peak " + juce::String (peakOf (looped, 8000, 16384), 4) + ")");
+
+    const auto [ownLooped, ownLoopedFinite] = renderVoice (60, 16384, [] (VoiceParams& p)
+    {
+        p.oscillators[0].sampleLoop = true;
+        p.oscillators[0].sampleLoopOwn = true;
+        p.oscillators[0].sampleLoopStart = 0.4f;
+        p.oscillators[0].sampleLoopEnd = 0.6f;
+    });
+    check (ownLoopedFinite && peakOf (ownLooped, 8000, 16384) > 0.2f,
+           "a voice with its own loop span keeps playing (tail peak " + juce::String (peakOf (ownLooped, 8000, 16384), 4) + ")");
 
     const auto [reversed, reversedFinite] = renderVoice (60, 16384, [] (VoiceParams& p)
     {

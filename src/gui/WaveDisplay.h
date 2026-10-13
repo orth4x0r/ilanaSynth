@@ -704,7 +704,7 @@ public:
         if (! file.existsAsFile())
             return;
 
-        if (processorRef.loadUserSample (oscIndex, file))
+        if (processorRef.loadUserSample (oscIndex, file, true))
             switchToSampleMode();
 
         repaint();
@@ -749,7 +749,7 @@ public:
                                   {
                                       if (safeThis == nullptr || ! chooser.getResult().existsAsFile())
                                           return;
-                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult()))
+                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult(), true))
                                           safeThis->switchToSampleMode();
                                       safeThis->repaint();
                                   });
@@ -1783,6 +1783,18 @@ private:
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (proportion));
     }
 
+    // Over the table's name the tip carries all of it (a long, imported name
+    // is cut in the header).
+    juce::String getTooltip() override
+    {
+        const auto at = getMouseXYRelative();
+
+        if (isTableMode() && ! subTableMapping && (slimAreas().name.contains (at) || tableNameArea.contains (at)))
+            return getTableName() + "\nClick to pick another table.";
+
+        return juce::SettableTooltipClient::getTooltip();
+    }
+
     void lookAndFeelChanged() override
     {
         if (followsTheme)
@@ -2412,7 +2424,9 @@ private:
     mutable std::unique_ptr<juce::dsp::FFT> fft;
 
     static constexpr const char* tableTooltip =
-        "Drag across to scrub the frame; with a WARP chosen, drag up or down for its amount (shift: fine, double-click: zero). "
-        "WAVE / 3D / SPEC above it switch the view; the arrows and the name pick the table. Drop a wav to switch this oscillator to Sample.";
+        "Drag across to scrub the frame.\n"
+        "With a WARP chosen, drag up or down for its amount (shift: fine, double-click: zero).\n"
+        "WAVE / 3D / SPEC above it switch the view; the arrows and the name pick the table.\n"
+        "Drop a wav to switch this oscillator to Sample.";
     std::unique_ptr<juce::FileChooser> fileChooser;
 };

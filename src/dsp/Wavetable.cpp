@@ -105,6 +105,15 @@ bool Wavetable::readFrames (const juce::File& file, LoadMode mode, std::vector<s
     if (! reader->read (&buffer, 0, totalSamples, 0, true, true))
         return false;
 
+    // A float file may hold NaN, Inf or huge values: they would poison the mipmaps.
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        auto* data = buffer.getWritePointer (channel);
+
+        for (int i = 0; i < totalSamples; ++i)
+            data[i] = std::isfinite (data[i]) ? juce::jlimit (-16.0f, 16.0f, data[i]) : 0.0f;
+    }
+
     std::vector<float> mono ((size_t) totalSamples, 0.0f);
 
     for (int channel = 0; channel < numChannels; ++channel)

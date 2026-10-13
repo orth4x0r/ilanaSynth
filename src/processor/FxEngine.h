@@ -168,6 +168,8 @@ private:
     double shifterPhase = 0.0;
     double ringPhase = 0.0;
     double gatePhase = 0.0;
+    double gateLastPpq = std::numeric_limits<double>::quiet_NaN(); // the host beat the gate last saw
+    long long gateSamplesSincePpq = 0;
     float gateEnvelope = 1.0f;
     juce::uint16 gateRandomMask = 0xFFFF;
     int gateCycleCount = 8;

@@ -36,7 +36,7 @@ public:
         layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "lfo_div", 1 }, "Division", FxLfo::divisionNames(), FxLfo::defaultDivision));
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "lfo_depth", 1 }, "Depth", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 100.0f,
                                                            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
-                                                           { return String (roundToInt (v)) + " %"; })));
+                                                           { return String (roundToInt (v)) + "%"; })));
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "lfo_phase", 1 }, "Phase", NormalisableRange<float> (0.0f, 360.0f, 1.0f), 0.0f,
                                                            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
                                                            { return String (roundToInt (v)) + juce::String::fromUTF8 ("\xc2\xb0"); })));
@@ -87,7 +87,8 @@ public:
     {
         if (gestureOpen)
             return;
-        const auto patch = processorRef.getFxPatch();
+        const auto patchPointer = processorRef.getFxPatchShared(); // (no copy)
+        const auto& patch = *patchPointer;
         const auto* lfo = patch.findLfo (id);
         if (lfo == nullptr)
             return;
@@ -404,7 +405,7 @@ public:
             layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "amt" + juce::String (k), 1 }, "Amount",
                                                                      juce::NormalisableRange<float> (-100.0f, 100.0f, 1.0f), 50.0f,
                                                                      juce::AudioParameterFloatAttributes().withStringFromValueFunction (
-                                                                         [] (float v, int) { return juce::String (juce::roundToInt (v)) + " %"; })));
+                                                                         [] (float v, int) { return juce::String (juce::roundToInt (v)) + "%"; })));
         state = std::make_unique<juce::AudioProcessorValueTreeState> (holder, nullptr, "FxLfoAmounts", std::move (layout));
         for (int k = 0; k < maxShown; ++k)
         {
@@ -435,7 +436,8 @@ public:
         lfoId = lfo;
         slotIndex = slot;
         params.clear();
-        const auto patch = processorRef.getFxPatch();
+        const auto patchPointer = processorRef.getFxPatchShared(); // (no copy)
+        const auto& patch = *patchPointer;
         const juce::ScopedValueSetter<bool> quiet (syncing, true);
         for (const auto& route : patch.lfoRoutes)
             if (route.lfo == lfo && route.slot == slot && (int) params.size() < maxShown)
@@ -460,7 +462,8 @@ public:
     int numShown() const { return (int) params.size(); }
     int totalAssigned() const
     {
-        const auto patch = processorRef.getFxPatch();
+        const auto patchPointer = processorRef.getFxPatchShared(); // (no copy)
+        const auto& patch = *patchPointer;
         return (int) std::count_if (patch.lfoRoutes.begin(), patch.lfoRoutes.end(), [this] (const auto& r) { return r.lfo == lfoId && r.slot == slotIndex; });
     }
 

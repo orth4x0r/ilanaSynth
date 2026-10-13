@@ -1292,7 +1292,10 @@ private:
 
     void paintImpulse (juce::Graphics& g)
     {
-        const auto plot = plotArea();
+        // The seconds ride in a band under the bars, not over them (P-6).
+        const auto full = plotArea();
+        const auto scaleBand = full.getHeight() > 30.0f ? 11.0f : 0.0f;
+        const auto plot = full.withTrimmedBottom (scaleBand);
         auto step = 1.0f;
         for (const auto candidate : { 0.005f, 0.01f, 0.02f, 0.05f, 0.1f, 0.25f, 0.5f, 1.0f })
             if (impulseSeconds / candidate <= 6.0f)
@@ -1312,7 +1315,7 @@ private:
             for (auto t = step; t < impulseSeconds - step * 0.4f; t += step)
             {
                 const auto label = impulseSeconds < 1.0f ? juce::String (juce::roundToInt (t * 1000.0f)) + " ms" : juce::String (t, 1) + " s";
-                paintTick (g, label, juce::Rectangle<float> (plot.getX() + t / impulseSeconds * plot.getWidth() + 2.0f, plot.getBottom() - 10.0f, 40.0f, 10.0f), juce::Justification::centredLeft);
+                paintTick (g, label, juce::Rectangle<float> (plot.getX() + t / impulseSeconds * plot.getWidth() + 2.0f, plot.getBottom() + 1.0f, 40.0f, 10.0f), juce::Justification::centredLeft);
             }
             paintTick (g, "0 dB", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getY(), 30.0f, 10.0f), juce::Justification::centredLeft);
             paintTick (g, juce::String::fromUTF8 ("\xe2\x88\x92") + "24", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getCentreY() - 5.0f, 30.0f, 10.0f), juce::Justification::centredLeft);

@@ -908,9 +908,12 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 
 void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    // Picking a tab shows its page: the docked browser over it steps aside.
+    // Picking a tab shows its page: the docked browser over it steps aside,
+    // and the wavetable editor over the old page closes.
     if (presetDockShown)
         setPresetDockShown (false);
+
+    closeWavetableEditor();
 
     layoutTabRow();
 
@@ -1731,6 +1734,8 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
         return;
     }
 
+    closeWavetableEditor(); // it belongs to the page it was opened from
+
     // STEPS & MSEG went into ENV / LFO (UI review 6, V5-7): its old id
     // opens there.
     if (id == "STEPS")
@@ -1883,6 +1888,8 @@ bool IlanaSynthAudioProcessorEditor::isScopeOpen() const
 // sit at the right end of the tab row.
 void IlanaSynthAudioProcessorEditor::layoutTabRow()
 {
+    // The tab buttons are placed again from the current font on every layout, so the row is the same on every page (S1-11).
+    tabs.getTabbedButtonBar().resized();
     const auto bar = tabs.getBounds().withHeight (tabBarHeight);
     constexpr int gap = 6, buttonHeight = 24;
     const auto y = bar.getY() + (tabBarHeight - buttonHeight) / 2;
@@ -2162,9 +2169,13 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
                                                                            return;
 
                                                                        auto& processor = safeThis->processorRef;
+                                                                       safeThis->closeWavetableEditor(); // it works on the old patch's table
                                                                        processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
-                                                                       processor.loadPresetFromFile (file);
+                                                                       const auto loaded = processor.loadPresetFromFile (file);
                                                                        processor.endEdit();
+
+                                                                       if (! loaded)
+                                                                           safeThis->presetDisplay.showNotice ("COULDN'T LOAD");
                                                                    });
                               });
 }
@@ -2177,31 +2188,44 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
         return;
 
     const auto bank = processorRef.getAllPresetBanks()[index];
+    // The click resolves to a file now: a folder that changes before the
+    // answer (a second instance saving) can't shift which preset loads.
+    const auto factoryCount = (int) processorRef.getFactoryPresetNames().size();
+    const auto userFile = index >= factoryCount ? processorRef.getUserPresetFiles()[index - factoryCount] : juce::File();
     // While the browser is open, one "Load anyway" covers the session.
     const auto browsing = presetPanel != nullptr && (presetPanel->isOpen() || presetDockShown);
     const auto asking = browsing && ! browsingAccepted && isPatchEdited() && asksBeforeReplacingEdits();
-    const auto load = [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), index, name = names[index], then] (bool confirmed)
+    const auto load = [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), index, userFile, name = names[index], then] (bool confirmed)
     {
         if (safeThis == nullptr)
             return;
+
+        auto loaded = false;
 
         if (confirmed)
         {
             // One undo step for the whole preset, its data included.
             auto& self = *safeThis;
+            self.closeWavetableEditor(); // it works on the old patch's table
             self.processorRef.beginEdit ("Load " + name);
-            self.processorRef.loadPresetByIndex (index);
+            loaded = userFile != juce::File() ? self.processorRef.loadUserPreset (userFile) : self.processorRef.loadPresetByIndex (index);
             self.processorRef.endEdit();
-            self.presetLoadFlash = 1.0f;
-            IlanaAnim::notePresetLoad();
-            self.animator.startTimerHz (60);
 
-            self.updateHeaderButtons();
-            self.rememberLoadedFingerprint();
+            if (loaded)
+            {
+                self.presetLoadFlash = 1.0f;
+                IlanaAnim::notePresetLoad();
+                self.animator.startTimerHz (60);
+
+                self.updateHeaderButtons();
+                self.rememberLoadedFingerprint();
+            }
+            else
+                self.presetDisplay.showNotice ("COULDN'T LOAD"); // the patch and its name are unchanged
         }
 
         if (then != nullptr)
-            then (confirmed);
+            then (loaded);
     };
 
     if (browsing && browsingAccepted)
@@ -2348,6 +2372,7 @@ void IlanaSynthAudioProcessorEditor::toggleFavourite()
 
 void IlanaSynthAudioProcessorEditor::toggleAB()
 {
+    closeWavetableEditor(); // the other patch has its own tables
     if (showingA)
     {
         slotA = processorRef.apvts.copyState();
@@ -3039,6 +3064,14 @@ bool IlanaSynthAudioProcessorEditor::closeTopPopup()
         return true;
     }
 
+    // Esc closes the wavetable editor wherever the focus is in the window
+    // (a text field there would otherwise keep the key).
+    if (wavetableEditor != nullptr)
+    {
+        closeWavetableEditor();
+        return true;
+    }
+
     if (tutorial.isVisible())
     {
         tutorial.dismiss();
@@ -3130,6 +3163,37 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
     const auto modifiers = key.getModifiers();
 
+    // The computer keyboard plays notes (G-06): A to K are the white keys of
+    // an octave with W E T Y U O P for the black ones, Z and X shift the
+    // octave. Only here, in the editor's own key handler, so a host that
+    // keeps its keys never sees a conflict; never while a text field has focus.
+    if (keyboard != nullptr && wavetableEditor == nullptr && ! modifiers.isCommandDown() && ! modifiers.isCtrlDown()
+        && ! modifiers.isAltDown()
+        && dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) == nullptr)
+    {
+        const auto character = juce::CharacterFunctions::toLowerCase (key.getTextCharacter());
+
+        if (character == 'z' || character == 'x')
+        {
+            noteKeyOctave = juce::jlimit (-3, 3, noteKeyOctave + (character == 'x' ? 1 : -1));
+            return true;
+        }
+
+        if (const auto semitone = juce::String ("awsedftgyhujkolp").indexOfChar (character); semitone >= 0 && character != 0)
+        {
+            const auto code = key.getKeyCode();
+
+            for (const auto& held : heldNoteKeys)
+                if (held.first == code)
+                    return true; // auto-repeat
+
+            const auto note = 60 + 12 * noteKeyOctave + semitone;
+            heldNoteKeys.emplace_back (code, note);
+            keyboard->keyNoteOn (note);
+            return true;
+        }
+    }
+
     if (modifiers.isCommandDown() || modifiers.isCtrlDown())
     {
         const auto code = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode());
@@ -3192,6 +3256,44 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     }
 
     return false;
+}
+
+// Lets go of the computer-keyboard notes whose key is up (or all of them).
+void IlanaSynthAudioProcessorEditor::releaseNoteKeys (bool onlyThoseUp)
+{
+    for (auto it = heldNoteKeys.begin(); it != heldNoteKeys.end();)
+    {
+        const auto code = it->first;
+        const auto down = juce::KeyPress::isKeyCurrentlyDown (code)
+                          || juce::KeyPress::isKeyCurrentlyDown ((int) juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) code))
+                          || juce::KeyPress::isKeyCurrentlyDown ((int) juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) code));
+
+        if (onlyThoseUp && down)
+        {
+            ++it;
+            continue;
+        }
+
+        if (keyboard != nullptr)
+            keyboard->keyNoteOff (it->second);
+
+        it = heldNoteKeys.erase (it);
+    }
+}
+
+bool IlanaSynthAudioProcessorEditor::keyStateChanged (bool isKeyDown)
+{
+    if (! isKeyDown && ! heldNoteKeys.empty())
+        releaseNoteKeys (true);
+
+    return false;
+}
+
+void IlanaSynthAudioProcessorEditor::focusOfChildComponentChanged (FocusChangeType)
+{
+    // A note held while the window loses the keys would never see its key-up.
+    if (! heldNoteKeys.empty() && ! hasKeyboardFocus (true))
+        releaseNoteKeys (false);
 }
 
 // The preset's fingerprint when it was loaded or saved, kept in the

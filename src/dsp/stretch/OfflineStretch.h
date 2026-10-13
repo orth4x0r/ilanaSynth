@@ -5,6 +5,7 @@
 // tempo, the region's length or the played note changes. Plain C++ (no
 // JUCE), so each engine can be tested on its own.
 
+#include <atomic>
 #include <vector>
 
 namespace OfflineStretch
@@ -17,6 +18,21 @@ enum class Engine
     Pghi,        // phase vocoder, phases rebuilt by Phase Gradient Heap Integration
     Paulstretch  // Paul Nasca's extreme stretch: long windows, random phases
 };
+
+// A render can be cancelled from outside: the thread that renders points its
+// slot at a flag, and the long loops check cancelled() and give up (render
+// then returns an empty Audio). No slot set: never cancelled.
+inline const std::atomic<bool>*& cancelSlot() noexcept
+{
+    static thread_local const std::atomic<bool>* slot = nullptr;
+    return slot;
+}
+
+inline bool cancelled() noexcept
+{
+    const auto* flag = cancelSlot();
+    return flag != nullptr && flag->load (std::memory_order_relaxed);
+}
 
 struct Audio
 {

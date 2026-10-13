@@ -106,8 +106,9 @@ public:
 
         std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
 
-        if (morph.isVisible())
-            knobs.push_back (&morph);
+        // (Seven columns always, MORPH's empty when the type has none: FILTER 1's
+        // and FILTER 2's knobs share one column pitch, P-3.)
+        knobs.push_back (morph.isVisible() ? &morph : nullptr);
 
         layoutRow (area, knobs);
     }
@@ -523,7 +524,8 @@ public:
         for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
             knob->setSizeRole (juce::jmin (64, juce::jmax (IlanaTheme::KnobSize::main, (motionBox.getHeight() - boxHeaderHeight) - 40)));
         auto knobs = motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
-        layoutRow (knobs, { &x, &y, &path, &rate, &drift, &driftRate });
+        // (Every name on one line, the PATH switch under its own: the row no longer drops it, S1-14.)
+        layoutRow (knobs, { &x, &y, &path, &rate, &drift, &driftRate }, true);
     }
 
 private:

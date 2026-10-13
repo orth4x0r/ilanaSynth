@@ -76,6 +76,8 @@ Audio renderPaulstretch (const Audio& input, double lengthFactor, double pitchRa
     const double invN = 1.0 / (double) N;
     for (int k = 0;; ++k)
     {
+        if (cancelled())
+            return Audio{};
         const double outCentre = (double) k * hop;
         if (outCentre >= (double) stretchedLen + 1.0)
             break;

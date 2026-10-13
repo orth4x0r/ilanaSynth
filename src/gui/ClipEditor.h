@@ -48,11 +48,14 @@ public:
     ClipEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip ("Clip piano roll. Double-click to add a note (DRAW or D: a click adds, a drag paints a run), click to "
-                    "select (shift adds), drag empty space to select several. Drag to move, drag the right edge to resize, "
-                    "right-click to delete. Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar). Drag "
-                    "the lane below for velocity. Wheel: pitch, Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to "
-                    "scroll. Click a key to hear it.");
+        setTooltip ("Clip piano roll\n"
+                    "Double-click to add a note. In DRAW (or D) a click adds one and a drag paints a run.\n"
+                    "Click to select (shift adds); drag empty space to select several.\n"
+                    "Drag to move, drag the right edge to resize, right-click to delete.\n"
+                    "Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar).\n"
+                    "Drag the lane below for velocity.\n"
+                    "Wheel: pitch. Alt+wheel: row height. Ctrl+wheel: zoom. Drag the ruler to scroll.\n"
+                    "Click a key to hear it.");
         setWantsKeyboardFocus (true);
         reload (true);
         startTimerHz (30);

@@ -264,7 +264,16 @@ public:
     PresetInfo getPresetInfo (int index) const;
     bool isUserPreset (int index) const { return index >= (int) getFactoryPresetNames().size(); }
     int getNumAllPresets() const;
-    void loadPresetByIndex (int index);
+    // False when a user preset's file is gone or unreadable (nothing changed).
+    bool loadPresetByIndex (int index);
+    // A user preset by its file (the browser resolves a click to a path, so a
+    // changed folder can't shift which file loads). False as above.
+    bool loadUserPreset (const juce::File& file) { ++dataEpoch; return loadPresetFromFile (file); }
+    // The file the open patch was loaded from or saved to ({} for a factory
+    // preset or a session). Two files may share a base name, so Save goes by
+    // this. Message thread only.
+    juce::File getLoadedPresetFile() const { return loadedPresetFile; }
+    void setLoadedPresetFile (const juce::File& file) { loadedPresetFile = file; }
 
     // Category and tags travel with the patch (state tree) and are read back
     // from user preset files for the browser. Message thread only.
@@ -590,6 +599,12 @@ public:
     bool setUserTable (int slot, const WavetableDoc& doc);
     // The slot's doc; a slot never edited gives its default (factory) table.
     WavetableDoc getUserTableDoc (int slot) const;
+    // The same doc by identity (null: default), for the wavetable editor to
+    // notice that a load or an undo changed the table under it.
+    std::shared_ptr<const WavetableDoc> getUserTableDocPtr (int slot) const;
+    // Counts patch loads (a preset, a session or host state): work started
+    // for the old patch checks it before applying its result.
+    unsigned getPatchGeneration() const { return patchGeneration.load(); }
     bool isUserSlotEdited (int slot) const;
     // An unedited slot that no oscillator plays, or -1.
     int findFreeUserSlot() const;
@@ -597,20 +612,24 @@ public:
     juce::String getTableNotice() const;
     int getTableNoticeVersion() const { return tableNoticeVersion.load(); }
     void clearTableNotice();
-    bool loadUserSample (int oscIndex, const juce::File& file);
+    // fromUser: a file the player chose or dropped; it replaces a factory
+    // sample source (the SOURCE menu goes back to the loaded sample).
+    bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
     void processEffects (juce::AudioBuffer<float>& buffer);
     void processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer);
     void processEffectsParallel (juce::AudioBuffer<float>& buffer);
     void runFxSlot (int slot, juce::AudioBuffer<float>& buffer);
     bool isFxSlotActive (int index);
+    bool fxSlotRuns (int index);
     void clearFxSlotMeters (int index);
     // Roadmap step A: the rack as a patch graph (PatchGraphState.h,
     // rackGraph) and the rack run through a compiled graph instead of the
     // fixed loop. Not on the audio path yet: the tests and ilanaFxCpuBench
     // use them to show a graph renders the fixed rack sample for sample and
     // what it costs; step 17 switches the audio path over.
-    PatchGraph::Graph getFxRackGraph();
+    // ignoreBypass: the cables as if no slot were bypassed (turning the patcher on).
+    PatchGraph::Graph getFxRackGraph (bool ignoreBypass = false);
     void processEffectsGraph (juce::AudioBuffer<float>& buffer, PatchGraph::Runner& runner);
 
     //==========================================================================
@@ -634,6 +653,8 @@ public:
     void setRouteCables (const VoiceRouting::Patch& patch, bool on);
 
     FxPatchData::Patch getFxPatch() const;
+    // The same, shared and not copied (a patch is never changed once published).
+    std::shared_ptr<const FxPatchData::Patch> getFxPatchShared() const;
     void setFxPatch (const FxPatchData::Patch& patch);
     bool isFxPatcherOn() const;
     // On: the slots become the patcher graph's nodes; the first time, the
@@ -704,6 +725,7 @@ public:
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
     bool isSampleEmbedded (int oscIndex) const;
     const SampleData* getSampleForOsc (int oscIndex) const;
+    void useLoadedSample (int oscIndex, bool fromUser);
     // The same, kept alive by the pointer (the stretch worker's view).
     std::shared_ptr<const SampleData> getSharedSampleForOsc (int oscIndex) const;
     // TIME's engines: copies still rendering, for the sample card.
@@ -783,6 +805,15 @@ private:
     struct PatchData
     {
         std::shared_ptr<const FxPatchData::Patch> fx;
+        // Patch tables and samples travel with the patch, as do the macro
+        // names and CCs, the reveal masks and the tuning (their text).
+        std::array<std::shared_ptr<const WavetableDoc>, (size_t) numUserSlots> tables;
+        std::array<std::shared_ptr<SampleData>, (size_t) OscillatorIds::count> embedded;
+        std::array<juce::String, (size_t) OscillatorIds::count> samplePaths;
+        std::array<juce::String, (size_t) Mod::numMacros> macroNames;
+        std::array<int, (size_t) Mod::numMacros> macroCcs {};
+        std::array<int, 3> reveal {};
+        juce::String tuningScale, tuningMapping;
         std::array<std::array<float, lfoDrawSteps>, (size_t) numLfos> draws {};
         std::array<LfoCurve, (size_t) numLfos> curves;
         std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
@@ -794,8 +825,13 @@ private:
     void restorePatchData (const PatchData& data, const PatchData& reference);
     static bool samePatchData (const PatchData& a, const PatchData& b);
     std::optional<PatchData> pendingEditData; // between beginEdit and endEdit
-    mutable unsigned hashedDataEpoch = ~0u;
+    mutable juce::uint64 hashedDataEpoch = ~(juce::uint64) 0;
     mutable juce::int64 cachedDataHash = 0;
+    // A table doc's content hash, kept while the slot holds the same doc.
+    mutable std::array<std::pair<std::shared_ptr<const WavetableDoc>, juce::uint64>, (size_t) numUserSlots> docHashes;
+    juce::File loadedPresetFile;
+    std::atomic<unsigned> patchGeneration { 0 };
+    unsigned bounceGeneration = 0; // the patch a running bounce was started on
 
     MtsEspClient mtsEsp;
     Tuning mtsTuning; // filled from the master each block while one is connected
@@ -812,7 +848,7 @@ private:
     bool bounceReady = false;
     juce::String bounceMessage;
     static juce::ValueTree encodeSample (const SampleData& data);
-    static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree);
+    static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree, int depth = 0);
 
     struct ParamCacheEntry
     {
@@ -890,6 +926,12 @@ private:
     int arpActiveNote = -1;
     bool arpWasEnabled = false;
     bool arpHostWasPlaying = false;
+    // The arp keeps each key's MIDI channel (it plays on the last key's
+    // channel; switching it on releases the pass-through voices) and follows the sustain pedal: keys let go while it is down stay held.
+    std::array<juce::uint8, 128> arpHeldChannel {};
+    std::array<bool, 128> arpSustainedKey {};
+    int arpChannel = 1, arpActiveChannel = 1;
+    bool arpPedalDown = false;
     // M7.1: probability sequencer and Euclid state. The sequencer has its
     // own random generator, so the arp's sequence is unchanged.
     juce::Random pseqRandom { 16180 };
@@ -948,6 +990,7 @@ private:
     ParamRef fxRoutingRef { "fx_routing" };
     ParamRef multiCoreRef { "multi_core" };
     ParamRef sustainVoicesRef { "sustain_voices" };
+    ParamRef midiProgramChangeRef { "midi_program_change" }, msegLoopRef { "mseg_loop" };
     // The Airwindows category modules (FX types 32-41), one engine each;
     // their refs: algo, p1..p5, mix.
     static constexpr int numAwCategories = 10;
@@ -1083,6 +1126,11 @@ private:
     std::array<std::pair<std::shared_ptr<SampleData>, juce::ValueTree>, (size_t) numSampleOscs> encodedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
+    // A path the state names whose file would not load: the slot is empty,
+    // and a save still writes the path (the file may be back next time).
+    std::array<juce::String, (size_t) numSampleOscs> missingSamplePaths;
+    std::array<juce::String, (size_t) numUserSlots> missingTablePaths;
+    int missingTableModes[numUserSlots] {};
     bool samplesReloadPending = false;
     std::array<juce::String, (size_t) numUserSlots> userTablePaths;
     std::array<juce::String, (size_t) numUserSlots> pendingUserTablePaths;
@@ -1276,6 +1324,12 @@ private:
     juce::dsp::Oversampling<float>& activeOversampler() { return oversamplingFactor.load() == 4 ? oversampler4x : oversampler2x; }
     juce::MidiBuffer scaledMidiBuffer;
     Mseg mseg;
+    std::array<bool, 128> msegKeyDown {}; // keys down, to restart a one-shot MSEG on the first
+    int msegKeysDown = 0;
+    // The sustain pedal as the host sent it (per channel), to give the
+    // synth again after a reset that forgets it (prepare, oversampling, a new patch).
+    std::array<bool, 16> pedalChannelDown {};
+    void restoreSustainPedal();
     SympatheticStrings sympatheticStrings;
     bool sympatheticWasOn = false;
 
@@ -1351,12 +1405,21 @@ private:
         UtilGain, LimitCeiling, Count
     };
     std::array<BlockRamp, (size_t) numFxSlots> slotBlendRamps;
+    // A slot that is bypassed runs one more block with its wet part ramped
+    // to 0 (fxSlotRuns), and is faded back in when it returns; one that was
+    // skipped for longer than the longest delay memory starts it empty.
+    std::array<bool, (size_t) numFxSlots> fxSlotLive {}, fxSlotFaded {};
+    std::array<std::int64_t, (size_t) numFxSlots> fxSlotLastRun {};
+    std::int64_t fxClock = 0; // samples the rack has run (processEffects)
+    int fxBlockLength = 0;
     BlockRamp masterRamp;
     void resetBlockRamps() noexcept
     {
         resetFxEngineRamps();
         for (auto& ramp : slotBlendRamps)
             ramp.reset();
+        fxSlotLive.fill (false);
+        fxSlotFaded.fill (false);
         masterRamp.reset();
     }
 

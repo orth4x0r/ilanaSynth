@@ -614,17 +614,27 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     // until their keys were let go and pressed again (ilana, 2026-10-10;
     // not reproduced on Linux, where every output matched).
     synth.allNotesOff (0, false);
+    msegKeyDown.fill (false);
+    msegKeysDown = 0;
+    restoreSustainPedal();
     // MULTI-CORE: up to three more threads (the host runs its own too), with
     // buffers for a chunk at the highest oversampling.
     synth.prepareVoiceThreads (juce::jlimit (0, 3, juce::SystemStats::getNumCpus() - 1), expectedBlockSize * 4);
 
-    scaledMidiBuffer.ensureSize (1024);
+    scaledMidiBuffer.ensureSize (4096); // (a dense MPE block; sized like chunkMidi)
 
     lfoBuffers.setSize (numLfoChannels, expectedBlockSize * oversamplingFactor.load(), false, false, true);
 
     // PARALLEL FX routing's buffers, so the audio thread need not size them.
     fxParallelIn.setSize (2, expectedBlockSize, false, true, true);
     fxBranch.setSize (2, expectedBlockSize, false, true, true);
+    fxScratch.setSize (2, expectedBlockSize, false, true, true);
+    fxBand.setSize (2, expectedBlockSize, false, true, true);
+
+    // The first-use tables of the modulation lookups, built here and not on
+    // the first audio block.
+    (void) Mod::extendedFmCellFor (0);
+    (void) Mod::spectralOscFor (0);
 
     // M7.5: room for the input at up to 4x oversampling, and 3 s of history.
     liveDry.setSize (2, expectedBlockSize, false, true, false);
@@ -669,12 +679,22 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     updateLatency();
 }
 
+// A reset forgets the sustain pedal (the synth's allNotesOff clears it), but
+// the pedal is still physically down: tell the synth again.
+void IlanaSynthAudioProcessor::restoreSustainPedal()
+{
+    for (int channel = 0; channel < 16; ++channel)
+        if (pedalChannelDown[(size_t) channel])
+            synth.handleController (channel + 1, 64, 127);
+}
+
 // A new patch starts from silence: the old voices stop and the effects'
 // memory (reverb, delays, freeze, the piano body) is cleared, on the audio
 // thread and without allocating.
 void IlanaSynthAudioProcessor::cutPatchTails()
 {
     synth.allNotesOff (0, false);
+    restoreSustainPedal();
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
             voice->resetForNewPatch();
@@ -813,10 +833,11 @@ void IlanaSynthAudioProcessor::setOversampling (int factor)
     const auto voiceRate = baseSampleRate * (double) factor;
 
     synth.setCurrentPlaybackSampleRate (voiceRate);
+    restoreSustainPedal();
     mseg.prepare (voiceRate);
     mseg.reset();
     lfoBuffers.setSize (numLfoChannels, expectedBlockSize * factor, false, false, true);
-    scaledMidiBuffer.ensureSize (1024);
+    scaledMidiBuffer.ensureSize (4096); // (a dense MPE block; sized like chunkMidi)
     updateLatency();
 
     suspendProcessing (false);
@@ -1390,7 +1411,11 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.bodyCoupling = getParam ("body_coupling");
 
     if (getParam ("mpe_mode") > 0.5f)
+    {
+        p.mpe = true;
+        p.masterBendRange = p.pitchBendRange; // the BEND knob is the master channel's range
         p.pitchBendRange = 48.0f;
+    }
 
     p.clockSh = lfoBuffers.getReadPointer (4);
     p.mseg = lfoBuffers.getReadPointer (5);
@@ -1811,7 +1836,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                 x1 = x;
                 data[i] = y1;
             }
-            state[0] = x1;
+            state[0] = std::isfinite (x1) ? x1 : 0.0f;
             state[1] = std::isfinite (y1) && std::abs (y1) > 1.0e-20f ? y1 : 0.0f;
         }
     };
@@ -1843,6 +1868,32 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
             for (int i = 0; i < buffer.getNumSamples(); ++i)
                 data[i] = std::tanh (data[i] * clipGain);
         }
+    }
+
+    // Last line of defence: a sample that is not finite becomes 0 and a
+    // denormal is flushed (one pass; finite audio is unchanged bit for bit). If
+    // one got this far, the effects' memory may hold it too, so it starts empty.
+    {
+        auto bad = false;
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        {
+            auto* data = buffer.getWritePointer (channel);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const auto value = data[i];
+                if (! std::isfinite (value))
+                {
+                    bad = true;
+                    data[i] = 0.0f;
+                }
+                else if (value != 0.0f && std::abs (value) < std::numeric_limits<float>::min())
+                {
+                    data[i] = 0.0f;
+                }
+            }
+        }
+        if (bad)
+            resetFxEngines();
     }
 
     // After a patch change: ease from where the old patch's output stopped
@@ -2017,7 +2068,7 @@ std::shared_ptr<const SampleData> IlanaSynthAudioProcessor::getSharedSampleForOs
     return user;
 }
 
-bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file)
+bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file, bool fromUser)
 {
     ++sampleEpoch;
     ++dataEpoch; // what the editor draws changes
@@ -2032,6 +2083,7 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
         if (multi == nullptr)
             return false;
         setUserSample (oscIndex, std::move (multi), file.getFullPathName());
+        useLoadedSample (oscIndex, fromUser);
         return true;
     }
 
@@ -2059,8 +2111,21 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     if (! reader->read (&data->buffer, 0, numSamples, 0, true, true))
         return false;
 
+    scrubAudio (data->buffer);
     setUserSample (oscIndex, std::move (data), file.getFullPathName());
+    useLoadedSample (oscIndex, fromUser);
     return true;
+}
+
+void IlanaSynthAudioProcessor::useLoadedSample (int oscIndex, bool fromUser)
+{
+    // A chosen or dropped file replaces a factory sample source, as a bounce does.
+    // (Not on a state restore: a patch may keep a path next to a factory pick.)
+    if (! fromUser || (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) == 0)
+        return;
+
+    if (auto* parameter = apvts.getParameter (sampleFactoryIds[(size_t) oscIndex]))
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (0.0f));
 }
 
 void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path)
@@ -2168,6 +2233,14 @@ WavetableDoc IlanaSynthAudioProcessor::getUserTableDoc (int slot) const
     auto fallback = WavetableDoc::fromFactory (slot % TableFactory::getNumFactoryTables());
     fallback.name = "User " + juce::String (slot + 1);
     return fallback;
+}
+
+std::shared_ptr<const WavetableDoc> IlanaSynthAudioProcessor::getUserTableDocPtr (int slot) const
+{
+    if (slot < 0 || slot >= numUserSlots)
+        return nullptr;
+    const juce::SpinLock::ScopedLockType lock (stateLock);
+    return userTableDocs[(size_t) slot];
 }
 
 bool IlanaSynthAudioProcessor::isUserSlotEdited (int slot) const

@@ -57,7 +57,7 @@ public:
         // HEAR: hovering a table plays it (review 9, S9-19).
         hearButton.setButtonText ("HEAR");
         hearButton.setClickingTogglesState (true);
-        hearButton.setTooltip ("Hear tables\nOn: resting the pointer on a table plays a note with it, in this oscillator. "
+        hearButton.setTooltip ("Hear tables\nOn: resting the pointer on a table plays a note with it, in this oscillator.\n"
                                "Leaving without picking puts the old table back.");
         hearButton.onClick = [this]
         {
@@ -234,9 +234,13 @@ private:
         int y = 0;
     };
 
-    struct Content : public juce::Component
+    struct Content : public juce::Component,
+                     public juce::TooltipClient
     {
         TableBrowser* owner = nullptr;
+
+        // A long table name is cut in its tile: the tip carries all of it.
+        juce::String getTooltip() override { return owner != nullptr ? owner->hoveredName() : juce::String(); }
 
         void paint (juce::Graphics& g) override { owner->paintContent (g); }
         void mouseMove (const juce::MouseEvent& event) override { owner->hoverAt (event.getPosition()); }
@@ -472,6 +476,15 @@ private:
 
         const auto size = juce::roundToInt (18.0f * scale);
         return juce::Rectangle<int> (size, size).withPosition (item.bounds.getRight() - size - 3, item.bounds.getY() + 3);
+    }
+
+    juce::String hoveredName() const
+    {
+        for (const auto& item : items)
+            if (item.choice == hovered && hovered >= 0)
+                return item.name;
+
+        return {};
     }
 
     void hoverAt (juce::Point<int> position)

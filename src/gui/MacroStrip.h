@@ -291,10 +291,8 @@ public:
         {
             if (! container->isDragAndDropActive())
             {
-                auto image = createComponentSnapshot (textArea(), true, 1.0f);
-                image.multiplyAllAlphas (0.8f);
                 container->startDragging ("modsource:" + juce::String ((int) Mod::macroSourceFor (macroIndex)), this,
-                                          juce::ScaledImage (image), true);
+                                          IlanaTheme::dragGhost (*this, textArea(), 0.8f), true);
             }
         }
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_data_structures/juce_data_structures.h>
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -80,11 +81,13 @@ public:
     {
         state.removeChild (state.getChildWithName (treeType), nullptr);
         const auto scale = getScaleText();
-        if (scale.isEmpty())
+        const auto mapping = getMappingText();
+        // A keyboard map loaded before any scale is saved too (it waits for one).
+        if (scale.isEmpty() && mapping.isEmpty())
             return;
         juce::ValueTree tree (treeType);
-        tree.setProperty ("scl", scale, nullptr);
-        const auto mapping = getMappingText();
+        if (scale.isNotEmpty())
+            tree.setProperty ("scl", scale, nullptr);
         if (mapping.isNotEmpty())
             tree.setProperty ("kbm", mapping, nullptr);
         state.appendChild (tree, nullptr);
@@ -96,7 +99,14 @@ public:
     {
         const auto tree = state.getChildWithName (treeType);
         juce::String error;
-        if (! tree.isValid() || ! rebuild (tree.getProperty ("scl").toString(), tree.getProperty ("kbm").toString(), error))
+        const auto scale = tree.getProperty ("scl").toString();
+        const auto mapping = tree.getProperty ("kbm").toString();
+        if (tree.isValid() && scale.isEmpty() && mapping.isNotEmpty())
+        {
+            reset();
+            loadMapping (mapping, error); // kept for the next scale
+        }
+        else if (! tree.isValid() || ! rebuild (scale, mapping, error))
             reset();
         state.removeChild (tree, nullptr);
     }
@@ -130,6 +140,11 @@ private:
             if (current != nullptr)
                 retired.push_back (current);
             current = std::move (next);
+
+            // Tables nobody holds any more (the audio thread's copy counts).
+            retired.erase (std::remove_if (retired.begin(), retired.end(),
+                                           [] (const std::shared_ptr<const Tuning>& t) { return t.use_count() == 1; }),
+                           retired.end());
         }
         version.fetch_add (1, std::memory_order_release);
     }

@@ -309,25 +309,24 @@ int IlanaSynthAudioProcessor::getNumAllPresets() const
     return (int) Presets::getFactoryPresets().size() + getUserPresetFiles().size();
 }
 
-void IlanaSynthAudioProcessor::loadPresetByIndex (int index)
+bool IlanaSynthAudioProcessor::loadPresetByIndex (int index)
 {
     ++dataEpoch; // what the editor draws changes
     const auto factoryCount = (int) Presets::getFactoryPresets().size();
 
     if (index < 0)
-        return;
+        return false;
 
     if (index < factoryCount)
     {
         loadFactoryPreset (index);
-        return;
+        return true;
     }
 
     const auto files = getUserPresetFiles();
     const auto userIndex = index - factoryCount;
 
-    if (userIndex < files.size())
-        loadPresetFromFile (files[userIndex]);
+    return userIndex < files.size() && loadPresetFromFile (files[userIndex]);
 }
 
 void IlanaSynthAudioProcessor::handleAsyncUpdate()
@@ -348,7 +347,16 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
             std::swap (ready, bounceReady);
             audio = std::move (bounceResult);
         }
-        if (ready)
+        if (ready && bounceGeneration != patchGeneration.load())
+        {
+            // Another patch was loaded while it rendered: its sample is for the old one.
+            {
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                bounceMessage = "Patch changed, bounce discarded.";
+            }
+            bounceState = BounceState::Failed;
+        }
+        else if (ready)
         {
             juce::String message;
             const auto ok = applyBounce (pendingBounce, std::move (audio), message);
@@ -437,8 +445,19 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
 
             const juce::File file (path);
 
-            if (file.existsAsFile())
-                loadUserSample (i, file);
+            if (! file.existsAsFile() || ! loadUserSample (i, file))
+            {
+                // Missing or unreadable: the slot goes empty rather than keep the
+                // previous patch's sample under this patch's path.
+                setUserSample (i, nullptr, {});
+                {
+                    const juce::SpinLock::ScopedLockType lock (stateLock);
+                    missingSamplePaths[(size_t) i] = path; // a save keeps the path
+                    tableNotice = (tableNotice.isEmpty() ? juce::String() : tableNotice + "\n")
+                                  + "Sample not loaded (missing or unreadable): " + file.getFullPathName();
+                }
+                ++tableNoticeVersion;
+            }
         }
     }
 
@@ -467,8 +486,20 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
 
             const juce::File file (path);
 
-            if (file.existsAsFile())
-                loadUserWavetable (i, file, (Wavetable::LoadMode) juce::jlimit (0, 4, mode));
+            if (! file.existsAsFile() || ! loadUserWavetable (i, file, (Wavetable::LoadMode) juce::jlimit (0, 4, mode)))
+            {
+                // As for a sample: the slot goes back to its default table, not
+                // the previous patch's, and the player is told.
+                resetUserTableToDefault (i);
+                {
+                    const juce::SpinLock::ScopedLockType lock (stateLock);
+                    missingTablePaths[(size_t) i] = path;
+                    missingTableModes[i] = mode;
+                    tableNotice = (tableNotice.isEmpty() ? juce::String() : tableNotice + "\n")
+                                  + "Wavetable not loaded (missing or unreadable): " + file.getFullPathName();
+                }
+                ++tableNoticeVersion;
+            }
         }
     }
 }
@@ -842,6 +873,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     if (index < 0 || index >= (int) presets.size())
         return;
 
+    ++patchGeneration; // a bounce still rendering belongs to the patch that started it
+    loadedPresetFile = juce::File();
     setCurrentPresetName (presets[(size_t) index].name);
     setPresetMeta (presets[(size_t) index].browseCategory != nullptr ? juce::String (presets[(size_t) index].browseCategory)
                                                                      : getFactoryPresetCategories()[index],
@@ -887,31 +920,36 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
             setLfoCustomPoint (lfo, i, (float) std::sin (juce::MathConstants<double>::twoPi * (double) i / (double) lfoDrawSteps));
 
     {
-        auto asyncNeeded = false;
+        // Cleared now, not queued: a queued clear outlived by a later load of
+        // the same path would wipe that load's sample (and an undo step
+        // taken right after this load would see the slots still full).
+        for (int i = 0; i < numSampleOscs; ++i)
+        {
+            auto occupied = false;
+            {
+                const juce::SpinLock::ScopedLockType lock (stateLock);
+                occupied = samplePaths[(size_t) i].isNotEmpty() || embeddedSamples[(size_t) i] != nullptr;
+                pendingSamplePaths[(size_t) i].clear();
+                pendingSampleClear[(size_t) i] = false;
+                missingSamplePaths[(size_t) i].clear();
+            }
+
+            if (occupied)
+                setUserSample (i, nullptr, {});
+        }
+
         {
             const juce::SpinLock::ScopedLockType lock (stateLock);
 
-            for (int i = 0; i < numSampleOscs; ++i)
-                if (samplePaths[(size_t) i].isNotEmpty() || embeddedSamples[(size_t) i] != nullptr)
-                {
-                    pendingSamplePaths[(size_t) i].clear();
-                    pendingSampleClear[(size_t) i] = true;
-                    asyncNeeded = true;
-                }
-
             for (int i = 0; i < numUserSlots; ++i)
-                if (userTablePaths[(size_t) i].isNotEmpty())
-                {
-                    pendingUserTablePaths[(size_t) i].clear();
-                    pendingUserTableClear[(size_t) i] = true;
-                    asyncNeeded = true;
-                }
+            {
+                pendingUserTablePaths[(size_t) i].clear();
+                pendingUserTableClear[(size_t) i] = false;
+                missingTablePaths[(size_t) i].clear();
+            }
         }
 
-        if (asyncNeeded)
-            triggerAsyncUpdate();
-
-        // Edited patch tables go back to their defaults too.
+        // Edited patch tables (a loaded file is one) go back to their defaults too.
         for (int i = 0; i < numUserSlots; ++i)
             if (isUserSlotEdited (i))
                 resetUserTableToDefault (i);
@@ -1160,6 +1198,7 @@ bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)
         return false;
 
     setCurrentPresetName (file.getFileNameWithoutExtension());
+    loadedPresetFile = file;
     return true;
 }
 
@@ -1173,5 +1212,6 @@ bool IlanaSynthAudioProcessor::loadPresetFromFile (const juce::File& file)
 
     applyFullState (juce::ValueTree::fromXml (*xml));
     setCurrentPresetName (file.getFileNameWithoutExtension());
+    loadedPresetFile = file;
     return true;
 }

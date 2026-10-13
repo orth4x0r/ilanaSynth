@@ -12,6 +12,8 @@
 #include <cctype>
 #include <map>
 #include <string>
+#include <tuple>
+#include <vector>
 
 #include "SamplePlayer.h"
 
@@ -43,7 +45,7 @@ inline int parseNote (const juce::String& text)
     if (trimmed.isEmpty())
         return -1;
     if (juce::CharacterFunctions::isDigit (trimmed[0]) || trimmed[0] == '-')
-        return trimmed.getIntValue();
+        return trimmed.getIntValue() > 127 ? -1 : trimmed.getIntValue();
     static const int semis[] { 9, 11, 0, 2, 4, 5, 7 }; // a..g
     const auto letter = trimmed[0];
     if (letter < 'a' || letter > 'g')
@@ -69,6 +71,12 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
     std::map<juce::String, std::shared_ptr<SampleData>> loaded;
     auto defaultPath = file.getParentDirectory();
 
+    // All the regions' audio together: past this the rest is left out (the
+    // decode happens on the message thread, in memory).
+    constexpr juce::int64 maxBytes = (juce::int64) 768 * 1024 * 1024;
+    juce::int64 totalBytes = 0;
+    auto overBudget = false;
+
     const auto loadAudio = [&] (const juce::String& relative) -> std::shared_ptr<SampleData>
     {
         const auto path = relative.replaceCharacter ('\\', '/');
@@ -80,12 +88,22 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (audioFile) }; reader != nullptr && reader->lengthInSamples > 1)
         {
             const auto length = (int) juce::jmin (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 120.0));
+            const auto bytes = (juce::int64) length * juce::jlimit (1, 2, (int) reader->numChannels) * (juce::int64) sizeof (float);
+            if (totalBytes + bytes > maxBytes)
+            {
+                overBudget = true;
+                loaded[key] = nullptr;
+                return nullptr;
+            }
+            totalBytes += bytes;
             data = std::make_shared<SampleData>();
             data->sampleRate = reader->sampleRate;
             data->name = audioFile.getFileNameWithoutExtension();
             data->buffer.setSize (juce::jlimit (1, 2, (int) reader->numChannels), length);
             if (! reader->read (&data->buffer, 0, length, 0, true, true))
                 data.reset();
+            else
+                scrubAudio (data->buffer);
         }
         loaded[key] = data;
         return data;
@@ -93,9 +111,25 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
 
     // Strip comments, then walk headers and opcodes. Values may contain
     // spaces (sample paths): a value runs to the next "name=" or header.
+    auto uncommented = text;
+    for (auto open = uncommented.indexOf ("/*"); open >= 0; open = uncommented.indexOf ("/*"))
+    {
+        const auto close = uncommented.indexOf (open + 2, "*/");
+        uncommented = uncommented.substring (0, open) + (close < 0 ? juce::String() : uncommented.substring (close + 2));
+    }
     juce::String clean;
-    for (auto line : juce::StringArray::fromLines (text))
-        clean << line.upToFirstOccurrenceOf ("//", false, false) << "\n";
+    for (auto line : juce::StringArray::fromLines (uncommented))
+    {
+        // "//" starts a comment at a line's start or after a space, not inside a //server/share path.
+        auto cut = -1;
+        for (auto at = line.indexOf ("//"); at >= 0; at = line.indexOf (at + 1, "//"))
+            if (at == 0 || juce::CharacterFunctions::isWhitespace (line[at - 1]))
+            {
+                cut = at;
+                break;
+            }
+        clean << (cut >= 0 ? line.substring (0, cut) : line) << "\n";
+    }
 
     using Opcodes = std::map<juce::String, juce::String>;
     Opcodes global, master, group, region;
@@ -118,6 +152,9 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         };
         if (get ("sample").isEmpty())
             return;
+        // Release-trigger regions are noises played on key-up; as ordinary notes they would win zoneFor.
+        if (const auto trigger = get ("trigger"); trigger == "release" || trigger == "release_key")
+            return;
         SampleZone zone;
         zone.data = loadAudio (get ("sample"));
         if (zone.data == nullptr)
@@ -138,6 +175,27 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         zone.loop = (mode == "loop_continuous" || mode == "loop_sustain"
                      || (mode.isEmpty() && merged.count ("loop_start") + merged.count ("loopstart") > 0))
                     && zone.loopEnd - zone.loopStart > 16;
+
+        // offset / end trim the region's audio (in frames of the file).
+        const auto trimStart = juce::jlimit (0, length - 1, get ("offset").getIntValue());
+        const auto trimEnd = get ("end").isEmpty() ? length : juce::jlimit (trimStart, length, get ("end").getIntValue() + 1);
+        if (get ("end").isNotEmpty() && get ("end").getIntValue() < 0)
+            return; // end=-1 turns the region off
+        if (trimStart > 0 || trimEnd < length)
+        {
+            if (trimEnd - trimStart <= 1)
+                return;
+            auto trimmed = std::make_shared<SampleData>();
+            trimmed->sampleRate = zone.data->sampleRate;
+            trimmed->name = zone.data->name;
+            trimmed->buffer.setSize (zone.data->getNumChannels(), trimEnd - trimStart);
+            for (int c = 0; c < trimmed->getNumChannels(); ++c)
+                trimmed->buffer.copyFrom (c, 0, zone.data->buffer, c, trimStart, trimEnd - trimStart);
+            zone.data = trimmed;
+            zone.loopStart = juce::jlimit (0, trimEnd - trimStart, zone.loopStart - trimStart);
+            zone.loopEnd = juce::jlimit (0, trimEnd - trimStart, zone.loopEnd - trimStart);
+            zone.loop = zone.loop && zone.loopEnd - zone.loopStart > 16;
+        }
         data->zones.push_back (zone);
     };
 
@@ -200,7 +258,7 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
 
     if (data->zones.empty())
     {
-        error = "no playable regions";
+        error = overBudget ? "the samples are too large (limit 768 MB)" : "no playable regions";
         return nullptr;
     }
     finish (*data);
@@ -225,17 +283,18 @@ inline juce::uint32 u32 (const char* p) { return (juce::uint32) u16 (p) | ((juce
 inline std::vector<Chunk> children (const char* data, juce::uint32 size)
 {
     std::vector<Chunk> chunks;
-    juce::uint32 offset = 4;
-    while (offset + 8 <= size)
+    // 64-bit, so a chunk size near 4 GB cannot wrap the offset and loop forever.
+    juce::uint64 offset = 4;
+    while (offset + 8 <= (juce::uint64) size)
     {
         Chunk chunk;
         chunk.id = juce::String (data + offset, 4);
         chunk.size = u32 (data + offset + 4);
         chunk.data = data + offset + 8;
-        if (offset + 8 + chunk.size > size)
+        if (offset + 8 + (juce::uint64) chunk.size > (juce::uint64) size)
             break;
         chunks.push_back (chunk);
-        offset += 8 + chunk.size + (chunk.size & 1);
+        offset += 8 + (juce::uint64) chunk.size + (chunk.size & 1);
     }
     return chunks;
 }
@@ -264,9 +323,11 @@ struct Generators
 };
 
 // The generator lists of the zones bag[first..last).
-inline std::vector<Generators> zonesOf (const char* bags, const char* gens, juce::uint32 numGens, int first, int last)
+// numBags is the bag chunk's size / 4; the last bag is the terminator.
+inline std::vector<Generators> zonesOf (const char* bags, juce::uint32 numBags, const char* gens, juce::uint32 numGens, int first, int last)
 {
     std::vector<Generators> zones;
+    last = juce::jmin (last, (int) juce::jmin<juce::uint32> (numBags, 65536u) - 1);
     for (int b = first; b < last; ++b)
     {
         Generators zone;
@@ -339,7 +400,7 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
             chosen = p;
     }
     const auto presetName = juce::String (phdr.data + chosen * 38, 20).trim();
-    const auto presetZones = zonesOf (pdta["pbag"].data, pdta["pgen"].data, pdta["pgen"].size / 4,
+    const auto presetZones = zonesOf (pdta["pbag"].data, pdta["pbag"].size / 4, pdta["pgen"].data, pdta["pgen"].size / 4,
                                       u16 (phdr.data + chosen * 38 + 24), u16 (phdr.data + (chosen + 1) * 38 + 24));
 
     const auto& inst = pdta["inst"];
@@ -347,12 +408,12 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
     const auto numInstruments = (int) (inst.size / 22) - 1;
     const auto numSampleHeaders = (int) (shdr.size / 46) - 1;
     const auto numFrames = smplSize / 2;
-    std::map<juce::int64, std::shared_ptr<SampleData>> audio; // by sample header and range
+    std::map<std::tuple<int, int, int>, std::shared_ptr<SampleData>> audio; // by sample header and range
 
     const auto readSample = [&] (int header, int start, int end) -> std::shared_ptr<SampleData>
     {
         const auto* h = shdr.data + header * 46;
-        const auto key = ((juce::int64) header << 42) ^ ((juce::int64) start << 21) ^ (juce::int64) end;
+        const auto key = std::make_tuple (header, start, end);
         if (const auto found = audio.find (key); found != audio.end())
             return found->second;
         std::shared_ptr<SampleData> data;
@@ -406,7 +467,7 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
                                 + presetZone.get (fineTune, presetGlobal.get (fineTune));
         const auto presetAttenuation = presetZone.get (initialAttenuation, presetGlobal.get (initialAttenuation));
 
-        const auto instZones = zonesOf (pdta["ibag"].data, pdta["igen"].data, pdta["igen"].size / 4,
+        const auto instZones = zonesOf (pdta["ibag"].data, pdta["ibag"].size / 4, pdta["igen"].data, pdta["igen"].size / 4,
                                         u16 (inst.data + instrumentIndex * 22 + 20), u16 (inst.data + (instrumentIndex + 1) * 22 + 20));
         Generators instGlobal;
         if (! instZones.empty() && ! instZones.front().has (sampleID))

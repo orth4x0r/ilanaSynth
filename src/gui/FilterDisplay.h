@@ -667,9 +667,51 @@ private:
         const auto text = "F" + juce::String (filterIndex + 1) + "  " + hz + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  RESO ")) + juce::String (juce::roundToInt (reso * 100.0f)) + "%";
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
         const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 12.0f;
-        const auto onLeft = centre.x + markerSize + 6.0f + width > plot.getRight();
-        auto box = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y });
-        box = box.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, box.getY()));
+        const auto fitsRight = centre.x + markerSize + 6.0f + width <= plot.getRight();
+        // The side with room first, then the other; level with the marker, then
+        // above it, then below: the first place no trace runs through (P-10).
+        const auto parallel = readParam ("filters_parallel") > 0.5f;
+        const auto traceY = [&] (int index, float px)
+        {
+            const auto frequency = xToFrequency ((double) juce::jlimit (0.0f, 1.0f, (px - plot.getX()) / plot.getWidth()));
+            auto h = response (index, frequency, false);
+            if (parallel)
+                h = (response (0, frequency, false) + response (1, frequency, false)) * 0.707;
+            else if (index == 1)
+                h = response (0, frequency, false) * response (1, frequency, false);
+            return plot.getY() + (float) dbToY (20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (h)))) * plot.getHeight();
+        };
+        const auto crossings = [&] (juce::Rectangle<float> candidate)
+        {
+            auto count = 0;
+            for (auto px = candidate.getX(); px <= candidate.getRight(); px += 4.0f)
+                for (int index = 0; index < (filter2Replaced() ? 1 : 2); ++index)
+                    if (const auto y = traceY (index, px); y > candidate.getY() - 2.0f && y < candidate.getBottom() + 2.0f)
+                        ++count;
+            return count;
+        };
+        juce::Rectangle<float> box;
+        auto fewest = 1 << 20;
+        for (const auto lift : { 0.0f, -20.0f, 20.0f, -36.0f, 36.0f })
+            for (const auto flip : { false, true })
+            {
+                const auto onLeft = fitsRight == flip;
+                auto candidate = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y + lift });
+                candidate = candidate.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, candidate.getY()));
+                if (candidate.getX() < plot.getX() || candidate.getRight() > plot.getRight())
+                    continue;
+                if (const auto count = crossings (candidate); count < fewest)
+                {
+                    fewest = count;
+                    box = candidate;
+                }
+            }
+        if (box.isEmpty())
+        {
+            const auto onLeft = ! fitsRight;
+            box = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y });
+            box = box.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, box.getY()));
+        }
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.72f));
         g.fillRoundedRectangle (box, 7.0f);
         g.setColour (filterColour (filterIndex).withAlpha (0.5f));

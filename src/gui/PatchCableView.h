@@ -349,9 +349,15 @@ public:
     int loopTagAt (juce::Point<float> position) const
     {
         const auto feedback = graph.feedbackCables();
+        // (A tag zoomed far out stays at least 30 x 16 screen pixels to hit.)
+        const auto least = juce::Point<float> (30.0f, 16.0f) / zoom;
         for (size_t c = 0; c < graph.cables().size(); ++c)
-            if (feedback[c] && loopTagBounds (graph.cables()[c]).contains (position))
-                return (int) c;
+            if (feedback[c])
+            {
+                const auto bounds = loopTagBounds (graph.cables()[c]);
+                if (bounds.withSizeKeepingCentre (juce::jmax (bounds.getWidth(), least.x), juce::jmax (bounds.getHeight(), least.y)).contains (position))
+                    return (int) c;
+            }
         return -1;
     }
 
@@ -538,7 +544,11 @@ public:
         if (drag.kind == DragKind::node)
         {
             const auto target = e.position / zoom - drag.grabOffset - origin;
-            graph.moveNode (drag.node, std::round (target.x / grid) * grid, std::round (target.y / grid) * grid);
+            const juce::Point<float> snapped { std::round (target.x / grid) * grid, std::round (target.y / grid) * grid };
+            // A click that wobbles a pixel is not a move (no edit, no undo step).
+            if (! drag.moved && (e.getDistanceFromDragStart() <= 2 || snapped == drag.start))
+                return;
+            graph.moveNode (drag.node, snapped.x, snapped.y);
             drag.moved = true;
             if (const auto target = spliceTargetAt (e.position / zoom); target != drag.spliceCable)
             {
@@ -736,7 +746,7 @@ public:
     // Hit tests (public for the tests).
     PatchGraph::Port portAt (juce::Point<float> position, bool input) const
     {
-        const auto reach = portRadius + 4.0f;
+        const auto reach = (portRadius + 4.0f) / zoom; // (screen pixels, whatever the zoom)
         for (auto it = graph.nodes().rbegin(); it != graph.nodes().rend(); ++it)
         {
             if (! isShown (*it))
@@ -762,7 +772,7 @@ public:
         const auto& cables = graph.cables();
         const auto feedback = graph.feedbackCables();
         auto best = -1;
-        auto bestDistance = 6.0f;
+        auto bestDistance = 6.0f / zoom; // (6 screen pixels)
         for (size_t c = 0; c < cables.size(); ++c)
         {
             const auto path = cablePathOf (cables[c], feedback[c]);
@@ -1556,7 +1566,7 @@ private:
             {
                 juce::PopupMenu gains;
                 for (int i = loop ? 1 : 0; i < 4; ++i)
-                    gains.addItem (gainBase + i, juce::String (juce::roundToInt (levels[i] * 100.0f)) + " %", true, cable.gain == levels[i]);
+                    gains.addItem (gainBase + i, juce::String (juce::roundToInt (levels[i] * 100.0f)) + "%", true, cable.gain == levels[i]);
                 menu.addSubMenu ("Level", gains);
                 menu.addSeparator();
             }
@@ -1740,6 +1750,10 @@ private:
         }
     }
 
+    // A node's text keeps a minimum size on the screen (about 10 px) when the view is
+    // zoomed out, up to 1.45 times its design size, so the node types stay readable (S7-10).
+    float legibleSize (float designSize) const { return juce::jmin (designSize * 1.45f, juce::jmax (designSize, 10.0f / juce::jmax (0.05f, zoom))); }
+
     void paintNode (juce::Graphics& g, const PatchGraph::Node& node) const
     {
         using namespace IlanaTheme;
@@ -1772,16 +1786,16 @@ private:
             auto top = inner.removeFromTop (inner.getHeight() / 2);
             paintTag (g, { (float) top.getX() + 3.0f, (float) top.getCentreY() }, colour.withMultipliedAlpha (alpha));
             g.setColour (Ui::text.withAlpha (alpha));
-            g.setFont (font (TextSize::body, true));
+            g.setFont (font (legibleSize (TextSize::body), true));
             drawFitted (g, juce::String (node.label), top.withTrimmedLeft (12), juce::Justification::centredLeft, 1, TextSize::minPassive);
 
             juce::String status = statusOf ? statusOf (node) : node.bypassed ? "BYPASSED" : juce::String();
             if (status.isEmpty() && cpuOf && ! statusOf)
                 if (const auto cpu = cpuOf (node.id); cpu >= 0.0f)
-                    status = juce::String (cpu * 100.0f, cpu < 0.1f ? 2 : 1) + " % CPU";
+                    status = juce::String (cpu * 100.0f, cpu < 0.1f ? 2 : 1) + "% CPU";
             g.setColour (Ui::text3);
-            g.setFont (font (TextSize::tiny, false, true));
-            g.drawText (status, inner.withTrimmedLeft (12), juce::Justification::centredLeft, false);
+            g.setFont (font (legibleSize (TextSize::tiny), false, true));
+            drawFitted (g, status, inner.withTrimmedLeft (12), juce::Justification::centredLeft, 1, TextSize::minPassive);
             if (decorateNode)
                 decorateNode (g, node, bounds);
         }

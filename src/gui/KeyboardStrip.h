@@ -5,14 +5,69 @@
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
 
+#include <array>
+
 class KeyboardStrip : public juce::Component,
                       public juce::SettableTooltipClient
 {
 public:
     explicit KeyboardStrip (IlanaSynthAudioProcessor& processor) : processorRef (processor)
     {
-        setTooltip ("Click or drag to audition notes.\n"
-                    "Click lower on a key for higher velocity.");
+        setTooltip (generalTip());
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    // No note is left sounding when the strip goes away.
+    ~KeyboardStrip() override { releaseAll(); }
+
+    // The hovered key's name leads the tooltip.
+    juce::String getTooltip() override
+    {
+        return hoverNote >= 0 ? noteName (hoverNote) + "\n" + generalTip() : generalTip();
+    }
+
+    // The computer keyboard (the editor forwards its keys here): a note
+    // sounds, and shows pressed, until its key is released. Any number at once.
+    void keyNoteOn (int note, float velocity = 0.8f)
+    {
+        if (! juce::isPositiveAndBelow (note, 128) || sounding[(size_t) note])
+            return;
+
+        sounding[(size_t) note] = true;
+        processorRef.triggerPreviewNote (note, true, velocity);
+        repaint();
+    }
+
+    void keyNoteOff (int note)
+    {
+        if (! juce::isPositiveAndBelow (note, 128) || ! sounding[(size_t) note])
+            return;
+
+        sounding[(size_t) note] = false;
+        processorRef.triggerPreviewNote (note, false);
+        repaint();
+    }
+
+    void releaseAll()
+    {
+        for (int note = 0; note < 128; ++note)
+            if (sounding[(size_t) note])
+            {
+                sounding[(size_t) note] = false;
+                processorRef.triggerPreviewNote (note, false);
+            }
+
+        if (pressedNote >= 0)
+            processorRef.triggerPreviewNote (pressedNote, false);
+
+        pressedNote = -1;
+        repaint();
+    }
+
+    void visibilityChanged() override
+    {
+        if (! isShowing())
+            releaseAll();
     }
 
     void paint (juce::Graphics& g) override
@@ -34,9 +89,11 @@ public:
 
                 const auto noteNumber = firstNote + octave * 12 + note;
                 const auto x = area.getX() + (float) whiteIndex * whiteWidth;
-                const auto pressed = noteNumber == pressedNote;
+                const auto pressed = isDown (noteNumber);
+                const auto hovered = noteNumber == hoverNote && ! pressed;
 
                 g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.45f + 0.5f * pressedVelocity)
+                                     : hovered ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), 0.25f)
                                      : IlanaTheme::Ui::text);
                 g.fillRect (juce::Rectangle<float> (x + 1.0f, area.getY() + 2.0f,
                                                     whiteWidth - 2.0f, area.getHeight() - 4.0f));
@@ -66,10 +123,11 @@ public:
                 {
                     const auto noteNumber = firstNote + octave * 12 + note;
                     const auto x = area.getX() + (float) whiteIndex * whiteWidth - whiteWidth * 0.3f;
-                    const auto pressed = noteNumber == pressedNote;
+                    const auto pressed = isDown (noteNumber);
 
                     g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.55f + 0.45f * pressedVelocity)
-                                         : IlanaTheme::Ui::bg);
+                                         : noteNumber == hoverNote ? IlanaTheme::Ui::bg.interpolatedWith (IlanaTheme::accent(), 0.3f)
+                                                                   : IlanaTheme::Ui::bg);
                     g.fillRect (juce::Rectangle<float> (x, area.getY() + 2.0f,
                                                         whiteWidth * 0.6f, area.getHeight() * 0.62f));
                 }
@@ -83,22 +141,45 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        // Only the primary button plays (a right-click is for a menu).
+        if (event.mods.isPopupMenu())
+            return;
+
+        // Shift- or Ctrl/Cmd-click holds a note on (click it again to let it
+        // go), so a chord can be built one key at a time.
+        if (event.mods.isShiftDown() || event.mods.isCommandDown())
+        {
+            const auto note = noteAt (event.position);
+            latching = true;
+
+            if (sounding[(size_t) note])
+                keyNoteOff (note);
+            else
+                keyNoteOn (note, velocityAt (event.position));
+
+            return;
+        }
+
         startNote (noteAt (event.position), velocityAt (event.position));
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (latching || event.mods.isPopupMenu() || pressedNote < 0)
+            return;
+
+        // Sliding to another key plays it; the velocity is the one the key
+        // was pressed with (a new value would show but not sound).
         const auto note = noteAt (event.position);
-        const auto velocity = velocityAt (event.position);
 
         if (note != pressedNote)
-            startNote (note, velocity);
-        else if (std::abs (velocity - pressedVelocity) > 0.05f)
-            pressedVelocity = velocity;
+            startNote (note, velocityAt (event.position));
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        latching = false;
+
         if (pressedNote >= 0)
             processorRef.triggerPreviewNote (pressedNote, false);
 
@@ -106,7 +187,42 @@ public:
         repaint();
     }
 
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        if (const auto note = noteAt (event.position); note != hoverNote)
+        {
+            hoverNote = note;
+            repaint();
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverNote = -1;
+        repaint();
+    }
+
 private:
+    static juce::String generalTip()
+    {
+        return "Click or drag to audition notes.\n"
+               "Click lower on a key for higher velocity.\n"
+               "Shift-click holds a note, to build a chord.\n"
+               "Computer keys A to K play notes, Z and X shift the octave.";
+    }
+
+    // C3 = MIDI 60, as on the parameter readouts.
+    static juce::String noteName (int note)
+    {
+        static const char* const names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        return juce::String (names[note % 12]) + juce::String (note / 12 - 2);
+    }
+
+    bool isDown (int note) const
+    {
+        return note == pressedNote || (juce::isPositiveAndBelow (note, 128) && sounding[(size_t) note]);
+    }
+
     static bool isBlackKey (int note)
     {
         return note == 1 || note == 3 || note == 6 || note == 8 || note == 10;
@@ -168,6 +284,9 @@ private:
     static constexpr int whiteCount = 7 * numOctaves;
 
     IlanaSynthAudioProcessor& processorRef;
+    std::array<bool, 128> sounding {}; // held by the computer keyboard or latched
+    bool latching = false;
+    int hoverNote = -1;
     int pressedNote = -1;
     float pressedVelocity = 0.7f;
 };

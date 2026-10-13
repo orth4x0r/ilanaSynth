@@ -1236,5 +1236,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // unless asked (it loaded a factory preset, silently, before).
     addBool ("midi_program_change", "MIDI Program Change Loads Presets", false);
 
+    // The NOISE FM operator's noise: Colour is the old one-pole noise
+    // (FM NOISE COLOUR sets it, every older patch); the others are the NOISE
+    // card's six colours as FM noise (colour then has no say).
+    addChoice ("fm_noise_type", "FM Noise Type", { "Colour", "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
+
     return layout;
 }

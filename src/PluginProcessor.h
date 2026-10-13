@@ -651,6 +651,14 @@ public:
     // Files in `folder` that have a missing sample's name (any thread). Relink each with relinkSample.
     std::vector<std::pair<int, juce::File>> findMissingSampleFiles (const juce::File& folder, bool recursive,
                                                                     const std::function<bool()>& shouldStop = {}) const;
+    // Roadmap step 43: why the last loadUserSample failed, in a sentence for
+    // the person (message thread).
+    juce::String getLastSampleError() const { return lastSampleError; }
+    // Roadmap step 44: writes an oscillator's sample (a resampled sound too)
+    // as a 24-bit WAV at its own rate. playedRange: START to END as the card
+    // plays it (REVERSE and the fades applied, pitch not); else all of it. A
+    // multisample writes its shown region (the one under middle C).
+    bool exportSampleWav (int oscIndex, const juce::File& target, bool playedRange, juce::String& error) const;
     // The audio thread calls this at the top of each block's rack (a staged slot swap goes in here, FX-14).
     void beginFxBlock() noexcept;
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
@@ -885,6 +893,7 @@ private:
     std::shared_ptr<SampleData> bounceResult;
     bool bounceReady = false;
     juce::String bounceMessage;
+    juce::String lastSampleError; // step 43, message thread
     static juce::ValueTree encodeSample (const SampleData& data);
     static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree, int depth = 0);
 

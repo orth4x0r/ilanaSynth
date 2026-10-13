@@ -72,6 +72,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "FilterTests.inc"
 #include "MultiSampleTests.inc"
 #include "SampleTempoTests.inc"
+#include "SamplerTests.inc"
 #include "SplitterTests.inc"
 #include "ParallelFxTests.inc"
 #include "PatchGraphTests.inc"
@@ -352,6 +353,13 @@ int main()
     {
         runSampleTempoTests();
         std::cout << (failures == 0 ? "SAMPLE TEMPO TESTS PASSED" : "SAMPLE TEMPO TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SAMPLER_TEST", "").isNotEmpty())
+    {
+        runSamplerTests();
+        std::cout << (failures == 0 ? "SAMPLER TESTS PASSED" : "SAMPLER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -764,6 +772,7 @@ int main()
     timedRun ("runCpuPassTests", [] { runCpuPassTests(); });
     timedRun ("runStressTests", [] { runStressTests(); });
     timedRun ("runSampleTempoTests", [] { runSampleTempoTests(); });
+    timedRun ("runSamplerTests", [] { runSamplerTests(); });
     timedRun ("runSplitterTests", [] { runSplitterTests(); });
     timedRun ("runParallelFxTests", [] { runParallelFxTests(); });
     timedRun ("runPatchGraphTests", [] { runPatchGraphTests (false); });

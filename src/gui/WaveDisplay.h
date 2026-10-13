@@ -740,9 +740,18 @@ public:
         if (! file.existsAsFile())
             return;
 
+        loadSampleFile (file);
+    }
+
+    // Loads a chosen or dropped file; a file that can't be read says why
+    // (roadmap step 43) instead of doing nothing.
+    void loadSampleFile (const juce::File& file)
+    {
         if (processorRef.loadUserSample (oscIndex, file, true))
             switchToSampleMode();
-
+        else
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load sample",
+                                                    processorRef.getLastSampleError());
         repaint();
     }
 
@@ -785,9 +794,7 @@ public:
                                   {
                                       if (safeThis == nullptr || ! chooser.getResult().existsAsFile())
                                           return;
-                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult(), true))
-                                          safeThis->switchToSampleMode();
-                                      safeThis->repaint();
+                                      safeThis->loadSampleFile (chooser.getResult());
                                   });
     }
 
@@ -1773,7 +1780,7 @@ private:
             drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
                                                                            : juce::String())
                                                  + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"),
-                            chipsWidth);
+                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String());
         }
     }
 
@@ -1951,6 +1958,10 @@ private:
 
         if (isTableMode() && ! subTableMapping && (slimAreas().name.contains (at) || tableNameArea.contains (at)))
             return getTableName() + "\nClick to pick another table.";
+
+        if (isSampleMode() && ! warningTagArea.isEmpty() && at.y < headerHeight)
+            if (const auto* sample = processorRef.getSampleForOsc (oscIndex); sample != nullptr && sample->loadWarning.isNotEmpty())
+                return sample->loadWarning;
 
         return juce::SettableTooltipClient::getTooltip();
     }
@@ -2274,18 +2285,40 @@ private:
 
     // A title and a quieter caption in the header line; the caption only
     // where both fit (with a gap).
-    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f) const
+    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f,
+                         const juce::String& warning = {}) const
     {
         auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
         header.removeFromRight (rightReserve);
         const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
+        auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
         const auto captionWidth = juce::GlyphArrangement::getStringWidth (captionFont, caption);
+
+        // Step 43: a sample that came in only in part says so after its
+        // name, in the accent; the tooltip has the whole sentence.
+        warningTagArea = {};
+        if (warning.isNotEmpty())
+        {
+            const auto warningWidth = juce::GlyphArrangement::getStringWidth (captionFont, warning) + 12.0f;
+            const auto shownTitle = juce::jmin (titleWidth, header.getWidth() - warningWidth);
+            if (shownTitle > 24.0f)
+            {
+                warningTagArea = juce::Rectangle<float> (header.getX() + shownTitle + 8.0f, header.getY(), warningWidth - 4.0f, header.getHeight());
+                g.setColour (IlanaTheme::Ui::accent2);
+                g.setFont (captionFont);
+                g.drawText (warning, warningTagArea, juce::Justification::centredLeft, false);
+                titleWidth = shownTitle + warningWidth;
+                g.setColour (traceColour);
+                g.setFont (titleFont);
+                g.drawText (title, header.withWidth (shownTitle), juce::Justification::centredLeft, true);
+            }
+        }
 
         g.setColour (traceColour);
         g.setFont (titleFont);
-        g.drawText (title, header, juce::Justification::centredLeft, true);
+        if (warningTagArea.isEmpty())
+            g.drawText (title, header, juce::Justification::centredLeft, true);
 
         if (caption.isNotEmpty() && titleWidth + captionWidth + 14.0f <= header.getWidth())
         {
@@ -2550,6 +2583,7 @@ private:
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;
+    mutable juce::Rectangle<float> warningTagArea; // step 43: PARTLY LOADED in the header, for its tooltip
     mutable const SampleData* cachedSample = nullptr;
     mutable unsigned cachedSampleEpoch = 0;
     mutable std::vector<float> cachedPeaks;

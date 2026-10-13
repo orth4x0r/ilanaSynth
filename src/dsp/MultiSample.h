@@ -100,6 +100,9 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
     constexpr juce::int64 maxBytes = (juce::int64) 768 * 1024 * 1024;
     juce::int64 totalBytes = 0;
     auto overBudget = false;
+    // Step 43: what was left out, said once the instrument is in.
+    juce::StringArray missingFiles;
+    auto cutFiles = 0;
 
     const auto loadAudio = [&] (const juce::String& relative) -> std::shared_ptr<SampleData>
     {
@@ -122,6 +125,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (audioFile) }; reader != nullptr && reader->lengthInSamples > 1)
         {
             const auto length = (int) juce::jmin (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 120.0));
+            if (length < reader->lengthInSamples)
+                ++cutFiles;
             const auto bytes = (juce::int64) length * juce::jlimit (1, 2, (int) reader->numChannels) * (juce::int64) sizeof (float);
             if (totalBytes + bytes > maxBytes)
             {
@@ -139,6 +144,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
             else
                 scrubAudio (data->buffer);
         }
+        if (data == nullptr)
+            missingFiles.add (audioFile.getFileName());
         loaded[key] = data;
         return data;
     };
@@ -292,9 +299,20 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
 
     if (data->zones.empty())
     {
-        error = overBudget ? "the samples are too large (limit 768 MB)" : "no playable regions";
+        error = overBudget ? "the samples are too large (limit 768 MB)"
+                : missingFiles.isEmpty() ? "no playable regions"
+                                         : "none of its sample files could be read (first: " + missingFiles[0] + ")";
         return nullptr;
     }
+    juce::StringArray notes;
+    if (! missingFiles.isEmpty())
+        notes.add (juce::String (missingFiles.size()) + (missingFiles.size() == 1 ? " sample file" : " sample files")
+                   + " could not be read (" + missingFiles[0] + (missingFiles.size() > 1 ? ", ..." : "") + ").");
+    if (overBudget)
+        notes.add ("Some regions were left out: the samples together pass 768 MB.");
+    if (cutFiles > 0)
+        notes.add (juce::String (cutFiles) + (cutFiles == 1 ? " sample was" : " samples were") + " cut at 120 seconds.");
+    data->loadWarning = notes.joinIntoString (" ");
     finish (*data);
     return data;
 }

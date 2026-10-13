@@ -53,6 +53,9 @@ struct SampleData
     // A multisample's regions. Empty for a plain sample; otherwise buffer
     // holds the region under middle C, for the displays.
     std::vector<SampleZone> zones;
+    // Roadmap step 43: what the load left out (a file cut at 120 seconds,
+    // an SFZ's missing files), for the display. Empty when all of it came in.
+    juce::String loadWarning;
 
     int getNumChannels() const noexcept { return buffer.getNumChannels(); }
     int getNumSamples() const noexcept { return buffer.getNumSamples(); }

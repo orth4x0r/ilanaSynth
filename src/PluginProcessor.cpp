@@ -2169,12 +2169,37 @@ std::shared_ptr<const SampleData> IlanaSynthAudioProcessor::getSharedSampleForOs
     return user;
 }
 
+namespace
+{
+// "3:24" or "45 s", for the import messages.
+juce::String describeDuration (double seconds)
+{
+    const auto whole = juce::roundToInt (std::floor (seconds));
+    if (whole < 60)
+        return juce::String (whole) + " s";
+    return juce::String (whole / 60) + ":" + juce::String (whole % 60).paddedLeft ('0', 2);
+}
+} // namespace
+
 bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& file, bool fromUser)
 {
     ++sampleEpoch;
     ++dataEpoch; // what the editor draws changes
+    lastSampleError.clear();
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
         return false;
+
+    // Roadmap step 43: every way out says why, so a file that does nothing
+    // is never a mystery.
+    const auto fail = [this, &file] (const juce::String& why)
+    {
+        lastSampleError = "Couldn't load " + file.getFileName() + ": " + why;
+        return false;
+    };
+    if (! file.existsAsFile())
+        return fail ("the file is not there any more.");
+    if (file.getSize() == 0)
+        return fail ("the file is empty.");
 
     // SoundFont and SFZ instruments: a multisample, its regions picked per note.
     if (MultiSample::isMultiSampleFile (file))
@@ -2183,7 +2208,7 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
         MultiSample::SfzReport sfz;
         auto multi = MultiSample::load (file, error, &sfz);
         if (multi == nullptr)
-            return false;
+            return fail (error.isNotEmpty() ? error + "." : juce::String ("the instrument could not be read."));
         setUserSample (oscIndex, std::move (multi), file.getFullPathName());
         {
             juce::StringArray lost;
@@ -2202,14 +2227,23 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
 
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
 
-    if (reader == nullptr || reader->lengthInSamples <= 1)
-        return false;
+    if (reader == nullptr)
+    {
+        if (formats.findFormatForFileExtension (file.getFileExtension()) == nullptr)
+            return fail ("this kind of file (" + file.getFileExtension().toLowerCase()
+                         + ") can't be read here. WAV, AIFF, FLAC, OGG and MP3 can.");
+        return fail ("the audio in it could not be decoded. It may be damaged, or use a codec that isn't supported "
+                     "(for example compressed WAV). Saving it again as a plain WAV usually helps.");
+    }
+
+    if (reader->lengthInSamples <= 1 || reader->sampleRate <= 0.0)
+        return fail ("it holds no audio.");
 
     const auto maxSamples = (juce::int64) (reader->sampleRate * 120.0);
     const auto numSamples = (int) juce::jmin (reader->lengthInSamples, maxSamples);
 
     if (numSamples <= 1)
-        return false;
+        return fail ("it holds no audio.");
 
     const auto numChannels = juce::jlimit (1, 2, (int) reader->numChannels);
 
@@ -2219,7 +2253,15 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     data->buffer.setSize (numChannels, numSamples);
 
     if (! reader->read (&data->buffer, 0, numSamples, 0, true, true))
-        return false;
+        return fail ("reading the audio stopped part way. The file may be damaged.");
+
+    // Samples stop at two minutes: say so, with how long the file was.
+    if (reader->lengthInSamples > maxSamples)
+        data->loadWarning = "Cut at 2:00 of " + describeDuration ((double) reader->lengthInSamples / reader->sampleRate)
+                            + ": samples stop at 120 seconds.";
+    if (reader->numChannels > 2)
+        data->loadWarning << (data->loadWarning.isEmpty() ? "" : " ") << "Only the first two of its "
+                          << (int) reader->numChannels << " channels are played.";
 
     scrubAudio (data->buffer);
     setUserSample (oscIndex, std::move (data), file.getFullPathName());

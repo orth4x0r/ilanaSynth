@@ -759,6 +759,44 @@ void IlanaSynthAudioProcessor::applyPresetVoicing (const char* presetName, std::
     }
 }
 
+// Portamento the way ilana sets it in her own presets (2026-10-13: "be
+// mindful of things like portamento time"): never on polyphonic patches (a
+// chord's notes slid in from the last chord), and on mono ones only between
+// overlapping notes and only a touch of it. The presets named for their slide
+// keep its length but also glide only when played legato.
+static void applyGlideStyle (const char* presetName, std::vector<std::pair<juce::String, float>>& values)
+{
+    std::pair<juce::String, float>* glide = nullptr;
+    auto poly = true;
+    for (auto& entry : values)
+    {
+        if (entry.first == "glide")
+            glide = &entry;
+        else if (entry.first == "voice_mode")
+            poly = juce::roundToInt (entry.second) == 0;
+    }
+    if (glide == nullptr || glide->second <= 0.0f)
+        return;
+
+    if (poly)
+    {
+        glide->second = 0.0f;
+        return;
+    }
+
+    static const juce::StringArray slides { "Theremin", "Legato Glide Lead", "Slide Fiddle", "Rubber Mono" };
+    if (! slides.contains (presetName))
+        glide->second = juce::jmin (glide->second, 0.015f);
+
+    for (auto& entry : values)
+        if (entry.first == "glide_legato")
+        {
+            entry.second = 1.0f;
+            return;
+        }
+    values.push_back ({ "glide_legato", 1.0f });
+}
+
 void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const juce::String& category,
                                                   std::vector<std::pair<juce::String, float>>& values)
 {
@@ -771,6 +809,8 @@ void IlanaSynthAudioProcessor::applyPresetTrims (const char* presetName, const j
         for (auto& entry : values)
             if (entry.first == "glide")
                 entry.second /= 3.0f;
+
+    applyGlideStyle (presetName, values);
 
     const Presets::Trim* trim = nullptr;
     for (const auto& candidate : Presets::getTrims())

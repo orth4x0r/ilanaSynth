@@ -141,6 +141,9 @@ int main (int argc, char** argv)
         for (auto* parameter : processor.getParameters())
             if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
                 text << ranged->getParameterID() << "=" << ranged->convertFrom0to1 (ranged->getDefaultValue()) << "\n";
+        for (auto* parameter : processor.getParameters())
+            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (parameter))
+                text << "#choice " << choice->getParameterID() << "=" << choice->choices.joinIntoString ("|") << "\n";
         // The modulation map the generator wires macros with.
         text << "#slots=" << Mod::maxSlots << "\n";
         for (int macro = 0; macro < Mod::numMacros; ++macro)

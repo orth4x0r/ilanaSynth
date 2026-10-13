@@ -316,7 +316,9 @@ def cmd_pick(args):
             if score > best_score:
                 best, best_score = row, score
         chosen.append(best["embedding"])
-        picks.append({"concept": name, "stem": best["name"], "category": best["category"], **best["scores"]})
+        level = float(best["report"]["level_db"]) if best["report"] else None
+        picks.append({"concept": name, "stem": best["name"], "category": best["category"], "level_db": level,
+                      **best["scores"]})
         print(f"{name:32s} {best['name']:36s} taste {best['scores']['taste']:.3f} "
               f"novelty {best['scores']['novelty']:.3f} {'' if best['scores']['ok'] else 'NOT OK: ' + best['scores']['why']}")
     (GEN / "picks.json").write_text(json.dumps(picks, indent=1))
@@ -326,10 +328,21 @@ def cpp_string(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def cmd_bake(_args):
+def category_levels(folder):
+    """The median level of each category in a critic report."""
+    import statistics
+    levels = {}
+    with open(Path(folder) / "report.csv", newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            levels.setdefault(row["category"], []).append(float(row["level_db"]))
+    return {c: statistics.median(v) for c, v in levels.items()}
+
+
+def cmd_bake(args):
     from preset_gen_concepts import CONCEPTS
 
     defaults = read_defaults()
+    targets = category_levels(args.factory)
     concepts = {c["name"]: c for c in CONCEPTS}
     picks = json.loads((GEN / "picks.json").read_text())
     lines = [
@@ -359,6 +372,14 @@ def cmd_bake(_args):
             if pid in ("master", "output_trim"):
                 continue
             values.append(f"{{ {cpp_string(pid)}, {value:.7g}f }}")
+        # The level: the draft's (MASTER plus OUTPUT TRIM) moved to the
+        # category's median loudness, into MASTER (a factory load moves it to
+        # the trim).
+        gain = params.get("master", defaults["master"]) + params.get("output_trim", defaults.get("output_trim", 0.0))
+        target = targets.get(pick["category"], targets.get("Pad"))
+        if pick.get("level_db") is not None:
+            gain += target - pick["level_db"]
+        values.append(f"{{ \"master\", {max(-30.0, min(12.0, gain)):.2f}f }}")
         lines.append("        p.values = {")
         for i in range(0, len(values), 4):
             lines.append("            " + ", ".join(values[i:i + 4]) + ",")
@@ -385,7 +406,8 @@ def main():
     draft.add_argument("--seed", type=int, default=1)
     pick = sub.add_parser("pick")
     pick.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
-    sub.add_parser("bake")
+    bake = sub.add_parser("bake")
+    bake.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     {"refs": cmd_refs, "draft": cmd_draft, "pick": cmd_pick, "bake": cmd_bake}[args.cmd](args)

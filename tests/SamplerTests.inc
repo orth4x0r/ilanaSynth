@@ -249,9 +249,61 @@ void runSamplePlaybackModeTest()
     check (held[110] < 1.0e-4f, "One Shot: the voice ends once the sample has played (" + juce::String (held[110], 6) + ")");
 }
 
+// Step 34: the loop turns at its ends instead of jumping back.
+void runSamplePingPongTest()
+{
+    using namespace SamplerLab;
+    const auto sample = ramp();
+    const auto biggestStep = [] (const std::vector<float>& x, size_t from)
+    {
+        float step = 0.0f;
+        for (size_t i = from + 1; i < x.size(); ++i)
+            step = std::max (step, std::abs (x[i] - x[i - 1]));
+        return step;
+    };
+
+    const auto off = runPlayer (*sample, [] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; }, 30000);
+    const auto offSet = runPlayer (*sample, [] (SamplePlayer::Params& p)
+                                   { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = false; }, 30000);
+    check (off.out == offSet.out, "ping-pong off plays exactly as before");
+
+    const auto pong = runPlayer (*sample, [] (SamplePlayer::Params& p) { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = true; }, 30000);
+    check (lowestFrom (pong.out, 4000) >= 0.4f - 1.0e-4f && highestFrom (pong.out, 4000) < 0.6f + 1.0e-4f, "ping-pong stays inside the loop");
+    check (biggestStep (pong.out, 100) < 0.0002f, "ping-pong never jumps: the ramp runs up and down smoothly");
+    check (pong.out[6150] < pong.out[6050], "after the loop's end the read runs backward");
+    check (pong.out[8150] > pong.out[8050], "after the loop's start it runs forward again");
+
+    const auto whole = runPlayer (*sample, [] (SamplePlayer::Params& p) { p.loop = true; p.start = 0.2f; p.end = 0.5f; p.pingPong = true; }, 20000);
+    check (lowestFrom (whole.out, 0) >= 0.2f - 1.0e-4f && highestFrom (whole.out, 0) < 0.5f + 1.0e-4f && biggestStep (whole.out, 1) < 0.0002f,
+           "without LOOP PTS the whole START..END range ping-pongs");
+
+    const auto back = runPlayer (*sample, [] (SamplePlayer::Params& p)
+                                 { p.loop = true; p.ownLoop = true; p.reverse = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = true; }, 30000);
+    check (lowestFrom (back.out, 6000) >= 0.4f - 1.0e-4f && highestFrom (back.out, 6000) < 0.6f + 1.0e-4f && biggestStep (back.out, 1) < 0.0002f,
+           "a reversed ping-pong stays in its loop without jumps");
+
+    const auto fast = runPlayer (*sample, [] (SamplePlayer::Params& p)
+                                 { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = true; }, 30000, -1, 9.7);
+    check (lowestFrom (fast.out, 1000) >= 0.4f - 1.0e-4f && highestFrom (fast.out, 1000) < 0.6f + 1.0e-4f, "a fast read folds back inside the loop");
+
+    const auto zone = runPlayer (*sample, [] (SamplePlayer::Params& p) { p.loopStart = 2000; p.loopEnd = 4000; p.pingPong = true; p.loop = true; }, 20000);
+    check (lowestFrom (zone.out, 4100) >= 0.2f - 1.0e-4f && highestFrom (zone.out, 0) < 0.4f + 1.0e-4f, "a region's loop ping-pongs too");
+
+    const auto sustain = runPlayer (*sample, [] (SamplePlayer::Params& p)
+                                    { p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = true; p.playback = SamplePlayer::sustainLoop; },
+                                    40000, 7000);
+    check (highestFrom (sustain.out, 7000) > 0.99f && ! sustain.active, "a released Sustain Loop ping-pong plays on out to END");
+
+    const auto stretched = runPlayer (*sample, [] (SamplePlayer::Params& p)
+                                      { p.loop = true; p.ownLoop = true; p.loopFrom = 0.4f; p.loopTo = 0.6f; p.pingPong = true; p.stretch = true; }, 20000);
+    check (std::all_of (stretched.out.begin(), stretched.out.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 2.0f; }),
+           "STRETCH with ping-pong stays finite");
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
     runSampleExportTest();
     runSamplePlaybackModeTest();
+    runSamplePingPongTest();
 }

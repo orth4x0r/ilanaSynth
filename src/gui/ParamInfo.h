@@ -1173,6 +1173,7 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_playback"), "Gate: the note plays while the envelope lasts; LOOP decides whether it repeats. "
       "One Shot: plays from START to END once and keeps going after you let go of the key (loops are skipped). "
       "Sustain Loop: loops while the key is down, then leaves the loop and plays on to END." },
+    { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
 };
 
 inline const RowIndex& helpIndex()

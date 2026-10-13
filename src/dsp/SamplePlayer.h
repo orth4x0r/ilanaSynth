@@ -126,6 +126,10 @@ public:
         // holds it past the key's release. Sustain Loop: loops while the key
         // is down (LOOP or not), then plays on out of the loop to END.
         int playback = 0;
+        // Roadmap step 34: the loop runs forward and back instead of jumping
+        // to its start (whichever span loops: LOOP PTS, a region's loop or
+        // the whole START..END). Off, as before.
+        bool pingPong = false;
     };
 
     enum Playback { gate = 0, oneShot = 1, sustainLoop = 2 };
@@ -143,6 +147,7 @@ public:
     {
         active = false;
         released = false;
+        bounced = false;
         tail.remaining = 0;
         position = regionStart;
     }
@@ -158,6 +163,7 @@ public:
         position = params.reverse ? regionEnd - 1.0 : regionStart;
         active = true;
         released = false;
+        bounced = false;
         tail.remaining = 0;
 
         if (params.stretch)
@@ -201,7 +207,7 @@ public:
         // as there is sound beyond the loop's far side to blend in.
         xfadeLength = 0.0;
         const auto zoneLoop = ! ownLoopOn && params.loopEnd > params.loopStart;
-        if (loopCapable() && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop)
+        if (loopCapable() && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop && ! params.pingPong)
         {
             xfadeStart = ownLoopOn ? ownLoopStart : regionStart;
             xfadeEnd = ownLoopOn ? ownLoopEnd : regionEnd;
@@ -253,7 +259,11 @@ public:
 
     // Step 33: the key let go. A Sustain Loop leaves its loop and plays on
     // to END; the other modes don't change.
-    void release() noexcept { released = true; }
+    void release() noexcept
+    {
+        released = true;
+        bounced = false; // a ping-pong heading back turns to play on out
+    }
 
     // A One Shot still playing: the voice holds its release until it ends.
     bool holdsRelease() const noexcept { return active && params.playback == oneShot; }
@@ -270,10 +280,13 @@ public:
 
         const auto looping = loopingNow();
 
+        // Step 34: a ping-pong loop turns at its ends instead of wrapping.
+        if (looping && params.pingPong)
+            bounceInLoop();
         // The loop's own span (roadmap step 27): the first pass through the
         // attack is not repeated. Reversed, the note runs the other way and
         // wraps when it falls below the loop's start.
-        if (ownLoopOn && looping)
+        else if (ownLoopOn && looping)
         {
             const auto length = ownLoopEnd - ownLoopStart;
             if (params.reverse)
@@ -289,7 +302,7 @@ public:
             && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
             position -= (double) (params.loopEnd - params.loopStart);
 
-        if (position >= regionEnd || position < regionStart)
+        if ((position >= regionEnd || position < regionStart) && ! (looping && params.pingPong))
         {
             if (! looping)
             {
@@ -379,7 +392,7 @@ public:
         left = readL * (float) gain;
         right = readR * (float) gain;
 
-        position += params.reverse ? -ratio : ratio;
+        position += direction() * ratio;
     }
 
 private:
@@ -400,6 +413,38 @@ private:
     bool zoneLoopPlays() const noexcept
     {
         return params.playback == gate || (params.playback == sustainLoop && ! released);
+    }
+
+    // Which way the read moves: REVERSE, turned by a ping-pong bounce.
+    double direction() const noexcept { return (params.reverse ? -1.0 : 1.0) * (bounced ? -1.0 : 1.0); }
+
+    // Step 34: folds the position back into the looping span, turning the
+    // read at each end (a fast read may cross the span more than once).
+    void bounceInLoop() noexcept
+    {
+        auto from = regionStart, to = regionEnd;
+        if (ownLoopOn)
+            from = ownLoopStart, to = ownLoopEnd;
+        else if (zoneLoopPlays() && params.loopEnd > params.loopStart && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
+            from = (double) params.loopStart, to = (double) params.loopEnd;
+        const auto length = to - from;
+        if (length < 2.0)
+            return;
+        // The last readable place before the span's end.
+        const auto top = to - 1.0e-6;
+        const auto forward = direction() > 0.0;
+        if (forward && position > top)
+        {
+            const auto over = std::fmod (position - top, 2.0 * length);
+            position = over < length ? top - over : from + (over - length);
+            bounced = over < length ? ! bounced : bounced;
+        }
+        else if (! forward && position < from)
+        {
+            const auto over = std::fmod (from - position, 2.0 * length);
+            position = over < length ? from + over : top - (over - length);
+            bounced = over < length ? ! bounced : bounced;
+        }
     }
 
     struct Grain
@@ -505,7 +550,7 @@ private:
     void processStretched (float& left, float& right)
     {
         const auto& sample = *params.sample;
-        const auto direction = params.reverse ? -1.0 : 1.0;
+        const auto direction = this->direction();
 
         if (hopCountdown <= 0)
         {
@@ -621,4 +666,5 @@ private:
     double ratio = 1.0;
     bool active = false;
     bool released = false; // step 33: the key is up
+    bool bounced = false;  // step 34: a ping-pong loop is running back
 };

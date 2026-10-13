@@ -827,6 +827,7 @@ class OscPage : public juce::Component,
               sampleSnap (state, prefix + "_sample_snap", "SNAP"),
               sampleLoopXfade (state, prefix + "_sample_loop_xfade", "CROSSFADE"),
               samplePlayback (state, prefix + "_sample_playback", "PLAYBACK"),
+              samplePingPong (state, prefix + "_sample_pingpong", "PING-PONG"),
               sampleStart (state, prefix + "_sample_start", "START"),
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
@@ -887,6 +888,7 @@ class OscPage : public juce::Component,
         ComboControl sampleSync, sampleStretch;
         // The sampler steps: the PLAYBACK row (33...).
         ComboControl samplePlayback;
+        ToggleControl samplePingPong;
         KnobControl sampleBpm;
         KnobControl warpAmt, uniBlend, uniFrame, uniWarp, spectralAmt;
         KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
@@ -1011,7 +1013,7 @@ public:
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleSnap, osc.sampleLoopXfade, osc.sampleStart,
                                 osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
-                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback,
+                                osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback, osc.samplePingPong,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
         }
@@ -1030,7 +1032,7 @@ public:
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
                                 &osc.samplePlayback })
                 menu->setCompactLayout (true);
-            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.grainLive })
+            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.grainLive })
                 toggle->setInlineLabel (true);
             osc.on.setBareSwitch (true);
             osc.on.setSwitchColour (oscColour (i));
@@ -1256,6 +1258,14 @@ public:
                                  return sample != nullptr && sample->getNumSamples() >= 2 && loopOn();
                              },
                              "turn LOOP on (and load a sample) first");
+            // Step 34: ping-pong turns the loop, so it needs one: LOOP or a Sustain Loop.
+            effectRules.add (osc.samplePingPong, [this, i, loopOn = effectRules.isOn (prefix + "_sample_loop"), prefix]
+                             {
+                                 const auto* sample = processorRef.getSampleForOsc (i);
+                                 const auto playback = juce::roundToInt (readFloat (prefix + "_sample_playback"));
+                                 return sample != nullptr && sample->getNumSamples() >= 2 && playback != 1 && (loopOn() || playback == 2);
+                             },
+                             "turn LOOP on or pick Sustain Loop (and load a sample) first");
             // Step 28: the crossfade blends the loop's wrap, so it needs LOOP too.
             effectRules.add (osc.sampleLoopXfade, [this, i, loopOn = effectRules.isOn (prefix + "_sample_loop")]
                              {
@@ -1688,6 +1698,7 @@ private:
                 add (osc.sampleSnap, 2, 5);
                 // The sampler steps: how the note plays (step 33...).
                 add (osc.samplePlayback, 3, 0);
+                add (osc.samplePingPong, 3, 1);
                 // More than one voice: the unison's own row (review 11, I11-11).
                 if (readFloat (prefix + "_unison") > 1.5f)
                 {
@@ -2698,7 +2709,7 @@ private:
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
@@ -2868,7 +2879,7 @@ private:
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
-                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback,
+                               &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
                                &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,

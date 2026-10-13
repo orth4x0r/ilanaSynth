@@ -213,7 +213,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_fade_out" };
             sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end", prefix + "_sample_loop_xfade" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
-            samplePlayIds[(size_t) i] = { prefix + "_sample_playback" };
+            samplePlayIds[(size_t) i] = { prefix + "_sample_playback", prefix + "_sample_pingpong" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
                                          prefix + "_grain_spread" };
@@ -1455,6 +1455,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleLoopXfade = getParam (loopIds[3]);
         const auto& play = samplePlayIds[(size_t) oscIndex];
         osc.samplePlayback = juce::roundToInt (getParam (play[0]));
+        osc.samplePingPong = getParam (play[1]) > 0.5f;
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);

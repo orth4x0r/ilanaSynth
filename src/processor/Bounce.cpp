@@ -322,7 +322,7 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out",
                                 "_sample_sync", "_sample_bpm", "_sample_stretch",
                                 "_sample_loop_own", "_sample_loop_start", "_sample_loop_end",
-                                "_sample_loop_xfade", "_sample_snap", "_sample_playback" })
+                                "_sample_loop_xfade", "_sample_snap", "_sample_playback", "_sample_pingpong" })
             reset (prefix + id);
         if (! audio->zones.empty())
         {

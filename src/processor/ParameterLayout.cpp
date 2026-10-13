@@ -1252,5 +1252,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_playback", name + " Sample Playback", { "Gate", "One Shot", "Sustain Loop" }, 0);
     }
 
+    // Roadmap step 34: the loop runs forward and back instead of jumping to
+    // its start. Off, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addBool (prefix + "_sample_pingpong", name + " Sample Ping-Pong", false);
+    }
+
     return layout;
 }

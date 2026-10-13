@@ -576,6 +576,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     noteSpray.reset();
     arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (4096);
+    midiForSynth.ensureSize (4096);
     clipScratch.ensureSize (8192);
     clipActive.clear();
     clipHeld.clearQuick();
@@ -615,6 +616,8 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     // until their keys were let go and pressed again (ilana, 2026-10-10;
     // not reproduced on Linux, where every output matched).
     synth.allNotesOff (0, false);
+    numHeldKeys = 0;
+    numResumeKeys.store (0, std::memory_order_release);
     msegKeyDown.fill (false);
     msegKeysDown = 0;
     restoreSustainPedal();
@@ -689,12 +692,89 @@ void IlanaSynthAudioProcessor::restoreSustainPedal()
             synth.handleController (channel + 1, 64, 127);
 }
 
+// The keys the synth was told are down, in the order they went down.
+void IlanaSynthAudioProcessor::trackHeldKeys (const juce::MidiBuffer& midi) noexcept
+{
+    const auto remove = [this] (int channel, int note)
+    {
+        for (int i = 0; i < numHeldKeys; ++i)
+            if (heldKeys[(size_t) i].channel == channel && heldKeys[(size_t) i].note == note)
+            {
+                for (int j = i + 1; j < numHeldKeys; ++j)
+                    heldKeys[(size_t) (j - 1)] = heldKeys[(size_t) j];
+                --numHeldKeys;
+                return;
+            }
+    };
+
+    for (const auto metadata : midi)
+    {
+        const auto message = metadata.getMessage();
+        if (message.isNoteOn())
+        {
+            remove (message.getChannel(), message.getNoteNumber());
+            if (numHeldKeys == maxHeldKeys) // (the oldest goes)
+            {
+                for (int j = 1; j < numHeldKeys; ++j)
+                    heldKeys[(size_t) (j - 1)] = heldKeys[(size_t) j];
+                --numHeldKeys;
+            }
+            heldKeys[(size_t) numHeldKeys++] = { (juce::uint8) message.getChannel(), (juce::uint8) message.getNoteNumber(),
+                                                 (juce::uint8) message.getVelocity() };
+        }
+        else if (message.isNoteOff())
+        {
+            remove (message.getChannel(), message.getNoteNumber());
+        }
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+        {
+            numHeldKeys = 0;
+        }
+    }
+}
+
+// The keys that were held when the voices were re-prepared (setOversampling)
+// go to the synth again, at the start of this block. The output eases from
+// where it was if no block went missing in between; if the host heard
+// silence meanwhile it starts from silence.
+void IlanaSynthAudioProcessor::playResumedKeys (juce::MidiBuffer& midi, int blockSamples) noexcept
+{
+    const auto count = numResumeKeys.exchange (0, std::memory_order_acq_rel);
+    if (count <= 0)
+        return;
+
+    // (Only the keys still down: this block's own events have been tracked.)
+    for (int i = 0; i < juce::jmin (count, maxHeldKeys); ++i)
+    {
+        const auto key = resumeKeys[(size_t) i];
+        for (int j = 0; j < numHeldKeys; ++j)
+            if (heldKeys[(size_t) j].channel == key.channel && heldKeys[(size_t) j].note == key.note)
+            {
+                midi.addEvent (juce::MidiMessage::noteOn (key.channel, key.note, key.velocity), 0);
+                break;
+            }
+    }
+
+    const auto blockMs = 1000.0 * (double) blockSamples / juce::jmax (1.0, baseSampleRate);
+    if ((double) (juce::Time::getMillisecondCounter() - fxLastRackMs.load (std::memory_order_relaxed)) < 2.0 * blockMs + 2.0)
+    {
+        easeNextBlock();
+    }
+    else
+    {
+        for (int channel = 0; channel < 2; ++channel)
+            lastOutput[channel] = declick[channel] = 0.0f;
+    }
+}
+
 // A new patch starts from silence: the old voices stop and the effects'
 // memory (reverb, delays, freeze, the piano body) is cleared, on the audio
 // thread and without allocating.
 void IlanaSynthAudioProcessor::cutPatchTails()
 {
     synth.allNotesOff (0, false);
+    numHeldKeys = 0; // (a new patch does not take the old one's held keys back)
+    numResumeKeys.store (0, std::memory_order_release);
     restoreSustainPedal();
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
@@ -822,6 +902,15 @@ void IlanaSynthAudioProcessor::setOversampling (int factor)
         return;
 
     suspendProcessing (true);
+
+    // The keys held down now (E-12): the voices are re-prepared below, which
+    // cuts every note, so the next block plays these again.
+    {
+        const auto count = numHeldKeys;
+        for (int i = 0; i < count; ++i)
+            resumeKeys[(size_t) i] = heldKeys[(size_t) i];
+        numResumeKeys.store (count, std::memory_order_release);
+    }
 
     oversamplingFactor.store (factor);
 
@@ -1617,6 +1706,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         if (metadata.getMessage().isNoteOn())
             noteSerial.fetch_add (1);
 
+    trackHeldKeys (midiForSynth);
+    playResumedKeys (midiForSynth, buffer.getNumSamples());
+
     p.exciterLevelMatch = exciterLevelMatch.load();
 
     // M7.5: the live input and its envelope for the voices; live grains
@@ -1847,6 +1939,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     };
 
     blockDc (0);
+    // FX-14: a staged slot swap goes in between two blocks, before the rack reads any slot.
+    beginFxBlock();
     processEffectsUnlessAsleep (buffer);
     blockDc (1);
 

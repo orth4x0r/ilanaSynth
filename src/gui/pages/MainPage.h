@@ -425,7 +425,7 @@ public:
         return IlanaSynthAudioProcessor::lfoColour (index);
     }
 
-    static juce::Colour filterColour (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
+    static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
 
     static juce::Colour envColour (int index) { return EnvSection::colourOf (index); }
 
@@ -494,7 +494,7 @@ public:
             if (shownStrips[(size_t) osc] && ! isFolded (osc) && ! hasRowTwo (osc))
                 (usesCardLayout (osc) ? oneRowCards : otherCards)++;
         const auto wanted = rowTwoCards * twoRowHeight + oneRowCards * oneRowHeight + otherCards * oscHeightDesign + (subNoisePinned ? 0 : subHeightDesign);
-        auto oscHeight = oscHeightDesign, extra = 0;
+        auto oscHeight = oscHeightDesign, extra = 0, subExtra = 0;
         if (flexible > 0 && wanted > free)
         {
             // Too many open strips for the column: they keep their design height
@@ -505,10 +505,15 @@ public:
         {
             const auto spare = free - wanted - slotGap;
             if (spare < patchMinHeight)
-                extra = (free - wanted) / flexible;
+            {
+                // Too little for a PATCH tile: the strips grow, then SUB + NOISE,
+                // so no empty band is left between the add row and the foot (P-1).
+                extra = juce::jlimit (0, maxFillGrowth, (free - wanted) / flexible);
+                if (! subNoisePinned)
+                    subExtra = juce::jlimit (0, maxSubGrowth, free - wanted - extra * flexible);
+            }
             else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
-                extra = (spare - maxPatchOnlyHeight) / flexible;
-            extra = juce::jlimit (0, maxGrowth, extra);
+                extra = juce::jlimit (0, maxGrowth, (spare - maxPatchOnlyHeight) / flexible);
             oscHeight += extra;
         }
         const auto cardHeightOf = [&] (int osc)
@@ -529,7 +534,7 @@ public:
         if (addRow > 0)
             addCard (addRowHeight);
         if (! subNoisePinned)
-            addCard (subHeightDesign);
+            addCard (subHeightDesign + subExtra);
         const auto scrolls = columnHeight > left.getHeight();
         oscView.setSingleStepSizes (16, oscHeight + slotGap);
         // The column's foot is padded so that scrolled to its end the view
@@ -583,7 +588,7 @@ public:
         // SUB and NOISE sit at the column's foot, above the footer, whatever
         // the room (the approved mockup keeps its open space above them);
         // a scrolling column has them after the last strip.
-        auto subRow = subNoisePinned ? footColumn.getLocalBounds() : scrolls ? column.removeFromTop (subHeightDesign) : column.removeFromBottom (subHeightDesign);
+        auto subRow = subNoisePinned ? footColumn.getLocalBounds() : scrolls ? column.removeFromTop (subHeightDesign) : column.removeFromBottom (subHeightDesign + subExtra);
         layoutSubNoise (subRow);
 
         // Height the strips don't take goes to a live PATCH tile (the signal
@@ -1406,9 +1411,9 @@ private:
         noiseCard = row.withTrimmedLeft (subWidth + slotGap);
         subOn->setBounds (IlanaTheme::cardSwitchBounds (subCard, subCard.getY() + cardHeaderHeight / 2));
         noiseOn->setBounds (IlanaTheme::cardSwitchBounds (noiseCard, noiseCard.getY() + cardHeaderHeight / 2));
-        // The pin is a small tab on the seam between the two cards, level with
-        // the switches but a little higher: it belongs to the section, not to SUB.
-        subPin.setBounds (juce::Rectangle<int> (14, 18).withCentre ({ subCard.getRight() + slotGap / 2, subCard.getY() + cardHeaderHeight / 2 - 4 }));
+        // The pin sits inside SUB's header, left of its switch (it belongs to the
+        // section, but a mark on the seam between the cards read as a stray glyph).
+        subPin.setBounds (juce::Rectangle<int> (14, 18).withCentre ({ subOn->getX() - 6 - 7, subCard.getY() + cardHeaderHeight / 2 }));
 
         // One grid for both cards: the body starts where an oscillator card's
         // picture does (header + padding) and ends one padding above the card's
@@ -1442,7 +1447,8 @@ private:
             noiseLevel->setBounds (body.removeFromRight (juce::jlimit (60, 66, body.getWidth() / 4)));
             body.removeFromRight (gap);
             noiseType->setBounds (body.removeFromTop (rowHeight * 2 - 8));
-            noisePreview.setBounds (body.removeFromBottom (10));
+            // The trace takes the height SUB + NOISE gained on a tall window (no empty interior).
+            noisePreview.setBounds (body.removeFromBottom (juce::jlimit (10, juce::jmax (10, body.getHeight() - gap), 56)));
         }
 
         for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get() })
@@ -1750,7 +1756,7 @@ private:
     // picture, 4 px between the rows, and the engine, source and warp menus
     // (100 / 96 / 78 px) in the header line.
     static constexpr int twoRowHeight = 148, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54, maxFillGrowth = 80, maxSubGrowth = 70;
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;

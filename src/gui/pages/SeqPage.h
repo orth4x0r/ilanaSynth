@@ -68,6 +68,9 @@ public:
         // Not a second bare CHANCE on the page (the arp has one).
         sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "SPRAY %", generateColour(), true);
         sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), true);
+        // (NOTES and RANGE take no ring: they keep the ring knobs' spacing, so the SPRAY row shares one line.)
+        for (auto* knob : { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
+            knob->setMatchRingSpacing (true);
         addAll (*this, arpChance, genScale, genRoot, genSnap, sprayOn, sprayDirection,
                 *sprayCount, *sprayRange, *spraySpread, *sprayChance, *sprayVelocity, sprayStrum, *strumTime);
 

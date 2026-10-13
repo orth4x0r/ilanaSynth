@@ -549,20 +549,31 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
     if (lfoBuffers.getNumSamples() < numSamples)
         lfoBuffers.setSize (numLfoChannels, numSamples, false, false, true);
 
+    // The host's tempo and beat, checked: a bad BPM (0, negative, NaN) keeps
+    // the last good one (120 at first), and no playhead means not playing.
+    auto positionKnown = false;
+
     if (auto* transport = getPlayHead())
     {
         if (const auto position = transport->getPosition())
         {
+            positionKnown = true;
+
             if (const auto bpm = position->getBpm())
-                currentBpm = *bpm;
+                if (std::isfinite (*bpm) && *bpm > 0.0)
+                    currentBpm = juce::jlimit (20.0, 999.0, *bpm);
 
             const auto ppq = position->getPpqPosition();
-            hostPlaying = position->getIsPlaying() && ppq.hasValue();
+            const auto ppqGood = ppq.hasValue() && std::isfinite (*ppq);
+            hostPlaying = position->getIsPlaying() && ppqGood;
 
-            if (ppq.hasValue())
+            if (ppqGood)
                 hostPpq = *ppq;
         }
     }
+
+    if (! positionKnown)
+        hostPlaying = false;
 
     for (const auto metadata : midiMessages)
     {
@@ -577,6 +588,13 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                 modWheelValue = controllerValue;
             else if (controllerNumber == 11)
                 expressionValue = controllerValue;
+            else if (controllerNumber == 64)
+                pedalChannelDown[(size_t) juce::jlimit (0, 15, message.getChannel() - 1)] = message.getControllerValue() >= 64;
+            else if (message.isAllNotesOff() || message.isAllSoundOff())
+            {
+                msegKeyDown.fill (false);
+                msegKeysDown = 0;
+            }
 
             const auto learnTarget = macroLearn.load();
 
@@ -621,9 +639,32 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
         }
         else if (message.isChannelPressure())
         {
-            aftertouchValue = (float) message.getChannelPressureValue() / 127.0f;
+            aftertouchValue = synth.getMaxChannelPressure (message.getChannel(), (float) message.getChannelPressureValue() / 127.0f);
         }
-        else if (message.isProgramChange())
+        else if (message.isNoteOn())
+        {
+            // A one-shot MSEG starts again with the first key of a phrase.
+            const auto note = message.getNoteNumber();
+
+            if (! msegKeyDown[(size_t) note])
+            {
+                msegKeyDown[(size_t) note] = true;
+
+                if (msegKeysDown++ == 0 && getParam (msegLoopRef) <= 0.5f)
+                    mseg.reset();
+            }
+        }
+        else if (message.isNoteOff())
+        {
+            const auto note = message.getNoteNumber();
+
+            if (msegKeyDown[(size_t) note])
+            {
+                msegKeyDown[(size_t) note] = false;
+                --msegKeysDown;
+            }
+        }
+        else if (message.isProgramChange() && getParam (midiProgramChangeRef) > 0.5f)
         {
             pendingProgramChange.store (message.getProgramChangeNumber());
             triggerAsyncUpdate();
@@ -691,7 +732,9 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
             last = k;
             hit ((int) std::ceil (((double) k - start) / perSample), k);
         }
-        freePhase = std::fmod (end, 4096.0);
+        // (Not wrapped: a wrap that isn't a multiple of the pattern's length
+        // jumps the pattern; a double keeps its precision for ages.)
+        freePhase = end;
     };
 
     // The Generative steps: Euclid's hits, else the probability sequencer's

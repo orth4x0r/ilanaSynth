@@ -94,8 +94,13 @@ void removeNodeBridged (PatchGraph::Graph& graph, PatchGraph::NodeId id)
 //==============================================================================
 FxPatchData::Patch IlanaSynthAudioProcessor::getFxPatch() const
 {
+    return *getFxPatchShared();
+}
+
+std::shared_ptr<const FxPatchData::Patch> IlanaSynthAudioProcessor::getFxPatchShared() const
+{
     const juce::SpinLock::ScopedLockType lock (stateLock);
-    return *fxPatch;
+    return fxPatch;
 }
 
 void IlanaSynthAudioProcessor::setFxPatch (const FxPatchData::Patch& patch)
@@ -178,7 +183,10 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
         const auto* same = ownedValues[(size_t) s].get();
         if (table == nullptr && same == nullptr)
             continue;
-        if (table != nullptr && same != nullptr && *table == *same)
+        // (NaN marks a knob the instance doesn't own: equal when both are.)
+        if (table != nullptr && same != nullptr && table->size() == same->size()
+            && std::equal (table->begin(), table->end(), same->begin(),
+                           [] (float a, float b) { return a == b || (std::isnan (a) && std::isnan (b)); }))
             continue;
         slotValues[(size_t) s].store (table != nullptr ? table->data() : nullptr, std::memory_order_release);
         retireFx (nullptr, std::move (ownedValues[(size_t) s]));
@@ -188,6 +196,26 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
     // The LFO boxes: settings and every knob a cable moves, resolved to the
     // parameter's cache entry. A knob that isn't its slot's effect's (yet:
     // a state load sets the types after) is left out until reconcile.
+    auto program = buildFxLfoProgram (patch, nullptr);
+    if (fxLfoProgramDiffers (*program))
+    {
+        fxLfoProgram.store (program.get(), std::memory_order_release);
+        RetiredFx retired;
+        retired.when = juce::Time::getMillisecondCounter();
+        retired.lfoProgram = std::move (ownedFxLfoProgram);
+        if (retired.lfoProgram != nullptr)
+            retiredFx.push_back (std::move (retired));
+        ownedFxLfoProgram = std::move (program);
+    }
+
+    freeRetiredFx (false);
+}
+
+// `slotTypes`: each slot's effect type if it is not the one the parameters
+// hold now (a swap builds the program for the types it is about to apply).
+std::unique_ptr<IlanaSynthAudioProcessor::FxLfoProgram> IlanaSynthAudioProcessor::buildFxLfoProgram (const FxPatchData::Patch& patch,
+                                                                                                    const int* slotTypes) const
+{
     auto program = std::make_unique<FxLfoProgram>();
     for (const auto& lfo : patch.lfos)
         if (juce::isPositiveAndBelow (lfo.id - 1, FxLfo::maxLfos))
@@ -200,7 +228,7 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
         if (program->numRoutes >= FxLfo::maxRoutes || ! juce::isPositiveAndBelow (route.slot, numSlots)
             || ! juce::isPositiveAndBelow (route.lfo - 1, FxLfo::maxLfos) || ! program->used[(size_t) (route.lfo - 1)] || route.amount == 0.0f)
             continue;
-        const auto type = (int) getRawParam (fxSlotIds[(size_t) route.slot].type);
+        const auto type = slotTypes != nullptr ? slotTypes[route.slot] : (int) getRawParam (fxSlotIds[(size_t) route.slot].type);
         if (route.param != FxPatchData::mixParam && ! FxPatchData::isParamOf (type, route.param))
             continue;
         const auto id = fxLfoParamId (route.slot, route.param);
@@ -215,24 +243,19 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
         made.parameter = parameter;
         made.amount = juce::jlimit (-1.0f, 1.0f, route.amount);
     }
+    return program;
+}
+
+// Whether `program` is worth replacing the running one with.
+bool IlanaSynthAudioProcessor::fxLfoProgramDiffers (const FxLfoProgram& program) const
+{
     const auto* running = ownedFxLfoProgram.get();
-    const auto same = running != nullptr && running->numRoutes == program->numRoutes && running->used == program->used
-                      && running->settings == program->settings
-                      && std::equal (program->routes.begin(), program->routes.begin() + program->numRoutes, running->routes.begin(),
+    const auto same = running != nullptr && running->numRoutes == program.numRoutes && running->used == program.used
+                      && running->settings == program.settings
+                      && std::equal (program.routes.begin(), program.routes.begin() + program.numRoutes, running->routes.begin(),
                                      [] (const FxLfoProgram::Route& a, const FxLfoProgram::Route& b)
                                      { return a.lfo == b.lfo && a.slot == b.slot && a.index == b.index && a.amount == b.amount; });
-    if (! same && (running != nullptr || program->numRoutes > 0 || program->used != decltype (program->used) {}))
-    {
-        fxLfoProgram.store (program.get(), std::memory_order_release);
-        RetiredFx retired;
-        retired.when = juce::Time::getMillisecondCounter();
-        retired.lfoProgram = std::move (ownedFxLfoProgram);
-        if (retired.lfoProgram != nullptr)
-            retiredFx.push_back (std::move (retired));
-        ownedFxLfoProgram = std::move (program);
-    }
-
-    freeRetiredFx (false);
+    return ! same && (running != nullptr || program.numRoutes > 0 || program.used != decltype (program.used) {});
 }
 
 //==============================================================================
@@ -573,7 +596,9 @@ void IlanaSynthAudioProcessor::setFxPatcherOn (bool on)
     {
         // The rack as it is, so turning the patcher on changes nothing heard.
         auto patch = getFxPatch();
-        patch.graph = getFxRackGraph();
+        // (A PARALLEL rack leaves a bypassed slot's cables out; the patch keeps
+        // them, as the bypass is the slot's parameter, so un-bypassing is heard.)
+        patch.graph = getFxRackGraph (true);
         for (const auto& node : std::vector<PatchGraph::Node> (patch.graph.nodes()))
             patch.graph.setBypassed (node.id, false); // a slot's bypass is its parameter
         patch.hasGraph = true;
@@ -631,12 +656,12 @@ float IlanaSynthAudioProcessor::getFxLoopGuard (std::uint32_t fromNode, int from
 
 bool IlanaSynthAudioProcessor::isFxInstance (int slotIndex) const
 {
-    return juce::isPositiveAndBelow (slotIndex, numSlots) && getFxPatch().slots[(size_t) slotIndex].own;
+    return juce::isPositiveAndBelow (slotIndex, numSlots) && getFxPatchShared()->slots[(size_t) slotIndex].own;
 }
 
 bool IlanaSynthAudioProcessor::isFxSlotInFront (int slotIndex) const
 {
-    return ! juce::isPositiveAndBelow (slotIndex, numSlots) || ! getFxPatch().slots[(size_t) slotIndex].hasValues;
+    return ! juce::isPositiveAndBelow (slotIndex, numSlots) || ! getFxPatchShared()->slots[(size_t) slotIndex].hasValues;
 }
 
 int IlanaSynthAudioProcessor::addFxEffect (int type)
@@ -771,14 +796,6 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
     if (a == b || ! juce::isPositiveAndBelow (a, numSlots) || ! juce::isPositiveAndBelow (b, numSlots))
         return;
 
-    std::swap (ownedEngines[(size_t) a], ownedEngines[(size_t) b]);
-    std::swap (ownedValues[(size_t) a], ownedValues[(size_t) b]);
-    for (const auto s : { a, b })
-    {
-        slotEngines[(size_t) s].store (ownedEngines[(size_t) s].get(), std::memory_order_release);
-        slotValues[(size_t) s].store (ownedValues[(size_t) s] != nullptr ? ownedValues[(size_t) s]->data() : nullptr, std::memory_order_release);
-    }
-
     auto patch = getFxPatch();
     std::swap (patch.slots[(size_t) a], patch.slots[(size_t) b]);
     const auto swapped = [a, b] (int s) { return s == a ? b : s == b ? a : s; };
@@ -790,21 +807,162 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
         for (const auto& node : std::vector<PatchGraph::Node> (patch.graph.nodes()))
             if (auto* editable = patch.graph.find (node.id); editable != nullptr && ! node.isFixed())
                 editable->ref = node.ref == a + 1 ? b + 1 : node.ref == b + 1 ? a + 1 : node.ref;
-    publishFxPatch (std::move (patch));
 
+    // FX-14: everything the audio thread reads is staged here and moved in
+    // one step between two blocks (applyFxSwap); the parameters' own objects
+    // (host, editor) follow once it has.
+    //
+    // The effect type each slot will have, for the LFO program.
+    std::array<int, (size_t) numSlots> types {};
+    for (int s = 0; s < numSlots; ++s)
+        types[(size_t) s] = (int) getRawParam (fxSlotIds[(size_t) swapped (s)].type);
+
+    std::swap (ownedEngines[(size_t) a], ownedEngines[(size_t) b]);
+    std::swap (ownedValues[(size_t) a], ownedValues[(size_t) b]);
+
+    struct ParamChange { juce::RangedAudioParameter* first; juce::RangedAudioParameter* second; float firstValue, secondValue; };
+    std::vector<ParamChange> paramChanges;
     for (const auto* suffix : { "", "_bypass", "_solo", "_mix", "_band" })
     {
         auto* first = apvts.getParameter ("fx_slot" + juce::String (a + 1) + suffix);
         auto* second = apvts.getParameter ("fx_slot" + juce::String (b + 1) + suffix);
         if (first != nullptr && second != nullptr)
-        {
-            const auto firstValue = first->getValue();
-            const auto secondValue = second->getValue();
-            first->setValueNotifyingHost (secondValue);
-            second->setValueNotifyingHost (firstValue);
-        }
+            paramChanges.push_back ({ first, second, second->getValue(), first->getValue() });
     }
+
+    auto& stage = fxSwapStage;
+    stage = {};
+    const int slots[2] { a, b };
+    for (int k = 0; k < 2; ++k)
+    {
+        stage.slot[k] = slots[k];
+        stage.engine[k] = ownedEngines[(size_t) slots[k]].get();
+        stage.values[k] = ownedValues[(size_t) slots[k]] != nullptr ? ownedValues[(size_t) slots[k]]->data() : nullptr;
+    }
+    static constexpr const char* suffixes[5] { "", "_bypass", "_solo", "_mix", "_band" };
+    for (int i = 0; i < 5; ++i)
+    {
+        stage.raw[i][0] = apvts.getRawParameterValue ("fx_slot" + juce::String (a + 1) + suffixes[i]);
+        stage.raw[i][1] = apvts.getRawParameterValue ("fx_slot" + juce::String (b + 1) + suffixes[i]);
+    }
+    auto program = buildFxLfoProgram (patch, types.data());
+    if (fxLfoProgramDiffers (*program))
+    {
+        stage.lfoChanged = true;
+        stage.lfo = program.get();
+    }
+
+    // The patch itself (the editor and the saved state read it).
+    {
+        auto shared = std::make_shared<const FxPatchData::Patch> (patch);
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        fxPatch = std::move (shared);
+    }
+    ++dataEpoch;
+
+    // The plan first (tagged with this swap), then the request: a plan the
+    // audio thread picks up before the request is applied runs as the fixed
+    // loop for that block, as does the old plan after it.
+    const auto number = ++fxSwapGen;
+    compileFxPatchPlan();
+    fxSwapRequested.store (number, std::memory_order_release);
+
+    // The audio thread applies it at the top of its next block. With no block
+    // running (this is the thread that renders, or nothing has for a while)
+    // it is applied here.
+    const auto renderingHere = fxRackThread.load (std::memory_order_relaxed) == juce::Thread::getCurrentThreadId()
+                               || juce::Time::getMillisecondCounter() - fxLastRackMs.load (std::memory_order_relaxed) > 100;
+    if (! renderingHere)
+        for (auto deadline = juce::Time::getMillisecondCounter() + 250;
+             fxSwapApplied.load (std::memory_order_acquire) != number && juce::Time::getMillisecondCounter() < deadline;)
+        {
+            fxPatchRunner->collectGarbage(); // (a program waiting to be taken up)
+            juce::Thread::sleep (1);
+        }
+    applyFxSwap (true); // (no-op when the audio thread has)
+    // (The runner takes up a program only once the last one it retired is collected.)
+    fxPatchRunner->collectGarbage();
+
+    if (stage.lfoChanged)
+    {
+        RetiredFx retired;
+        retired.when = juce::Time::getMillisecondCounter();
+        retired.lfoProgram = std::move (ownedFxLfoProgram);
+        if (retired.lfoProgram != nullptr)
+            retiredFx.push_back (std::move (retired));
+        ownedFxLfoProgram = std::move (program);
+    }
+
+    // The parameters' own values (the audio thread already reads them). The
+    // values were taken before the raw atomics moved: reading them now would
+    // give the swapped ones back and the write below would change nothing
+    // (no state update, no undo step).
+    // The audio thread's atomics already hold them, so setValueNotifyingHost
+    // would see "no change" and leave the state tree (saved state, undo)
+    // behind: the tree's PARAM entries are written directly.
+    const auto writeTree = [this] (juce::RangedAudioParameter* parameter, float normalised)
+    {
+        auto child = apvts.state.getChildWithProperty ("id", parameter->paramID);
+
+        if (child.isValid())
+            child.setProperty ("value", parameter->convertFrom0to1 (normalised), apvts.undoManager);
+
+        // The parameter object itself (what getValue and the host read) is
+        // separate from the atomic the audio thread reads.
+        parameter->setValueNotifyingHost (normalised);
+    };
+
+    for (const auto& change : paramChanges)
+    {
+        writeTree (change.first, change.firstValue);
+        writeTree (change.second, change.secondValue);
+    }
+    freeRetiredFx (false);
+
     reconcileFxPatch(); // the numbered labels
+}
+
+void IlanaSynthAudioProcessor::beginFxBlock() noexcept
+{
+    fxRackThread.store (juce::Thread::getCurrentThreadId(), std::memory_order_relaxed);
+    fxLastRackMs.store (juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
+    applyFxSwap();
+}
+
+// Moves a staged swap in (see fxSwapStage). Audio thread (try-lock: a swap
+// that finds it busy waits for the next block) or the message thread.
+void IlanaSynthAudioProcessor::applyFxSwap (bool mayWait) noexcept
+{
+    if (fxSwapRequested.load (std::memory_order_acquire) == fxSwapApplied.load (std::memory_order_relaxed))
+        return;
+    if (mayWait)
+        fxSwapApplyLock.enter();
+    else if (! fxSwapApplyLock.tryEnter())
+        return;
+
+    const auto number = fxSwapRequested.load (std::memory_order_acquire);
+    if (number != fxSwapApplied.load (std::memory_order_relaxed))
+    {
+        const auto& stage = fxSwapStage;
+        for (int k = 0; k < 2; ++k)
+            if (stage.slot[k] >= 0)
+            {
+                slotEngines[(size_t) stage.slot[k]].store (stage.engine[k], std::memory_order_release);
+                slotValues[(size_t) stage.slot[k]].store (stage.values[k], std::memory_order_release);
+            }
+        if (stage.lfoChanged)
+            fxLfoProgram.store (stage.lfo, std::memory_order_release);
+        // The two slots' type, bypass, solo, MIX and band, as the audio thread reads them.
+        for (const auto& both : stage.raw)
+            if (both[0] != nullptr && both[1] != nullptr)
+            {
+                const auto first = both[0]->load();
+                both[0]->store (both[1]->load());
+                both[1]->store (first);
+            }
+        fxSwapApplied.store (number, std::memory_order_release);
+    }
+    fxSwapApplyLock.exit();
 }
 
 void IlanaSynthAudioProcessor::FxSlotTypeListener::parameterValueChanged (int, float)
@@ -872,6 +1030,7 @@ void IlanaSynthAudioProcessor::compileFxPatchPlan()
     {
         plan.ok = false; // no graph yet: the rack runs as SERIES / PARALLEL
     }
+    plan.tag = fxSwapGen; // the slot swap this plan was made after (processEffectsPatched)
     const juce::SpinLock::ScopedLockType lock (fxCompileLock);
     fxPatchRunner->publish (plan);
 }
@@ -895,8 +1054,11 @@ bool IlanaSynthAudioProcessor::isFxRackPlanCurrent()
 // Nodes whose input has been silent past their tail sleep (ROUTING-CPU A5).
 void IlanaSynthAudioProcessor::processEffectsPatched (juce::AudioBuffer<float>& buffer)
 {
+    applyFxSwap(); // (a swap posted since the block began)
     const auto* plan = fxPatchRunner->activePlan();
-    if (plan == nullptr || ! plan->ok)
+    // A plan made for a different swap than the one applied has its nodes on
+    // the wrong slots: the fixed loop runs until the right one is in.
+    if (plan == nullptr || ! plan->ok || plan->tag != fxSwapApplied.load (std::memory_order_acquire))
         return processEffectsFixed (buffer);
 
     for (int index = 0; index < numSlots; ++index)
@@ -911,7 +1073,7 @@ void IlanaSynthAudioProcessor::processEffectsPatched (juce::AudioBuffer<float>& 
         if (! node.inPlace && io.in[0] != io.out[0])
             for (int c = 0; c < out.getNumChannels(); ++c)
                 out.copyFrom (c, 0, *io.in[0], c, 0, length);
-        if (node.ref >= 1 && node.ref <= numSlots && isFxSlotActive (node.ref - 1))
+        if (node.ref >= 1 && node.ref <= numSlots && fxSlotRuns (node.ref - 1))
             runFxSlot (node.ref, out);
     });
 
@@ -929,7 +1091,8 @@ void IlanaSynthAudioProcessor::processEffectsPatched (juce::AudioBuffer<float>& 
 // The card displays read the engine of the card in front of each effect.
 const IlanaSynthAudioProcessor::FxEngine& IlanaSynthAudioProcessor::displayEngine (int type) const
 {
-    const auto patch = getFxPatch();
+    const auto patchPointer = getFxPatchShared(); // (per card per frame: no copy)
+    const auto& patch = *patchPointer;
     for (int s = 0; s < numSlots; ++s)
         if ((int) getRawParam (fxSlotIds[(size_t) s].type) == type && ! patch.slots[(size_t) s].hasValues)
             return engineForSlot (s);
@@ -940,8 +1103,8 @@ bool IlanaSynthAudioProcessor::getFxInstanceValue (int slotIndex, const juce::St
 {
     if (! juce::isPositiveAndBelow (slotIndex, numSlots))
         return false;
-    const auto patch = getFxPatch();
-    for (const auto& [key, stored] : patch.slots[(size_t) slotIndex].values)
+    const auto patchPointer = getFxPatchShared();
+    for (const auto& [key, stored] : patchPointer->slots[(size_t) slotIndex].values)
         if (key == id)
         {
             value = stored;

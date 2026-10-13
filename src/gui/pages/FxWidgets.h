@@ -2,17 +2,22 @@
 // after its includes; the contents stay in the same anonymous namespace.
 #pragma once
 
+#include "../DisplayStyle.h"
 #include "../FxLibrary.h"
 
 namespace
 {
 class TapGrid : public juce::Component,
+                public juce::SettableTooltipClient,
                 private IlanaAnim::FrameTimer
 {
 public:
     explicit TapGrid (IlanaSynthAudioProcessor& p)
         : processorRef (p)
     {
+        setTooltip ("Custom tap grid\nDrag up or down to set each tap's level.\nDouble-click a tap to clear it. Esc cancels a drag.");
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        setWantsKeyboardFocus (true);
         startTimerHz (10);
     }
 
@@ -47,8 +52,50 @@ public:
         }
     }
 
-    void mouseDown (const juce::MouseEvent& event) override { setFromMouse (event); }
-    void mouseDrag (const juce::MouseEvent& event) override { setFromMouse (event); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        gestures.begin();
+        lastStep = -1;
+        processorRef.beginEdit ("Tap grid");
+        setFromMouse (event);
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (! gestures.cancelled())
+            setFromMouse (event);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        gestures.end();
+        processorRef.endEdit();
+        lastStep = -1;
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        const auto index = stepAt (event.getPosition());
+
+        processorRef.performEdit ("Clear tap", [this, index]
+        {
+            writeStep (index, 0.0f);
+            gestures.end();
+        });
+        repaint();
+    }
+
+    // Esc during a drag puts every tap it touched back.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! gestures.isOpen() || gestures.cancelled())
+            return false;
+
+        gestures.cancel();
+        repaint();
+        return true;
+    }
+
     void mouseMove (const juce::MouseEvent& event) override
     {
         const auto step = stepAt (event.getPosition());
@@ -91,6 +138,17 @@ private:
         return 0.0f;
     }
 
+    // Writing a tap switches the pattern to Custom (6), so the grid is what plays.
+    void writeStep (int index, float value)
+    {
+        if (auto* parameter = processorRef.apvts.getParameter ("fx_taps_step" + juce::String (index + 1)))
+            gestures.set (parameter, parameter->convertTo0to1 (value));
+
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter ("fx_taps_pattern")))
+            if (choice->getIndex() != 6)
+                gestures.set (choice, choice->convertTo0to1 (6.0f));
+    }
+
     void setFromMouse (const juce::MouseEvent& event)
     {
         const auto bars = getBarBounds();
@@ -98,13 +156,10 @@ private:
         const auto value = juce::jlimit (0.0f, 1.0f,
                                          1.0f - (float) (event.getPosition().y - bars.getY()) / (float) juce::jmax (1, bars.getHeight()));
 
-        if (auto* parameter = processorRef.apvts.getParameter ("fx_taps_step" + juce::String (index + 1)))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-
-        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter ("fx_taps_pattern")))
-            if (choice->getIndex() != 6)
-                choice->setValueNotifyingHost (choice->convertTo0to1 (6.0f));
-
+        // A fast sweep skips bars between mouse events: fill them in.
+        IlanaDrag::paintRun (lastStep, lastValue, index, value, [this] (int s, float v) { writeStep (s, v); });
+        lastStep = index;
+        lastValue = value;
         hoverStep = index;
         repaint();
     }
@@ -118,7 +173,9 @@ private:
     IlanaAnim::ChangeGate changeGate;
 
     IlanaSynthAudioProcessor& processorRef;
-    int hoverStep = -1;
+    IlanaDrag::Gestures gestures;
+    int hoverStep = -1, lastStep = -1;
+    float lastValue = 0.0f;
 };
 
 // Trance gate steps: bar height is each step's level, the playing step
@@ -130,7 +187,9 @@ class GateGrid : public juce::Component,
 public:
     explicit GateGrid (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
-        setTooltip ("Drag up/down to set each step's level. Right-click a step to toggle it.");
+        setTooltip ("Gate steps\nDrag up or down to set each step's level.\nRight-click a step to toggle it. Esc cancels a drag.");
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        setWantsKeyboardFocus (true);
         startTimerHz (20);
     }
 
@@ -173,20 +232,51 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override
     {
+        gestures.begin();
+        lastStep = -1;
+
         if (event.mods.isPopupMenu())
         {
             const auto step = stepAt (event.getPosition());
-            setLevel (step, level (step) > 0.5f ? 0.0f : 1.0f);
+            processorRef.performEdit ("Toggle gate step", [this, step]
+            {
+                setLevel (step, level (step) > 0.5f ? 0.0f : 1.0f);
+                gestures.end();
+            });
             return;
         }
 
+        processorRef.beginEdit ("Gate steps");
+        dragging = true;
         setFromMouse (event);
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        if (! event.mods.isPopupMenu())
+        if (dragging && ! gestures.cancelled())
             setFromMouse (event);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! dragging)
+            return;
+
+        gestures.end();
+        processorRef.endEdit();
+        dragging = false;
+        lastStep = -1;
+    }
+
+    // Esc during a drag puts every step it touched back (and the pattern).
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! dragging || gestures.cancelled())
+            return false;
+
+        gestures.cancel();
+        repaint();
+        return true;
     }
 
     void mouseMove (const juce::MouseEvent& event) override
@@ -233,14 +323,14 @@ private:
         {
             for (int i = 0; i < 16; ++i)
                 if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (i + 1)))
-                    parameter->setValueNotifyingHost (IlanaSynthAudioProcessor::gatePatternLevel (pattern(), i));
+                    gestures.set (parameter, IlanaSynthAudioProcessor::gatePatternLevel (pattern(), i));
 
             if (auto* choice = processorRef.apvts.getParameter ("fx_gate_pattern"))
-                choice->setValueNotifyingHost (choice->convertTo0to1 (8.0f));
+                gestures.set (choice, choice->convertTo0to1 (8.0f));
         }
 
         if (auto* parameter = processorRef.apvts.getParameter ("fx_gate_step" + juce::String (step + 1)))
-            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+            gestures.set (parameter, juce::jlimit (0.0f, 1.0f, value));
 
         repaint();
     }
@@ -253,7 +343,11 @@ private:
         // Snap near the ends so full and closed steps are easy to hit.
         value = value > 0.92f ? 1.0f : (value < 0.08f ? 0.0f : value);
         hoverStep = stepAt (event.getPosition());
-        setLevel (hoverStep, value);
+
+        // A fast sweep skips bars between mouse events: fill them in.
+        IlanaDrag::paintRun (lastStep, lastValue, hoverStep, value, [this] (int s, float v) { setLevel (s, v); });
+        lastStep = hoverStep;
+        lastValue = value;
     }
 
     IlanaAnim::ChangeGate changeGate;
@@ -265,7 +359,10 @@ private:
     }
 
     IlanaSynthAudioProcessor& processorRef;
-    int hoverStep = -1;
+    IlanaDrag::Gestures gestures;
+    int hoverStep = -1, lastStep = -1;
+    float lastValue = 0.0f;
+    bool dragging = false;
 };
 
 // Scrolling content for the FX stack: paints the cards (and, over their
@@ -276,6 +373,9 @@ class FxStackContent : public juce::Component
 public:
     std::function<void (juce::Graphics&)> painter, overPainter;
     std::function<void (const juce::MouseEvent&)> onDown, onDrag, onUp, onMove;
+    std::function<bool (const juce::KeyPress&)> onKey; // Esc during a reorder drag
+
+    FxStackContent() { setWantsKeyboardFocus (true); }
 
     void paint (juce::Graphics& g) override
     {
@@ -289,7 +389,15 @@ public:
             overPainter (g);
     }
 
-    void mouseDown (const juce::MouseEvent& event) override { if (onDown != nullptr) onDown (event); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        grabKeyboardFocus(); // so Esc reaches keyPressed during a drag
+
+        if (onDown != nullptr)
+            onDown (event);
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override { return onKey != nullptr && onKey (key); }
     void mouseDrag (const juce::MouseEvent& event) override { if (onDrag != nullptr) onDrag (event); }
     void mouseUp (const juce::MouseEvent& event) override { if (onUp != nullptr) onUp (event); }
     void mouseMove (const juce::MouseEvent& event) override { if (onMove != nullptr) onMove (event); }

@@ -314,7 +314,7 @@ private:
             g.setColour (colour.withAlpha (0.55f));
             g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
         }
-        g.setColour (inRack ? colour.interpolatedWith (juce::Colours::white, 0.35f) : IlanaTheme::Ui::text2);
+        g.setColour (inRack ? colour.interpolatedWith (juce::Colours::white, 0.35f) : IlanaTheme::Ui::text.withAlpha (0.85f)); // (P-6: ink 2 was dim on the tile)
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true).withKerningFactor (0.04f));
         IlanaTheme::drawFitted (g, "AIRWINDOWS", area.toNearestInt().reduced (3, 0), juce::Justification::centred, 1);
     }

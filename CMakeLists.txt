@@ -427,6 +427,41 @@ target_link_libraries(ilanaStress
         juce::juce_recommended_config_flags
 )
 
+juce_add_console_app(ilanaPolishRepro PRODUCT_NAME "ilanaPolishRepro")
+
+target_sources(ilanaPolishRepro PRIVATE
+    tools/PolishRepro.cpp
+    src/PluginProcessor.cpp
+    ${ILANA_PROCESSOR_SOURCES}
+    src/MtsEsp.cpp
+    src/dsp/Wavetable.cpp
+    src/dsp/WavetableDoc.cpp
+    src/dsp/TableFactory.cpp
+    src/dsp/Voice.cpp
+    src/dsp/airwindows/Registry.cpp
+)
+
+target_include_directories(ilanaPolishRepro PRIVATE src)
+
+target_compile_definitions(ilanaPolishRepro PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    ILANA_TEST_BUILD=1
+    ILANA_FINGERPRINT_BUILD=1
+    JucePlugin_Name="ilanaSynth"
+)
+
+target_link_libraries(ilanaPolishRepro
+    PRIVATE
+        ilanaStretch
+        juce::juce_dsp
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+    PUBLIC
+        juce::juce_recommended_config_flags
+)
+
 # Dev tool: renders every factory preset's test phrases for the preset critic
 # (tools/preset_critic.py; not shipped).
 juce_add_console_app(ilanaPresetRender PRODUCT_NAME "ilanaPresetRender")

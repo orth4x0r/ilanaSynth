@@ -459,6 +459,7 @@ public:
         stackContent.onDrag = [this] (const juce::MouseEvent& event) { stackMouseDrag (event); };
         stackContent.onUp = [this] (const juce::MouseEvent& event) { stackMouseUp (event); };
         stackContent.onMove = [this] (const juce::MouseEvent& event) { stackMouseMove (event); };
+        stackContent.onKey = [this] (const juce::KeyPress& key) { return stackKeyPressed (key); };
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
@@ -617,7 +618,7 @@ public:
         g.fillRect (outputSeparator);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("after the rack, before the master volume", outputHint, juce::Justification::centredRight, true);
+        g.drawText ("After the rack, before the master volume.", outputHint, juce::Justification::centredRight, true);
 
         if (library->isVisible())
         {
@@ -1274,8 +1275,8 @@ private:
     juce::String routingHintText() const
     {
         if (patcherOn)
-            return "the cables on PATCH decide what feeds what";
-        return parallelRouting ? "parallel: every effect hears the input, outputs are summed" : "series: each effect feeds the next one";
+            return "The cables on PATCH decide what feeds what.";
+        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Series: each effect feeds the next one.";
     }
 
     void chainABChanged()
@@ -1936,9 +1937,15 @@ private:
         }
 
         const auto rowHeight = knobsArea.getHeight() / juce::jmax (1, rows);
+        // An Airwindows card's algorithm menu stands alone in the first column and its knobs
+        // fill the other columns in every row, so the rows share columns (P-6).
+        const auto menuLead = isAirwindowsType (type) && columns > 1 && rows > 1 && dynamic_cast<ComboControl*> (items[0]) != nullptr
+                              && (count - 1 + columns - 2) / (columns - 1) == rows;
         for (int i = 0; i < count; ++i)
         {
-            auto cell = juce::Rectangle<int> (knobsArea.getX() + (i % columns) * cellWidth, knobsArea.getY() + (i / columns) * rowHeight,
+            const auto column = menuLead && i > 0 ? 1 + (i - 1) % (columns - 1) : i % columns;
+            const auto rowIndex = menuLead && i > 0 ? (i - 1) / (columns - 1) : i / columns;
+            auto cell = juce::Rectangle<int> (knobsArea.getX() + column * cellWidth, knobsArea.getY() + rowIndex * rowHeight,
                                               cellWidth, rowHeight);
             auto* item = items[(size_t) i];
 
@@ -2433,6 +2440,20 @@ private:
         stackContent.repaint();
     }
 
+    // Esc during a reorder drag drops the card back where it was: no swap.
+    // The drag state is gone, so the rest of the gesture (drag, mouse-up) does nothing.
+    bool stackKeyPressed (const juce::KeyPress& key)
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || dragSlot < 0)
+            return false;
+
+        dragSlot = dropTarget = -1;
+        dragActive = false;
+        dragImage = {};
+        stackContent.repaint();
+        return true;
+    }
+
     void stackMouseMove (const juce::MouseEvent& event)
     {
         auto overHeader = false;
@@ -2901,7 +2922,7 @@ private:
             return [=] (double v) { return ms (88200.0 / (std::pow (knob.toPlugin ((float) v), 4.0) * scale + 1.0) / sampleRate * 1000.0); };
         }
         if (key == "TapeDelay2|Regen" || key == "PitchDelay|Regen")
-            return [=] (double v) { return juce::String (juce::roundToInt (100.0 * std::pow (knob.toPlugin ((float) v), 2.0))) + " %"; };
+            return [=] (double v) { return juce::String (juce::roundToInt (100.0 * std::pow (knob.toPlugin ((float) v), 2.0))) + "%"; };
         if (key == "TapeDelay2|Freq" || key == "PitchDelay|Freq")
             return [=] (double v) { return hz ((std::pow (knob.toPlugin ((float) v), 3.0) * 0.4 + 0.0001) * sampleRate); };
         if (key == "Baxandall2|Treble" || key == "Baxandall2|Bass")

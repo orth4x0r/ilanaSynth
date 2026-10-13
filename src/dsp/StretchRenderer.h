@@ -28,6 +28,8 @@ public:
     static constexpr size_t maxBytes = (size_t) 768 << 20;  // all copies together
     static constexpr juce::uint32 keepUnusedMs = 20000;    // a copy nobody played for this long may go
     static constexpr juce::uint32 retireMs = 5000;          // and is freed this much later
+    static constexpr juce::uint32 inUseMs = 1000;           // a copy played this recently is never replaced
+    static constexpr size_t maxCopyBytes = maxBytes / 4;    // one copy's cap: longer ones stay on the live stretch
 
     // sourceFor(osc) returns the sample an oscillator holds, kept alive by
     // the pointer; called on the worker thread only.
@@ -37,7 +39,11 @@ public:
         startThread (juce::Thread::Priority::low);
     }
 
-    ~StretchRenderer() override { stopThread (10000); }
+    ~StretchRenderer() override
+    {
+        cancelRender.store (true); // a long render gives up at its next check
+        stopThread (10000);
+    }
 
     // Offline rendering (bounce, export, tests) renders in place, so every
     // note plays its copy from the first sample.
@@ -145,8 +151,17 @@ private:
         return nullptr;
     }
 
-    static std::shared_ptr<const SampleData> renderCopy (const SampleData& source, juce::uint64 key)
+    // The size of the copy renderCopy would make, estimated (the stretched length).
+    static size_t copyBytes (const SampleData& source, juce::uint64 key) noexcept
     {
+        return (size_t) ((double) source.getNumSamples() * lengthForStep (stepOf (key))) * (size_t) source.getNumChannels() * sizeof (float);
+    }
+
+    // nullptr: too large (copyBytes over maxCopyBytes), cancelled or failed.
+    std::shared_ptr<const SampleData> renderCopy (const SampleData& source, juce::uint64 key)
+    {
+        if (copyBytes (source, key) > maxCopyBytes)
+            return nullptr;
         OfflineStretch::Audio input;
         input.sampleRate = source.sampleRate;
         for (int c = 0; c < source.getNumChannels(); ++c)
@@ -157,6 +172,8 @@ private:
 
         const auto output = OfflineStretch::render ((OfflineStretch::Engine) engineOf (key), input, lengthForStep (stepOf (key)),
                                                     std::exp2 (semitonesOf (key) / 12.0));
+        if (cancelRender.load())
+            return nullptr;
         auto copy = std::make_shared<SampleData>();
         copy->sampleRate = source.sampleRate;
         copy->name = source.name;
@@ -177,7 +194,10 @@ private:
         auto owner = resolve (osc, source);
         if (owner == nullptr)
             return nullptr;
-        return store (source, key, renderCopy (*owner, key), owner);
+        auto copy = renderCopy (*owner, key);
+        if (copy == nullptr)
+            return nullptr;
+        return store (source, key, std::move (copy), owner);
     }
 
     // Worker side: puts a finished copy in a free entry, or in place of the
@@ -188,12 +208,20 @@ private:
         const auto now = juce::Time::getMillisecondCounter();
         const auto bytes = (size_t) copy->getNumSamples() * (size_t) copy->getNumChannels() * sizeof (float);
 
-        // Over the memory budget: let go of copies nobody has played lately.
+        // Copies nobody has played lately go first; failing those, the
+        // longest-unused one that is not being played right now.
+        const auto replaceable = [this, now]
+        {
+            auto* entry = oldestUnused (now, keepUnusedMs);
+            return entry != nullptr ? entry : oldestUnused (now, inUseMs);
+        };
+
+        // Over the memory budget: let go of copies.
         for (auto total = totalBytes(); total + bytes > maxBytes;)
         {
-            auto* oldest = oldestUnused (now);
+            auto* oldest = replaceable();
             if (oldest == nullptr)
-                break;
+                return nullptr; // nothing can go: the budget holds, this copy is dropped
             total -= oldest->bytes;
             retire (*oldest, now);
         }
@@ -206,9 +234,9 @@ private:
                 break;
             }
         if (target == nullptr)
-            target = oldestUnused (now);
+            target = replaceable();
         if (target == nullptr)
-            return nullptr; // every copy is in use: this one waits for a free entry
+            return nullptr; // every copy is being played: dropped
         retire (*target, now);
 
         target->owner = std::move (copy);
@@ -221,11 +249,11 @@ private:
         return target->owner.get();
     }
 
-    Entry* oldestUnused (juce::uint32 now)
+    Entry* oldestUnused (juce::uint32 now, juce::uint32 minAge)
     {
         Entry* oldest = nullptr;
         for (auto& entry : pool)
-            if (entry.key.load() != 0 && now - entry.lastUsed.load() > keepUnusedMs
+            if (entry.key.load() != 0 && now - entry.lastUsed.load() > minAge
                 && (oldest == nullptr || entry.lastUsed.load() < oldest->lastUsed.load()))
                 oldest = &entry;
         return oldest;
@@ -254,6 +282,7 @@ private:
 
     void run() override
     {
+        OfflineStretch::cancelSlot() = &cancelRender;
         while (! threadShouldExit())
         {
             Request next;
@@ -276,9 +305,14 @@ private:
                 auto done = false;
                 for (auto& entry : pool)
                     done = done || (entry.key.load() == next.key && entry.source.load() == next.source);
-                if (! done)
+                // A drop (pool full of copies in play) pauses rendering a moment, so the
+                // voices' repeated asks do not render the same copy again and again.
+                const auto now = juce::Time::getMillisecondCounter();
+                if (! done && (juce::int32) (poolFullUntil - now) <= 0)
                     if (auto owner = resolve (next.osc, next.source))
-                        store (next.source, next.key, renderCopy (*owner, next.key), owner);
+                        if (auto copy = renderCopy (*owner, next.key))
+                            if (store (next.source, next.key, std::move (copy), owner) == nullptr)
+                                poolFullUntil = juce::Time::getMillisecondCounter() + 2000;
                 const juce::SpinLock::ScopedLockType queueGuard (queueLock);
                 pending.store (queueCount);
                 continue;
@@ -306,4 +340,6 @@ private:
     juce::CriticalSection workerLock;
     std::vector<std::pair<std::shared_ptr<const SampleData>, juce::uint32>> retired;
     std::atomic<bool> synchronous { false };
+    std::atomic<bool> cancelRender { false };
+    juce::uint32 poolFullUntil = 0; // worker thread only
 };

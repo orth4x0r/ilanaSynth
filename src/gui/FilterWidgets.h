@@ -40,7 +40,7 @@ protected:
 // as its card).
 namespace FilterColours
 {
-inline juce::Colour filter (int index) { return index == 0 ? juce::Colour (0xffc86bff) : juce::Colour (0xff8f9dff); }
+inline juce::Colour filter (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
 inline juce::Colour west() { return juce::Colour (0xffbfe35a); }
 inline juce::Colour body() { return IlanaTheme::accent(); }
 

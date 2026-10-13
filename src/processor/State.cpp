@@ -24,17 +24,23 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         state.setProperty ("lfo" + juce::String (lfo + 1) + "Curve", getLfoCurve (lfo).toString(), nullptr);
     }
 
+    // The tree holds every property of the state last loaded, so what the
+    // patch no longer has is removed rather than saved again.
     for (int slot = 0; slot < Mod::maxSlots; ++slot)
+    {
+        const auto property = "mod" + juce::String (slot + 1) + "Remap";
         if (isModRemapOn (slot))
-            state.setProperty ("mod" + juce::String (slot + 1) + "Remap", getModRemap (slot).toString(), nullptr);
+            state.setProperty (property, getModRemap (slot).toString(), nullptr);
+        else
+            state.removeProperty (property, nullptr);
+    }
 
     for (int macro = 0; macro < Mod::numMacros; ++macro)
         state.setProperty ("macroCc" + juce::String (macro), macroCc[macro].load(), nullptr);
 
-    if (const auto ccMap = getParamCcMapText(); ccMap.isNotEmpty())
-        state.setProperty ("midiCcMap", ccMap, nullptr);
-    else
-        state.removeProperty ("midiCcMap", nullptr);
+    // Written even when empty: a missing property means a state from before
+    // the map was saved (it keeps the current one), an empty one clears it.
+    state.setProperty ("midiCcMap", getParamCcMapText(), nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
     state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
@@ -43,15 +49,35 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         const juce::SpinLock::ScopedLockType lock (stateLock);
 
         for (int i = 0; i < numSampleOscs; ++i)
-            if (samplePaths[(size_t) i].isNotEmpty())
-                state.setProperty ("osc" + juce::String (i + 1) + "SamplePath", samplePaths[(size_t) i], nullptr);
+        {
+            const auto property = "osc" + juce::String (i + 1) + "SamplePath";
+            // A file that wouldn't load leaves the slot empty but keeps its path.
+            const auto& path = samplePaths[(size_t) i].isNotEmpty() ? samplePaths[(size_t) i]
+                                                                    : (embeddedSamples[(size_t) i] == nullptr ? missingSamplePaths[(size_t) i] : juce::String());
+            if (path.isNotEmpty())
+                state.setProperty (property, path, nullptr);
+            else
+                state.removeProperty (property, nullptr);
+        }
 
         for (int i = 0; i < numUserSlots; ++i)
-            if (userTablePaths[(size_t) i].isNotEmpty())
+        {
+            const auto number = juce::String (i + 1);
+            const auto kept = userTablePaths[(size_t) i].isEmpty() && userTableDocs[(size_t) i] == nullptr;
+            const auto& path = userTablePaths[(size_t) i].isNotEmpty() ? userTablePaths[(size_t) i]
+                                                                       : (kept ? missingTablePaths[(size_t) i] : juce::String());
+            if (path.isNotEmpty())
             {
-                state.setProperty ("userTablePath" + juce::String (i + 1), userTablePaths[(size_t) i], nullptr);
-                state.setProperty ("userTableMode" + juce::String (i + 1), userTableModes[(size_t) i], nullptr);
+                state.setProperty ("userTablePath" + number, path, nullptr);
+                state.setProperty ("userTableMode" + number, userTablePaths[(size_t) i].isNotEmpty() ? userTableModes[(size_t) i]
+                                                                                                   : missingTableModes[i], nullptr);
             }
+            else
+            {
+                state.removeProperty ("userTablePath" + number, nullptr);
+                state.removeProperty ("userTableMode" + number, nullptr);
+            }
+        }
     }
 
     // M7.4: every edited or loaded patch table travels with the patch (see
@@ -605,6 +631,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     liveRetrigger = true;
     patchCut = true;
+    ++patchGeneration; // a bounce still rendering belongs to the patch that started it
     auto state = stateIn.createCopy();
     if (state.hasProperty ("presetName")) // a factory preset renamed since the session was saved
         state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
@@ -708,7 +735,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     // the User tables, for all six oscillators.
     if ((int) state.getProperty ("tableSchema", 1) < 4)
     {
-        const auto added = TableFactory::getNumFactoryTables() - 120;
+        const auto added = 134 - 120; // the factory count then (a fixed number: later tables get their own schema step)
 
         for (int i = 0; i < state.getNumChildren(); ++i)
         {
@@ -754,14 +781,21 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     {
         const auto tokens = juce::StringArray::fromTokens (text, ",", "");
 
+        // A damaged file can hold nan, which would reach the audio thread.
         for (int i = 0; i < lfoDrawSteps && i < tokens.size(); ++i)
-            setLfoCustomPoint (lfoIndex, i, tokens[i].getFloatValue());
+            if (const auto value = tokens[i].getFloatValue(); std::isfinite (value))
+                setLfoCustomPoint (lfoIndex, i, value);
     };
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
         const auto property = "lfo" + juce::String (lfo + 1) + "Draw";
         const auto text = state.getProperty (property).toString();
+
+        // The default sine first, as a factory preset leaves it: a state
+        // without a drawing (or a cut short one) keeps nothing of the last patch's.
+        for (int i = 0; i < lfoDrawSteps; ++i)
+            setLfoCustomPoint (lfo, i, (float) std::sin (juce::MathConstants<double>::twoPi * (double) i / (double) lfoDrawSteps));
 
         if (text.isNotEmpty())
             parseDraw (lfo, text);
@@ -898,9 +932,12 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
 
+        // Whatever an earlier load left queued is stale: each slot below either
+        // queues its own change or is cancelled (same path as the live one).
         for (int i = 0; i < numSampleOscs; ++i)
         {
             const auto path = state.getProperty ("osc" + juce::String (i + 1) + "SamplePath").toString();
+            missingSamplePaths[(size_t) i].clear();
 
             if (restoredSamples[(size_t) i])
             {
@@ -920,13 +957,21 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                 pendingSampleClear[(size_t) i] = true;
                 asyncNeeded = true;
             }
+            else
+            {
+                pendingSamplePaths[(size_t) i].clear();
+                pendingSampleClear[(size_t) i] = false;
+            }
         }
 
         for (int i = 0; i < numUserSlots; ++i)
         {
+            missingTablePaths[(size_t) i].clear();
+
             if (restoredTables[(size_t) i])
             {
                 pendingUserTablePaths[(size_t) i].clear();
+                pendingUserTableClear[(size_t) i] = false;
                 continue;
             }
 
@@ -946,6 +991,11 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                 pendingUserTablePaths[(size_t) i].clear();
                 pendingUserTableClear[(size_t) i] = true;
                 asyncNeeded = true;
+            }
+            else
+            {
+                pendingUserTablePaths[(size_t) i].clear();
+                pendingUserTableClear[(size_t) i] = false;
             }
         }
     }
@@ -1033,10 +1083,19 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     }
 
     apvts.replaceState (state);
+    // replaceState emptied the undo history: a gesture still open around this
+    // load would add a step that restores only the data (a hybrid patch).
+    pendingEditData.reset();
     setFxPatch (fxPatchLoaded);
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
     moveLegacyMsegToLfo();
     updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
+
+    // On the message thread the file loads queued above run now, so the patch
+    // is whole when this returns (and what the editor remembers as loaded
+    // does not change a moment later).
+    if (asyncNeeded && juce::MessageManager::existsAndIsCurrentThread())
+        handleUpdateNowIfNeeded();
 }
 
 // A patch saved with the matched exciter levels keeps them; one saved before
@@ -1117,6 +1176,7 @@ void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeIn
         return;
 
     applyFullState (juce::ValueTree::fromXml (*xml));
+    loadedPresetFile = juce::File(); // the host's session, not a preset file
 }
 
 // ---- Undo for gestures and for data that isn't a parameter ----------------
@@ -1138,7 +1198,22 @@ IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData()
     {
         const juce::SpinLock::ScopedLockType lock (stateLock);
         data.fx = fxPatch;
+        data.tables = userTableDocs;
+        data.embedded = embeddedSamples;
+        data.samplePaths = samplePaths;
     }
+
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
+    {
+        data.macroNames[(size_t) macro] = apvts.state.getProperty ("macroName" + juce::String (macro + 1)).toString();
+        data.macroCcs[(size_t) macro] = macroCc[macro].load();
+    }
+
+    for (size_t kind = 0; kind < data.reveal.size(); ++kind)
+        data.reveal[kind] = revealMasks[kind].load();
+
+    data.tuningScale = tuningState.getScaleText();
+    data.tuningMapping = tuningState.getMappingText();
     return data;
 }
 
@@ -1175,6 +1250,11 @@ bool sameClips (const std::shared_ptr<const ClipState::Clips>& a, const std::sha
 bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchData& b)
 {
     if (a.draws != b.draws || ! sameClips (a.clips, b.clips))
+        return false;
+
+    if (a.tables != b.tables || a.embedded != b.embedded || a.samplePaths != b.samplePaths
+        || a.macroNames != b.macroNames || a.macroCcs != b.macroCcs || a.reveal != b.reveal
+        || a.tuningScale != b.tuningScale || a.tuningMapping != b.tuningMapping)
         return false;
 
     if (a.fx != b.fx && (a.fx == nullptr || b.fx == nullptr || ! FxPatchData::samePatch (*a.fx, *b.fx)))
@@ -1215,6 +1295,72 @@ void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const Pa
 
     if (data.fx != nullptr && (reference.fx == nullptr || ! FxPatchData::samePatch (*data.fx, *reference.fx)))
         setFxPatch (*data.fx);
+
+    for (int slot = 0; slot < numUserSlots; ++slot)
+        if (data.tables[(size_t) slot] != reference.tables[(size_t) slot])
+        {
+            if (data.tables[(size_t) slot] != nullptr)
+                setUserTable (slot, *data.tables[(size_t) slot]);
+            else
+                resetUserTableToDefault (slot);
+        }
+
+    for (int osc = 0; osc < numSampleOscs; ++osc)
+    {
+        const auto i = (size_t) osc;
+
+        if (data.embedded[i] == reference.embedded[i] && data.samplePaths[i] == reference.samplePaths[i])
+            continue;
+
+        auto restored = false;
+
+        if (data.embedded[i] != nullptr)
+        {
+            setUserSample (osc, data.embedded[i], {});
+            restored = true;
+        }
+        else if (data.samplePaths[i].isNotEmpty())
+        {
+            const juce::File file (data.samplePaths[i]);
+            restored = file.existsAsFile() && loadUserSample (osc, file);
+        }
+
+        if (! restored)
+            setUserSample (osc, nullptr, {});
+    }
+
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
+    {
+        const auto i = (size_t) macro;
+
+        if (data.macroNames[i] != reference.macroNames[i])
+            setMacroName (macro, data.macroNames[i]);
+
+        if (data.macroCcs[i] != reference.macroCcs[i])
+            macroCc[macro].store (data.macroCcs[i]);
+    }
+
+    if (data.reveal != reference.reveal)
+    {
+        for (size_t kind = 0; kind < data.reveal.size(); ++kind)
+            revealMasks[kind].store (data.reveal[kind]);
+        ++revealVersion;
+    }
+
+    if (data.tuningScale != reference.tuningScale || data.tuningMapping != reference.tuningMapping)
+    {
+        juce::String error;
+        ++dataEpoch;
+        tuningState.reset();
+        if (data.tuningScale.isNotEmpty())
+        {
+            tuningState.loadScale (data.tuningScale, error);
+            if (data.tuningMapping.isNotEmpty())
+                tuningState.loadMapping (data.tuningMapping, error);
+        }
+        else if (data.tuningMapping.isNotEmpty())
+            tuningState.loadMapping (data.tuningMapping, error);
+    }
 }
 
 // One gesture's change to the data: undo puts back what it was before,
@@ -1273,7 +1419,13 @@ void IlanaSynthAudioProcessor::endEdit()
 
 juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
 {
-    const auto epoch = dataEpoch.load();
+    // The epoch moves with the setters; the macro and learned CCs are also
+    // set from the MIDI thread, so their sum is part of the key.
+    auto epoch = (juce::uint64) dataEpoch.load();
+    for (int macro = 0; macro < Mod::numMacros; ++macro)
+        epoch = epoch * 31 + (juce::uint64) macroCc[macro].load();
+    for (const auto& mapped : ccParameter)
+        epoch = epoch * 31 + (juce::uint64) (mapped.load() + 2);
 
     if (epoch == hashedDataEpoch)
         return cachedDataHash;
@@ -1322,6 +1474,61 @@ juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
         const auto text = FxPatchData::toValueTree (*data.fx).toXmlString();
         add (text.toRawUTF8(), text.getNumBytesAsUTF8());
     }
+
+    const auto addText = [&add] (const juce::String& text)
+    {
+        add (text.toRawUTF8(), text.getNumBytesAsUTF8());
+        const auto count = text.length();
+        add (&count, sizeof (count));
+    };
+
+    // Patch tables by content (an undo that puts a table back is not an
+    // edit), kept per doc: a table is up to 1 MB.
+    for (size_t slot = 0; slot < data.tables.size(); ++slot)
+    {
+        const auto& doc = data.tables[slot];
+        if (doc == nullptr)
+            continue;
+
+        auto& cached = docHashes[slot];
+        if (cached.first != doc)
+        {
+            juce::uint64 docHash = 14695981039346656037ull;
+            const auto mix = [&docHash] (const void* bytes, size_t size)
+            {
+                for (size_t i = 0; i < size; ++i)
+                    docHash = (docHash ^ static_cast<const juce::uint8*> (bytes)[i]) * 1099511628211ull;
+            };
+            mix (doc->name.toRawUTF8(), doc->name.getNumBytesAsUTF8());
+            for (const auto& frame : doc->frames)
+                mix (frame.data(), frame.size() * sizeof (float));
+            const auto frames = doc->frames.size();
+            mix (&frames, sizeof (frames));
+            cached = { doc, docHash };
+        }
+        add (&slot, sizeof (slot));
+        add (&cached.second, sizeof (cached.second));
+    }
+    for (auto& cached : docHashes)
+        if (cached.first != nullptr && std::find (data.tables.begin(), data.tables.end(), cached.first) == data.tables.end())
+            cached = {};
+
+    // Samples by identity (a file's path, a bounce's audio), macros, the
+    // learned CCs and the tuning by text.
+    for (size_t osc = 0; osc < data.samplePaths.size(); ++osc)
+    {
+        addText (data.samplePaths[osc]);
+        const auto* audio = data.embedded[osc].get();
+        add (&audio, sizeof (audio));
+    }
+    for (size_t macro = 0; macro < data.macroNames.size(); ++macro)
+    {
+        addText (data.macroNames[macro]);
+        add (&data.macroCcs[macro], sizeof (int));
+    }
+    addText (getParamCcMapText());
+    addText (data.tuningScale);
+    addText (data.tuningMapping);
 
     hashedDataEpoch = epoch;
     cachedDataHash = (juce::int64) hash;

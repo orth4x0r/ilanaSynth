@@ -13,21 +13,24 @@
 
 namespace PatchCableUi
 {
-inline juce::MouseEvent mouse (juce::Component& component, juce::Point<float> position, bool down, bool popup = false)
+inline juce::MouseEvent mouse (juce::Component& component, juce::Point<float> position, bool down, bool popup = false,
+                               juce::Point<float> downPosition = { -1.0e9f, -1.0e9f })
 {
+    if (downPosition.x < -1.0e8f)
+        downPosition = position;
     auto mods = down ? juce::ModifierKeys::leftButtonModifier : juce::ModifierKeys();
     if (popup)
         mods = juce::ModifierKeys (juce::ModifierKeys::rightButtonModifier);
     return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                             &component, &component, juce::Time::getCurrentTime(), position, juce::Time::getCurrentTime(), 1, false);
+                             &component, &component, juce::Time::getCurrentTime(), downPosition, juce::Time::getCurrentTime(), 1, false);
 }
 
 inline void dragFromTo (PatchCableView& view, juce::Point<float> from, juce::Point<float> to)
 {
     view.mouseDown (mouse (view, from, true));
     for (int step = 1; step <= 6; ++step)
-        view.mouseDrag (mouse (view, from + (to - from) * ((float) step / 6.0f), true));
-    view.mouseUp (mouse (view, to, false));
+        view.mouseDrag (mouse (view, from + (to - from) * ((float) step / 6.0f), true, false, from));
+    view.mouseUp (mouse (view, to, false, false, from));
 }
 
 // The view set up as an owner would: effect colours, a CPU readout and
@@ -126,7 +129,7 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         auto peak = 0.0f;
         for (int step = 1; step <= 30; ++step)
         {
-            h.view.mouseDrag (mouse (h.view, grab + juce::Point<float> (0.0f, 4.0f * (float) step), true));
+            h.view.mouseDrag (mouse (h.view, grab + juce::Point<float> (0.0f, 4.0f * (float) step), true, false, grab));
             h.view.advanceMotion (1.0f / 60.0f);
             peak = juce::jmax (peak, h.view.largestSwing());
         }
@@ -185,7 +188,7 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         const auto target = h.graph.cables()[(size_t) under];
         pick = 1; // Remove cable
         h.view.mouseDown (mouse (h.view, mid, true, true));
-        expect (items.contains ("Remove cable") && items.contains ("100 %") && h.graph.findCable (target.from, target.to) < 0,
+        expect (items.contains ("Remove cable") && items.contains ("100%") && h.graph.findCable (target.from, target.to) < 0,
                 "cable view: right-click a cable, Remove cable removes it (menu: " + items.joinIntoString (", ") + ")");
 
         // The loop cable's menu says what it costs.

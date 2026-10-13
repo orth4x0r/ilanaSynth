@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -48,11 +49,19 @@ public:
         return (*snapshot)[(size_t) juce::jlimit (0, numClips - 1, index)];
     }
 
-    // Message thread: replaces a clip (notes are clamped and sorted).
-    void setClip (int index, Clip clip)
+    // Notes made safe for the audio thread: non-finite starts and lengths
+    // are refused, a note past the clip's end is dropped (a shorter clip
+    // used to pile them all on its last 1/16 beat), the rest are clamped,
+    // sorted and capped.
+    static void normalise (Clip& clip)
     {
         clip.bars = juce::jlimit (1, maxBars, clip.bars);
         const auto lengthBeats = (float) (clip.bars * beatsPerBar);
+
+        clip.notes.erase (std::remove_if (clip.notes.begin(), clip.notes.end(),
+                                          [lengthBeats] (const ClipNote& n)
+                                          { return ! std::isfinite (n.start) || ! std::isfinite (n.length) || n.start >= lengthBeats; }),
+                          clip.notes.end());
 
         for (auto& n : clip.notes)
         {
@@ -67,6 +76,12 @@ public:
 
         std::stable_sort (clip.notes.begin(), clip.notes.end(),
                           [] (const ClipNote& a, const ClipNote& b) { return a.start < b.start; });
+    }
+
+    // Message thread: replaces a clip (notes are clamped and sorted).
+    void setClip (int index, Clip clip)
+    {
+        normalise (clip);
 
         auto next = std::make_shared<Clips> (*get());
         (*next)[(size_t) juce::jlimit (0, numClips - 1, index)] = std::move (clip);
@@ -188,6 +203,9 @@ public:
                                         juce::jlimit (1, 127, (int) n.getProperty ("v", 100)) });
             }
         }
+
+        for (auto& clip : *next)
+            normalise (clip);
 
         publish (std::move (next));
         state.removeChild (tree, nullptr);

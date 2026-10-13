@@ -9,9 +9,10 @@
 
 // A mod slot's remap curve (Vital's per-route remap), drawn as the LFO curve
 // shape is: the source's range runs left to right, the amount it sends from
-// bottom to top. Click empty space to add a point, drag points, drag a
-// segment's middle dot to bend it, double-click to remove a point or
-// straighten a segment; SHAPES (or a right-click) for presets, flip and
+// bottom to top. Drag on empty space (or double-click it) to add a point, drag
+// points, drag a segment's middle dot to bend it, double-click a point to
+// remove it or a segment's dot to straighten it; a plain click changes
+// nothing; SHAPES (or a right-click) for presets, flip and
 // reverse. The live source shows as a line across the plot and a dot where
 // it meets the curve. The matrix docks it under its row; X closes it.
 class RemapEditor : public juce::Component,
@@ -24,9 +25,11 @@ public:
     {
         curve = processorRef.getModRemap (slotIndex);
         // The LFO curve's gestures and words.
-        setTooltip ("Remap\nThe source's range runs left to right, what the routing sends bottom to top.  Click to add a point, "
-                    "drag it, drag the dot on a line to curve it, double-click to delete (or straighten); right-click for "
-                    "shapes.  The value shows while you drag.");
+        setTooltip ("Remap\nThe source's range runs left to right, what the routing sends bottom to top.\n"
+                    "Drag on empty space (or double-click it) to add a point; drag a point to move it.\n"
+                    "Drag the dot on a line to curve it. Double-click a point to delete it, a dot to straighten.\n"
+                    "Right-click for shapes. Esc cancels a drag. The value shows while you drag.");
+        setWantsKeyboardFocus (true);
 
         shapesButton.setButtonText (juce::String::fromUTF8 ("SHAPES  \xe2\x96\xbe"));
         shapesButton.setTooltip ("Curve presets, flip and reverse");
@@ -194,10 +197,17 @@ public:
                 g.drawEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (tensionHandle (i)), 1.2f);
             }
 
-        for (const auto& point : curve.points)
+        for (int i = 0; i < (int) curve.points.size(); ++i)
+        {
+            const auto hot = i == dragPoint || (dragPoint < 0 && dragTension < 0 && i == hoverPoint);
+            g.setColour (colour);
+            g.fillEllipse (juce::Rectangle<float> (hot ? 12.0f : 9.0f, hot ? 12.0f : 9.0f).withCentre (pointToScreen (curve.points[(size_t) i])));
+        }
+
+        if (dragPoint < 0 && dragTension < 0 && hoverTension >= 0 && hoverTension + 1 < (int) curve.points.size())
         {
             g.setColour (colour);
-            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre (pointToScreen (point)));
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (tensionHandle (hoverTension)));
         }
 
         // The live input where it meets the curve: what the routing sends now.
@@ -248,10 +258,49 @@ public:
                + (slot.destination != 0 ? juce::String::fromUTF8 (" \xe2\x86\x92 ") + ModNames::destination (slot.destination) : juce::String());
     }
 
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto point = hitPoint (event.position);
+        const auto tension = point < 0 ? hitTension (event.position) : -1;
+
+        if (point != hoverPoint || tension != hoverTension)
+        {
+            hoverPoint = point;
+            hoverTension = tension;
+            repaint();
+        }
+
+        setMouseCursor (point >= 0 || tension >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        hoverPoint = hoverTension = -1;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    // Esc during a drag puts the curve back as it was at the press.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! isMouseButtonDown() || cancelled
+            || (dragPoint < 0 && dragTension < 0 && ! pendingInsert))
+            return false;
+
+        cancelled = true;
+        pendingInsert = false;
+        dragPoint = dragTension = -1;
+        curve = curveAtDown;
+        commit();
+        return true;
+    }
+
     void mouseDown (const juce::MouseEvent& event) override
     {
         dragPoint = dragTension = -1;
+        pendingInsert = cancelled = false;
         curve = processorRef.getModRemap (slotIndex); // an undo may have changed it
+        curveAtDown = curve;
 
         if (event.mods.isPopupMenu())
         {
@@ -265,25 +314,40 @@ public:
         if (dragPoint < 0)
             dragTension = hitTension (event.position);
 
-        if (dragPoint < 0 && dragTension < 0)
-        {
-            const auto plot = plotArea();
-            LfoCurve::Point point;
-            point.x = juce::jlimit (0.001f, 0.999f, (event.position.x - plot.getX()) / plot.getWidth());
-            point.y = yFromScreen (event.position.y);
-            auto insertAt = curve.points.begin();
-            while (insertAt != curve.points.end() && insertAt->x <= point.x)
-                ++insertAt;
-            dragPoint = (int) std::distance (curve.points.begin(), curve.points.insert (insertAt, point));
-            commit();
-        }
+        // A plain click on empty plot changes nothing: the point is added
+        // once the press turns into a drag (or by a double-click).
+        pendingInsert = dragPoint < 0 && dragTension < 0;
 
         if (dragTension >= 0)
             dragStartTension = curve.points[(size_t) dragTension].tension;
     }
 
+    // Adds a point at `position` (sorted in) and returns its index.
+    int insertPointAt (juce::Point<float> position)
+    {
+        const auto plot = plotArea();
+        LfoCurve::Point point;
+        point.x = juce::jlimit (0.001f, 0.999f, (position.x - plot.getX()) / plot.getWidth());
+        point.y = yFromScreen (position.y);
+        auto insertAt = curve.points.begin();
+        while (insertAt != curve.points.end() && insertAt->x <= point.x)
+            ++insertAt;
+        const auto index = (int) std::distance (curve.points.begin(), curve.points.insert (insertAt, point));
+        commit();
+        return index;
+    }
+
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (cancelled)
+            return;
+
+        if (pendingInsert && event.getDistanceFromDragStart() >= 4)
+        {
+            pendingInsert = false;
+            dragPoint = insertPointAt (event.getMouseDownPosition().toFloat());
+        }
+
         const auto plot = plotArea();
 
         if (dragPoint >= 0 && dragPoint < (int) curve.points.size())
@@ -310,11 +374,13 @@ public:
     void mouseUp (const juce::MouseEvent&) override
     {
         dragPoint = dragTension = -1;
+        pendingInsert = false;
         processorRef.endEdit();
     }
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        pendingInsert = false;
         processorRef.performEdit (editName(), [this, &event]
         {
             curve = processorRef.getModRemap (slotIndex);
@@ -329,6 +395,10 @@ public:
             {
                 curve.points[(size_t) segment].tension = 0.0f;
                 commit();
+            }
+            else if (hit < 0)
+            {
+                insertPointAt (event.position);
             }
         });
     }
@@ -468,7 +538,9 @@ private:
     int slotIndex;
     juce::Colour colour;
     LfoCurve curve;
-    int dragPoint = -1, dragTension = -1;
+    LfoCurve curveAtDown;
+    int dragPoint = -1, dragTension = -1, hoverPoint = -1, hoverTension = -1;
+    bool pendingInsert = false, cancelled = false;
     float dragStartTension = 0.0f;
     float liveInput = -1.0f;
     juce::String titleSuffix;

@@ -143,9 +143,12 @@ float foldTriangle (float value)
 
 // Keeps extreme module stacks from overflowing into Inf/NaN and latching
 // into delay lines or reverb tanks. 24 dB above full scale, inaudible normally.
-void sanitiseBuffer (juce::AudioBuffer<float>& buffer)
+// Denormals become 0 on the way (finite audio is otherwise untouched).
+// Returns true when a non-finite sample was found (and zeroed).
+bool sanitiseBuffer (juce::AudioBuffer<float>& buffer)
 {
     constexpr auto limit = 16.0f;
+    auto found = false;
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
     {
@@ -155,12 +158,18 @@ void sanitiseBuffer (juce::AudioBuffer<float>& buffer)
         {
             const auto value = data[i];
             if (! std::isfinite (value))
+            {
                 IlanaSynthAudioProcessor::sanitisedNonFinite.fetch_add (1, std::memory_order_relaxed);
+                found = true;
+            }
             else if (std::abs (value) > limit)
                 IlanaSynthAudioProcessor::sanitisedClamped.fetch_add (1, std::memory_order_relaxed);
-            data[i] = std::isfinite (value) ? juce::jlimit (-limit, limit, value) : 0.0f;
+            const auto limited = std::isfinite (value) ? juce::jlimit (-limit, limit, value) : 0.0f;
+            data[i] = limited != 0.0f && std::abs (limited) < std::numeric_limits<float>::min() ? 0.0f : limited;
         }
     }
+
+    return found;
 }
 
 juce::StringArray getOscTableChoices()

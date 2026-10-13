@@ -264,7 +264,7 @@ class PresetDisplay : public juce::Component,
                       public juce::SettableTooltipClient
 {
 public:
-    PresetDisplay() { setTooltip ("Preset\nClick to browse presets.  Use the arrows to step through them."); }
+    PresetDisplay() { setTooltip (tipFor ({})); }
 
     std::function<void()> onClick;
 
@@ -274,6 +274,7 @@ public:
             return;
 
         name = newName;
+        setTooltip (tipFor (newName)); // a long name is cut in the display, so the tip carries all of it
         category = newCategory;
         isFavourite = favourite;
         isModified = modified;
@@ -353,12 +354,15 @@ public:
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (nameSize, true));
         const auto nameText = name.isNotEmpty() ? name : juce::String ("Init");
-        g.drawText (nameText, text, juce::Justification::centredLeft, true);
+        // A favourite keeps 18 px at the right for its star, so the star never
+        // sits on the cut end of a long name.
+        const auto nameArea = isFavourite ? text.withTrimmedRight (18) : text;
+        g.drawText (nameText, nameArea, juce::Justification::centredLeft, true);
 
         if (isFavourite)
         {
             const auto nameWidth = juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (nameSize, true)), nameText);
-            const auto starX = juce::jmin ((float) text.getRight() - 10.0f, (float) text.getX() + nameWidth + 12.0f);
+            const auto starX = juce::jmin ((float) nameArea.getRight() + 9.0f, (float) nameArea.getX() + nameWidth + 12.0f);
             g.setColour (juce::Colour (0xffffd447));
             g.fillPath (IlanaIcons::make (IlanaIcons::Icon::Star,
                                           juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ starX, (float) text.getCentreY() })));
@@ -375,6 +379,12 @@ public:
     }
 
 private:
+    static juce::String tipFor (const juce::String& presetName)
+    {
+        return (presetName.isNotEmpty() ? presetName : juce::String ("Preset"))
+               + "\nClick to browse presets. Use the arrows to step through them.";
+    }
+
     // The preset name is the header's centrepiece: a size up from the type
     // scale's "large".
     static constexpr float nameSize = 20.0f;

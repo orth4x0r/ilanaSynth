@@ -48,11 +48,14 @@ public:
     ClipEditor (IlanaSynthAudioProcessor& processor, juce::Colour colourIn)
         : processorRef (processor), colour (colourIn)
     {
-        setTooltip ("Clip piano roll. Double-click to add a note (DRAW or D: a click adds, a drag paints a run), click to "
-                    "select (shift adds), drag empty space to select several. Drag to move, drag the right edge to resize, "
-                    "right-click to delete. Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar). Drag "
-                    "the lane below for velocity. Wheel: pitch, Alt+wheel: row height, Ctrl+wheel: zoom, drag the ruler to "
-                    "scroll. Click a key to hear it.");
+        setTooltip ("Clip piano roll\n"
+                    "Double-click to add a note. In DRAW (or D) a click adds one and a drag paints a run.\n"
+                    "Click to select (shift adds); drag empty space to select several.\n"
+                    "Drag to move, drag the right edge to resize, right-click to delete.\n"
+                    "Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar).\n"
+                    "Drag the lane below for velocity.\n"
+                    "Wheel: pitch. Alt+wheel: row height. Ctrl+wheel: zoom. Drag the ruler to scroll.\n"
+                    "Click a key to hear it.");
         setWantsKeyboardFocus (true);
         reload (true);
         startTimerHz (30);
@@ -388,6 +391,7 @@ public:
     {
         reload (false);
         endGesture();
+        cancelled = false;
 
         if (IlanaAnim::showing (*this))
             grabKeyboardFocus();
@@ -577,6 +581,9 @@ public:
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (cancelled)
+            return;
+
         const auto position = event.position;
 
         if (dragMode == Drag::scroll)
@@ -741,6 +748,22 @@ public:
         const auto code = key.getKeyCode();
         const auto letter = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) code);
         const auto any = getNumSelected() > 0;
+
+        // Esc during a note, velocity or draw drag puts the clip back as it
+        // was at mouse-down; the step it opened ends unchanged, so none is made.
+        if (code == juce::KeyPress::escapeKey && editOpen && ! cancelled)
+        {
+            cancelled = true;
+            clip = clipAtDown;
+            paintCells.clear();
+
+            if (selected.size() != clip.notes.size())
+                selected.assign (clip.notes.size(), false);
+
+            stopAudition();
+            commit();
+            return true;
+        }
 
         if (modifiers.isCommandDown() || modifiers.isCtrlDown())
         {
@@ -1620,6 +1643,7 @@ private:
         dragMode = mode;
         processorRef.beginEdit (name); // closed on mouse-up: one undo step
         editOpen = true;
+        clipAtDown = clip; // what Esc puts back
     }
 
     void endGesture()
@@ -1671,7 +1695,8 @@ private:
     IlanaAnim::ChangeGate changeGate;
     IlanaSynthAudioProcessor& processorRef;
     juce::Colour colour;
-    Clip clip, dragOrigin;
+    Clip clip, dragOrigin, clipAtDown;
+    bool cancelled = false; // Esc was pressed in this drag: the rest of it is ignored
     std::vector<bool> selected, bandBase; // one per note of `clip`
     int shownIndex = -1;
     unsigned shownEpoch = 0;

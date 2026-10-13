@@ -20,7 +20,8 @@
 // are made in prepare (off the audio thread), a sub-block is handed over
 // through atomics, the workers sleep on an atomic wait between sub-blocks
 // (a futex / WaitOnAddress, no mutex), and the audio thread renders voices
-// too, then spins only until the last voice a worker took is done.
+// too, then waits (a short spin, then the same atomic wait) until the last
+// voice a worker took is done.
 class VoiceThreads
 {
 public:
@@ -84,8 +85,15 @@ public:
 
         runJobs();
 
-        while (done.load (std::memory_order_acquire) < numVoices)
-            juce::Thread::yield();
+        // A short spin (a worker is usually nearly done), then sleep on the
+        // counter: a worker the OS has not scheduled yet no longer keeps this
+        // thread burning its time slice at yield priority.
+        for (int spin = 0; spin < 2000 && done.load (std::memory_order_acquire) < numVoices; ++spin)
+            std::atomic_signal_fence (std::memory_order_seq_cst);
+
+        for (auto seenDone = done.load (std::memory_order_acquire); seenDone < numVoices;
+             seenDone = done.load (std::memory_order_acquire))
+            done.wait (seenDone, std::memory_order_acquire);
 
         for (int k = 0; k < numVoices; ++k)
             for (int channel = 0; channel < 2; ++channel)
@@ -131,7 +139,9 @@ private:
             juce::FloatVectorOperations::clear (channels[0] + start, length);
             juce::FloatVectorOperations::clear (channels[1] + start, length);
             render (jobVoices[(size_t) k], view, start, length);
-            done.fetch_add (1, std::memory_order_acq_rel);
+            // Only the last voice of the sub-block wakes the audio thread.
+            if (done.fetch_add (1, std::memory_order_acq_rel) + 1 >= (int) (ticket >> 32))
+                done.notify_all();
         }
     }
 

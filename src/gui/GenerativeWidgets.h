@@ -1180,41 +1180,41 @@ public:
 
         const auto engine = seqOn ? juce::String ("PROB SEQ") : arpOn ? juce::String ("ARP") : juce::String();
         const bool engineOn[] { arpOn, euclidOn, seqOn, clipOn };
-        const char* const offNotes[] { "ARP is off: draw to switch it on",
-                                       "EUCLID is off: drag to switch it on",
-                                       "PROB SEQ is off: draw to switch it on",
-                                       "CLIP is off: switch it on in its tab" };
+        const char* const offNotes[] { "ARP is off: draw to switch it on.",
+                                       "EUCLID is off: drag to switch it on.",
+                                       "PROB SEQ is off: draw to switch it on.",
+                                       "CLIP is off: switch it on in its tab." };
 
         // The order follows the chain: how the stages combine, the last
         // stage's part last (review 7, S7-37).
         if (juce::isPositiveAndBelow (shownEngine, 4) && ! engineOn[shownEngine])
             note = offNotes[shownEngine];
         else if (seqOn && arpOn)
-            note = "PROB SEQ replaces the ARP";
+            note = "PROB SEQ replaces the ARP.";
         else if (euclidNotes && engine.isNotEmpty() && clipOn && ! clipHost)
-            note = "EUCLID gates; steps transpose CLIP";
+            note = "EUCLID gates; steps transpose CLIP.";
         else if (euclidNotes && clipOn && ! clipHost)
-            note = "EUCLID's hits trigger the clip";
+            note = "EUCLID's hits trigger the clip.";
         else if (euclidNotes && engine.isNotEmpty())
-            note = "EUCLID rests " + engine + "'s steps";
+            note = "EUCLID rests " + engine + "'s steps.";
         else if (euclidNotes)
-            note = "EUCLID plays the held chord";
+            note = "EUCLID plays the held chord.";
         else if (clipOn && ! clipHost && engine.isNotEmpty())
-            note = engine + " transposes the clip";
+            note = engine + " transposes the clip.";
         else if (clipOn && ! clipHost)
-            note = "a held key plays the clip";
+            note = "A held key plays the clip.";
         else if (clipOn)
-            note = "the clip plays with the host";
+            note = "The clip plays with the host.";
         else if (euclidOn && euclidTarget == 1)
-            note = "EUCLID re-strikes the strings";
+            note = "EUCLID re-strikes the strings.";
         else if (euclidOn)
-            note = "EUCLID drives the Trance Gate";
+            note = "EUCLID drives the Trance Gate.";
         else if (engine.isEmpty())
-            note = "no pattern engine is on";
+            note = "No pattern engine is on.";
         else if (seqOn)
-            note = "each step rolls its chance";
+            note = "Each step rolls its chance.";
         else
-            note = "the ARP plays held keys";
+            note = "The ARP plays held keys.";
 
         return list;
     }

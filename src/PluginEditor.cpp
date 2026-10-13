@@ -2193,6 +2193,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
             self.processorRef.loadPresetByIndex (index);
             self.processorRef.endEdit();
             self.presetLoadFlash = 1.0f;
+            IlanaAnim::notePresetLoad();
             self.animator.startTimerHz (60);
 
             self.updateHeaderButtons();

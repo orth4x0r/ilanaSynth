@@ -672,6 +672,7 @@ int main()
     timedRun ("runWeirdDspTest", [] { runWeirdDspTest(); });
     timedRun ("runSampleOscTest", [] { runSampleOscTest(); });
     timedRun ("runSampleRangeTest", [] { runSampleRangeTest(); });
+    timedRun ("runSampleLoopPointsTest", [] { runSampleLoopPointsTest(); });
     timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
     timedRun ("runOsc2Test", [] { runOsc2Test(); });
     timedRun ("runOscLevelTest", [] { runOscLevelTest(); });

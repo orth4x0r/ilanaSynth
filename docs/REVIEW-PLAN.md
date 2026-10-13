@@ -297,7 +297,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: very large. Touches `src/processor/Effects.cpp` (the fixed slot model, `fx_slotN_*` parameters and state), `src/gui/pages/FxPage.h` (a new node-graph sub-tab), and the parameter layout; several instances of one effect need parameter IDs that don't renumber. Shares the cable view with step 16.
    Order 4. Why here: the FX chain is its own processor (`Effects.cpp`) and can ship without touching the voice core. Multi-instance first needs the fixed slot model turned into a list (sub-step B: the old slots become its first entries and keep their IDs, so old presets render the same and the fingerprint check stays at 0 changed). Then the patcher sub-tab uses shared foundation A.
 
-16. **Reroutable oscillators and patch cables** (ilana, 2026-10-10: decided, not started; do not build yet). Her words:
+16. **Reroutable oscillators and patch cables** (ilana, 2026-10-10: decided; **DONE** 2026-10-12, PR #59, on the PATCH tab). Her words:
    each oscillator can go to F1, to F2, only to WEST, or direct to the output, and all of them can run in parallel, in
    any mix of those. WEST can sit before the filters. Routing is done by dragging virtual cables from an oscillator to a
    filter (or WEST, or the output), and the filter order is changed the same way. This is the audio half of the older
@@ -344,7 +344,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium, needs reproduction. Spray is the generative note-spray stage (`src/dsp/Generative.h`, `src/PluginProcessor.cpp`) feeding the arpeggiator. The clip editor is separate (`src/ClipState.h`, `src/gui/ClipEditor.h`), so the clip interaction must be reproduced before fixing.
    Order 10. Why here: fix the spray bug in the current clip editor first, so its behaviour can be checked before the gesture model changes.
 
-22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided, not started). A double-click places a
+22. **Clip editor piano roll works like Ableton** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, branch `claude/project-thread-clip-piano-roll-22`: a double-click then drag lengthens the new note, a plain double-click keeps the length last used, DRAW unchanged). A double-click places a
    note, and a double-click then drag lengthens it. The current behaviour stays as a pencil mode for placing many notes
    quickly, switched on and off from the editor.
    **Rules when it starts:** the clip file format and playback do not change; the UI test covers both modes.
@@ -359,7 +359,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: smallest. Touches `src/gui/WaveDisplay.h`: one icon in the display, and clicking it opens the existing table menu. The corner key that cycles WAVE, 3D and SPEC stays.
    Order 12. Why here: a small change to the wavetable display, which is where the picker in 19 is reached from.
 
-19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided, not started). The current
+19. **Better wavetables, including unusual ones from Reddit** (ilana, 2026-10-10: decided; **DONE** 2026-10-12, PR #90: 14 generated tables, the Reddit finds not sourced because their licences could not be checked from the cloud). The current
    library is thin. Source more wavetables, including unusual ones she has seen on Reddit. Before any file is added,
    check its licence and permission for personal use, and write the source and licence into the content's notes
    (`content/wavetables`). New tables are appended to the table list, so existing presets keep their table numbers.
@@ -390,7 +390,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: small-medium. Touches `src/gui/WaveDisplay.h` (zoom, the typed positions, the preview) and the START and END controls on `src/gui/pages/OscPage.h`. The sample data doesn't change.
    Order 16. Why here: the zoom and typed positions are the tools that steps 27, 28 and 32 need to place markers. WaveDisplay is the file step 20 changes just before.
 
-27. **Independent loop points** (ilana, 2026-10-10: decided, not started). Separate Loop Start and Loop End handles from the played Start and End, so the attack can play once and the sustain section repeats.
+27. **Independent loop points** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/sample-loop-points-step-27-ogfrjq`: a LOOP PTS toggle on the OSC tab's sample card gives LOOP its own span; two more handles, LOOP START and LOOP END, appear on the wave and are dragged or typed like START / END; the note plays from START once, then repeats the span and never goes back to the attack. LOOP PTS off is the old behaviour, so 0 existing preset changes. SF2 / SFZ zone loops stay the default when LOOP PTS is off). Separate Loop Start and Loop End handles from the played Start and End, so the attack can play once and the sustain section repeats.
    Size: medium. Today the loop wraps the played range (`src/dsp/SamplePlayer.h`, the loop branch around lines 145 to 151). Touches that, the parameter layout (new loop parameters, appended), the handles in `WaveDisplay.h`, and the SFZ and SF2 loop reads in `src/dsp/MultiSample.h`.
    Order 17. Why here: slicing and the loop crossfade both build on loop bounds that are separate from the played range.
 

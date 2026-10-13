@@ -14,11 +14,19 @@
 //   vel.wav      the home note at velocities 20, 60, 100 and 127
 //   macroN_lo/hi.wav  the home note held 1.5 s with macro N at 0 and at 1
 // and <out>/index.csv lists index, name, category, home note and macro names.
+//
+// ILANA_RENDER_FILES=<folder> renders the .ilanapreset files in that folder
+// (sorted by name; ilana's reference presets, or the preset generator's
+// candidates) instead of the factory presets. The category is the file's
+// presetCategory, else the name of the folder it sits in.
+// ILANA_DUMP_DEFAULTS=<file> writes every parameter's default value (id=value)
+// and exits; tools/preset_gen.py reads it.
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -43,10 +51,25 @@ void setParam (IlanaSynthAudioProcessor& processor, const juce::String& id, floa
 
 // Loads the preset fresh (no tails from the last render), applies the tweak,
 // plays the events and returns the stereo result.
-juce::AudioBuffer<float> render (IlanaSynthAudioProcessor& processor, int preset, const std::vector<NoteEvent>& events,
+// What a render loads: a factory preset index, or a preset file.
+struct Source
+{
+    int factory = -1;
+    juce::File file;
+
+    void load (IlanaSynthAudioProcessor& processor) const
+    {
+        if (factory >= 0)
+            processor.loadFactoryPreset (factory);
+        else
+            processor.loadPresetFromFile (file);
+    }
+};
+
+juce::AudioBuffer<float> render (IlanaSynthAudioProcessor& processor, const Source& preset, const std::vector<NoteEvent>& events,
                                  double seconds, const std::function<void (IlanaSynthAudioProcessor&)>& tweak = {})
 {
-    processor.loadFactoryPreset (preset);
+    preset.load (processor);
     if (tweak)
         tweak (processor);
     processor.panic();
@@ -111,8 +134,57 @@ int main (int argc, char** argv)
     processor.setNonRealtime (true);
     processor.prepareToPlay (sampleRate, blockSize);
 
-    const auto names = processor.getFactoryPresetNames();
-    const auto categories = processor.getFactoryPresetCategories();
+    const auto defaultsFile = juce::SystemStats::getEnvironmentVariable ("ILANA_DUMP_DEFAULTS", "");
+    if (defaultsFile.isNotEmpty())
+    {
+        juce::String text;
+        for (auto* parameter : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                text << ranged->getParameterID() << "=" << ranged->convertFrom0to1 (ranged->getDefaultValue()) << "\n";
+        for (auto* parameter : processor.getParameters())
+            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (parameter))
+                text << "#choice " << choice->getParameterID() << "=" << choice->choices.joinIntoString ("|") << "\n";
+        // The modulation map the generator wires macros with.
+        text << "#slots=" << Mod::maxSlots << "\n";
+        for (int macro = 0; macro < Mod::numMacros; ++macro)
+            text << "#macro" << (macro + 1) << "=" << (int) Mod::macroSourceFor (macro) << "\n";
+        const auto destinations = Mod::getDestinationNames();
+        for (int d = 0; d < destinations.size(); ++d)
+            text << "#dest " << destinations[d] << "=" << d << "\n";
+        for (auto* parameter : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                if (const auto d = Mod::destinationForParamId (ranged->getParameterID()); d > 0)
+                    text << "#pdest " << ranged->getParameterID() << "=" << d << "\n";
+        juce::File::getCurrentWorkingDirectory().getChildFile (defaultsFile).replaceWithText (text);
+        return 0;
+    }
+
+    auto names = processor.getFactoryPresetNames();
+    auto categories = processor.getFactoryPresetCategories();
+    std::vector<Source> sources;
+    const auto filesFolder = juce::SystemStats::getEnvironmentVariable ("ILANA_RENDER_FILES", "");
+    if (filesFolder.isNotEmpty())
+    {
+        names.clear();
+        categories.clear();
+        auto files = juce::File::getCurrentWorkingDirectory().getChildFile (filesFolder).findChildFiles (
+            juce::File::findFiles, true, "*.ilanapreset");
+        std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
+                   { return a.getFullPathName().compareNatural (b.getFullPathName()) < 0; });
+        for (const auto& file : files)
+        {
+            const auto xml = juce::parseXML (file);
+            auto category = xml != nullptr ? xml->getStringAttribute ("presetCategory") : juce::String();
+            if (category.isEmpty())
+                category = file.getParentDirectory().getFileName();
+            names.add (file.getFileNameWithoutExtension());
+            categories.add (category);
+            sources.push_back ({ -1, file });
+        }
+    }
+    else
+        for (int preset = 0; preset < names.size(); ++preset)
+            sources.push_back ({ preset, {} });
     const auto first = argc > 2 ? juce::jlimit (0, names.size(), juce::String (argv[2]).getIntValue()) : 0;
     const auto count = argc > 3 ? juce::String (argv[3]).getIntValue() : names.size();
     const auto last = juce::jmin (names.size(), first + juce::jmax (0, count));
@@ -137,7 +209,7 @@ int main (int argc, char** argv)
         {
             // params.txt: the loaded preset's parameters that differ from
             // their defaults (what the recipe, voicing and trims set).
-            processor.loadFactoryPreset (preset);
+            sources[(size_t) preset].load (processor);
             juce::String text;
             for (auto* parameter : processor.getParameters())
                 if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
@@ -148,9 +220,9 @@ int main (int argc, char** argv)
             out.getChildFile ("params.txt").replaceWithText (text);
         }
 
-        write (out.getChildFile ("note.wav"), render (processor, preset, { { 0.0, 2.0, home, 100 } }, 3.5));
+        write (out.getChildFile ("note.wav"), render (processor, sources[(size_t) preset], { { 0.0, 2.0, home, 100 } }, 3.5));
         write (out.getChildFile ("chord.wav"),
-               render (processor, preset,
+               render (processor, sources[(size_t) preset],
                        { { 0.0, 2.0, home, 90 }, { 0.0, 2.0, home + 4, 90 }, { 0.0, 2.0, home + 7, 90 }, { 0.0, 2.0, home + 12, 90 } },
                        3.5));
 
@@ -158,13 +230,13 @@ int main (int argc, char** argv)
         const int steps[] { 0, 3, 5, 7, 10, 7, 5, 3 };
         for (int i = 0; i < 8; ++i)
             line.push_back ({ i * 0.25, i * 0.25 + 0.2, home + steps[i], 100 });
-        write (out.getChildFile ("line.wav"), render (processor, preset, line, 3.5));
+        write (out.getChildFile ("line.wav"), render (processor, sources[(size_t) preset], line, 3.5));
 
         std::vector<NoteEvent> velocities;
         const int levels[] { 20, 60, 100, 127 };
         for (int i = 0; i < 4; ++i)
             velocities.push_back ({ i * 1.0, i * 1.0 + 0.6, home, levels[i] });
-        write (out.getChildFile ("vel.wav"), render (processor, preset, velocities, 4.5));
+        write (out.getChildFile ("vel.wav"), render (processor, sources[(size_t) preset], velocities, 4.5));
 
         juce::StringArray macroNames;
         for (int macro = 0; macro < 4; ++macro)
@@ -172,7 +244,7 @@ int main (int argc, char** argv)
             const auto id = "macro" + juce::String (macro + 1);
             for (const auto high : { false, true })
                 write (out.getChildFile ("macro" + juce::String (macro + 1) + (high ? "_hi.wav" : "_lo.wav")),
-                       render (processor, preset, { { 0.0, 1.5, home, 100 } }, 2.0,
+                       render (processor, sources[(size_t) preset], { { 0.0, 1.5, home, 100 } }, 2.0,
                                [&id, high] (IlanaSynthAudioProcessor& p) { setParam (p, id, high ? 1.0f : 0.0f); }));
             macroNames.add (processor.getMacroName (macro));
         }

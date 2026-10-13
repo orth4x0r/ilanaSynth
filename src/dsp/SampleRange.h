@@ -53,6 +53,26 @@ inline View centred (View view, double fraction) noexcept
     return panned (view, (fraction - (view.lo + view.hi) * 0.5) / view.span());
 }
 
+// Roadmap step 27: the loop's own span inside the played range. `from` and
+// `to` are the loop markers, `start` and `end` the played range (all in the
+// same unit: fractions or sample frames). The markers are held inside the
+// range and never cross; a span shorter than `minimum` is no loop (the
+// player then wraps the whole range, as before).
+struct Loop
+{
+    double from = 0.0, to = 0.0;
+    bool valid = false;
+};
+
+inline Loop resolveLoop (double start, double end, double from, double to, double minimum) noexcept
+{
+    Loop loop;
+    loop.from = juce::jlimit (start, juce::jmax (start, end), from);
+    loop.to = juce::jlimit (loop.from, juce::jmax (loop.from, end), to);
+    loop.valid = loop.to - loop.from >= minimum;
+    return loop;
+}
+
 // "120", "120 ms" (milliseconds), "0.25 s" / "0.25s" (seconds), "4410 smp"
 // / "4410 samples" (sample frames) -> a position as a fraction of the
 // sample, clamped to 0..1. Nothing for text that isn't a position.

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<PARAMS presetName="Init" presetCategory="Other" presetTags="Bright, Sustained, Wavetable"
+<PARAMS presetName="real piano SOUND" presetCategory="Other" presetTags="Bright, Sustained, Wavetable"
         presetAuthor="ilana" presetComment="" macroName1="" macroName2=""
         macroName3="" macroName4="" macroName5="" macroName6="" macroName7=""
         macroName8="" osc3Schema="2" destSchema="2" tableSchema="3" exciterLevels="1"
@@ -1308,8 +1308,8 @@
   <PARAM id="macro8" value="0.0"/>
   <PARAM id="macro8_evolve" value="0.0"/>
   <PARAM id="macro8_evolve_rate" value="0.09999999403953552"/>
-  <PARAM id="master" value="12.0"/>
-  <PARAM id="master_clip" value="1.0"/>
+  <PARAM id="master" value="-4.5"/>
+  <PARAM id="master_clip" value="0.0"/>
   <PARAM id="master_clip_gain" value="0.0"/>
   <PARAM id="me_acurve" value="0.0"/>
   <PARAM id="me_attack" value="0.04999998956918716"/>
@@ -2444,4 +2444,96 @@
   <PARAM id="west_stages" value="2.0"/>
   <PARAM id="west_strike" value="1.0"/>
   <PARAM id="west_sym" value="0.0"/>
+  <PARAM id="osc1_uni_frame" value="0.0"/>
+  <PARAM id="osc1_uni_warp" value="0.0"/>
+  <PARAM id="osc1_scale" value="0.0"/>
+  <PARAM id="osc1_scale_root" value="0.0"/>
+  <PARAM id="osc2_uni_frame" value="0.0"/>
+  <PARAM id="osc2_uni_warp" value="0.0"/>
+  <PARAM id="osc2_scale" value="0.0"/>
+  <PARAM id="osc2_scale_root" value="0.0"/>
+  <PARAM id="sub_uni_frame" value="0.0"/>
+  <PARAM id="sub_uni_warp" value="0.0"/>
+  <PARAM id="sub_scale" value="0.0"/>
+  <PARAM id="sub_scale_root" value="0.0"/>
+  <PARAM id="fx_drive_type" value="0.0"/>
+  <PARAM id="fx_fold_type" value="0.0"/>
+  <PARAM id="osc4_uni_frame" value="0.0"/>
+  <PARAM id="osc4_uni_warp" value="0.0"/>
+  <PARAM id="osc4_scale" value="0.0"/>
+  <PARAM id="osc4_scale_root" value="0.0"/>
+  <PARAM id="osc5_uni_frame" value="0.0"/>
+  <PARAM id="osc5_uni_warp" value="0.0"/>
+  <PARAM id="osc5_scale" value="0.0"/>
+  <PARAM id="osc5_scale_root" value="0.0"/>
+  <PARAM id="osc6_uni_frame" value="0.0"/>
+  <PARAM id="osc6_uni_warp" value="0.0"/>
+  <PARAM id="osc6_scale" value="0.0"/>
+  <PARAM id="osc6_scale_root" value="0.0"/>
+  <PARAM id="multi_core" value="1.0"/>
+  <PARAM id="sustain_voices" value="0.0"/>
+  <PARAM id="mod1_stereo" value="0.0"/>
+  <PARAM id="mod2_stereo" value="0.0"/>
+  <PARAM id="mod3_stereo" value="0.0"/>
+  <PARAM id="mod4_stereo" value="0.0"/>
+  <PARAM id="mod5_stereo" value="0.0"/>
+  <PARAM id="mod6_stereo" value="0.0"/>
+  <PARAM id="mod7_stereo" value="0.0"/>
+  <PARAM id="mod8_stereo" value="0.0"/>
+  <PARAM id="mod9_stereo" value="0.0"/>
+  <PARAM id="mod10_stereo" value="0.0"/>
+  <PARAM id="mod11_stereo" value="0.0"/>
+  <PARAM id="mod12_stereo" value="0.0"/>
+  <PARAM id="mod13_stereo" value="0.0"/>
+  <PARAM id="mod14_stereo" value="0.0"/>
+  <PARAM id="mod15_stereo" value="0.0"/>
+  <PARAM id="mod16_stereo" value="0.0"/>
+  <PARAM id="mod17_stereo" value="0.0"/>
+  <PARAM id="mod18_stereo" value="0.0"/>
+  <PARAM id="mod19_stereo" value="0.0"/>
+  <PARAM id="mod20_stereo" value="0.0"/>
+  <PARAM id="mod21_stereo" value="0.0"/>
+  <PARAM id="mod22_stereo" value="0.0"/>
+  <PARAM id="mod23_stereo" value="0.0"/>
+  <PARAM id="mod24_stereo" value="0.0"/>
+  <PARAM id="mod25_stereo" value="0.0"/>
+  <PARAM id="mod26_stereo" value="0.0"/>
+  <PARAM id="mod27_stereo" value="0.0"/>
+  <PARAM id="mod28_stereo" value="0.0"/>
+  <PARAM id="mod29_stereo" value="0.0"/>
+  <PARAM id="mod30_stereo" value="0.0"/>
+  <PARAM id="mod31_stereo" value="0.0"/>
+  <PARAM id="mod32_stereo" value="0.0"/>
+  <PARAM id="mod33_stereo" value="0.0"/>
+  <PARAM id="mod34_stereo" value="0.0"/>
+  <PARAM id="mod35_stereo" value="0.0"/>
+  <PARAM id="mod36_stereo" value="0.0"/>
+  <PARAM id="mod37_stereo" value="0.0"/>
+  <PARAM id="mod38_stereo" value="0.0"/>
+  <PARAM id="mod39_stereo" value="0.0"/>
+  <PARAM id="mod40_stereo" value="0.0"/>
+  <PARAM id="mod41_stereo" value="0.0"/>
+  <PARAM id="mod42_stereo" value="0.0"/>
+  <PARAM id="mod43_stereo" value="0.0"/>
+  <PARAM id="mod44_stereo" value="0.0"/>
+  <PARAM id="mod45_stereo" value="0.0"/>
+  <PARAM id="mod46_stereo" value="0.0"/>
+  <PARAM id="mod47_stereo" value="0.0"/>
+  <PARAM id="mod48_stereo" value="0.0"/>
+  <PARAM id="mod49_stereo" value="0.0"/>
+  <PARAM id="mod50_stereo" value="0.0"/>
+  <PARAM id="mod51_stereo" value="0.0"/>
+  <PARAM id="mod52_stereo" value="0.0"/>
+  <PARAM id="mod53_stereo" value="0.0"/>
+  <PARAM id="mod54_stereo" value="0.0"/>
+  <PARAM id="mod55_stereo" value="0.0"/>
+  <PARAM id="mod56_stereo" value="0.0"/>
+  <PARAM id="mod57_stereo" value="0.0"/>
+  <PARAM id="mod58_stereo" value="0.0"/>
+  <PARAM id="mod59_stereo" value="0.0"/>
+  <PARAM id="mod60_stereo" value="0.0"/>
+  <PARAM id="mod61_stereo" value="0.0"/>
+  <PARAM id="mod62_stereo" value="0.0"/>
+  <PARAM id="mod63_stereo" value="0.0"/>
+  <PARAM id="mod64_stereo" value="0.0"/>
 </PARAMS>

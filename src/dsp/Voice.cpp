@@ -207,6 +207,9 @@ void Voice::syncSamplePlayers()
             }
         }
         sampleParams.loop = osc.sampleLoop;
+        sampleParams.ownLoop = osc.sampleLoopOwn;
+        sampleParams.loopFrom = osc.sampleLoopStart;
+        sampleParams.loopTo = osc.sampleLoopEnd;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
         sampleParams.end = end;

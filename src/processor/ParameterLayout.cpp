@@ -1215,6 +1215,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_stretch", name + " Sample Time", { "Repitch", "Stretch", "Signalsmith", "Bungee", "PGHI", "Paulstretch" }, 0);
     }
 
+    // Roadmap step 27: independent loop points. LOOP PTS gives LOOP its own
+    // span (fractions of the sample, held inside START..END): the attack
+    // plays once and the span repeats. Off, as in every older patch, LOOP
+    // wraps the whole played range.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addBool (prefix + "_sample_loop_own", name + " Sample Loop Points", false);
+        addFloat (prefix + "_sample_loop_start", name + " Sample Loop Start", 0.0f, 1.0f, 0.25f);
+        addFloat (prefix + "_sample_loop_end", name + " Sample Loop End", 0.0f, 1.0f, 0.75f);
+    }
+
     // Review (E-7): a MIDI program change no longer replaces the patch
     // unless asked (it loaded a factory preset, silently, before).
     addBool ("midi_program_change", "MIDI Program Change Loads Presets", false);

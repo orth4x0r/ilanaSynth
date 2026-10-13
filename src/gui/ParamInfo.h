@@ -1159,6 +1159,8 @@ inline const HelpRow helpRows[] {
       "or double-click one to type it). The note plays from START once, then repeats that span. Off, LOOP repeats the whole START to END region." },
     { ends ("_sample_loop_start"), "Where the loop begins. Held between START and LOOP END." },
     { ends ("_sample_loop_end"), "Where the loop ends and jumps back. Held between LOOP START and END." },
+    { ends ("_sample_loop_xfade"), "Blends the loop end into the sound before its start." },
+    { ends ("_sample_snap"), "START, END and the loop handles jump to the nearest zero crossing." },
     { ends ("_sample_sync"), "Follows the host tempo. BPM: the sample's own tempo is the BPM knob. A length (1 beat to 16 bars): "
       "the region from START to END lasts that long at the sample's tempo. Off plays at the sample's own speed." },
     { ends ("_sample_bpm"), "The sample's own tempo, when SYNC is set to BPM. At the host's tempo it plays at its own speed." },

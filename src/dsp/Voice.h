@@ -237,6 +237,7 @@ struct VoiceParams
         float sampleStart = 0.0f;
         bool sampleLoopOwn = false; // step 27: LOOP uses its own span
         float sampleLoopStart = 0.25f, sampleLoopEnd = 0.75f;
+        float sampleLoopXfade = 0.0f; // step 28: crossfade at the loop wrap
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;

@@ -394,7 +394,7 @@ A. **Shared patch-graph foundation** (no ID of its own; needed by 16 and 17). A 
    Size: medium. Today the loop wraps the played range (`src/dsp/SamplePlayer.h`, the loop branch around lines 145 to 151). Touches that, the parameter layout (new loop parameters, appended), the handles in `WaveDisplay.h`, and the SFZ and SF2 loop reads in `src/dsp/MultiSample.h`.
    Order 17. Why here: slicing and the loop crossfade both build on loop bounds that are separate from the played range.
 
-28. **Loop crossfade and zero-crossing snap** (ilana, 2026-10-10: decided, not started). Blend the loop boundary to cut clicks, and optionally snap the markers to the nearest zero crossing. The existing Fade In and Fade Out stay as they are.
+28. **Loop crossfade and zero-crossing snap** (ilana, 2026-10-10: decided; **DONE** 2026-10-13, cloud, branch `claude/project-thread-dadpqk`: an XFADE knob on the sample card blends the loop's end into the sound just before its start (reversed: after its end) so the wrap does not click, 0 being the old hard wrap; a SNAP toggle makes START, END and the loop handles jump to the nearest zero crossing when dragged or typed. New parameters appended, 0 existing preset changes). Blend the loop boundary to cut clicks, and optionally snap the markers to the nearest zero crossing. The existing Fade In and Fade Out stay as they are.
    Size: medium. Touches the loop wrap in `src/dsp/SamplePlayer.h` and the snap in `src/gui/WaveDisplay.h`. Depends on step 27.
    Order 18. Why here: a crossfade only makes sense once the loop is its own range (27).
 

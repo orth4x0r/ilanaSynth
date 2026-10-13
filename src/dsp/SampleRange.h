@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <cmath>
 #include <optional>
 
 // The sample display's zoom window and the typed START / END positions
@@ -71,6 +72,50 @@ inline Loop resolveLoop (double start, double end, double from, double to, doubl
     loop.to = juce::jlimit (loop.from, juce::jmax (loop.from, end), to);
     loop.valid = loop.to - loop.from >= minimum;
     return loop;
+}
+
+// Roadmap step 28: the zero crossing nearest to `position` (a sample frame)
+// within `radius` frames, on the two channels' mix (`right` may be null for
+// a mono sample). Linear interpolation puts it between frames. Where the
+// wave never crosses zero in reach, the position stays as it was.
+inline double nearestZeroCrossing (const float* left, const float* right, int numSamples, double position, int radius) noexcept
+{
+    if (left == nullptr || numSamples < 2)
+        return position;
+
+    const auto mixAt = [&] (int i) { return right != nullptr ? (left[i] + right[i]) * 0.5f : left[i]; };
+    const auto centre = juce::jlimit (0, numSamples - 2, (int) std::floor (position));
+
+    // Whether the wave crosses zero between frame i and i + 1, and where.
+    const auto crossingAt = [&] (int i, double& where)
+    {
+        if (i < 0 || i > numSamples - 2)
+            return false;
+        const auto a = mixAt (i), b = mixAt (i + 1);
+        if (a == 0.0f)
+        {
+            where = (double) i;
+            return true;
+        }
+        if ((a < 0.0f) == (b < 0.0f) && b != 0.0f)
+            return false;
+        where = (double) i + (double) (a / (a - b));
+        return true;
+    };
+
+    auto best = position;
+    auto bestDistance = 1.0e18;
+    for (int step = 0; step <= radius; ++step)
+        for (const auto i : { centre - step, centre + step })
+        {
+            double where = 0.0;
+            if (crossingAt (i, where) && std::abs (where - position) < bestDistance)
+            {
+                best = where;
+                bestDistance = std::abs (where - position);
+            }
+        }
+    return best;
 }
 
 // "120", "120 ms" (milliseconds), "0.25 s" / "0.25s" (seconds), "4410 smp"

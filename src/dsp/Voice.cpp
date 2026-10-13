@@ -209,6 +209,7 @@ void Voice::syncSamplePlayers()
         sampleParams.ownLoop = osc.sampleLoopOwn;
         sampleParams.loopFrom = osc.sampleLoopStart;
         sampleParams.loopTo = osc.sampleLoopEnd;
+        sampleParams.loopCrossfade = osc.sampleLoopXfade;
         sampleParams.reverse = osc.sampleReverse;
         sampleParams.start = start;
         sampleParams.end = end;

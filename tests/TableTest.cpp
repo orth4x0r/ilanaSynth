@@ -673,6 +673,7 @@ int main()
     timedRun ("runSampleOscTest", [] { runSampleOscTest(); });
     timedRun ("runSampleRangeTest", [] { runSampleRangeTest(); });
     timedRun ("runSampleLoopPointsTest", [] { runSampleLoopPointsTest(); });
+    timedRun ("runSampleLoopCrossfadeTest", [] { runSampleLoopCrossfadeTest(); });
     timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
     timedRun ("runOsc2Test", [] { runOsc2Test(); });
     timedRun ("runOscLevelTest", [] { runOscLevelTest(); });

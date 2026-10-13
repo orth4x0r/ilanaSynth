@@ -182,4 +182,22 @@ void runTensionEnvTests()
                    && TensionCurve::shape (0.4, 0.0) == 0.4,
                "the curve passes through 0 and 1; zero tension is the line");
     }
+
+    // 7. What the graph's dot reads (display only): the stage lengths as set,
+    // and the level the running attack or release began at.
+    {
+        TensionAdsr::Parameters p { 0.2f, 0.3f, 0.5f, 0.4f, 0.0f };
+        auto env = make (p);
+        const auto seconds = env.getDisplaySeconds();
+        check (seconds[1] == 0.2f && seconds[3] == 0.3f && seconds[4] == 0.4f, "the display reads the stage lengths as the voice runs them");
+
+        env.noteOn();
+        for (int i = 0; i < 4800; ++i) env.getNextSample(); // 0.1 s into the attack
+        check (env.getDisplayStageStart() == 0.0f, "a fresh attack starts from zero");
+        const auto level = env.getCurrentValue();
+        env.retrigger();
+        check (std::abs (env.getDisplayStageStart() - level) < 1.0e-6f && level > 0.1f, "a retriggered attack starts from the level it found");
+        env.noteOff();
+        check (std::abs (env.getDisplayStageStart() - level) < 1.0e-6f, "a release let go early starts from the level it was at");
+    }
 }

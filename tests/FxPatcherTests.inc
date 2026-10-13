@@ -633,4 +633,99 @@ void runFxPatcherTests()
         check (std::abs (before - dryFirst) > 0.1f && std::abs (after - before) < 0.1f, "bypassing starts from the wet sound (no step: " + juce::String (before, 3) + " to " + juce::String (after, 3) + ")");
         check (dryError < 1.0e-6f, "a bypassed slot is the dry signal once the ramp is over");
     }
+
+    // FX-14: a slot swap reaches the audio thread whole. One thread renders
+    // the same block over and over (as the audio thread does: beginFxBlock,
+    // then the rack) while this one swaps Drive and Utility back and forth.
+    // Every block is Drive -> Utility or Utility -> Drive, never a mixture
+    // (both Drive, both Utility, an effect on the other slot's values). With
+    // PATCHER on the nodes carry their effects with them, so the sound stays
+    // Drive -> Utility; the other order may show only in the rare block where
+    // the new plan and the swap meet one block apart (the fixed loop runs).
+    for (const auto patched : { false, true })
+    {
+        const auto reference = [&] (std::initializer_list<int> types)
+        {
+            IlanaSynthAudioProcessor other;
+            setUp (other, types, false);
+            other.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> buffer (2, 256);
+            for (int round = 0; round < 30; ++round)
+            {
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        buffer.setSample (c, i, ParallelFxLab::input (c, i));
+                other.processEffects (buffer);
+            }
+            return buffer;
+        };
+        const auto orderA = reference ({ drive, utility });
+        const auto orderB = reference ({ utility, drive });
+        auto apart = 0.0f;
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < 256; ++i)
+                apart = juce::jmax (apart, std::abs (orderA.getSample (c, i) - orderB.getSample (c, i)));
+        check (apart > 0.01f, "FX-14: the two orders of Drive and Utility can be told apart (" + juce::String (apart, 3) + ")");
+        const auto tolerance = 0.35f * apart; // (a half-swapped rack is as far from both as they are from each other)
+
+        IlanaSynthAudioProcessor processor;
+        setUp (processor, { drive, utility }, false);
+        if (patched)
+            processor.setFxPatcherOn (true);
+        processor.prepareToPlay (48000.0, 256);
+
+        std::atomic<bool> running { true };
+        std::atomic<int> blocksRun { 0 }, mixed { 0 }, sawA { 0 }, sawB { 0 };
+        std::thread audio ([&]
+        {
+            juce::AudioBuffer<float> buffer (2, 256);
+            const auto distance = [&buffer] (const juce::AudioBuffer<float>& expected)
+            {
+                auto worst = 0.0f;
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        worst = juce::jmax (worst, std::abs (buffer.getSample (c, i) - expected.getSample (c, i)));
+                return worst;
+            };
+            while (running.load())
+            {
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        buffer.setSample (c, i, ParallelFxLab::input (c, i));
+                processor.beginFxBlock();
+                processor.processEffects (buffer);
+                const auto n = blocksRun.fetch_add (1);
+                if (n < 40) // (the effects settling)
+                    continue;
+                const auto a = distance (orderA) < tolerance, b = distance (orderB) < tolerance;
+                if (a)
+                    ++sawA;
+                if (b)
+                    ++sawB;
+                if (! (a || b))
+                    ++mixed;
+            }
+        });
+        while (blocksRun.load() < 60)
+            juce::Thread::sleep (1);
+        for (int swap = 0; swap < 60; ++swap)
+        {
+            processor.swapFxSlots (0, 1);
+            juce::Thread::sleep (2);
+        }
+        running = false;
+        audio.join();
+        const auto label = juce::String (patched ? "PATCHER on" : "series");
+        check (mixed.load() == 0, "FX-14 (" + label + "): no block ran a half-swapped rack (" + juce::String (mixed.load()) + " of "
+                                      + juce::String (blocksRun.load()) + ")");
+        check (! patched || sawB.load() * 20 <= sawA.load(), "FX-14 (PATCHER on): the nodes keep their effects through the swaps (A "
+                                                                 + juce::String (sawA.load()) + ", B " + juce::String (sawB.load()) + ")");
+        check (sawA.load() > 0 && (patched || sawB.load() > 0), "FX-14 (" + label + "): the test saw the rack before and after swaps");
+        check ((int) processor.apvts.getRawParameterValue ("fx_slot1")->load() == drive
+                   && (int) processor.apvts.getRawParameterValue ("fx_slot2")->load() == utility,
+               "FX-14 (" + label + "): an even number of swaps leaves the slots as they were");
+        auto* first = processor.apvts.getParameter ("fx_slot1");
+        check (first != nullptr && juce::roundToInt (first->convertFrom0to1 (first->getValue())) == drive,
+               "FX-14 (" + label + "): the parameter objects agree with what the audio thread read");
+    }
 }

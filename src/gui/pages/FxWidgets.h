@@ -373,6 +373,9 @@ class FxStackContent : public juce::Component
 public:
     std::function<void (juce::Graphics&)> painter, overPainter;
     std::function<void (const juce::MouseEvent&)> onDown, onDrag, onUp, onMove;
+    std::function<bool (const juce::KeyPress&)> onKey; // Esc during a reorder drag
+
+    FxStackContent() { setWantsKeyboardFocus (true); }
 
     void paint (juce::Graphics& g) override
     {
@@ -386,7 +389,15 @@ public:
             overPainter (g);
     }
 
-    void mouseDown (const juce::MouseEvent& event) override { if (onDown != nullptr) onDown (event); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        grabKeyboardFocus(); // so Esc reaches keyPressed during a drag
+
+        if (onDown != nullptr)
+            onDown (event);
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override { return onKey != nullptr && onKey (key); }
     void mouseDrag (const juce::MouseEvent& event) override { if (onDrag != nullptr) onDrag (event); }
     void mouseUp (const juce::MouseEvent& event) override { if (onUp != nullptr) onUp (event); }
     void mouseMove (const juce::MouseEvent& event) override { if (onMove != nullptr) onMove (event); }

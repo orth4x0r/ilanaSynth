@@ -367,8 +367,16 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         showPage ("MATRIX");
         matrixPage->focusSlot (slot);
     };
+    // A slot's matrix destination names the effect now in it (S4-13).
+    ModNames::fxSlotEffectName() = [&p] (int slot)
+    {
+        if (const auto* type = p.apvts.getRawParameterValue ("fx_slot" + juce::String (slot)))
+            if (const auto value = juce::roundToInt (type->load()); value > 0)
+                return fxTypeName (value);
+        return juce::String();
+    };
     auto* fmPage = new FmPage (p);
-    addSection ("FM", { { "FM", "FM", fmPage } });
+    addSection ("FM",{ { "FM", "FM", fmPage } });
     addSection ("SEQ", { { "ARP/SEQ", "SEQ", new SeqPage (p, SeqPage::Part::notes) } });
     auto* fxPage = new FxPage (p);
     addSection ("FX", { { "FX", "RACK", fxPage } });
@@ -900,6 +908,7 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
     FmOperatorInfo::hooks().openOperator = nullptr;
     FmOperatorInfo::hooks().openPitchAndLfo = nullptr;
     ModNames::openMatrixRow() = nullptr;
+    ModNames::fxSlotEffectName() = nullptr;
     tableBrowserSettings() = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
@@ -2373,25 +2382,31 @@ void IlanaSynthAudioProcessorEditor::toggleFavourite()
 void IlanaSynthAudioProcessorEditor::toggleAB()
 {
     closeWavetableEditor(); // the other patch has its own tables
+
+    // The whole patch, not just the parameters: tables, samples, mod remaps,
+    // the FX patch, clips, tuning and the preset name go with each slot.
+    auto current = processorRef.captureWholePatch();
+
     if (showingA)
     {
-        slotA = processorRef.apvts.copyState();
+        slotA = current;
 
-        if (slotB.isValid())
-            processorRef.apvts.replaceState (slotB);
-        else
+        if (! slotB.isValid())
             slotB = slotA;
+
+        processorRef.restoreWholePatch (slotB);
     }
     else
     {
-        slotB = processorRef.apvts.copyState();
-        processorRef.apvts.replaceState (slotA);
+        slotB = current;
+        processorRef.restoreWholePatch (slotA);
     }
 
     processorRef.easeNextBlock(); // the new patch continues from the old one's last sample
     showingA = ! showingA;
     abButton.setButtonText (showingA ? "A" : "B");
     abButton.setToggleState (! showingA, juce::dontSendNotification);
+    updateHeaderButtons();
 }
 
 void IlanaSynthAudioProcessorEditor::setTheme (int newThemeIndex)

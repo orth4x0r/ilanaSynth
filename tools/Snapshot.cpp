@@ -2284,7 +2284,7 @@ int runUiTests()
                 settle (300);
                 expect ((int) readParam ("fx_slot1") == 2 && (int) readParam ("fx_slot2") == 20 && (int) readParam ("fx_slot3") == 27
                             && processor.getUndoManager().getUndoDescription() == "Move Vowel",
-                        "dragging a card's header reorders the chain as one undo step");
+                        "dragging a card's header reorders the chain as one undo step (" + juce::String ((int) readParam ("fx_slot1")) + "," + juce::String ((int) readParam ("fx_slot2")) + "," + juce::String ((int) readParam ("fx_slot3")) + " " + processor.getUndoManager().getUndoDescription() + ")");
             }
             else
                 expect (false, "three FX cards to drag");

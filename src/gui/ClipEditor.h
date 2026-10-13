@@ -49,7 +49,7 @@ public:
         : processorRef (processor), colour (colourIn)
     {
         setTooltip ("Clip piano roll\n"
-                    "Double-click to add a note. In DRAW (or D) a click adds one and a drag paints a run.\n"
+                    "Double-click to add a note, then drag to lengthen it. In DRAW (or D) a click adds one and a drag paints a run.\n"
                     "Click to select (shift adds); drag empty space to select several.\n"
                     "Drag to move, drag the right edge to resize, right-click to delete.\n"
                     "Delete, Ctrl+C / V / D, Q quantises, arrows nudge (shift: octave / bar).\n"
@@ -545,13 +545,16 @@ public:
         }
 
         // A double-click on empty space adds a note in the grid cell under
-        // it; dragging on moves it.
+        // it; holding the second click and dragging lengthens it, as in
+        // Ableton (a plain double-click keeps the default length).
         if (event.getNumberOfClicks() >= 2)
         {
             if ((int) clip.notes.size() >= ClipState::maxNotes)
                 return;
 
-            startGesture (Drag::move, "Add clip note");
+            startGesture (Drag::resize, "Add clip note");
+            extendingNew = true;
+            lengthGrab = xToBeat (position.x);
             ClipNote n;
             n.start = floorToGrid (xToBeat (position.x));
             n.length = lastLength;
@@ -562,7 +565,6 @@ public:
             selectOnly ((int) clip.notes.size() - 1);
             dragHit = (int) clip.notes.size() - 1;
             dragOrigin = clip;
-            grabBeat = xToBeat (position.x) - n.start;
             dragNote = n.note;
             commit();
             audition (n.note, n.velocity);
@@ -642,7 +644,12 @@ public:
 
         if (dragMode == Drag::resize)
         {
-            const auto length = juce::jmax (step, snap (xToBeat (position.x) - origin.start + step * 0.5f));
+            // A note from a double-click lengthens by how far the pointer
+            // moved from the second click, so a plain double-click keeps
+            // its length; an edge drag sets the end at the pointer.
+            const auto length = juce::jmax (step, extendingNew
+                                                      ? snap (origin.length + xToBeat (position.x) - lengthGrab)
+                                                      : snap (xToBeat (position.x) - origin.start + step * 0.5f));
             const auto delta = length - origin.length;
 
             for (size_t i = 0; i < clip.notes.size(); ++i)
@@ -1629,6 +1636,7 @@ private:
     {
         dragMode = Drag::none;
         dragHit = -1;
+        extendingNew = false;
 
         if (editOpen)
         {
@@ -1692,7 +1700,8 @@ private:
     Drag dragMode = Drag::none;
     bool editOpen = false, onlySelected = false;
     int dragHit = -1, dragNote = -1;
-    float grabBeat = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f, scrollOrigin = 0.0f;
+    float grabBeat = 0.0f, lengthGrab = 0.0f, lastLength = 1.0f, lastVelocityX = 0.0f, scrollOrigin = 0.0f;
+    bool extendingNew = false;
     int lastVelocity = 100;
     juce::Point<float> bandStart, bandEnd;
     int auditionNote = -1;

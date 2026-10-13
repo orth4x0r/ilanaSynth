@@ -3352,15 +3352,17 @@ int runUiTests()
         const auto x = [&roll] (float beat) { return roll.xForBeat (beat); };
         const auto gridY = [&roll] (float fraction) { return roll.getGridArea().getY() + roll.getGridArea().getHeight() * fraction; };
 
-        // GRID: 1/32 puts a dragged note on 32nds (1/16 would give 2.5).
+        // GRID: 1/32 puts a double-clicked note on 32nds (1/16 would give
+        // 2.5 here); the double-click has no drag, so the note keeps its
+        // length (the drag-to-lengthen gesture is tested in the step 22 block).
         roll.setGrid (3);
         clearHistory();
-        gesture (roll, { x (1.3f), 100.0f }, { x (2.62f), 100.0f }, 2);
+        gesture (roll, { x (2.64f), 100.0f }, { x (2.64f), 100.0f }, 2);
         auto steps = undoSteps();
         auto shown = processor.getClipState().getClip (0);
         expect (roll.getGrid() == 3 && shown.notes.size() == 1 && std::abs (shown.notes[0].start - 2.625f) < 1.0e-4f
                     && shown.notes[0].velocity == 100 && steps.size() == 1,
-                "the clip grid set to 1/32 snaps a placed and dragged note to 32nds, in one undo step (" + starts (shown) + ")");
+                "the clip grid set to 1/32 snaps a double-clicked note to 32nds, in one undo step (" + starts (shown) + ")");
         expect (std::abs (ClipEditor::gridBeats (5) - 1.0f / 3.0f) < 1.0e-5f && std::abs (ClipEditor::gridBeats (3) - 0.125f) < 1.0e-6f
                     && ClipEditor::numGrids == 8 && ClipEditor::defaultGrid == 2,
                 "the clip grid has 1/4 to 1/32 straight and triplet, 1/16 by default");
@@ -3603,6 +3605,54 @@ int runUiTests()
         gesture (roll, { x (7.1f), roll.yForNote (64) }, { x (7.1f), roll.yForNote (64) });
         expect (! roll.isDrawMode() && processor.getClipState().getClip (0).notes.size() == 5 && undoSteps().isEmpty(),
                 "with DRAW off a single click on empty space writes nothing again");
+
+        // Step 22: a double-click on empty space adds a note; holding the
+        // second click and dragging lengthens it; a plain double-click keeps
+        // the length last used. DRAW still places one note per click. The
+        // clip is restored afterwards, so the tests below see the same notes.
+        {
+            roll.reload (false);
+            clearHistory();
+            const auto saved = processor.getClipState().getClip (0);
+            Clip blank;
+            blank.bars = saved.bars;
+            processor.getClipState().setClip (0, blank);
+            processor.clipsEdited();
+            roll.reload (true);
+            clearHistory();
+            gesture (roll, { x (6.0f), noteY (62) }, { x (7.5f), noteY (62) }, 2);
+            const auto lengthened = processor.getClipState().getClip (0);
+            const auto added = lengthened.notes.empty() ? ClipNote {} : lengthened.notes.back();
+            const auto addedSteps = undoSteps();
+            gesture (roll, { x (5.0f), noteY (62) }, { x (5.0f), noteY (62) }, 2);
+            const auto plain = processor.getClipState().getClip (0);
+            ClipNote plainNote {};
+            for (const auto& n : plain.notes)
+                if (std::abs (n.start - 5.0f) < 1.0e-4f)
+                    plainNote = n;
+            roll.setDrawMode (true);
+            gesture (roll, { x (7.0f), noteY (60) }, { x (7.0f), noteY (60) });
+            roll.setDrawMode (false);
+            const auto drawn = processor.getClipState().getClip (0);
+            ClipNote drawnNote {};
+            for (const auto& n : drawn.notes)
+                if (std::abs (n.start - 7.0f) < 1.0e-4f)
+                    drawnNote = n;
+            const auto allSteps = undoSteps();
+            expect (lengthened.notes.size() == 1 && added.note == 62 && std::abs (added.start - 6.0f) < 1.0e-4f
+                        && added.length > 1.5f && added.length < 2.5f && addedSteps.size() == 1,
+                    "a double-click then drag adds a note at the click and lengthens it by the drag (" + starts (lengthened) + ")");
+            expect (plain.notes.size() == 2 && plainNote.note == 62 && std::abs (plainNote.start - 5.0f) < 1.0e-4f
+                        && std::abs (plainNote.length - added.length) < 1.0e-6f,
+                    "a plain double-click adds a note at the length last used (" + starts (plain) + " lengthened " + juce::String (added.length) + ")");
+            expect (drawn.notes.size() == 3 && drawnNote.note == 60 && std::abs (drawnNote.start - 7.0f) < 1.0e-4f
+                        && allSteps.size() == 3 && allSteps[0] == "Draw clip notes" && allSteps[1] == "Add clip note" && allSteps[2] == "Add clip note",
+                    "DRAW places one note per click, one undo step, and the two double-click edits stay separate steps (" + starts (drawn) + ")");
+            processor.getClipState().setClip (0, saved);
+            processor.clipsEdited();
+            roll.reload (false);
+            clearHistory();
+        }
 
         // Review 7 (S7-17): the roll opens fitted to the clip's notes, counts
         // the notes scrolled out of view at its edges, and a click on a

@@ -313,14 +313,18 @@ def cmd_pick(args):
     for row in drafts:
         by_concept.setdefault(row["name"].split("~")[0], []).append(row)
 
+    targets = category_levels(args.factory)
+
     def sane(row):
+        """Judged at the level the bake will give it (the category's median)."""
         rep = row["report"]
         if not rep:
             return True, ""
-        level, peak, clip = float(rep["level_db"]), float(rep["peak"]), float(rep["clip_fraction"])
+        level, peak = float(rep["level_db"]), float(rep["peak"])
         high = float(rep.get("high_fraction", 0) or 0)
-        if clip > 0.0005 or peak > 1.2:
-            return False, "clips"
+        gain = 10 ** ((targets.get(row["category"], targets["Pad"]) - level) / 20)
+        if peak * gain > 1.0:
+            return False, "clips at its level"
         if level < -40:
             return False, "silent"
         if high > 0.12:
@@ -338,7 +342,8 @@ def cmd_pick(args):
             taste = 0.5 * float(np.max(sims)) + 0.5 * (float(np.max(same)) if same else float(np.max(sims)))
             novelty = 1.0 - float(np.max(fac_matrix @ e))
             spread = 1.0 - max([float(c @ e) for c in chosen], default=0.0)
-            score = taste + 0.6 * novelty + 0.3 * spread - (10.0 if not ok else 0.0)
+            critic = float(row["report"].get("score", 50) or 50) / 100.0  # the critic's own 0-100 verdict
+            score = taste + 0.6 * novelty + 0.3 * spread + 0.3 * critic - (10.0 if not ok else 0.0)
             row["scores"] = {"taste": taste, "novelty": novelty, "spread": spread, "ok": ok, "why": why}
             if score > best_score:
                 best, best_score = row, score

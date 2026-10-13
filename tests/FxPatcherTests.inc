@@ -563,4 +563,74 @@ void runFxPatcherTests()
         check (worstDifference (patched, parallel) < 1.0e-6f, "two Delay instances wired side by side at 50 % render as PARALLEL (worst "
                                                                   + juce::String (worstDifference (patched, parallel), 9) + ")");
     }
+
+    // FX-1: an effect on a MIX below 100 % works on this block's samples,
+    // not on the scratch's whole length. One 512 block then a 64 block ends
+    // as nine 64 blocks do.
+    {
+        const auto feed = [] (juce::AudioBuffer<float>& buffer, int from)
+        {
+            for (int channel = 0; channel < 2; ++channel)
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    buffer.setSample (channel, i, 0.5f * ParallelFxLab::input (channel, from + i));
+        };
+        const auto build = [] (IlanaSynthAudioProcessor& processor)
+        {
+            setUp (processor, { delay }, false);
+            delaySettings (processor, 3.0f);
+            set (processor, "fx_slot1_mix", 0.5f);
+            processor.prepareToPlay (48000.0, 512);
+        };
+        IlanaSynthAudioProcessor mixed, steady;
+        build (mixed);
+        build (steady);
+        juce::AudioBuffer<float> big (2, 512), small (2, 64);
+        feed (big, 0);
+        mixed.processEffects (big);
+        feed (small, 512);
+        mixed.processEffects (small);
+        juce::AudioBuffer<float> last (2, 64);
+        for (int block = 0; block < 9; ++block)
+        {
+            last.setSize (2, 64, false, false, true);
+            feed (last, block * 64);
+            steady.processEffects (last);
+        }
+        auto worst = 0.0f;
+        for (int channel = 0; channel < 2; ++channel)
+            for (int i = 0; i < 64; ++i)
+                worst = juce::jmax (worst, std::abs (small.getSample (channel, i) - last.getSample (channel, i)));
+        check (worst < 1.0e-4f, "a 64-sample block after a 512 one renders as after 64s (worst " + juce::String (worst, 7) + ")");
+    }
+
+    // FX-3: bypassing a slot is a one-block ramp, not a step; the block after
+    // it is the dry signal.
+    {
+        IlanaSynthAudioProcessor processor;
+        setUp (processor, { drive }, false);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto before = 0.0f, after = 0.0f, dryError = 0.0f, dryFirst = 0.0f;
+        for (int block = 0; block < 13; ++block)
+        {
+            if (block == 10)
+                set (processor, "fx_slot1_bypass", 1.0f);
+            for (int channel = 0; channel < 2; ++channel)
+                for (int i = 0; i < 256; ++i)
+                    buffer.setSample (channel, i, ParallelFxLab::input (channel, block * 256 + i));
+            processor.processEffects (buffer);
+            if (block == 9)
+                before = buffer.getSample (0, 255);
+            if (block == 10)
+            {
+                after = buffer.getSample (0, 0);
+                dryFirst = ParallelFxLab::input (0, 10 * 256);
+            }
+            if (block == 12)
+                for (int i = 0; i < 256; ++i)
+                    dryError = juce::jmax (dryError, std::abs (buffer.getSample (0, i) - ParallelFxLab::input (0, block * 256 + i)));
+        }
+        check (std::abs (before - dryFirst) > 0.1f && std::abs (after - before) < 0.1f, "bypassing starts from the wet sound (no step: " + juce::String (before, 3) + " to " + juce::String (after, 3) + ")");
+        check (dryError < 1.0e-6f, "a bypassed slot is the dry signal once the ramp is over");
+    }
 }

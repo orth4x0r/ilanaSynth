@@ -259,5 +259,23 @@ void runMultiSampleTests()
         check (processor.getSampleForOsc (0) != nullptr && processor.getSampleForOsc (0)->zones.empty(), "a WAV is a plain sample");
     }
 
+    // A corrupt chunk size (0xFFFFFFF8) must not wrap the walker into an endless loop.
+    {
+        juce::MemoryBlock bad (40, true);
+        auto* p = static_cast<char*> (bad.getData());
+        std::memcpy (p, "RIFF", 4);
+        p[4] = 32; // size
+        std::memcpy (p + 8, "sfbk", 4);
+        std::memcpy (p + 12, "LIST", 4);
+        p[16] = 20;
+        std::memcpy (p + 20, "pdta", 4);
+        std::memcpy (p + 24, "phdr", 4);
+        p[28] = (char) 0xF8; p[29] = (char) 0xFF; p[30] = (char) 0xFF; p[31] = (char) 0xFF;
+        const auto badFile = folder.getChildFile ("bad.sf2");
+        badFile.replaceWithData (bad.getData(), bad.getSize());
+        juce::String badError;
+        check (MultiSample::load (badFile, badError) == nullptr, "SF2: an oversized chunk is refused, not looped on");
+    }
+
     folder.deleteRecursively();
 }

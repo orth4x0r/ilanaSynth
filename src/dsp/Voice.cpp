@@ -341,11 +341,34 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     keyTrackValue = juce::jlimit (-1.0f, 1.0f, (float) (midiNoteNumber - 60) / 48.0f);
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
 
-    if (! hasPlayedNote || ! glide)
+    // Poly: glide from the previous note played, not from this voice's own
+    // last pitch (which depends on which voice the synth handed out). Off
+    // until ilana decides: it changes how poly GLIDE presets sound.
+    if (polyGlideFromLastNote && ! mono && params.glideTime > 0.001f && shared != nullptr && shared->lastNoteFrequency > 0.0)
+    {
+        currentFrequency = shared->lastNoteFrequency;
+        hasPlayedNote = true;
+    }
+    else if (! hasPlayedNote || ! glide)
     {
         currentFrequency = baseFrequency;
         hasPlayedNote = true;
     }
+
+    if (shared != nullptr)
+    {
+        shared->lastNoteFrequency = baseFrequency;
+
+        // Mod wheel, expression and pressure as they are now, not as this
+        // voice last heard them.
+        const auto channel = playingChannel();
+        modWheel = shared->modWheel[channel];
+        expressionValue = shared->expression[channel];
+        aftertouchValue = shared->pressure[channel];
+        masterBend = params.mpe ? shared->masterBendSemitones : 0.0;
+    }
+    else
+        masterBend = 0.0;
 
     pitchWheelMoved (currentPitchWheelPosition);
 
@@ -596,6 +619,9 @@ void Voice::resetForNewPatch()
     lfoSimNotes = 0;
     driftValue = driftTarget = 0.0f;
     hasPlayedNote = false;
+
+    if (shared != nullptr)
+        shared->lastNoteFrequency = 0.0;
 }
 
 void Voice::stopNote (float, bool allowTailOff)
@@ -650,7 +676,12 @@ void Voice::stopNote (float, bool allowTailOff)
 
 void Voice::pitchWheelMoved (int newValue)
 {
-    bendSemitones = ((double) newValue - 8192.0) / 8192.0 * (double) params.pitchBendRange;
+    // MPE: channel 1 is the master channel, its bend reaches every voice
+    // through setMasterBend; a note on it has no member bend of its own.
+    memberBend = params.mpe && playingChannel() == 1
+                     ? 0.0
+                     : ((double) newValue - 8192.0) / 8192.0 * (double) params.pitchBendRange;
+    bendSemitones = memberBend + masterBend;
 }
 
 void Voice::controllerMoved (int controllerNumber, int newValue)

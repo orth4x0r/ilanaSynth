@@ -8,6 +8,9 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
         return 60;
 
     const auto total = count * octaves;
+    // Notes above 127 don't exist (MidiMessage would wrap them to a low
+    // pitch): -1 rests the step.
+    const auto valid = [] (int note) { return note <= 127 ? note : -1; };
 
     // Chord: all held notes stacked through the octaves, played together.
     if (mode == 7)
@@ -16,13 +19,14 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
 
         for (int octave = 0; octave < octaves; ++octave)
             for (int i = 0; i < count; ++i)
-                arpChordNotes.add (arpHeldNotes[i] + 12 * octave);
+                if (arpHeldNotes[i] + 12 * octave <= 127)
+                    arpChordNotes.add (arpHeldNotes[i] + 12 * octave);
 
-        return arpChordNotes[0];
+        return arpChordNotes.isEmpty() ? -1 : arpChordNotes[0];
     }
 
     if (mode == 3)
-        return arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves);
+        return valid (arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves));
 
     // Scale Random: any scale note from the lowest held note up through the
     // octaves (random held notes when no scale is set).
@@ -31,11 +35,11 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
         const auto scale = (int) getParam ("gen_scale");
 
         if (scale <= 0)
-            return arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves);
+            return valid (arpHeldNotes[arpRandom.nextInt (count)] + 12 * arpRandom.nextInt (octaves));
 
         const auto low = arpHeldNotes[0];
         const auto span = juce::jmax (12 * octaves, arpHeldNotes[count - 1] - low + 1);
-        return Scales::quantize (low + arpRandom.nextInt (span), scale, (int) getParam ("gen_root"));
+        return valid (Scales::quantize (juce::jmin (127, low + arpRandom.nextInt (span)), scale, (int) getParam ("gen_root")));
     }
 
     if (total <= 1)
@@ -77,7 +81,7 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
     }
 
     index = juce::jlimit (0, total - 1, index);
-    return arpHeldNotes[index % count] + 12 * (index / count);
+    return valid (arpHeldNotes[index % count] + 12 * (index / count));
 }
 
 void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessages, int numSamples, juce::MidiBuffer& output)
@@ -101,10 +105,10 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     const auto releaseSounding = [this, &output] (int position)
     {
         if (arpActiveNote >= 0)
-            output.addEvent (juce::MidiMessage::noteOff (1, arpActiveNote), position);
+            output.addEvent (juce::MidiMessage::noteOff (arpActiveChannel, arpActiveNote), position);
 
         for (auto chordNote : arpChordActive)
-            output.addEvent (juce::MidiMessage::noteOff (1, chordNote), position);
+            output.addEvent (juce::MidiMessage::noteOff (arpActiveChannel, chordNote), position);
 
         arpChordActive.clearQuick();
         arpActiveNote = -1;
@@ -115,28 +119,67 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     // over a held chord starts at once. All Notes Off / All Sound Off and a
     // host transport stop drop every held key: a clip or keyboard whose
     // note-offs never arrive must not leave the pattern running.
+    // The sustain pedal holds released keys (the arp keeps going, as a
+    // latch) until it lifts; each key's channel is kept, and the arp plays
+    // on the latest key's.
     const auto trackKeys = [this] (const juce::MidiMessage& message)
     {
         if (message.isNoteOn())
         {
-            if (! arpHeldNotes.contains (message.getNoteNumber()))
+            const auto note = message.getNoteNumber();
+            arpHeldChannel[(size_t) note] = (juce::uint8) message.getChannel();
+            arpChannel = message.getChannel();
+            arpSustainedKey[(size_t) note] = false;
+
+            if (! arpHeldNotes.contains (note))
             {
-                arpHeldNotes.add (message.getNoteNumber());
+                arpHeldNotes.add (note);
                 arpHeldNotes.sort();
             }
         }
         else if (message.isNoteOff())
         {
-            arpHeldNotes.removeAllInstancesOf (message.getNoteNumber());
+            if (! arpPedalDown)
+                arpHeldNotes.removeAllInstancesOf (message.getNoteNumber());
+            else if (arpHeldNotes.contains (message.getNoteNumber()))
+                arpSustainedKey[(size_t) message.getNoteNumber()] = true;
+        }
+        else if (message.isSustainPedalOn())
+        {
+            arpPedalDown = true;
+        }
+        else if (message.isSustainPedalOff())
+        {
+            arpPedalDown = false;
+
+            for (auto i = arpHeldNotes.size(); --i >= 0;)
+                if (arpSustainedKey[(size_t) arpHeldNotes[i]])
+                    arpHeldNotes.remove (i);
+
+            arpSustainedKey.fill (false);
         }
         else if (message.isAllNotesOff() || message.isAllSoundOff())
         {
             arpHeldNotes.clearQuick();
+            arpSustainedKey.fill (false);
         }
     };
 
+    // The sustain pedal goes to the synth only while the arp is off: its
+    // note-offs would otherwise ring until the pedal lifts. Switching over
+    // gives the synth the pedal's release (and back again).
+    const auto sendPedal = [this, &output] (bool down)
+    {
+        for (int channel = 0; channel < 16; ++channel)
+            if (pedalChannelDown[(size_t) channel])
+                output.addEvent (juce::MidiMessage::controllerEvent (channel + 1, 64, down ? 127 : 0), 0);
+    };
+
     if (transportStopped)
+    {
         arpHeldNotes.clearQuick();
+        arpSustainedKey.fill (false);
+    }
 
     if (! arpEnabled)
     {
@@ -145,6 +188,7 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
             releaseSounding (0);
             arpCounter = 0;
             arpWasEnabled = false;
+            sendPedal (true);
         }
 
         for (const auto metadata : midiMessages)
@@ -152,6 +196,16 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
 
         output.addEvents (midiMessages, 0, numSamples, 0);
         return;
+    }
+
+    if (! arpWasEnabled)
+    {
+        // The held keys sounded through the pass-through, and their
+        // note-offs are swallowed from here on: release them now.
+        for (auto note : arpHeldNotes)
+            output.addEvent (juce::MidiMessage::noteOff (juce::jlimit (1, 16, (int) arpHeldChannel[(size_t) note]), note), 0);
+
+        sendPedal (false);
     }
 
     arpWasEnabled = true;
@@ -198,6 +252,8 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     {
         releaseSounding (0);
         arpCounter = 0;
+        arpStepIndex = 0;
+        arpDirection = 1;
     }
 
     // The step's number: from the host's beat grid while it plays (so
@@ -214,6 +270,7 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
     const auto triggerStep = [&] (int position)
     {
         releaseSounding (position);
+        arpActiveChannel = arpChannel;
         arpRatchetsLeft = 0;
 
         const auto number = stepNumber (position);
@@ -252,7 +309,7 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
 
                 note = juce::jlimit (0, 127, note);
                 const auto interval = juce::jmax (8, samplesPerStep / ratchet);
-                output.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), position);
+                output.addEvent (juce::MidiMessage::noteOn (arpChannel, note, (juce::uint8) 100), position);
                 arpActiveNote = note;
                 arpGateRemaining = juce::jmax (4, (int) ((float) interval * gate));
                 arpRatchetNote = note;
@@ -270,7 +327,7 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         }
 
         const auto note = selectArpNote (mode, octaves);
-        auto rest = chance < 1.0f && arpRandom.nextFloat() >= chance;
+        auto rest = note < 0 || (chance < 1.0f && arpRandom.nextFloat() >= chance);
 
         // The arp's step lanes (Euclid alone plays plain hits): this step's
         // velocity, transpose and gate (a share of GATE; 0 rests). At their
@@ -300,14 +357,14 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
                     if (transpose != 0)
                         chordNote = juce::jlimit (0, 127, chordNote + transpose);
 
-                    output.addEvent (juce::MidiMessage::noteOn (1, chordNote, (juce::uint8) velocity), position);
+                    output.addEvent (juce::MidiMessage::noteOn (arpChannel, chordNote, (juce::uint8) velocity), position);
                     arpChordActive.add (chordNote);
                 }
             }
             else
             {
                 const auto played = transpose != 0 ? juce::jlimit (0, 127, note + transpose) : note;
-                output.addEvent (juce::MidiMessage::noteOn (1, played, (juce::uint8) velocity), position);
+                output.addEvent (juce::MidiMessage::noteOn (arpChannel, played, (juce::uint8) velocity), position);
                 arpActiveNote = played;
             }
         }
@@ -339,7 +396,8 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
             {
                 // The next repeat of a ratcheted step.
                 releaseSounding (position);
-                output.addEvent (juce::MidiMessage::noteOn (1, arpRatchetNote, (juce::uint8) 100), position);
+                arpActiveChannel = arpChannel;
+                output.addEvent (juce::MidiMessage::noteOn (arpChannel, arpRatchetNote, (juce::uint8) 100), position);
                 arpActiveNote = arpRatchetNote;
                 arpGateRemaining = juce::jmax (4, (int) ((float) arpRatchetInterval * gate));
                 arpRatchetCounter = arpRatchetInterval;
@@ -376,7 +434,8 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         const auto wasEmpty = arpHeldNotes.isEmpty();
         trackKeys (message);
 
-        if (! message.isNoteOnOrOff())
+        // (The sustain pedal is the arp's own here; see sendPedal.)
+        if (! message.isNoteOnOrOff() && ! (message.isController() && message.getControllerNumber() == 64))
             output.addEvent (message, position);
 
         if (arpHeldNotes.isEmpty() && ! wasEmpty)
@@ -390,6 +449,8 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
             arpCounter = 0;
             arpRatchetsLeft = 0;
             engineStepCount = 0;
+            arpStepIndex = 0;
+            arpDirection = 1;
         }
     }
 
@@ -438,7 +499,8 @@ void IlanaSynthAudioProcessor::addEuclidExciterHits (juce::MidiBuffer& midi, int
         }
     }
 
-    euclidExciterPhase = std::fmod (end, 4096.0);
+    // (Wrapped on a whole number of patterns, else the pattern would jump.)
+    euclidExciterPhase = std::fmod (end, (double) (steps * (4096 / steps)));
 }
 
 // Clip sequencer: plays the current clip (ClipState) as note events in the
@@ -503,7 +565,14 @@ void IlanaSynthAudioProcessor::processClip (juce::MidiBuffer& midi, int numSampl
         clipActive.clear();
     };
 
-    if (index != clipLastIndex || (int) hostMode != clipLastMode)
+    if (index != clipLastIndex && (int) hostMode == clipLastMode)
+    {
+        // Another clip with the keys still down: the new clip plays on (only
+        // the old one's sounding notes stop).
+        releaseAll (0);
+        clipLastIndex = index;
+    }
+    else if (index != clipLastIndex || (int) hostMode != clipLastMode)
     {
         releaseAll (0);
 

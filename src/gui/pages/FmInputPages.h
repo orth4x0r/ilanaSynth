@@ -125,7 +125,7 @@ public:
 
         // The same heading as the open section ("EXTRAS", at the matrix's
         // foot) whatever the operator count (review 10, I10-5).
-        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x80\xba")));
+        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xbe")));
         moreButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
         moreButton.setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text2);
         moreButton.setTooltip ("RING MOD and SYNC 2 TO 1 (OSC 1 and OSC 2 only) and the NOISE FM row: classic FM extras a DX7 "
@@ -798,9 +798,9 @@ private:
         ringMod->setVisible (extras);
         hardSync.setVisible (extras);
         moreButton.setVisible (true);
-        // (A closing "‹" in place of "›" while they are open.)
+        // (An up caret in place of the down one while they are open, as OSC's MORE: one disclosure mark, P-7.)
         moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM "))
-                                  + juce::String (juce::CharPointer_UTF8 (extras ? "\xe2\x80\xb9" : "\xe2\x80\xba")));
+                                  + juce::String (juce::CharPointer_UTF8 (extras ? "\xe2\x96\xb4" : "\xe2\x96\xbe")));
 
         // One cell size for every patch: the grid (row names and cells)
         // centred across the card, the card as tall as what it holds.
@@ -911,7 +911,8 @@ private:
             row.removeFromLeft (8);
             ringMod->setBounds (row.removeFromLeft (80));
             row.removeFromLeft (12);
-            hardSync.setBounds (row.removeFromLeft (100).withSizeKeepingCentre (100, 37));
+            // (Top-aligned with RING MOD's name, so the two names share one line, P-7.)
+            hardSync.setBounds (row.removeFromLeft (100).withHeight (37));
             const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
                                                                            moreButton.getButtonText()) + 34;
             moreButton.setBounds (juce::Rectangle<int> (pairText.getX(), pairText.getY() + 2, juce::jmin (pairText.getWidth(), width), 22));
@@ -1025,7 +1026,7 @@ private:
                     if (source != target && isLiveCell (source, target) && cellAmount (source, target) > 0.001f)
                     {
                         const auto text = "OSC " + juce::String (source + 1) + " modulates OSC " + juce::String (target + 1) + " at "
-                                          + juce::String (juce::roundToInt (cellAmount (source, target) * 100.0f)) + " %";
+                                          + juce::String (juce::roundToInt (cellAmount (source, target) * 100.0f)) + "%";
                         routes.add (text);
                         if (cellAmount (source, target) > strongest)
                         {

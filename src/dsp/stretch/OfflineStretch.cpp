@@ -19,6 +19,9 @@ Audio render (Engine engine, const Audio& input, double lengthFactor, double pit
         case Engine::Paulstretch: output = renderPaulstretch (input, lengthFactor, pitchRatio); break;
     }
 
+    if (cancelled())
+        return {};
+
     // Never hand back nothing: a failed engine falls back to plain
     // resampling at the right length.
     if (output.numFrames() == 0)

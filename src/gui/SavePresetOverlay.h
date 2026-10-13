@@ -33,17 +33,33 @@ inline juce::String legalName (const juce::String& typed, juce::String* removed 
         kept << juce::String::charToString (c);
     }
 
-    const auto trimmed = kept.trim().trimCharactersAtEnd (". ");
-
     if (removed != nullptr)
         *removed = dropped;
 
-    return trimmed.substring (0, 120);
+    // Cut first, then trimmed: a name cut at 120 must not end in a space or dot.
+    auto name = kept.trim().substring (0, 120).trimCharactersAtEnd (". ").trimEnd();
+
+    // Windows keeps CON, PRN, AUX, NUL, COM1-9 and LPT1-9 for devices, with
+    // any extension ("CON.ilanapreset" included).
+    const auto stem = name.upToFirstOccurrenceOf (".", false, false).trimEnd().toUpperCase();
+
+    if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL"
+        || ((stem.startsWith ("COM") || stem.startsWith ("LPT")) && stem.length() == 4 && stem[3] >= '1' && stem[3] <= '9'))
+        name = "_" + name;
+
+    return name;
 }
 
-// The user preset called name (in any folder, any case), or File().
+// The user preset called name (in any folder, any case), or File(). Two
+// folders may hold one name (imported DX7 banks do): the loaded patch's own
+// file wins, then the first.
 inline juce::File findUserPreset (const IlanaSynthAudioProcessor& processor, const juce::String& name)
 {
+    const auto own = processor.getLoadedPresetFile();
+
+    if (own.existsAsFile() && own.getFileNameWithoutExtension().equalsIgnoreCase (name))
+        return own;
+
     for (const auto& file : processor.getUserPresetFiles())
         if (file.getFileNameWithoutExtension().equalsIgnoreCase (name))
             return file;
@@ -52,7 +68,9 @@ inline juce::File findUserPreset (const IlanaSynthAudioProcessor& processor, con
 }
 
 // The loaded patch's own user preset file, or File() when it is a factory
-// preset or was never saved.
+// preset or was never saved. The file is the one the patch was loaded from
+// or saved to (not the first of that name); a session that came back from
+// the host knows only the name, and finds it when just one file has it.
 inline juce::File loadedUserPreset (const IlanaSynthAudioProcessor& processor)
 {
     const auto name = processor.getCurrentPresetName();
@@ -60,11 +78,21 @@ inline juce::File loadedUserPreset (const IlanaSynthAudioProcessor& processor)
     if (name.isEmpty() || processor.getFactoryPresetNames().contains (name, true))
         return {};
 
+    if (const auto own = processor.getLoadedPresetFile();
+        own.existsAsFile() && own.getFileNameWithoutExtension() == name)
+        return own;
+
+    juce::File found;
+    auto matches = 0;
+
     for (const auto& file : processor.getUserPresetFiles())
         if (file.getFileNameWithoutExtension() == name)
-            return file;
+        {
+            found = file;
+            ++matches;
+        }
 
-    return {};
+    return matches == 1 ? found : juce::File();
 }
 } // namespace PresetFiles
 

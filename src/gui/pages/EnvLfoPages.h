@@ -83,9 +83,10 @@ public:
         arrow();
         chip ("F1", FilterColours::filter (0));
         const auto pill = parallel ? "PARALLEL" : "SERIAL";
-        const auto pillWidth = (float) juce::GlyphArrangement::getStringWidthInt (IlanaTheme::pillFont(), pill) + 20.0f;
-        IlanaTheme::paintPill (g, { x + 3.0f, centreY - 9.0f, pillWidth, 18.0f }, pill, IlanaTheme::accent(), true);
-        x += pillWidth + 9.0f;
+        // (A chip of the same size as its neighbours: the row reads as one text size, S4-01.)
+        x += 3.0f;
+        chip (pill, IlanaTheme::accent());
+        x += 6.0f;
         chip (westReplaces ? "WEST" : "F2", westReplaces ? FilterColours::west() : FilterColours::filter (1));
         arrow();
         chip ("OUT", IlanaTheme::Ui::text);
@@ -776,28 +777,28 @@ public:
               return envs;
           }()),
           ampDisplay (p, "amp", modSourceColour ((int) Mod::Source::AmpEnv), false),
-          feDisplay (p, "fe", juce::Colour (0xffc86bff)),
-          f2eDisplay (p, "f2e", juce::Colour (0xff8f9dff)),
-          meDisplay (p, "me", juce::Colour (0xff8fff3b)),
-          e4Display (p, "e4", juce::Colour (0xff5b8cff)),
+          feDisplay (p, "fe", IlanaTheme::envIdentityColour (1)),
+          f2eDisplay (p, "f2e", IlanaTheme::envIdentityColour (2)),
+          meDisplay (p, "me", IlanaTheme::envIdentityColour (3)),
+          e4Display (p, "e4", IlanaTheme::envIdentityColour (4)),
           ampA (p.apvts, "amp_attack", "ATTACK", modSourceColour ((int) Mod::Source::AmpEnv), false), ampD (p.apvts, "amp_decay", "DECAY", modSourceColour ((int) Mod::Source::AmpEnv), false),
           ampS (p.apvts, "amp_sustain", "SUSTAIN", modSourceColour ((int) Mod::Source::AmpEnv), false), ampR (p.apvts, "amp_release", "RELEASE", modSourceColour ((int) Mod::Source::AmpEnv), false),
           ampVel (p.apvts, "amp_velocity", "VEL", modSourceColour ((int) Mod::Source::AmpEnv), false), ampCurve (p.apvts, "amp_curve", curveLabel, modSourceColour ((int) Mod::Source::AmpEnv), false),
           feA (p.apvts, "fe_attack", "ATTACK"), feD (p.apvts, "fe_decay", "DECAY"),
           feS (p.apvts, "fe_sustain", "SUSTAIN"), feR (p.apvts, "fe_release", "RELEASE"),
-          feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", curveLabel, juce::Colour (0xffc86bff), false),
+          feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", curveLabel, IlanaTheme::envIdentityColour (1), false),
           f2A (p.apvts, "f2e_attack", "ATTACK"), f2D (p.apvts, "f2e_decay", "DECAY"),
           f2S (p.apvts, "f2e_sustain", "SUSTAIN"), f2R (p.apvts, "f2e_release", "RELEASE"),
-          f2Vel (p.apvts, "f2e_velocity", "VEL", juce::Colour (0xff8f9dff), false),
-          f2Curve (p.apvts, "f2e_curve", curveLabel, juce::Colour (0xff8f9dff), false),
+          f2Vel (p.apvts, "f2e_velocity", "VEL", IlanaTheme::envIdentityColour (2), false),
+          f2Curve (p.apvts, "f2e_curve", curveLabel, IlanaTheme::envIdentityColour (2), false),
           meA (p.apvts, "me_attack", "ATTACK"), meD (p.apvts, "me_decay", "DECAY"),
           meS (p.apvts, "me_sustain", "SUSTAIN"), meR (p.apvts, "me_release", "RELEASE"),
-          meVel (p.apvts, "me_velocity", "VEL", juce::Colour (0xff8fff3b), false),
-          meCurve (p.apvts, "me_curve", curveLabel, juce::Colour (0xff8fff3b), false),
+          meVel (p.apvts, "me_velocity", "VEL", IlanaTheme::envIdentityColour (3), false),
+          meCurve (p.apvts, "me_curve", curveLabel, IlanaTheme::envIdentityColour (3), false),
           e4A (p.apvts, "e4_attack", "ATTACK"), e4D (p.apvts, "e4_decay", "DECAY"),
           e4S (p.apvts, "e4_sustain", "SUSTAIN"), e4R (p.apvts, "e4_release", "RELEASE"),
-          e4Vel (p.apvts, "e4_velocity", "VEL", juce::Colour (0xff5b8cff), false),
-          e4Curve (p.apvts, "e4_curve", curveLabel, juce::Colour (0xff5b8cff), false)
+          e4Vel (p.apvts, "e4_velocity", "VEL", IlanaTheme::envIdentityColour (4), false),
+          e4Curve (p.apvts, "e4_curve", curveLabel, IlanaTheme::envIdentityColour (4), false)
     {
         // One card per envelope in the patch, the Operator Env's two, and a
         // "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits, cards fold
@@ -997,8 +998,10 @@ public:
     // The editor row under the cards (the design's 118 px): the graph at the
     // left (40 %), the knob card at the right, exactly as tall as its nine
     // knobs and its header need.
-    static constexpr int editorHeight = 118;
-    static constexpr int panelHeightNeeded = editorHeight;
+    // (118 for the card, plus the graph's 16 px time ruler under its frame: the card ends level with the frame, P-4.)
+    static constexpr int rulerBand = 16;
+    static constexpr int editorHeight = 118 + rulerBand;
+    static constexpr int panelHeightNeeded = editorHeight - rulerBand;
 
     void resized() override
     {
@@ -1019,8 +1022,9 @@ public:
         units[(size_t) unitIndex].display->setBounds (area.removeFromLeft ((area.getWidth() - 10) * 40 / 100));
         area.removeFromLeft (10);
 
-        // The card: a 30 px header, then 8 px of padding round the knobs.
-        panel = area;
+        // The card: a 30 px header, then 8 px of padding round the knobs; it ends
+        // level with the graph's frame, the ruler hanging below both.
+        panel = area.withTrimmedBottom (rulerBand);
         auto inner = panel.withTrimmedTop (30).reduced (10, 8);
         // All nine in one row in the graph's order (DELAY ATTACK HOLD DECAY
         // SUSTAIN RELEASE VEL CURVE KEY RATE); a row is as tall as its dial,
@@ -1060,8 +1064,8 @@ public:
     // ENV 1-16's colours, 0-based.
     static juce::Colour colourOf (int env)
     {
-        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), juce::Colour (0xffc86bff), juce::Colour (0xff8f9dff),
-                                       juce::Colour (0xff8fff3b), juce::Colour (0xff5b8cff) };
+        const juce::Colour colours[] { modSourceColour ((int) Mod::Source::AmpEnv), IlanaTheme::envIdentityColour (1), IlanaTheme::envIdentityColour (2),
+                                       IlanaTheme::envIdentityColour (3), IlanaTheme::envIdentityColour (4) };
         return env < 5 ? colours[juce::jlimit (0, 4, env)] : extraColour (env + 1);
     }
 
@@ -1420,6 +1424,7 @@ public:
     void handleAsyncUpdate() override { lastShape = -1; timerCallback(); }
 
     static constexpr int cardHeight = 48;
+    static constexpr int lfoRulerBand = 16; // (LfoDisplay: its ruler and the 2 px before it)
 
     void resized() override
     {
@@ -1448,6 +1453,13 @@ public:
         // away knobs and rows but never moves a control that stays. What
         // the grid leaves free at the bottom lists what the LFO drives.
         panel = area;
+        // (A graph with a time ruler: the card ends level with its frame, P-4.)
+        if (selected != msegId && selected != clockId)
+        {
+            const auto rulerShape = (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (juce::jlimit (0, (int) displays.size() - 1, selected) + 1) + "_shape")->load();
+            if (! LfoSimShapes::isSim (rulerShape))
+                panel = panel.withTrimmedBottom (lfoRulerBand);
+        }
         const auto inner = panel.withTrimmedTop (30).reduced (10, 8);
         const auto grid = gridFor (inner);
         infoArea = {};
@@ -1973,7 +1985,7 @@ private:
         {
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
             IlanaTheme::drawFitted (g, "Nothing yet. Drag this card onto any knob to make it move that knob; every route it drives is listed here, with its depth.",
-                                    compact ? area : area.withTrimmedRight (area.getWidth() / 3), juce::Justification::topLeft, compact ? 2 : 3);
+                                    compact ? area : area.withTrimmedRight (area.getWidth() / 3), juce::Justification::centredLeft, compact ? 2 : 3);
             return;
         }
 

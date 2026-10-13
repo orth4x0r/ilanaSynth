@@ -247,6 +247,22 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* cutoff = knobFor ("f2_cutoff");
         expect (reso != nullptr && cutoff != nullptr && reso->getAlpha() < 0.7f && cutoff->getAlpha() > 0.99f,
                 "FILTER: an open Filter 2 dims its card but not CUTOFF");
+        // P-3: FILTER 1's seven columns and FILTER 2's six share one pitch, so a knob sits at the same place in both cards.
+        {
+            auto sameColumns = true;
+            juce::String where;
+            for (const char* name : { "reso", "drive", "env", "keytrack", "fm" })
+            {
+                auto* one = knobFor (juce::String ("f1_") + name);
+                auto* two = knobFor (juce::String ("f2_") + name);
+                if (one == nullptr || two == nullptr || std::abs (one->getX() - two->getX()) > 1)
+                {
+                    sameColumns = false;
+                    where << name << " ";
+                }
+            }
+            expect (sameColumns, "FILTER: F1 and F2 knobs share their columns (" + where + ")");
+        }
         setParam ("f2_cutoff", 800.0f);
         settle (400);
         expect (! FilterDisplay::isPassThrough (processor, 1) && reso != nullptr && reso->getAlpha() > 0.99f,

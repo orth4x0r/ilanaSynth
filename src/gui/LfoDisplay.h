@@ -26,10 +26,13 @@ public:
           traceColour (traceColourIn),
           followsTheme (followsThemeIn)
     {
-        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into an MSEG with the same points and edit it.  "
-                    "Draw: drag to draw.  Steps: drag across the steps to set them.  MSEG: click to add points, drag them, "
-                    "drag the dot on a line to curve it, double-click to delete.  GRID (top right) sets the snap; "
-                    "right-click for shapes.  The value shows while you drag; the ruler under the graph is one cycle.");
+        setTooltip ("LFO shape\nDrag any wave (Sine, Triangle, Saw...) to turn it into an MSEG with the same points and edit it.\n"
+                    "Draw: drag to draw.\nSteps: drag across the steps to set them.\n"
+                    "MSEG: drag on empty space to add a point, drag a point to move it, drag the dot on a line to curve it, "
+                    "double-click a point to delete it.\n"
+                    "GRID (top right) sets the snap. Right-click for shapes. Esc cancels a drag.\n"
+                    "The value shows while you drag; the ruler under the graph is one cycle.");
+        setWantsKeyboardFocus (true);
 
         juce::Random random (lfoIndex * 1234 + 7);
 
@@ -321,7 +324,7 @@ public:
             for (const auto& [name, y] : scaleLabels)
             {
                 const auto width = juce::GlyphArrangement::getStringWidth (tiny, name) + 1.0f;
-                const juce::Rectangle<float> box (plot.getX() + 10.0f, y - 12.0f, 24.0f, 11.0f);
+                const juce::Rectangle<float> box (plot.getX() - 8.0f, y - 12.0f, 24.0f, 11.0f); // (in the well's margin: the "0" is clear of the trace's start, S4-05)
                 g.setColour (IlanaTheme::Ui::well.withAlpha (0.82f));
                 g.fillRoundedRectangle (box.withWidth (width + 4.0f).translated (-2.0f, 0.0f), 2.0f);
                 g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
@@ -494,6 +497,7 @@ private:
         const auto shape = (int) readParam ("_shape");
         pendingConvert = false;
         pendingOutputDrag = -1;
+        cancelled = false;
 
         // A simulated shape's output tags drag its outputs onto knobs.
         if (LfoSimShapes::isSim (shape))
@@ -527,6 +531,10 @@ private:
         if (shape == 6 || shape == 7 || (shape == IlanaSynthAudioProcessor::curveShape && ! event.mods.isPopupMenu()))
             processorRef.beginEdit (editName (shape));
 
+        cancelled = false;
+        lastDrawStep = -1;
+        rememberDrawing (shape);
+
         if (shape == IlanaSynthAudioProcessor::curveShape)
             curveMouseDown (event);
         else if (shape == 6)
@@ -535,8 +543,84 @@ private:
             setStepPoint (event.position);
     }
 
+    // The values a stroke on the Draw or Steps shape starts from, for Esc.
+    void rememberDrawing (int shape)
+    {
+        drawBackup.clear();
+
+        if (shape == 6)
+            for (int i = 0; i < IlanaSynthAudioProcessor::lfoDrawSteps; ++i)
+                drawBackup.push_back (processorRef.getLfoCustomPoint (index, i));
+        else if (shape == 7)
+            for (int i = 0; i < 16; ++i)
+                drawBackup.push_back (readParam (("_step" + juce::String (i + 1)).toRawUTF8()));
+    }
+
+    // Esc during a drag puts back what the stroke changed.
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || ! isMouseButtonDown() || cancelled)
+            return false;
+
+        const auto shape = (int) readParam ("_shape");
+
+        if (pendingConvert)
+        {
+            pendingConvert = false;
+        }
+        else if (shape == IlanaSynthAudioProcessor::curveShape && (dragPoint >= 0 || dragTension >= 0))
+        {
+            dragPoint = dragTension = -1;
+            curve = curveAtDown;
+            commitCurve();
+        }
+        else if (shape == 6 && ! drawBackup.empty())
+        {
+            for (int i = 0; i < (int) drawBackup.size(); ++i)
+                processorRef.setLfoCustomPoint (index, i, drawBackup[(size_t) i]);
+            repaint();
+        }
+        else if (shape == 7 && ! drawBackup.empty())
+        {
+            for (int i = 0; i < (int) drawBackup.size(); ++i)
+                if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1) + "_step" + juce::String (i + 1)))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (drawBackup[(size_t) i]));
+            repaint();
+        }
+        else
+        {
+            return false;
+        }
+
+        cancelled = true;
+        return true;
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto shape = (int) readParam ("_shape");
+        auto cursor = juce::MouseCursor::CrosshairCursor;
+
+        if (LfoSimShapes::isSim (shape))
+        {
+            cursor = outputTagAt (event.position) >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor;
+        }
+        else if (shape == IlanaSynthAudioProcessor::curveShape)
+        {
+            curve = processorRef.getLfoCurve (index);
+
+            if (gridChipBounds().contains (event.position) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
+                cursor = juce::MouseCursor::PointingHandCursor;
+        }
+
+        setMouseCursor (cursor);
+    }
+
     void mouseDrag (const juce::MouseEvent& event) override
     {
+        if (cancelled)
+            return;
+
         if (pendingOutputDrag >= 0)
         {
             if (event.getDistanceFromDragStart() >= 4)
@@ -738,6 +822,7 @@ private:
     void curveMouseDown (const juce::MouseEvent& event)
     {
         curve = processorRef.getLfoCurve (index);
+        curveAtDown = curve;
         dragPoint = -1;
         dragTension = -1;
 
@@ -754,6 +839,7 @@ private:
     void curvePress (juce::Point<float> position)
     {
         curve = processorRef.getLfoCurve (index);
+        curveAtDown = curve;
         dragPoint = hitPoint (position);
         dragTension = dragPoint < 0 ? hitTension (position) : -1;
 
@@ -1011,7 +1097,11 @@ private:
                                                * (float) IlanaSynthAudioProcessor::lfoDrawSteps));
         const auto value = valueFromY (position.y, plot);
 
-        processorRef.setLfoCustomPoint (index, step, value);
+        // A fast stroke skips columns between mouse events: fill them in.
+        IlanaDrag::paintRun (lastDrawStep, lastDrawValue, step, value,
+                             [this] (int s, float v) { processorRef.setLfoCustomPoint (index, s, v); });
+        lastDrawStep = step;
+        lastDrawValue = value;
         repaint();
     }
 
@@ -1023,23 +1113,29 @@ private:
             return;
 
         const auto step = juce::jlimit (0, 15, (int) ((position.x - plot.getX()) / plot.getWidth() * 16.0f));
+        const auto value = valueFromY (position.y, plot);
         draggedStep = step;
 
-        if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1)
-                                                              + "_step" + juce::String (step + 1)))
+        // A fast stroke skips bars between mouse events: fill them in.
+        IlanaDrag::paintRun (lastDrawStep, lastDrawValue, step, value, [this] (int s, float v)
         {
-            if (gestureParameter != parameter)
+            if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (index + 1)
+                                                                  + "_step" + juce::String (s + 1)))
             {
-                if (gestureParameter != nullptr)
-                    gestureParameter->endChangeGesture();
+                if (gestureParameter != parameter)
+                {
+                    if (gestureParameter != nullptr)
+                        gestureParameter->endChangeGesture();
 
-                gestureParameter = parameter;
-                gestureParameter->beginChangeGesture();
+                    gestureParameter = parameter;
+                    gestureParameter->beginChangeGesture();
+                }
+
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (v));
             }
-
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (valueFromY (position.y, plot)));
-        }
-
+        });
+        lastDrawStep = step;
+        lastDrawValue = value;
         repaint();
     }
 
@@ -1155,6 +1251,8 @@ private:
         pendingConvert = false;
         pendingOutputDrag = -1;
         draggedStep = -1;
+        drawBackup.clear();
+        lastDrawStep = -1;
 
         if (gestureParameter != nullptr)
         {
@@ -1213,7 +1311,11 @@ private:
     bool followsTheme = false;
     juce::RangedAudioParameter* gestureParameter = nullptr;
     float appear = 1.0f;
-    LfoCurve curve;
+    LfoCurve curve, curveAtDown;
+    std::vector<float> drawBackup;     // the Draw / Steps values at the press, for Esc
+    int lastDrawStep = -1;             // the column the stroke last set, to fill the ones a fast stroke skips
+    float lastDrawValue = 0.0f;
+    bool cancelled = false;            // Esc: the rest of the drag does nothing
     int dragPoint = -1;
     int dragTension = -1;
     float dragStartTension = 0.0f;

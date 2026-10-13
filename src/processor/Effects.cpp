@@ -30,11 +30,15 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
                 mods.count = 0;
             fxLfoRunning = false;
         }
-        return processEffectsNow (buffer);
+        fxBlockLength = buffer.getNumSamples();
+        processEffectsNow (buffer);
+        fxClock += buffer.getNumSamples();
+        return;
     }
 
     fxLfoRunning = true;
     const auto total = buffer.getNumSamples();
+    fxBlockLength = total;
     for (int start = 0; start < total; start += FxLfo::chunk)
     {
         const auto length = juce::jmin (FxLfo::chunk, total - start);
@@ -47,6 +51,7 @@ void IlanaSynthAudioProcessor::processEffects (juce::AudioBuffer<float>& buffer)
         juce::AudioBuffer<float> part (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
         processEffectsNow (part);
     }
+    fxClock += total;
 }
 
 // The LFOs' values for the chunk about to run (each slot's offsets), then
@@ -180,7 +185,7 @@ void IlanaSynthAudioProcessor::processEffectsFixed (juce::AudioBuffer<float>& bu
 
     for (int slot = 1; slot <= numFxSlots; ++slot)
     {
-        if (! isFxSlotActive (slot - 1))
+        if (! fxSlotRuns (slot - 1))
         {
             clearFxSlotMeters (slot - 1);
             continue;
@@ -240,6 +245,14 @@ bool IlanaSynthAudioProcessor::isFxSlotActive (int index)
     return (int) getParam (ids.type) != 0 && getParam (ids.bypass) <= 0.5f;
 }
 
+// A slot to run this block: a working one, or one bypassed since it last
+// ran, which runs once more with its wet part ramped out (runFxSlot) so
+// bypassing is not a step.
+bool IlanaSynthAudioProcessor::fxSlotRuns (int index)
+{
+    return isFxSlotActive (index) || fxSlotLive[(size_t) index];
+}
+
 void IlanaSynthAudioProcessor::clearFxSlotMeters (int index)
 {
     fxSlotCpu[(size_t) index].store (0.0f);
@@ -260,13 +273,15 @@ void IlanaSynthAudioProcessor::processEffectsParallel (juce::AudioBuffer<float>&
 {
     const auto numChannels = buffer.getNumChannels();
     const auto numSamples = buffer.getNumSamples();
-    auto active = 0, soloed = 0;
+    auto active = 0, soloed = 0, fading = 0;
 
     for (int index = 0; index < numFxSlots; ++index)
     {
         if (! isFxSlotActive (index))
         {
             clearFxSlotMeters (index);
+            if (fxSlotLive[(size_t) index])
+                ++fading; // (one more block, ramping out)
             continue;
         }
 
@@ -275,7 +290,7 @@ void IlanaSynthAudioProcessor::processEffectsParallel (juce::AudioBuffer<float>&
             ++soloed;
     }
 
-    if (active > 0)
+    if (active + fading > 0)
     {
         if (fxParallelIn.getNumChannels() < numChannels || fxParallelIn.getNumSamples() < numSamples)
             fxParallelIn.setSize (numChannels, numSamples, false, false, true);
@@ -285,11 +300,11 @@ void IlanaSynthAudioProcessor::processEffectsParallel (juce::AudioBuffer<float>&
             fxParallelIn.copyFrom (channel, 0, buffer, channel, 0, numSamples);
         buffer.clear();
 
-        const auto gain = 1.0f / (float) (soloed > 0 ? soloed : active);
+        const auto gain = 1.0f / (float) (soloed > 0 ? soloed : active + fading);
 
         for (int slot = 1; slot <= numFxSlots; ++slot)
         {
-            if (! isFxSlotActive (slot - 1))
+            if (! fxSlotRuns (slot - 1))
                 continue;
 
             for (int channel = 0; channel < numChannels; ++channel)
@@ -328,13 +343,25 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
     {
         const auto& ids = fxSlotIds[(size_t) (slot - 1)];
         const auto type = (int) getParam (ids.type);
-        const auto solo = getParam (ids.solo) > 0.5f;
+        // A slot bypassed since it last ran comes here once more: its wet part
+        // ramps out over the block (the same ramp as MIX), alone, not soloed.
+        const auto working = isFxSlotActive (slot - 1);
+        const auto solo = working && getParam (ids.solo) > 0.5f;
         const auto startTicks = juce::Time::getHighResolutionTicks();
         const auto numChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
         // The slot's blend eases across the block from the last one.
         auto& blendRamp = slotBlendRamps[(size_t) (slot - 1)];
-        blendRamp.begin (getParam (ids.mix), numSamples);
+        if (working && fxSlotFaded[(size_t) (slot - 1)])
+        {
+            // Back from a bypass: the wet part ramps in from the dry.
+            fxSlotFaded[(size_t) (slot - 1)] = false;
+            blendRamp.last = 0.0f;
+        }
+        fxSlotLive[(size_t) (slot - 1)] = working;
+        if (! working)
+            fxSlotFaded[(size_t) (slot - 1)] = true;
+        blendRamp.begin (working ? getParam (ids.mix) : 0.0f, numSamples);
         const auto blend = blendRamp.last;
         const auto blendFrom = blendRamp.from;
         const auto band = (int) getParam (ids.band);
@@ -362,35 +389,54 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
             return;
         }
 
+        // Skipped for longer than the longest delay memory (2 s): whatever it
+        // holds is stale and would replay as new echoes, so it starts empty.
+        // (A shared engine is left alone while another slot of the type runs.)
+        if (fxClock - fxSlotLastRun[(size_t) (slot - 1)] > (std::int64_t) (2.0 * juce::jmax (1.0, currentSampleRate)) + fxBlockLength)
+        {
+            auto shared = false;
+            if (slotEngines[(size_t) (slot - 1)].load (std::memory_order_acquire) == nullptr)
+                for (int other = 0; other < numFxSlots; ++other)
+                    if (other != slot - 1 && (int) getParam (fxSlotIds[(size_t) other].type) == type
+                        && fxClock - fxSlotLastRun[(size_t) other] <= 2 * (std::int64_t) expectedBlockSize)
+                        shared = true;
+            if (! shared)
+                engineForSlot (slot - 1).reset();
+        }
+        fxSlotLastRun[(size_t) (slot - 1)] = fxClock;
+
         if (band > 0 && numChannels == 2)
         {
             processSlotBand (slot - 1, type, band, buffer, solo, blend, blendFrom);
         }
         else if (solo || blend < 0.999f || blendFrom < 0.999f)
         {
+            // (Sized in prepareToPlay; the grow is for a longer block than announced.)
             if (fxScratch.getNumChannels() < numChannels || fxScratch.getNumSamples() < numSamples)
                 fxScratch.setSize (numChannels, numSamples, false, false, true);
 
+            // The effect gets a view of exactly this block (it works on getNumSamples()).
+            juce::AudioBuffer<float> scratch (fxScratch.getArrayOfWritePointers(), numChannels, numSamples);
             for (int channel = 0; channel < numChannels; ++channel)
-                fxScratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+                scratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
 
-            engineForSlot (slot - 1).processSlot (type, fxScratch);
+            engineForSlot (slot - 1).processSlot (type, scratch);
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
                 if (solo)
                 {
-                    buffer.copyFrom (channel, 0, fxScratch, channel, 0, numSamples);
+                    buffer.copyFrom (channel, 0, scratch, channel, 0, numSamples);
                 }
                 else if (blendRamp.moving())
                 {
                     buffer.applyGainRamp (channel, 0, numSamples, 1.0f - blendFrom, 1.0f - blend);
-                    buffer.addFromWithRamp (channel, 0, fxScratch.getReadPointer (channel), numSamples, blendFrom, blend);
+                    buffer.addFromWithRamp (channel, 0, scratch.getReadPointer (channel), numSamples, blendFrom, blend);
                 }
                 else
                 {
                     buffer.applyGain (channel, 0, numSamples, 1.0f - blend);
-                    buffer.addFrom (channel, 0, fxScratch, channel, 0, numSamples, blend);
+                    buffer.addFrom (channel, 0, scratch, channel, 0, numSamples, blend);
                 }
             }
         }
@@ -399,7 +445,9 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
             engineForSlot (slot - 1).processSlot (type, buffer);
         }
 
-        sanitiseBuffer (buffer);
+        // An effect whose output is not finite has latched: it starts empty.
+        if (sanitiseBuffer (buffer))
+            engineForSlot (slot - 1).reset();
 
         {
             auto& in = fxSlotIn[(size_t) (slot - 1)];
@@ -523,16 +571,17 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     }
 
     // The slot on its band, with its blend and solo as on the full signal.
-    fxScratch.copyFrom (0, 0, fxBand, 0, 0, numSamples);
-    fxScratch.copyFrom (1, 0, fxBand, 1, 0, numSamples);
-    engineForSlot (slot).processSlot (type, fxScratch);
+    juce::AudioBuffer<float> scratch (fxScratch.getArrayOfWritePointers(), 2, numSamples);
+    scratch.copyFrom (0, 0, fxBand, 0, 0, numSamples);
+    scratch.copyFrom (1, 0, fxBand, 1, 0, numSamples);
+    engineForSlot (slot).processSlot (type, scratch);
     const auto wet = solo ? 1.0f : blend, dry = solo ? 0.0f : 1.0f - blend;
     const auto wetFrom = solo ? 1.0f : blendFrom, dryFrom = solo ? 0.0f : 1.0f - blendFrom;
     const auto wetStep = numSamples > 0 ? (wet - wetFrom) / (float) numSamples : 0.0f;
     const auto dryStep = numSamples > 0 ? (dry - dryFrom) / (float) numSamples : 0.0f;
     for (int channel = 0; channel < 2; ++channel)
     {
-        auto* out = fxScratch.getWritePointer (channel);
+        auto* out = scratch.getWritePointer (channel);
         const auto* in = fxBand.getReadPointer (channel);
         for (int i = 0; i < numSamples; ++i)
             out[i] = out[i] * (wetFrom + wetStep * (float) i) + in[i] * (dryFrom + dryStep * (float) i);
@@ -542,8 +591,8 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     if (solo)
         buffer.clear();
 
-    const auto* wetL = fxScratch.getReadPointer (0);
-    const auto* wetR = fxScratch.getReadPointer (1);
+    const auto* wetL = scratch.getReadPointer (0);
+    const auto* wetR = scratch.getReadPointer (1);
     for (int i = 0; i < numSamples; ++i)
     {
         if (band == 4 || band == 5)
@@ -1090,8 +1139,10 @@ void IlanaSynthAudioProcessor::FxEngine::processReverb (juce::AudioBuffer<float>
             for (int channel = 0; channel < numChannels; ++channel)
                 reverbScratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
 
+            // (Only this block's samples: the scratch can be longer.)
             juce::dsp::AudioBlock<float> block (reverbScratch);
-            juce::dsp::ProcessContextReplacing<float> context (block);
+            auto part = block.getSubBlock (0, (size_t) numSamples);
+            juce::dsp::ProcessContextReplacing<float> context (part);
             convolution.process (context);
 
             const auto wet = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
@@ -1434,8 +1485,21 @@ void IlanaSynthAudioProcessor::FxEngine::processGate (juce::AudioBuffer<float>& 
         levels[(size_t) step] = pattern == 8 ? getParam (gateStepIds[(size_t) step])
                                              : gatePatternLevel (pattern, step);
 
-    // Position in steps: from the host while playing, else free-running.
-    auto position = hostPlaying.load() ? hostPpq.load() / stepBeats : gatePhase;
+    // Position in steps: from the host while playing, else free-running. The
+    // host's beat is the one at the start of the block, so a call on part of
+    // it (the FX LFOs' or a loop's chunks) goes on by the samples already gone.
+    auto position = gatePhase;
+    if (hostPlaying.load())
+    {
+        const auto ppq = hostPpq.load();
+        if (ppq != gateLastPpq)
+        {
+            gateLastPpq = ppq;
+            gateSamplesSincePpq = 0;
+        }
+        position = ppq / stepBeats + (double) gateSamplesSincePpq * stepsPerSample;
+        gateSamplesSincePpq += numSamples;
+    }
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -1477,7 +1541,9 @@ void IlanaSynthAudioProcessor::FxEngine::processGate (juce::AudioBuffer<float>& 
         position += stepsPerSample;
     }
 
-    gatePhase = std::fmod (position, 64.0);
+    // (Wrapped on a whole number of swing pairs of the pattern, else the
+    // pattern would jump where it wraps.)
+    gatePhase = std::fmod (position, 2.0 * (double) steps * 64.0);
     gateDisplayStep = gateLastStep;
 
     if (euclid)
@@ -2349,7 +2415,7 @@ void IlanaSynthAudioProcessor::copyFxChainToOtherBank()
 
 // Roadmap step A: the rack as a graph. Each slot with an effect is a node
 // (ref = its slot number), wired as SERIES or PARALLEL wires it today.
-PatchGraph::Graph IlanaSynthAudioProcessor::getFxRackGraph()
+PatchGraph::Graph IlanaSynthAudioProcessor::getFxRackGraph (bool ignoreBypass)
 {
     std::vector<PatchGraph::RackSlot> slots;
     for (int index = 0; index < numFxSlots; ++index)
@@ -2357,7 +2423,7 @@ PatchGraph::Graph IlanaSynthAudioProcessor::getFxRackGraph()
         const auto& ids = fxSlotIds[(size_t) index];
         PatchGraph::RackSlot slot;
         slot.type = (int) getParam (ids.type);
-        slot.bypassed = getParam (ids.bypass) > 0.5f;
+        slot.bypassed = ! ignoreBypass && getParam (ids.bypass) > 0.5f;
         slot.solo = getParam (ids.solo) > 0.5f;
         if (auto* parameter = apvts.getParameter ("fx_slot" + juce::String (index + 1)))
             slot.label = parameter->getCurrentValueAsText().toUpperCase().toStdString();
@@ -2507,6 +2573,10 @@ void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samples
     reverb.setSampleRate (sampleRate);
     reverb.reset();
     reverbDryScratch.setSize (2, samplesPerBlock, false, false, true);
+    // (Sized here so the audio thread need not; the grows in processReverb and
+    // processAirwindows stay as a guard for a longer block.)
+    reverbScratch.setSize (2, juce::jmax (samplesPerBlock, expectedBlockSize), false, false, true);
+    airwindowsMonoRight.assign ((size_t) juce::jmax (samplesPerBlock, expectedBlockSize), 0.0f);
     airwindowsModule.prepare (sampleRate, samplesPerBlock);
     for (auto& module : awCategoryModules)
         module.prepare (sampleRate, samplesPerBlock);

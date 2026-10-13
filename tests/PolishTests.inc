@@ -741,8 +741,252 @@ void runTransportStopTest()
     check (bad.isEmpty(), "arp, sequencer and spray stop on all-notes-off and all-sound-off (" + bad.joinIntoString (", ") + ")");
 }
 
+// A note that starts after the mod wheel, expression or pressure moved sees
+// their current values (a voice only hears the controllers that arrive while
+// it plays); the MPE master channel bends member notes; poly glide starts
+// from the previous note, not from the reused voice's own last pitch.
+void runControllerSeedTest()
+{
+    struct Sound : public juce::SynthesiserSound
+    {
+        bool appliesToNote (int) override { return true; }
+        bool appliesToChannel (int) override { return true; }
+    };
+
+    IlanaSynth synth;
+    synth.addSound (new Sound());
+    for (int i = 0; i < 2; ++i)
+        synth.addVoice (new Voice());
+    synth.setCurrentPlaybackSampleRate (48000.0);
+
+    const auto setAll = [&] (const std::function<void (VoiceParams&)>& edit)
+    {
+        VoiceParams p;
+        edit (p);
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            static_cast<Voice*> (synth.getVoice (i))->setParams (p);
+    };
+    const auto playing = [&]() -> Voice*
+    {
+        for (int i = 0; i < synth.getNumVoices(); ++i)
+            if (synth.getVoice (i)->isVoiceActive())
+                return static_cast<Voice*> (synth.getVoice (i));
+        return nullptr;
+    };
+
+    setAll ([] (VoiceParams&) {});
+    synth.handleController (1, 1, 127);
+    synth.handleController (1, 11, 0);
+    synth.handleChannelPressure (1, 64);
+    synth.noteOn (1, 60, 0.8f);
+    if (auto* voice = playing())
+        check (std::abs (voice->getModWheel() - 1.0f) < 0.001f && voice->getExpression() < 0.001f
+                   && std::abs (voice->getAftertouch() - 64.0f / 127.0f) < 0.001f,
+               "a note starting after the wheel, expression and pressure moved sees them");
+
+    synth.allNotesOff (0, false);
+    synth.handleController (1, 1, 0);
+    synth.noteOn (1, 62, 0.8f);
+    if (auto* voice = playing())
+        check (voice->getModWheel() == 0.0f, "a reused voice does not keep the old wheel value");
+
+    synth.allNotesOff (0, false);
+    setAll ([] (VoiceParams& p) { p.mpe = true; p.pitchBendRange = 48.0f; p.masterBendRange = 2.0f; });
+    synth.handlePitchWheel (1, 16383);
+    synth.noteOn (2, 64, 0.8f);
+    if (auto* voice = playing())
+        check (std::abs (voice->getBendSemitones() - 2.0) < 0.01, "MPE master-channel bend reaches a member-channel note");
+
+    synth.allNotesOff (0, false);
+    Voice::polyGlideFromLastNote = true; // (off in the product until ilana decides: it changes poly GLIDE presets)
+    setAll ([] (VoiceParams& p) { p.glideTime = 0.3f; });
+    synth.noteOn (1, 48, 0.8f);
+    synth.noteOff (1, 48, 0.0f, true); // still releasing, so the next note takes the other voice
+    synth.noteOn (1, 60, 0.8f);
+    auto* second = static_cast<Voice*> (synth.getVoice (1));
+    check (second->isVoiceActive() && std::abs (second->getCurrentFrequency() - juce::MidiMessage::getMidiNoteInHertz (48)) < 0.01,
+           "poly glide starts from the previous note's pitch");
+    Voice::polyGlideFromLastNote = false;
+}
+
+// State and presets (the state review): what a state leaves behind, what a
+// load cancels, what EDITED and undo see.
+void runStatePresetTest()
+{
+    const auto xmlOf = [] (IlanaSynthAudioProcessor& p)
+    {
+        juce::MemoryBlock block;
+        p.getStateInformation (block);
+        return std::unique_ptr<juce::XmlElement> (juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize()));
+    };
+    const auto load = [] (IlanaSynthAudioProcessor& p, const juce::XmlElement& xml, bool flush)
+    {
+        juce::MemoryBlock block;
+        juce::AudioProcessor::copyXmlToBinary (xml, block);
+        p.setStateInformation (block.getData(), (int) block.getSize());
+        if (flush)
+            p.flushAsyncUpdates();
+    };
+
+    IlanaSynthAudioProcessor processor;
+
+    // S8: a state with no learned CCs clears the map.
+    {
+        auto state = xmlOf (processor);
+        state->setAttribute ("midiCcMap", "74=f1_cutoff");
+        load (processor, *state, true);
+        check (xmlOf (processor)->getStringAttribute ("midiCcMap") == "74=f1_cutoff", "a learned CC map loads");
+        state->setAttribute ("midiCcMap", "");
+        load (processor, *state, true);
+        const auto after = xmlOf (processor);
+        check (after->hasAttribute ("midiCcMap") && after->getStringAttribute ("midiCcMap").isEmpty(),
+               "a state with no learned CCs clears the map");
+    }
+
+    // S2: a remap the patch no longer has is not saved again.
+    {
+        auto state = xmlOf (processor);
+        state->setAttribute ("mod1Remap", "0,1,0;1,0,0");
+        load (processor, *state, true);
+        check (processor.isModRemapOn (0) && xmlOf (processor)->hasAttribute ("mod1Remap"), "a remap loads");
+        processor.loadFactoryPreset (3);
+        processor.flushAsyncUpdates();
+        check (! xmlOf (processor)->hasAttribute ("mod1Remap"), "a factory preset's save carries no remap of the last state");
+    }
+
+    // S9, S10: a drawn LFO shape a state lacks is the default sine, and nan is refused.
+    {
+        processor.setLfoCustomPoint (0, 3, 0.9f);
+        auto state = xmlOf (processor);
+        state->removeAttribute ("lfo1Draw");
+        load (processor, *state, true);
+        const auto sine = (float) std::sin (juce::MathConstants<double>::twoPi * 3.0 / (double) IlanaSynthAudioProcessor::lfoDrawSteps);
+        check (std::abs (processor.getLfoCustomPoint (0, 3) - sine) < 1.0e-5f, "a state without a drawn LFO shape gets the default");
+
+        state->setAttribute ("lfo1Draw", "nan,0.5,inf");
+        state->setAttribute ("lfo1Curve", "nan,0,0;0,0,0;1,1,0");
+        load (processor, *state, true);
+        auto finite = std::isfinite (processor.getLfoCustomPoint (0, 0)) && std::isfinite (processor.getLfoCustomPoint (0, 2));
+        for (const auto& point : processor.getLfoCurve (0).points)
+            finite = finite && std::isfinite (point.x) && std::isfinite (point.y);
+        check (finite && processor.getLfoCurve (0).points.size() >= 2 && processor.getLfoCustomPoint (0, 1) == 0.5f,
+               "nan in a drawn LFO shape or curve is refused");
+    }
+
+    // S1, S3: a file sample survives a load of the same state before the async update;
+    // a missing file leaves the slot empty (and the path in the next save).
+    {
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-state-test");
+        folder.createDirectory();
+        const auto file = folder.getChildFile ("sample.wav");
+        file.deleteFile();
+        {
+            juce::WavAudioFormat format;
+            std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (file);
+            auto writer = format.createWriterFor (stream, juce::AudioFormatWriterOptions().withSampleRate (44100.0)
+                                                                                     .withNumChannels (1)
+                                                                                     .withBitsPerSample (16));
+            if (writer != nullptr)
+            {
+                juce::AudioBuffer<float> buffer (1, 4410);
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    buffer.setSample (0, i, 0.5f * std::sin (0.05f * (float) i));
+                writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+            }
+        }
+
+        check (processor.loadUserSample (1, file), "the test sample loads");
+        const auto withSample = xmlOf (processor);
+        check (withSample->getStringAttribute ("osc2SamplePath") == file.getFullPathName(), "the sample's path is saved");
+
+        processor.loadFactoryPreset (5);
+        load (processor, *withSample, false); // before any async update
+        processor.flushAsyncUpdates();
+        check (xmlOf (processor)->getStringAttribute ("osc2SamplePath") == file.getFullPathName(),
+               "loading a state right after a factory preset keeps its sample");
+
+        auto missing = xmlOf (processor);
+        const auto gone = folder.getChildFile ("gone.wav").getFullPathName();
+        missing->setAttribute ("osc2SamplePath", gone);
+        const auto notices = processor.getTableNoticeVersion();
+        load (processor, *missing, true);
+        check (processor.getSampleForOsc (1) == nullptr && processor.getTableNoticeVersion() != notices,
+               "a missing sample file empties the slot and says so");
+        check (xmlOf (processor)->getStringAttribute ("osc2SamplePath") == gone, "the missing sample's path is kept for the next save");
+
+        processor.loadFactoryPreset (5);
+        check (! xmlOf (processor)->hasAttribute ("osc2SamplePath"), "a factory preset carries no sample path");
+        file.deleteFile();
+    }
+
+    // S6: the EDITED hash sees tables, macro names and tuning.
+    {
+        IlanaSynthAudioProcessor other;
+        const auto base = other.getPatchDataHash();
+        other.setMacroName (0, "Edited");
+        const auto named = other.getPatchDataHash();
+        check (named != base, "a macro name is part of the EDITED hash");
+        other.setUserTable (2, WavetableDoc::sine());
+        const auto tabled = other.getPatchDataHash();
+        check (tabled != named, "a patch table is part of the EDITED hash");
+        juce::String error;
+        if (other.loadTuningScale ("test\n 3\n 9/8\n 5/4\n 2/1\n", error))
+            check (other.getPatchDataHash() != tabled, "a tuning is part of the EDITED hash");
+    }
+
+    // S5: undoing a factory load puts back the tables, macro names and samples it cleared.
+    {
+        IlanaSynthAudioProcessor other;
+        other.setMacroName (1, "Mine");
+        other.setUserTable (4, WavetableDoc::sine());
+        other.getUndoManager().clearUndoHistory();
+        other.beginEdit ("Load");
+        other.loadFactoryPreset (7);
+        other.endEdit();
+        check (! other.isUserSlotEdited (4), "a factory load resets the patch tables");
+        other.getUndoManager().undo();
+        check (other.isUserSlotEdited (4) && other.getMacroName (1) == "Mine",
+               "undoing a factory load puts back the patch tables and macro names");
+    }
+
+    // S4: a bounce that finishes after another patch loaded is dropped.
+    {
+        IlanaSynthAudioProcessor other;
+        other.prepareToPlay (48000.0, 256);
+        IlanaSynthAudioProcessor::BounceRequest request;
+        request.targetOsc = 3;
+        request.holdSeconds = 0.3;
+        request.tailSeconds = 0.2;
+        check (other.startBounce (request), "the bounce starts");
+        other.loadFactoryPreset (7);
+        const auto started = juce::Time::getMillisecondCounter();
+        while (other.getBounceState() == IlanaSynthAudioProcessor::BounceState::Rendering
+               && juce::Time::getMillisecondCounter() - started < 60000)
+        {
+            juce::Thread::sleep (20);
+            other.flushAsyncUpdates();
+        }
+        check (other.getBounceState() == IlanaSynthAudioProcessor::BounceState::Failed && ! other.isSampleEmbedded (3),
+               "a bounce finishing after a patch load is discarded (" + other.getBounceMessage() + ")");
+    }
+
+    // S14: a keyboard map loaded before any scale is saved.
+    {
+        IlanaSynthAudioProcessor other;
+        juce::String error;
+        const auto ok = other.loadTuningMapping ("12\n0\n127\n60\n69\n440\n12\n0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n", error);
+        if (ok)
+        {
+            const auto state = xmlOf (other);
+            auto* tuning = state->getChildByName ("Tuning");
+            check (tuning != nullptr && tuning->getStringAttribute ("kbm").isNotEmpty(), "a keyboard map without a scale is saved");
+        }
+    }
+}
+
 void runTests()
 {
+    timedRun ("Polish::runControllerSeedTest", [] { runControllerSeedTest(); });
     timedRun ("Polish::runTransportStopTest", [] { runTransportStopTest(); });
     timedRun ("Polish::runVoicesEndTest", [] { runVoicesEndTest(); });
     timedRun ("Polish::runTuningAcrossRatesTest", [] { runTuningAcrossRatesTest(); });
@@ -755,6 +999,7 @@ void runTests()
     timedRun ("Polish::runContinuousTest", [] { runContinuousTest(); });
     timedRun ("Polish::runRepeatableLoadTest", [] { runRepeatableLoadTest(); });
     timedRun ("Polish::runPatchCutTest", [] { runPatchCutTest(); });
+    timedRun ("Polish::runStatePresetTest", [] { runStatePresetTest(); });
 }
 } // namespace Polish
 

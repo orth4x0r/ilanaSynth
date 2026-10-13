@@ -58,6 +58,31 @@ inline juce::Colour oscColour (int index)
     return juce::Colour (colours[(size_t) juce::jlimit (0, 5, index)]);
 }
 
+// The envelopes' identity colours: one table for the chips, rings and cables
+// (modSourceColour), the ENV page and the filter cards, so FILT ENV and
+// FILT 2 are the same violet and blue wherever they appear (G-09). 0 = AMP
+// ENV, 1 = FILT ENV, 2 = FILT 2, 3 = MOD ENV, 4 = ENV 4.
+inline juce::Colour envIdentityColour (int index)
+{
+    static const juce::uint32 colours[] { 0xffff5a4a, 0xffb46bff, 0xff7d86ff, 0xff8fff3b, 0xff5b8cff };
+    return juce::Colour (colours[(size_t) juce::jlimit (0, 4, index)]);
+}
+
+// The picture a chip or card is dragged by. The ghost lives in its own window
+// at the screen's scale, while the editor is drawn through its zoom: rendered
+// at 1.0 it came out soft and smaller than what was picked up (G-13). The
+// snapshot is taken at zoom x display scale and handed over at the display
+// scale, so it covers the same screen size, sharp.
+inline juce::ScaledImage dragGhost (juce::Component& source, juce::Rectangle<int> area, float alpha)
+{
+    const auto zoom = juce::jmax (0.25f, juce::Component::getApproximateScaleFactorForComponent (&source));
+    const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (source.getScreenBounds());
+    const auto displayScale = display != nullptr ? juce::jmax (1.0f, (float) display->scale) : 1.0f;
+    auto image = source.createComponentSnapshot (area, true, zoom * displayScale);
+    image.multiplyAllAlphas (alpha);
+    return juce::ScaledImage (image, (double) displayScale);
+}
+
 // Whether a colour is one of the oscillators' (whatever its alpha).
 inline bool isOscIdentityColour (juce::Colour colour)
 {
@@ -1145,6 +1170,13 @@ public:
         const auto lineWidth = arcRadius >= 12.0f ? 3.0f : 2.5f;
         const auto enabled = slider.isEnabled();
 
+        // The keyboard is on this knob (Tab): a ring around the dial.
+        if (slider.hasKeyboardFocus (false))
+        {
+            g.setColour (accent().withAlpha (0.6f));
+            g.drawEllipse (juce::Rectangle<float> (arcRadius * 2.0f + 6.0f, arcRadius * 2.0f + 6.0f).withCentre (centre), 1.2f);
+        }
+
         // Recent movement makes the arc flare, then settle.
         const auto flare = valueFlare (&slider, targetPos, slider.isMouseOverOrDragging());
 
@@ -1274,6 +1306,13 @@ public:
                                     ? juce::Colour ((juce::uint32) (int) button.getProperties()["switchColour"])
                                     : accent();
             paintSwitch (g, bounds, amount, colour, hover);
+
+            if (button.hasKeyboardFocus (false))
+            {
+                g.setColour (accent().withAlpha (0.6f));
+                g.drawRoundedRectangle (bounds.expanded (2.5f), bounds.getHeight() * 0.5f + 2.5f, 1.0f);
+            }
+
             return;
         }
 
@@ -1875,6 +1914,13 @@ public:
 
         const auto thumbX = juce::jlimit ((float) x, (float) (x + width), sliderPos);
         const auto thumb = juce::Rectangle<float> (11.0f + 2.0f * hover, 11.0f + 2.0f * hover).withCentre ({ thumbX, centreY });
+
+        if (slider.hasKeyboardFocus (false))
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.6f));
+            g.drawEllipse (thumb.expanded (4.0f), 1.0f);
+        }
+
         g.setColour (IlanaTheme::Ui::panel);
         g.fillEllipse (thumb.expanded (2.0f));
         g.setColour (juce::Colours::white);

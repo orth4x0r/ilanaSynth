@@ -43,6 +43,8 @@ Audio renderBungee (const Audio& input, double lengthFactor, double pitchRatio)
     const auto maxGrains = 64 + (long) (4.0 * outFrames / 128.0);
     for (long count = 0; count < maxGrains && (int) output.channels[0].size() < outFrames; ++count)
     {
+        if (cancelled())
+            return {};
         const auto chunk = stretcher.specifyGrain (request);
         const auto length = chunk.end - chunk.begin;
         grain.assign ((size_t) length * (size_t) numChannels, 0.0f);

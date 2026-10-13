@@ -94,8 +94,13 @@ void removeNodeBridged (PatchGraph::Graph& graph, PatchGraph::NodeId id)
 //==============================================================================
 FxPatchData::Patch IlanaSynthAudioProcessor::getFxPatch() const
 {
+    return *getFxPatchShared();
+}
+
+std::shared_ptr<const FxPatchData::Patch> IlanaSynthAudioProcessor::getFxPatchShared() const
+{
     const juce::SpinLock::ScopedLockType lock (stateLock);
-    return *fxPatch;
+    return fxPatch;
 }
 
 void IlanaSynthAudioProcessor::setFxPatch (const FxPatchData::Patch& patch)
@@ -178,7 +183,10 @@ void IlanaSynthAudioProcessor::applyFxPatchRuntime()
         const auto* same = ownedValues[(size_t) s].get();
         if (table == nullptr && same == nullptr)
             continue;
-        if (table != nullptr && same != nullptr && *table == *same)
+        // (NaN marks a knob the instance doesn't own: equal when both are.)
+        if (table != nullptr && same != nullptr && table->size() == same->size()
+            && std::equal (table->begin(), table->end(), same->begin(),
+                           [] (float a, float b) { return a == b || (std::isnan (a) && std::isnan (b)); }))
             continue;
         slotValues[(size_t) s].store (table != nullptr ? table->data() : nullptr, std::memory_order_release);
         retireFx (nullptr, std::move (ownedValues[(size_t) s]));
@@ -573,7 +581,9 @@ void IlanaSynthAudioProcessor::setFxPatcherOn (bool on)
     {
         // The rack as it is, so turning the patcher on changes nothing heard.
         auto patch = getFxPatch();
-        patch.graph = getFxRackGraph();
+        // (A PARALLEL rack leaves a bypassed slot's cables out; the patch keeps
+        // them, as the bypass is the slot's parameter, so un-bypassing is heard.)
+        patch.graph = getFxRackGraph (true);
         for (const auto& node : std::vector<PatchGraph::Node> (patch.graph.nodes()))
             patch.graph.setBypassed (node.id, false); // a slot's bypass is its parameter
         patch.hasGraph = true;
@@ -631,12 +641,12 @@ float IlanaSynthAudioProcessor::getFxLoopGuard (std::uint32_t fromNode, int from
 
 bool IlanaSynthAudioProcessor::isFxInstance (int slotIndex) const
 {
-    return juce::isPositiveAndBelow (slotIndex, numSlots) && getFxPatch().slots[(size_t) slotIndex].own;
+    return juce::isPositiveAndBelow (slotIndex, numSlots) && getFxPatchShared()->slots[(size_t) slotIndex].own;
 }
 
 bool IlanaSynthAudioProcessor::isFxSlotInFront (int slotIndex) const
 {
-    return ! juce::isPositiveAndBelow (slotIndex, numSlots) || ! getFxPatch().slots[(size_t) slotIndex].hasValues;
+    return ! juce::isPositiveAndBelow (slotIndex, numSlots) || ! getFxPatchShared()->slots[(size_t) slotIndex].hasValues;
 }
 
 int IlanaSynthAudioProcessor::addFxEffect (int type)
@@ -771,14 +781,6 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
     if (a == b || ! juce::isPositiveAndBelow (a, numSlots) || ! juce::isPositiveAndBelow (b, numSlots))
         return;
 
-    std::swap (ownedEngines[(size_t) a], ownedEngines[(size_t) b]);
-    std::swap (ownedValues[(size_t) a], ownedValues[(size_t) b]);
-    for (const auto s : { a, b })
-    {
-        slotEngines[(size_t) s].store (ownedEngines[(size_t) s].get(), std::memory_order_release);
-        slotValues[(size_t) s].store (ownedValues[(size_t) s] != nullptr ? ownedValues[(size_t) s]->data() : nullptr, std::memory_order_release);
-    }
-
     auto patch = getFxPatch();
     std::swap (patch.slots[(size_t) a], patch.slots[(size_t) b]);
     const auto swapped = [a, b] (int s) { return s == a ? b : s == b ? a : s; };
@@ -790,8 +792,10 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
         for (const auto& node : std::vector<PatchGraph::Node> (patch.graph.nodes()))
             if (auto* editable = patch.graph.find (node.id); editable != nullptr && ! node.isFixed())
                 editable->ref = node.ref == a + 1 ? b + 1 : node.ref == b + 1 ? a + 1 : node.ref;
-    publishFxPatch (std::move (patch));
 
+    // The parameters first, then the engines, value tables and the patch right
+    // after (all within microseconds), so a block never runs a slot's new
+    // effect on the other slot's engine for long.
     for (const auto* suffix : { "", "_bypass", "_solo", "_mix", "_band" })
     {
         auto* first = apvts.getParameter ("fx_slot" + juce::String (a + 1) + suffix);
@@ -804,6 +808,17 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
             second->setValueNotifyingHost (firstValue);
         }
     }
+
+    std::swap (ownedEngines[(size_t) a], ownedEngines[(size_t) b]);
+    std::swap (ownedValues[(size_t) a], ownedValues[(size_t) b]);
+    for (const auto s : { a, b })
+    {
+        slotEngines[(size_t) s].store (ownedEngines[(size_t) s].get(), std::memory_order_release);
+        slotValues[(size_t) s].store (ownedValues[(size_t) s] != nullptr ? ownedValues[(size_t) s]->data() : nullptr, std::memory_order_release);
+    }
+
+    publishFxPatch (std::move (patch));
+
     reconcileFxPatch(); // the numbered labels
 }
 
@@ -911,7 +926,7 @@ void IlanaSynthAudioProcessor::processEffectsPatched (juce::AudioBuffer<float>& 
         if (! node.inPlace && io.in[0] != io.out[0])
             for (int c = 0; c < out.getNumChannels(); ++c)
                 out.copyFrom (c, 0, *io.in[0], c, 0, length);
-        if (node.ref >= 1 && node.ref <= numSlots && isFxSlotActive (node.ref - 1))
+        if (node.ref >= 1 && node.ref <= numSlots && fxSlotRuns (node.ref - 1))
             runFxSlot (node.ref, out);
     });
 
@@ -929,7 +944,8 @@ void IlanaSynthAudioProcessor::processEffectsPatched (juce::AudioBuffer<float>& 
 // The card displays read the engine of the card in front of each effect.
 const IlanaSynthAudioProcessor::FxEngine& IlanaSynthAudioProcessor::displayEngine (int type) const
 {
-    const auto patch = getFxPatch();
+    const auto patchPointer = getFxPatchShared(); // (per card per frame: no copy)
+    const auto& patch = *patchPointer;
     for (int s = 0; s < numSlots; ++s)
         if ((int) getRawParam (fxSlotIds[(size_t) s].type) == type && ! patch.slots[(size_t) s].hasValues)
             return engineForSlot (s);
@@ -940,8 +956,8 @@ bool IlanaSynthAudioProcessor::getFxInstanceValue (int slotIndex, const juce::St
 {
     if (! juce::isPositiveAndBelow (slotIndex, numSlots))
         return false;
-    const auto patch = getFxPatch();
-    for (const auto& [key, stored] : patch.slots[(size_t) slotIndex].values)
+    const auto patchPointer = getFxPatchShared();
+    for (const auto& [key, stored] : patchPointer->slots[(size_t) slotIndex].values)
         if (key == id)
         {
             value = stored;

@@ -230,11 +230,11 @@ inline juce::Colour modSourceColour (int sourceIndex)
 
     switch ((Mod::Source) sourceIndex)
     {
-        case Mod::Source::AmpEnv:     return juce::Colour (0xffff5a4a); // not the accent: it would clash with FILT ENV or LFO 1
-        case Mod::Source::FilterEnv:  return juce::Colour (0xffb46bff);
-        case Mod::Source::FilterEnv2: return juce::Colour (0xff7d86ff);
-        case Mod::Source::ModEnv:     return juce::Colour (0xff8fff3b);
-        case Mod::Source::Env4:       return juce::Colour (0xff5b8cff);
+        case Mod::Source::AmpEnv:     return IlanaTheme::envIdentityColour (0); // not the accent: it would clash with FILT ENV or LFO 1
+        case Mod::Source::FilterEnv:  return IlanaTheme::envIdentityColour (1);
+        case Mod::Source::FilterEnv2: return IlanaTheme::envIdentityColour (2);
+        case Mod::Source::ModEnv:     return IlanaTheme::envIdentityColour (3);
+        case Mod::Source::Env4:       return IlanaTheme::envIdentityColour (4);
         // The performance sources: soft tints, each its own hue.
         case Mod::Source::Velocity:   return juce::Colour::fromHSV (0.03f, 0.34f, 0.97f, 1.0f); // peach
         case Mod::Source::KeyTrack:   return juce::Colour::fromHSV (0.31f, 0.34f, 0.92f, 1.0f); // sage
@@ -508,7 +508,8 @@ private:
     int numShown() const
     {
         const auto count = (int) dots.size();
-        return count > maxVisible ? maxVisible - 1 : count;
+        // (A strip with room for two shows the "+N" alone, not a disc over a pill: one mark on a small knob, P-2.)
+        return count > maxVisible ? (maxVisible <= 2 ? 0 : maxVisible - 1) : count;
     }
 
     void showDotMenu (int index)
@@ -723,7 +724,52 @@ private:
 // Cmd) = 10x finer from where it is held, the cursor hidden and unbounded
 // while turning so a drag never runs out of screen. Ctrl-click resets to
 // the default (the double-click return value, set by KnobControl).
-class KnobSlider : public juce::Slider
+// A slider the keyboard can reach (Tab) and drive: Up / Right and Down / Left
+// step the value by 1 % of its range (the interval, for a stepped one),
+// Shift by 0.1 %, Page Up / Down by 10 %. A click does not take the keys
+// from the editor, so the shortcuts and the note keys keep working; a focus
+// ring is drawn by the look and feel while the keys are here (G-10).
+class KeyboardSlider : public juce::Slider
+{
+public:
+    KeyboardSlider()
+    {
+        setWantsKeyboardFocus (true);
+        setMouseClickGrabsKeyboardFocus (false);
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        const auto code = key.getKeyCode();
+        const auto mods = key.getModifiers();
+        const auto page = code == juce::KeyPress::pageUpKey || code == juce::KeyPress::pageDownKey;
+        const auto up = page ? code == juce::KeyPress::pageUpKey : (code == juce::KeyPress::upKey || code == juce::KeyPress::rightKey);
+        const auto down = page ? code == juce::KeyPress::pageDownKey : (code == juce::KeyPress::downKey || code == juce::KeyPress::leftKey);
+
+        if (! isEnabled() || (! up && ! down) || mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown())
+            return juce::Slider::keyPressed (key);
+
+        const auto direction = up ? 1.0 : -1.0;
+
+        if (getInterval() > 0.0)
+        {
+            setValue (getValue() + direction * getInterval() * (page ? 10.0 : 1.0), juce::sendNotificationSync);
+        }
+        else
+        {
+            const auto step = page ? 0.1 : (mods.isShiftDown() ? 0.001 : 0.01);
+            setValue (proportionOfLengthToValue (juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()) + direction * step)),
+                      juce::sendNotificationSync);
+        }
+
+        return true;
+    }
+
+    void focusGained (FocusChangeType) override { repaint(); }
+    void focusLost (FocusChangeType) override { repaint(); }
+};
+
+class KnobSlider : public KeyboardSlider
 {
 public:
     static constexpr float fullRangePixels = 200.0f;
@@ -851,6 +897,9 @@ public:
 
         if (parameter != nullptr)
         {
+            // What a screen reader says for the dial.
+            slider.setTitle (parameter->getName (64));
+            slider.setDescription (describeParameter (parameterID));
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
 
             applyModulatableMark();
@@ -1048,6 +1097,16 @@ public:
 
     bool isInlineKnob() const { return inlineLayout; }
 
+    // A row mixing modulatable and fixed knobs: the fixed ones draw the same
+    // smaller dial a ring-bearing inline knob does (S1-10, the VOICE strip).
+    void setCapDialLikeRings (bool cap)
+    {
+        if (capDialLikeRings == cap)
+            return;
+        capDialLikeRings = cap;
+        resized();
+    }
+
     // The largest dial an inline knob draws (40 everywhere; the FX rack's rows
     // grow their dials with the row when the rack is short).
     void setInlineDial (int largest)
@@ -1082,7 +1141,7 @@ public:
     // rings, so the rings clear the name (V10-18); 0 without a name.
     // (A knob that draws rings keeps 5 px under its name: room for three
     // rings over the dial without reaching the name, design sweep.)
-    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : nameLineHeight() + (ringConfig.destination != 0 ? 5 : 0); }
+    int labelBlockHeight() const { return label.getText().isEmpty() ? 0 : nameLineHeight() + (ringSpaced() ? 5 : 0); }
     // The name's line: 13, or the font's whole height when that is more (at
     // 75 % the screen floor makes the name taller than 13 units, and its
     // letters ran out of the top of the knob: ilana's PLAY strip).
@@ -1408,7 +1467,7 @@ public:
             // A modulatable dial in a low cell draws a little smaller, so at
             // least one ring fits round it inside the cell (the mockup's
             // inline knobs; none cut by the cell's edge, design sweep).
-            if (ringConfig.destination != 0)
+            if (ringConfig.destination != 0 || capDialLikeRings)
                 slider.getProperties().set ("dialRadiusCap", juce::jmax (9.0f, (float) dial * 0.5f - 4.0f));
             else
                 slider.getProperties().remove ("dialRadiusCap");
@@ -1429,7 +1488,7 @@ public:
         // (A dial stacked between its name and value is never capped: the cap belongs to the inline layouts above, and a knob that was
         // inline a moment ago, in a card too low for its row, must not keep it, or its dial stays at half size.)
         slider.getProperties().remove ("dialRadiusCap");
-        const auto valueHeight = 16 + (ringConfig.destination != 0 ? 3 : 0);
+        const auto valueHeight = 16 + (ringSpaced() ? 3 : 0);
         const auto hasLabel = label.getText().isNotEmpty();
         const auto labelHeight = labelBlockHeight();
         // The value's cell takes the cell's whole width up to 80 px (the
@@ -1459,6 +1518,17 @@ public:
     // Whether a source can be routed here (else the knob is drawn with a
     // dashed track and refuses drops, I7-5).
     bool isModulatable() const { return ringConfig.destination != 0; }
+
+    // A row mixing knobs that take a ring with ones that don't: the plain ones keep the
+    // ring knobs' spacing, so every dial and value in the row sits on one line (P-10, SPRAY).
+    void setMatchRingSpacing (bool match)
+    {
+        if (ringSpacing == match)
+            return;
+        ringSpacing = match;
+        resized();
+    }
+    bool ringSpaced() const { return ringConfig.destination != 0 || ringSpacing; }
 
     // A knob that is itself a source (a macro): no dotted track.
     void setIsSourceKnob()
@@ -2417,6 +2487,8 @@ private:
     bool compact = false, inlineText = false;
     juce::Rectangle<int> inlineValueArea;
     bool inlineLayout = false;
+    bool capDialLikeRings = false;
+    bool ringSpacing = false;
     int inlineDial = 40;
     std::function<bool()> dashWhen;
     bool sourceKnob = false;
@@ -2456,6 +2528,8 @@ public:
         {
             const auto description = describeParameter (parameterID);
             const auto tooltip = parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : "");
+            combo.setTitle (parameter->getName (64));
+            combo.setDescription (description);
             combo.setTooltip (tooltip);
             setTooltip (tooltip);
         }
@@ -2701,6 +2775,8 @@ public:
         {
             const auto description = describeParameter (parameterID);
             const auto tooltip = parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : "");
+            button.setTitle (parameter->getName (64));
+            button.setDescription (description);
             button.setTooltip (tooltip);
             setTooltip (tooltip);
         }
@@ -2963,6 +3039,8 @@ public:
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
 
             const auto description = describeParameter (parameterID);
+            slider.setTitle (parameter->getName (64));
+            slider.setDescription (description);
             slider.setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
         }
     }
@@ -2974,7 +3052,7 @@ public:
 
 private:
     juce::String parameterId;
-    juce::Slider slider;
+    KeyboardSlider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
 

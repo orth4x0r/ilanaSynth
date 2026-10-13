@@ -97,7 +97,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 95,"Morph Filter Bass",-20.6706,0.424725,1658.95,0.539842
 96,"Tape Sub",-17.8199,0.243902,4405.21,1.31397e-07
 97,"Distorted 808",-2.85748,0.93061,1416,0
-98,"Dark Ladder Pluck Bass",-18.1995,0.485007,386.09,0.118423
+98,"Dark Ladder Pluck Bass",-18.1767,0.484425,432.243,0.120079
 99,"Per-Voice Wobble",-15.784,0.371,977.377,0.464994
 100,"Supersaw Anthem",-21.1194,0.595905,1620.98,0.508172
 101,"Ladder Lead",-16.5237,0.365612,1599.65,0
@@ -264,7 +264,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 262,"Slide Fiddle",-16.892,0.526029,2370.55,0.185659
 263,"Muted Cello Pizz",-26.6443,0.322491,768.84,0.216957
 264,"Baroque Lute",-27.9548,0.40871,2657.37,0.504928
-265,"Contrabass Growl",-33.8658,0.364975,1005.33,0
+265,"Contrabass Growl",-30.8567,0.638307,1004.82,0
 266,"String Ensemble Wide",-27.36,0.203036,1643.66,1.14348
 267,"Six-Layer Stack",-18.5473,0.568867,1511.54,0
 268,"Fifth Engine",-15.3665,0.377646,4564.42,2.12426e-07
@@ -347,7 +347,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 345,"Phaser Notch Sweep",-20.0493,0.587617,841.36,0.471032
 346,"SEM Classic Lead",-17.7028,0.460257,3469.89,0.389367
 347,"Feedback Guitar Drone",-17.0365,0.690814,2909.74,0.327132
-348,"Screaming Feedback Lead",-26.1166,0.159094,1387.98,0
+348,"Screaming Feedback Lead",-26.028,0.194219,1542.54,0
 349,"Evolve Macro Pad",-20.8571,0.538442,6506.38,0.645508
 350,"Vector Corner Morph",-20.9385,0.525381,1385.05,0
 351,"Vector Path Drift",-20.0751,0.58821,2499.88,0.940436
@@ -366,7 +366,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 364,"Live West Fold",-120,0,0,0
 365,"Live Vector Morph",-120,0,0,0
 366,"Live Ring FM",-120,0,0,0
-367,"Live Granular Delay",-36.5077,0.100084,827.971,0.900306
+367,"Live Granular Delay",-10.5776,0.975569,1427.7,0.658311
 368,"Live Formant Filter",-120,0,0,0
 369,"Live Feedback Strings",-24.8135,0.57975,3228.22,0.412954
 370,"Live Twin Peak Wah",-120,0,0,0

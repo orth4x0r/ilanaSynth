@@ -18,6 +18,8 @@
 #include <cmath>
 #include <complex>
 
+class LadderFilter;
+
 namespace FilterCore
 {
 // tanh as a [7/6] Pade approximant (error < 2e-7 below 3, < 1e-3 at the
@@ -71,6 +73,8 @@ public:
     }
 
 private:
+    friend class ::LadderFilter; // its stereo pair path runs both channels' sections as SSE lanes
+
     // First-order allpass (c + z^-1) / (1 + c z^-1); x1 / y1 are its memory.
     static double section (double x, double coefficient, double& x1, double& y1)
     {
@@ -208,6 +212,8 @@ public:
     }
 
 private:
+    friend class ::LadderFilter;
+
     Settings settings;
     double linearBeta = 1.0, linearBigG = 0.0;
     std::array<double, 4> state {}, last {};

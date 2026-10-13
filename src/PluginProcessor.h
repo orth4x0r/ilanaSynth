@@ -1050,6 +1050,7 @@ private:
         ParamRef on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
     };
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
+    VoiceParams voiceParamsShared; // this block's voice parameters, built in place (idle voices read it at note start)
 
     // Parameter IDs built once, so the audio thread never allocates strings.
     struct ModSlotIds { ParamRef src, dst, amt, curve, polarity, aux, bypass, stereo; };

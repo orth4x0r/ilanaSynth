@@ -469,6 +469,10 @@ public:
     Voice();
 
     void setParams (const VoiceParams& newParams) { params = newParams; }
+
+    // Where an idle voice finds this block's parameters when a note starts on
+    // it (the processor copies them into the voices that are sounding only).
+    void setParamsSource (const VoiceParams* source) noexcept { paramsSource = source; }
     // Fade out over the given samples, then end (a voice over SUSTAIN
     // VOICES); a new note on the voice cancels it.
     void startFadeOut (int samples) noexcept
@@ -647,6 +651,7 @@ private:
     float blockMod (Mod::Destination destination) const { return blockMods[(size_t) destination]; }
 
     VoiceParams params;
+    const VoiceParams* paramsSource = nullptr;
 
     // Wavetable unison: each oscillator's voices render together (SIMD).
     UnisonBank oscBank[VoiceParams::numOscillators];

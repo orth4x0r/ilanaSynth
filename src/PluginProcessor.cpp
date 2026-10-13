@@ -804,7 +804,13 @@ int IlanaSynthAudioProcessor::wantedOversamplingFactor() const
     if (getParam ("oversampling") < 0.5f)
         return 1;
 
-    return (int) getParam ("os_factor") == 1 ? 4 : 2;
+    // At 88.2 kHz and up the voices already run fast enough: the factor drops one
+    // step there and two from 176.4 kHz, so the internal rate stays near
+    // 100-200 kHz (Vital halves its factor the same way). At 44.1 and 48 kHz
+    // the choice is used as set.
+    const auto factor = (int) getParam ("os_factor") == 1 ? 4 : 2;
+    const auto steps = baseSampleRate >= 176400.0 ? 2 : (baseSampleRate >= 88200.0 ? 1 : 0);
+    return juce::jmax (1, factor >> steps);
 }
 
 void IlanaSynthAudioProcessor::setOversampling (int factor)
@@ -1147,7 +1153,10 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     updateEvolveAndVector (buffer.getNumSamples());
     evaluateGlobalModulation (activeSlots, numActiveSlots);
 
-    VoiceParams p;
+    // Built in place: idle voices take it when a note starts on them (Voice::startNote)
+    // instead of every voice copying the whole struct every block.
+    auto& p = voiceParamsShared;
+    p = VoiceParams {};
 
     for (int osc = 0; osc < OscillatorIds::count; ++osc)
     {
@@ -1644,7 +1653,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
 
     for (int i = 0; i < synth.getNumVoices(); ++i)
         if (auto* voice = dynamic_cast<Voice*> (synth.getVoice (i)))
-            voice->setParams (p);
+        {
+            voice->setParamsSource (&voiceParamsShared);
+
+            if (voice->isVoiceActive())
+                voice->setParams (p);
+        }
 
     if (factor > 1)
     {

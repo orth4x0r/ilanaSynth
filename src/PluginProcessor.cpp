@@ -2300,7 +2300,8 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     // SoundFont and SFZ instruments: a multisample, its regions picked per note.
     if (multi)
     {
-        data = MultiSample::load (file, error, &sfz);
+        // Step 38: a SoundFont reloads the preset picked from its list.
+        data = MultiSample::load (file, error, &sfz, (int) options.getProperty ("bank", -1), (int) options.getProperty ("program", -1));
         if (data == nullptr)
             return fail (error.isNotEmpty() ? error + "." : juce::String ("the instrument could not be read."));
     }
@@ -2328,6 +2329,32 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
     }
     useLoadedSample (oscIndex, fromUser);
     return true;
+}
+
+std::pair<int, int> IlanaSynthAudioProcessor::getSoundFontPreset (int oscIndex) const
+{
+    if (const auto xml = juce::parseXML (getSampleOptions (oscIndex)))
+        if (const auto tree = juce::ValueTree::fromXml (*xml); tree.isValid() && tree.getProperty ("path").toString() == getSamplePath (oscIndex))
+            return { (int) tree.getProperty ("bank", -1), (int) tree.getProperty ("program", -1) };
+    return { -1, -1 };
+}
+
+bool IlanaSynthAudioProcessor::selectSoundFontPreset (int oscIndex, int bank, int program)
+{
+    const juce::File file (getSamplePath (oscIndex));
+    if (! file.hasFileExtension ("sf2"))
+        return false;
+    // A new preset starts with its own zones: an edited map belonged to the old one.
+    juce::ValueTree options ("SampleOptions");
+    options.setProperty ("path", file.getFullPathName(), nullptr);
+    options.setProperty ("bank", bank, nullptr);
+    options.setProperty ("program", program, nullptr);
+    const auto previous = getSampleOptions (oscIndex);
+    setSampleOptions (oscIndex, options.toXmlString());
+    if (loadUserSample (oscIndex, file, false))
+        return true;
+    setSampleOptions (oscIndex, previous);
+    return false;
 }
 
 juce::String IlanaSynthAudioProcessor::getSampleOptions (int oscIndex) const

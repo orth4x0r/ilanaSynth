@@ -4,6 +4,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../dsp/EpTuning.h"
+#include "../dsp/MultiSample.h"
 
 #include <array>
 #include <cmath>
@@ -547,6 +548,36 @@ public:
         constexpr int loadFileItem = 10000;
         constexpr int embedItem = 10001, embedAllItem = 10002, collectItem = 10003, relinkItem = 10004;
         menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+
+        // Roadmap step 38: a SoundFont's presets, by bank, to switch between.
+        constexpr int presetItemBase = 20000;
+        const juce::File soundFont (processorRef.getSamplePath (oscIndex));
+        const auto presets = soundFont.hasFileExtension ("sf2") && isSampleMode() ? MultiSample::listSf2Presets (soundFont)
+                                                                                  : std::vector<MultiSample::Sf2Preset> {};
+        if (presets.size() > 1)
+        {
+            auto [currentBank, currentProgram] = processorRef.getSoundFontPreset (oscIndex);
+            if (currentBank < 0)
+                currentBank = presets.front().bank, currentProgram = presets.front().program;
+            const auto label = [] (const MultiSample::Sf2Preset& preset)
+            {
+                return juce::String (preset.program + 1).paddedLeft ('0', 3) + "  " + preset.name;
+            };
+            juce::PopupMenu presetMenu;
+            const auto oneBank = presets.front().bank == presets.back().bank;
+            for (size_t i = 0; i < presets.size();)
+            {
+                juce::PopupMenu bankMenu;
+                const auto bank = presets[i].bank;
+                auto& into = oneBank ? presetMenu : bankMenu;
+                for (; i < presets.size() && presets[i].bank == bank; ++i)
+                    into.addItem (presetItemBase + (int) i, label (presets[i]), true,
+                                  presets[i].bank == currentBank && presets[i].program == currentProgram);
+                if (! oneBank)
+                    presetMenu.addSubMenu ("Bank " + juce::String (bank), bankMenu, true, nullptr, bank == currentBank);
+            }
+            menu.addSubMenu ("SoundFont Preset", presetMenu);
+        }
         menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
@@ -576,7 +607,7 @@ public:
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
-                            [safeThis, paramId] (int result)
+                            [safeThis, paramId, presets] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
@@ -584,6 +615,21 @@ public:
                                 if (result == loadFileItem)
                                 {
                                     safeThis->chooseSampleFile();
+                                    return;
+                                }
+
+                                if (result >= presetItemBase && result - presetItemBase < (int) presets.size())
+                                {
+                                    const auto preset = presets[(size_t) (result - presetItemBase)];
+                                    auto& processor = safeThis->processorRef;
+                                    const auto osc = safeThis->oscIndex;
+                                    processor.performEdit ("SoundFont Preset", [&]
+                                    {
+                                        if (! processor.selectSoundFontPreset (osc, preset.bank, preset.program))
+                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "SoundFont Preset",
+                                                                                    processor.getLastSampleError());
+                                    });
+                                    safeThis->repaint();
                                     return;
                                 }
 

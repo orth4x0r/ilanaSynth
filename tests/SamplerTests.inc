@@ -642,6 +642,149 @@ void runSampleRoundRobinTest()
     folder.deleteRecursively();
 }
 
+// A SoundFont with two presets in two banks, each one sine zone over the
+// whole keyboard: "Low" (bank 0, program 0) recorded at A3 and "High"
+// (bank 1, program 3) at A5.
+inline void writeTwoPresetSf2 (const juce::File& file)
+{
+    juce::MemoryOutputStream smpl;
+    const auto lowLength = 32000, highLength = 32000;
+    const auto addSine = [&smpl] (double hz, int length)
+    {
+        for (int i = 0; i < length; ++i)
+            smpl.writeShort ((short) (16000.0 * std::sin (juce::MathConstants<double>::twoPi * hz * i / 32000.0)));
+        for (int i = 0; i < 46; ++i)
+            smpl.writeShort (0);
+    };
+    addSine (220.0, lowLength);
+    addSine (880.0, highLength);
+
+    const auto chunk = [] (juce::MemoryOutputStream& out, const char* id, const juce::MemoryBlock& data)
+    {
+        out.write (id, 4);
+        out.writeInt ((int) data.getSize());
+        out.write (data.getData(), data.getSize());
+        if (data.getSize() & 1)
+            out.writeByte (0);
+    };
+    const auto name20 = [] (juce::MemoryOutputStream& out, const char* name)
+    {
+        char buffer[20] {};
+        std::strncpy (buffer, name, 19);
+        out.write (buffer, 20);
+    };
+    const auto gen = [] (juce::MemoryOutputStream& out, int oper, int amount)
+    {
+        out.writeShort ((short) oper);
+        out.writeShort ((short) amount);
+    };
+    const auto preset = [&name20] (juce::MemoryOutputStream& out, const char* name, int program, int bank, int bag)
+    {
+        name20 (out, name);
+        out.writeShort ((short) program); out.writeShort ((short) bank); out.writeShort ((short) bag);
+        out.writeInt (0); out.writeInt (0); out.writeInt (0);
+    };
+
+    juce::MemoryOutputStream phdr, pbag, pgen, pmod, inst, ibag, igen, imod, shdr;
+    // Listed High first: the browser sorts by bank and program.
+    preset (phdr, "High", 3, 1, 0);
+    preset (phdr, "Low", 0, 0, 1);
+    preset (phdr, "EOP", 0, 0, 2);
+    pbag.writeShort (0); pbag.writeShort (0);
+    pbag.writeShort (1); pbag.writeShort (0);
+    pbag.writeShort (2); pbag.writeShort (0);
+    gen (pgen, MultiSample::Sf2::instrument, 1);
+    gen (pgen, MultiSample::Sf2::instrument, 0);
+    gen (pgen, 0, 0);
+    for (int i = 0; i < 10; ++i) pmod.writeByte (0);
+    name20 (inst, "Low Inst"); inst.writeShort (0);
+    name20 (inst, "High Inst"); inst.writeShort (1);
+    name20 (inst, "EOI"); inst.writeShort (2);
+    ibag.writeShort (0); ibag.writeShort (0);
+    ibag.writeShort (1); ibag.writeShort (0);
+    ibag.writeShort (2); ibag.writeShort (0);
+    gen (igen, MultiSample::Sf2::sampleID, 0);
+    gen (igen, MultiSample::Sf2::sampleID, 1);
+    gen (igen, 0, 0);
+    for (int i = 0; i < 10; ++i) imod.writeByte (0);
+    const auto header = [&shdr, &name20] (const char* name, int start, int end, int pitch)
+    {
+        name20 (shdr, name);
+        shdr.writeInt (start); shdr.writeInt (end); shdr.writeInt (start); shdr.writeInt (start);
+        shdr.writeInt (32000); shdr.writeByte ((char) pitch); shdr.writeByte (0); shdr.writeShort (0); shdr.writeShort (1);
+    };
+    header ("low", 0, lowLength, 57);
+    header ("high", lowLength + 46, lowLength + 46 + highLength, 81);
+    header ("EOS", 0, 0, 0);
+
+    juce::MemoryOutputStream sdta, pdta, body;
+    sdta.write ("sdta", 4);
+    chunk (sdta, "smpl", smpl.getMemoryBlock());
+    pdta.write ("pdta", 4);
+    chunk (pdta, "phdr", phdr.getMemoryBlock()); chunk (pdta, "pbag", pbag.getMemoryBlock());
+    chunk (pdta, "pmod", pmod.getMemoryBlock()); chunk (pdta, "pgen", pgen.getMemoryBlock());
+    chunk (pdta, "inst", inst.getMemoryBlock()); chunk (pdta, "ibag", ibag.getMemoryBlock());
+    chunk (pdta, "imod", imod.getMemoryBlock()); chunk (pdta, "igen", igen.getMemoryBlock());
+    chunk (pdta, "shdr", shdr.getMemoryBlock());
+    body.write ("sfbk", 4);
+    chunk (body, "LIST", sdta.getMemoryBlock());
+    chunk (body, "LIST", pdta.getMemoryBlock());
+    juce::MemoryOutputStream riff;
+    chunk (riff, "RIFF", body.getMemoryBlock());
+    file.replaceWithData (riff.getData(), riff.getDataSize());
+}
+
+// Step 38: a SoundFont's presets: listed by bank and program, picked from
+// the list, and kept with the patch and the undo history.
+void runSoundFontPresetTest()
+{
+    using namespace SamplerLab;
+    const auto folder = scratchFolder ("ilana-sampler-sf2");
+    const auto sf2 = folder.getChildFile ("two.sf2");
+    writeTwoPresetSf2 (sf2);
+
+    const auto presets = MultiSample::listSf2Presets (sf2);
+    check (presets.size() == 2 && presets[0].name == "Low" && presets[1].name == "High" && presets[1].bank == 1 && presets[1].program == 3,
+           "the presets are listed by bank and program (" + juce::String ((int) presets.size()) + ")");
+
+    const auto rootOf = [] (IlanaSynthAudioProcessor& p)
+    {
+        const auto zones = p.getSampleZones (0);
+        return zones.empty() ? -1.0 : zones.front().rootNote;
+    };
+
+    IlanaSynthAudioProcessor processor;
+    MultiSampleLab::setUp (processor);
+    check (processor.loadUserSample (0, sf2, true), "the SoundFont loads");
+    check (std::abs (rootOf (processor) - 57.0) < 0.01, "it starts on the first preset (bank 0, program 0)");
+    check (processor.getSoundFontPreset (0) == std::make_pair (-1, -1), "no preset picked yet");
+
+    processor.performEdit ("SoundFont Preset", [&] { check (processor.selectSoundFontPreset (0, 1, 3), "the second preset loads"); });
+    check (std::abs (rootOf (processor) - 81.0) < 0.01, "the picked preset plays");
+    check (processor.getSoundFontPreset (0) == std::make_pair (1, 3), "the pick is remembered");
+    const auto out = MultiSampleLab::play (processor, 81, 20);
+    check (std::abs (MultiSampleLab::sineFrequency (out, 48000.0) - 880.0) < 3.0, "the picked preset sounds at its pitch");
+
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor reloaded;
+    reloaded.prepareToPlay (48000.0, 512);
+    reloaded.setStateInformation (saved.getData(), (int) saved.getSize());
+    reloaded.flushAsyncUpdates();
+    check (std::abs (rootOf (reloaded) - 81.0) < 0.01 && reloaded.getSoundFontPreset (0) == std::make_pair (1, 3),
+           "the picked preset comes back with the patch");
+
+    processor.getUndoManager().undo();
+    check (std::abs (rootOf (processor) - 57.0) < 0.01, "undo goes back to the first preset");
+    processor.getUndoManager().redo();
+    check (std::abs (rootOf (processor) - 81.0) < 0.01, "redo picks it again");
+
+    // Loading the file again by hand starts from its first preset.
+    check (processor.loadUserSample (0, sf2, true) && std::abs (rootOf (processor) - 57.0) < 0.01, "a fresh load starts on the first preset");
+    check (! processor.selectSoundFontPreset (1, 0, 0), "an oscillator without a SoundFont has no presets");
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -652,4 +795,5 @@ void runSamplerTests()
     runSampleQualityTest();
     runSampleZoneMapTest();
     runSampleRoundRobinTest();
+    runSoundFontPresetTest();
 }

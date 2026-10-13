@@ -3,12 +3,13 @@
 // SoundFont 2 (.sf2) and SFZ (.sfz) instruments for the Sample oscillator:
 // each is read into a SampleData whose zones hold the regions (key and
 // velocity ranges, root key, tuning, loop, level). One instrument per file:
-// an SF2's first preset (lowest bank, then program); every region of an SFZ.
+// an SF2 preset (by default the first: lowest bank, then program); every region of an SFZ.
 // Envelopes, filters and modulators in the files are ignored: the synth's own
 // do that job.
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <algorithm>
 #include <cctype>
 #include <map>
 #include <string>
@@ -396,27 +397,28 @@ inline std::vector<Generators> zonesOf (const char* bags, juce::uint32 numBags, 
     }
     return zones;
 }
-} // namespace Sf2
 
-inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String& error)
+// A file read into memory with its sample data and preset-data chunks found.
+// The chunk pointers point into block, so keep the two together.
+struct Parsed
 {
-    using namespace Sf2;
     juce::MemoryBlock block;
-    if (! file.loadFileAsData (block) || block.getSize() < 12)
-    {
-        error = "unreadable file";
-        return nullptr;
-    }
-    const auto* raw = static_cast<const char*> (block.getData());
-    if (juce::String (raw, 4) != "RIFF" || juce::String (raw + 8, 4) != "sfbk")
-    {
-        error = "not a SoundFont";
-        return nullptr;
-    }
-
     const char* smpl = nullptr;
     juce::uint32 smplSize = 0;
     std::map<juce::String, Chunk> pdta;
+    int numPresets = 0; // without the terminator record
+};
+
+// Reads and checks the file. Returns an empty string, or what is wrong with it.
+inline juce::String parse (const juce::File& file, Parsed& parsed)
+{
+    auto& block = parsed.block;
+    if (! file.loadFileAsData (block) || block.getSize() < 12)
+        return "unreadable file";
+    const auto* raw = static_cast<const char*> (block.getData());
+    if (juce::String (raw, 4) != "RIFF" || juce::String (raw + 8, 4) != "sfbk")
+        return "not a SoundFont";
+
     for (const auto& list : children (raw + 8, (juce::uint32) juce::jmin<size_t> (u32 (raw + 4), block.getSize() - 8)))
     {
         if (list.id != "LIST")
@@ -424,38 +426,78 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
         for (const auto& chunk : children (list.data, list.size))
         {
             if (listType (list) == "sdta" && chunk.id == "smpl")
-                smpl = chunk.data, smplSize = chunk.size;
+                parsed.smpl = chunk.data, parsed.smplSize = chunk.size;
             else if (listType (list) == "pdta")
-                pdta[chunk.id] = chunk;
+                parsed.pdta[chunk.id] = chunk;
         }
     }
     for (const char* id : { "phdr", "pbag", "pgen", "inst", "ibag", "igen", "shdr" })
-        if (pdta.count (id) == 0)
-        {
-            error = juce::String ("missing ") + id;
-            return nullptr;
-        }
-    if (smpl == nullptr)
-    {
-        error = "no sample data";
-        return nullptr;
-    }
+        if (parsed.pdta.count (id) == 0)
+            return juce::String ("missing ") + id;
+    if (parsed.smpl == nullptr)
+        return "no sample data";
 
-    const auto& phdr = pdta["phdr"];
-    const auto numPresets = (int) (phdr.size / 38) - 1; // the last is the terminator
-    if (numPresets < 1)
-    {
-        error = "no presets";
+    parsed.numPresets = (int) (parsed.pdta["phdr"].size / 38) - 1; // the last is the terminator
+    if (parsed.numPresets < 1)
+        return "no presets";
+    return {};
+}
+
+inline int presetBank (const Parsed& parsed, int index) { return u16 (parsed.pdta.at ("phdr").data + index * 38 + 22); }
+inline int presetProgram (const Parsed& parsed, int index) { return u16 (parsed.pdta.at ("phdr").data + index * 38 + 20); }
+} // namespace Sf2
+
+struct Sf2Preset
+{
+    int bank = 0, program = 0;
+    juce::String name;
+};
+
+// Every preset of a SoundFont, by bank then program. Empty if the file is unusable.
+inline std::vector<Sf2Preset> listSf2Presets (const juce::File& file)
+{
+    Sf2::Parsed parsed;
+    std::vector<Sf2Preset> presets;
+    if (Sf2::parse (file, parsed).isNotEmpty())
+        return presets;
+    for (int p = 0; p < parsed.numPresets; ++p)
+        presets.push_back ({ Sf2::presetBank (parsed, p), Sf2::presetProgram (parsed, p),
+                             juce::String (parsed.pdta.at ("phdr").data + p * 38, 20).trim() });
+    // Stable, so presets sharing a bank and program keep the file's order.
+    std::stable_sort (presets.begin(), presets.end(), [] (const Sf2Preset& a, const Sf2Preset& b)
+                      { return a.bank != b.bank ? a.bank < b.bank : a.program < b.program; });
+    return presets;
+}
+
+// bank and program of -1 (or a pair the file lacks) pick the first preset:
+// lowest bank, then lowest program.
+inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String& error, int bank = -1, int program = -1)
+{
+    using namespace Sf2;
+    Parsed parsed;
+    error = parse (file, parsed);
+    if (error.isNotEmpty())
         return nullptr;
-    }
-    // The first preset: lowest bank, then lowest program.
-    auto chosen = 0;
-    for (int p = 1; p < numPresets; ++p)
-    {
-        const auto* a = phdr.data + p * 38;
-        const auto* b = phdr.data + chosen * 38;
-        if (u16 (a + 22) < u16 (b + 22) || (u16 (a + 22) == u16 (b + 22) && u16 (a + 20) < u16 (b + 20)))
+
+    const auto* smpl = parsed.smpl;
+    const auto smplSize = parsed.smplSize;
+    auto& pdta = parsed.pdta;
+    const auto& phdr = pdta["phdr"];
+    const auto numPresets = parsed.numPresets;
+    auto chosen = -1;
+    for (int p = 0; p < numPresets && chosen < 0; ++p)
+        if (presetBank (parsed, p) == bank && presetProgram (parsed, p) == program)
             chosen = p;
+    if (chosen < 0)
+    {
+        chosen = 0;
+        for (int p = 1; p < numPresets; ++p)
+        {
+            const auto* a = phdr.data + p * 38;
+            const auto* b = phdr.data + chosen * 38;
+            if (u16 (a + 22) < u16 (b + 22) || (u16 (a + 22) == u16 (b + 22) && u16 (a + 20) < u16 (b + 20)))
+                chosen = p;
+        }
     }
     const auto presetName = juce::String (phdr.data + chosen * 38, 20).trim();
     const auto presetZones = zonesOf (pdta["pbag"].data, pdta["pbag"].size / 4, pdta["pgen"].data, pdta["pgen"].size / 4,
@@ -588,15 +630,17 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
 
     if (data->zones.empty())
     {
-        error = "the first preset has no playable zones";
+        error = "this preset has no playable zones";
         return nullptr;
     }
     finish (*data);
     return data;
 }
 
-inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error, SfzReport* report = nullptr)
+inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error, SfzReport* report = nullptr,
+                                         int bank = -1, int program = -1)
 {
-    return file.hasFileExtension ("sfz") ? loadSfz (file, error, report) : loadSf2 (file, error);
+    // The bank and program only choose among an SF2's presets (step 38).
+    return file.hasFileExtension ("sfz") ? loadSfz (file, error, report) : loadSf2 (file, error, bank, program);
 }
 } // namespace MultiSample

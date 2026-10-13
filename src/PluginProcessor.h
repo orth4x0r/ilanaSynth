@@ -629,6 +629,11 @@ public:
         juce::StringArray partial; // an SFZ that loaded but could not find these audio files
     };
     juce::String getSamplePath (int oscIndex) const; // empty: embedded, factory or none
+    // Roadmap step 38: a SoundFont's preset by bank and program, kept with
+    // the patch. Returns false if it couldn't load.
+    bool selectSoundFontPreset (int oscIndex, int bank, int program);
+    // The preset an SF2 oscillator plays (bank, program), or -1, -1 for the first.
+    std::pair<int, int> getSoundFontPreset (int oscIndex) const;
     bool isSampleFromFile (int oscIndex) const;
     std::vector<MissingSample> getMissingSamples() const;
     // True once per change of the missing list, while it holds something (the editor's prompt).

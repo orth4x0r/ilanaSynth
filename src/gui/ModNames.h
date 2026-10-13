@@ -23,6 +23,17 @@ inline std::function<void (int slot)>& openMatrixRow()
     return hook;
 }
 
+// The effect now in FX slot N (1-based), as the effect library names it
+// ("Flanger"); empty when none or unknown. Set by the editor (it has the
+// processor), so "FX Slot 2 Flanger > Blend" names the slot and its effect
+// (S4-13). Unset or empty: the plain "FX Slot 2 > Blend". Only the label
+// changes, never the destination's id.
+inline std::function<juce::String (int slot)>& fxSlotEffectName()
+{
+    static std::function<juce::String (int)> lookup;
+    return lookup;
+}
+
 // A source's one name, written as its chip is (UI-CONVENTIONS: module and
 // source names are upper case in labels, chips and combos; review 8,
 // I8-12): "FILT 2 ENV", "MOD WHEEL", "LFO 3 · OUT 2". Tooltips and menus use it
@@ -419,7 +430,11 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
     };
 
     if (id.startsWith ("fx_slot"))
-        return { "FX Slot " + juce::String (id.substring (7).getIntValue()), "Blend" };
+    {
+        const auto slot = id.substring (7).getIntValue();
+        const auto effect = fxSlotEffectName() ? fxSlotEffectName() (slot) : juce::String();
+        return { "FX Slot " + juce::String (slot) + (effect.isNotEmpty() ? " " + effect : juce::String()), "Blend" };
+    }
 
     if (const auto* fx = fxModuleFor (id))
     {
@@ -568,9 +583,25 @@ inline DestinationName destinationParts (int destination)
     return asLabelled (detail::explicitName (destination));
 }
 
+// The FX slot (1-based) a destination is the blend of, or 0. These names
+// follow the slot's effect, so they are never cached.
+inline int fxSlotBlendOf (int destination)
+{
+    if (const auto param = Mod::paramDestinationIndex (destination); param >= 0)
+    {
+        const juce::String id (Mod::getParamDestinations()[(size_t) param].id);
+        if (id.startsWith ("fx_slot"))
+            return id.substring (7).getIntValue();
+    }
+    return 0;
+}
+
 // "FILTER 1 › Cutoff". Cached: menus and the matrix ask for hundreds.
 inline juce::String destination (int destination)
 {
+    if (fxSlotBlendOf (destination) > 0)
+        return destinationParts (destination).full();
+
     static const juce::StringArray names = []
     {
         juce::StringArray result;
@@ -622,8 +653,40 @@ inline juce::String destination (int destination, const IlanaSynthAudioProcessor
 
 // A destination list's six level items, renamed as the oscillators play
 // (only when that changes: the lists are long).
+// The FX slots' blend items, renamed as the slots' effects change ("FX Slot 2
+// Flanger › Blend"). The menu is built once, so the row's own copy is
+// renamed, like the operator trims below; only when the names change.
+inline void nameFxSlotBlends (juce::ComboBox& combo)
+{
+    if (! fxSlotEffectName())
+        return;
+
+    juce::StringArray names;
+    for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+        names.add (fxSlotEffectName() (slot));
+    const auto signature = names.joinIntoString ("|");
+
+    auto& properties = combo.getProperties();
+    if (properties.contains ("fxSlotNames") && properties["fxSlotNames"].toString() == signature)
+        return;
+    properties.set ("fxSlotNames", signature);
+
+    for (int d = 0; d < Mod::getNumDestinations(); ++d)
+        if (fxSlotBlendOf (d) > 0)
+        {
+            const auto id = d + 1;
+            const auto name = destination (d);
+            const auto selected = combo.getSelectedId() == id;
+            combo.changeItemText (id, name);
+            if (selected)
+                combo.setText (name, juce::dontSendNotification);
+        }
+}
+
 inline void nameOperatorTrims (juce::ComboBox& combo, const IlanaSynthAudioProcessor& processor)
 {
+    nameFxSlotBlends (combo);
+
     using D = Mod::Destination;
     const D levels[] { D::Osc1Level, D::Osc2Level, D::SubLevel, D::Osc4Level, D::Osc5Level, D::Osc6Level };
     auto mask = 0;

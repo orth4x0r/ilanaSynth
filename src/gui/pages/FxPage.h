@@ -459,6 +459,7 @@ public:
         stackContent.onDrag = [this] (const juce::MouseEvent& event) { stackMouseDrag (event); };
         stackContent.onUp = [this] (const juce::MouseEvent& event) { stackMouseUp (event); };
         stackContent.onMove = [this] (const juce::MouseEvent& event) { stackMouseMove (event); };
+        stackContent.onKey = [this] (const juce::KeyPress& key) { return stackKeyPressed (key); };
 
         for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
         {
@@ -2437,6 +2438,20 @@ private:
             moveSlot (from, to);
 
         stackContent.repaint();
+    }
+
+    // Esc during a reorder drag drops the card back where it was: no swap.
+    // The drag state is gone, so the rest of the gesture (drag, mouse-up) does nothing.
+    bool stackKeyPressed (const juce::KeyPress& key)
+    {
+        if (key.getKeyCode() != juce::KeyPress::escapeKey || dragSlot < 0)
+            return false;
+
+        dragSlot = dropTarget = -1;
+        dragActive = false;
+        dragImage = {};
+        stackContent.repaint();
+        return true;
     }
 
     void stackMouseMove (const juce::MouseEvent& event)

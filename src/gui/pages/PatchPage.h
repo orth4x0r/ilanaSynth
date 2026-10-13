@@ -416,6 +416,13 @@ public:
             refusedUntil = juce::Time::getMillisecondCounter() + 3000;
             repaint (hint);
         };
+        view.onConnectRefused = [this] (PatchGraph::ConnectResult result)
+        {
+            refusal = result == PatchGraph::ConnectResult::duplicate ? "Those two are already joined by a cable."
+                                                                     : "That's the most cables the patch can hold.";
+            refusedUntil = juce::Time::getMillisecondCounter() + 3000;
+            repaint (hint);
+        };
         view.onEdited = [this] (PatchCableView::Edit edit) { commit (edit); };
         view.onBypass = [this] (const PatchGraph::Node& node) { toggleBypass (slotOf (&node)); };
         view.onRemove = [this] (const PatchGraph::Node& node)

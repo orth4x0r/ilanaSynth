@@ -420,6 +420,9 @@ public:
     // (the step is cancelled, then eased out over 2 ms) instead of jumping.
     // Call it after the new values are in.
     void easeNextBlock() { easeStep = true; }
+    // The whole patch as a state tree, for the editor's A/B slots.
+    juce::ValueTree captureWholePatch() { return buildFullState(); }
+    void restoreWholePatch (const juce::ValueTree& state) { applyFullState (state); }
     float getCpuUsage() const { return cpuUsage.load(); }
 
     // The loudest output sample per channel since the last call (for the meter).
@@ -615,6 +618,8 @@ public:
     // fromUser: a file the player chose or dropped; it replaces a factory
     // sample source (the SOURCE menu goes back to the loaded sample).
     bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
+    // The audio thread calls this at the top of each block's rack (a staged slot swap goes in here, FX-14).
+    void beginFxBlock() noexcept;
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
     void processEffects (juce::AudioBuffer<float>& buffer);
     void processEffectsUnlessAsleep (juce::AudioBuffer<float>& buffer);
@@ -1330,6 +1335,21 @@ private:
     // synth again after a reset that forgets it (prepare, oversampling, a new patch).
     std::array<bool, 16> pedalChannelDown {};
     void restoreSustainPedal();
+    // E-12: the keys held down (as the synth was told, in order), so a change of
+    // oversampling, which re-prepares the voices and cuts them, can play them
+    // again. The audio thread writes it; the message thread reads it only
+    // while processing is suspended.
+    struct HeldKey
+    {
+        juce::uint8 channel = 1, note = 0, velocity = 0;
+    };
+    static constexpr int maxHeldKeys = 64;
+    std::array<HeldKey, (size_t) maxHeldKeys> heldKeys {};
+    int numHeldKeys = 0;
+    std::array<HeldKey, (size_t) maxHeldKeys> resumeKeys {}; // to play at the next block (written while suspended)
+    std::atomic<int> numResumeKeys { 0 };
+    void trackHeldKeys (const juce::MidiBuffer& midi) noexcept;
+    void playResumedKeys (juce::MidiBuffer& midi, int blockSamples) noexcept;
     SympatheticStrings sympatheticStrings;
     bool sympatheticWasOn = false;
 
@@ -1497,6 +1517,31 @@ private:
     void retireFx (std::unique_ptr<FxEngine> engine, std::unique_ptr<std::vector<float>> values);
     void freeRetiredFx (bool all);
     void applyFxPatchRuntime();
+    std::unique_ptr<FxLfoProgram> buildFxLfoProgram (const FxPatchData::Patch& patch, const int* slotTypes) const;
+    bool fxLfoProgramDiffers (const FxLfoProgram& program) const;
+    // FX-14: a slot swap reaches the audio thread whole. The message thread
+    // fills fxSwapStage and publishes the patch plan tagged with the swap's
+    // number; applyFxSwap (the audio thread at the top of the rack, or the
+    // message thread when no block is running) then moves the engines, value
+    // tables, LFO program and the ten parameter values in one go, between two
+    // blocks. A patch plan whose tag is not the applied number is not run
+    // (the fixed loop runs for that block, which is consistent).
+    struct FxSwapStage
+    {
+        int slot[2] { -1, -1 };
+        FxEngine* engine[2] {};
+        const float* values[2] {};
+        bool lfoChanged = false;
+        const FxLfoProgram* lfo = nullptr;
+        std::atomic<float>* raw[5][2] {};
+    };
+    FxSwapStage fxSwapStage;
+    std::uint64_t fxSwapGen = 0; // the last swap's number (message thread, under fxEditLock)
+    std::atomic<std::uint64_t> fxSwapRequested { 0 }, fxSwapApplied { 0 };
+    juce::SpinLock fxSwapApplyLock;
+    std::atomic<juce::uint32> fxLastRackMs { 0 };
+    std::atomic<juce::Thread::ThreadID> fxRackThread { nullptr };
+    void applyFxSwap (bool mayWait = false) noexcept;
     void reconcileFxPatch();
     std::vector<std::pair<juce::String, float>> snapshotFxParams (int type) const;
     void writeFxParams (const std::vector<std::pair<juce::String, float>>& values);

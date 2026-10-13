@@ -18,6 +18,70 @@ void runContinuousTest()
     check (worst < 1.0e-4f, "cutoff is continuous (worst error " + juce::String (worst * 100.0f, 4) + " %)");
 }
 
+// E-12: changing the oversampling re-prepares the voices, which cuts every
+// note. The keys still held are played again; a key let go before the change
+// is not, and the notes still end when their keys are let go.
+void runOversamplingKeysTest()
+{
+    IlanaSynthAudioProcessor processor;
+    setParam (processor, "oversampling", 1.0f);
+    setParam (processor, "os_factor", 0.0f); // 2x
+    setParam (processor, "amp_sustain", 1.0f);
+    setParam (processor, "amp_release", 0.05f);
+    processor.prepareToPlay (48000.0, 256);
+    check (processor.getOversamplingFactor() == 2, "oversampling starts at 2x");
+
+    juce::AudioBuffer<float> buffer (2, 256);
+    const auto block = [&] (juce::MidiBuffer midi)
+    {
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+        return buffer.getMagnitude (0, 256);
+    };
+
+    juce::MidiBuffer on;
+    for (const auto note : { 48, 60, 64 })
+        on.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+    block (on);
+    for (int i = 0; i < 40; ++i)
+        block ({});
+    check (processor.getActiveVoiceCount() == 3, "three held keys sound three voices (" + juce::String (processor.getActiveVoiceCount()) + ")");
+
+    juce::MidiBuffer off48;
+    off48.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
+    block (off48); // a key let go before the change
+    for (int i = 0; i < 400; ++i)
+        block ({});
+    check (processor.getActiveVoiceCount() == 2, "two keys held, two voices (" + juce::String (processor.getActiveVoiceCount()) + ")");
+
+    processor.setOversampling (1);
+    check (processor.getOversamplingFactor() == 1, "the oversampling changed");
+    auto peak = 0.0f;
+    for (int i = 0; i < 8; ++i)
+        peak = juce::jmax (peak, block ({}));
+    check (processor.getActiveVoiceCount() == 2, "the two held keys sound again after the change (" + juce::String (processor.getActiveVoiceCount()) + " voices)");
+    check (peak > 0.001f, "and they are heard (peak " + juce::String (peak, 4) + ")");
+
+    // They end when their keys are let go (nothing is left stuck).
+    juce::MidiBuffer off;
+    off.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+    off.addEvent (juce::MidiMessage::noteOff (1, 64), 0);
+    block (off);
+    auto blocks = 0;
+    while (processor.getActiveVoiceCount() > 0 && blocks < 4000)
+    {
+        block ({});
+        ++blocks;
+    }
+    check (processor.getActiveVoiceCount() == 0, "the replayed notes end with their keys (" + juce::String (blocks) + " blocks)");
+
+    // A change with no key held plays nothing.
+    processor.setOversampling (2);
+    for (int i = 0; i < 8; ++i)
+        block ({});
+    check (processor.getActiveVoiceCount() == 0, "a change with no key held starts no note");
+}
+
 // Loading a patch stops the old one's voices and effect tails, easing to
 // silence rather than stepping to it.
 void runPatchCutTest()
@@ -999,6 +1063,7 @@ void runTests()
     timedRun ("Polish::runContinuousTest", [] { runContinuousTest(); });
     timedRun ("Polish::runRepeatableLoadTest", [] { runRepeatableLoadTest(); });
     timedRun ("Polish::runPatchCutTest", [] { runPatchCutTest(); });
+    timedRun ("Polish::runOversamplingKeysTest", [] { runOversamplingKeysTest(); });
     timedRun ("Polish::runStatePresetTest", [] { runStatePresetTest(); });
 }
 } // namespace Polish

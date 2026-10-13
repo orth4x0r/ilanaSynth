@@ -99,6 +99,9 @@ public:
     std::function<juce::String (const PatchGraph::Node&)> statusOf;
     std::function<bool (const PatchGraph::Graph&)> acceptGraph;
     std::function<void()> onRefused;
+    // A cable the graph itself won't take (duplicate: the two ports are already
+    // joined; full: too many cables). Nothing changes; the page says why.
+    std::function<void (PatchGraph::ConnectResult)> onConnectRefused;
     bool showInputNode = true;   // false: the fixed INPUT node is not drawn
     bool nodesRemovable = true;  // false: no Bypass / Remove, Delete leaves nodes alone
     bool cableLevels = true;     // false: a cable's menu has no Level
@@ -1475,7 +1478,18 @@ private:
                 trial.disconnect (old.from, old.to);
                 edits = true;
             }
-            edits = (to.node != 0 && trial.connect (drag.from, to, drag.pickedGain) == PatchGraph::ConnectResult::ok) || edits;
+            if (to.node != 0)
+            {
+                const auto result = trial.connect (drag.from, to, drag.pickedGain);
+                if (result == PatchGraph::ConnectResult::duplicate || result == PatchGraph::ConnectResult::full)
+                {
+                    // (A picked cable stays where it was, not lost.)
+                    if (onConnectRefused)
+                        onConnectRefused (result);
+                    return;
+                }
+                edits = result == PatchGraph::ConnectResult::ok || edits;
+            }
             if (edits && ! acceptGraph (trial))
             {
                 if (onRefused)

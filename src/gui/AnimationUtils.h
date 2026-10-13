@@ -12,6 +12,12 @@
 
 namespace IlanaAnim
 {
+// When the last preset load happened, so a knob whose value moved because of
+// one (and not the user's hand) can flash once.
+inline double& presetLoadTime() { static double t = -1.0e9; return t; }
+inline void notePresetLoad() { presetLoadTime() = juce::Time::getMillisecondCounterHiRes(); }
+inline bool presetJustLoaded() { return juce::Time::getMillisecondCounterHiRes() - presetLoadTime() < 600.0; }
+
 // Implemented by components that fade/slide in when they become visible.
 struct PageAnimated
 {

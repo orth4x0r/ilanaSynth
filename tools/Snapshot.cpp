@@ -4,6 +4,9 @@
 //   ilanaSnapshot --uitest     (drives the editor and checks the wiring)
 //   ilanaSnapshot --idlecpu    (UI cost of each page while nothing moves)
 
+#if __linux__
+ #include <dlfcn.h>
+#endif
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -8424,6 +8427,33 @@ int main (int argc, char** argv)
         juce::FileOutputStream stream (file);
         juce::PNGImageFormat().writeImageToStream (image, stream);
         std::cout << file.getFullPathName() << std::endl;
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_FLASH: a preset load while the editor is open, as it
+    // plays out (the knobs a load moved flash once): flash-0.png before,
+    // flash-1.png 60 ms after, flash-2.png 250 ms after; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLASH", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        // (A bare Xvfb has no window manager, so one window property names an atom that
+        // does not exist; the window works without it.)
+        // (xlib's own header clashes with JUCE's names, so find the call at run time.)
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        editor->addToDesktop (0); // (the knobs only animate in a window that is showing)
+        editor->setVisible (true);
+        settle (400);
+        processor.loadPresetByIndex (0);
+        settle (400);
+        save (*editor, outDir.getChildFile ("flash-0.png"));
+        processor.loadPresetByIndex (juce::jmin (5, processor.getNumAllPresets() - 1));
+        IlanaAnim::notePresetLoad();
+        settle (60);
+        save (*editor, outDir.getChildFile ("flash-1.png"));
+        settle (190);
+        save (*editor, outDir.getChildFile ("flash-2.png"));
         return 0;
     }
 

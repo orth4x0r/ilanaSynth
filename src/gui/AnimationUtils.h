@@ -315,8 +315,9 @@ public:
 
                 if (targetPhase == 1)
                 {
+                    if (phase != 1)
+                        time = 0.0;
                     phase = 1;
-                    time = 0.0;
                 }
                 else if (std::abs (targetTime - time) > 0.3)
                     time = targetTime;
@@ -341,6 +342,8 @@ public:
                 time = 0.0;
             }
         }
+        else if (phase == 1)
+            time += frame;
         else if (phase == 2)
             time = juce::jmin (time + frame, (double) juce::jmax (seconds[4], 1.0e-4f));
 
@@ -377,7 +380,11 @@ private:
     float encode (const std::array<float, 5>& seconds) const
     {
         if (phase == 1)
-            return 4.0f;
+        {
+            // The dot slides into its resting place on the sustain line.
+            const auto t = juce::jlimit (0.0, 1.0, time / 0.15);
+            return 4.0f + 0.25f * (float) (t * t * (3.0 - 2.0 * t));
+        }
 
         if (phase == 2)
             return 5.0f + juce::jlimit (0.0001f, 0.999f, (float) (time / juce::jmax (seconds[4], 1.0e-4f)));

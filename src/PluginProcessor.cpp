@@ -1631,6 +1631,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         p.fmNoise[osc] = getParam (fmNoiseIds[(size_t) osc]);
     }
     p.fmNoiseColour = getParam ("fm_noise_color");
+    p.fmNoiseType = juce::jlimit (0, (int) NoiseColours::count, (int) getParam ("fm_noise_type"));
 
     for (int env = 0; env < 16; ++env)
     {

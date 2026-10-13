@@ -139,6 +139,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
     noiseEnableSmooth.reset (newRate, 0.02);
     subOscColourSmooth.reset (newRate, 0.02);
     noiseGenerator.prepare (newRate);
+    fmNoiseGenerator.prepare (newRate);
     subOscLevelSmooth.reset (newRate, 0.02);
     subOscEnableSmooth.reset (newRate, 0.02);
     subOsc.setSampleRate (newRate);
@@ -529,6 +530,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     noiseEnableSmooth.setCurrentAndTargetValue (params.noiseEnabled ? 1.0f : 0.0f);
     subOscColourSmooth.setCurrentAndTargetValue (params.subOscColour);
     noiseGenerator.reset();
+    fmNoiseGenerator.reset();
     noiseLow = 0.0f;
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
@@ -2242,7 +2244,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             ringMods[slot] = params.ringMod + mods[(int) D::RingMod];
 
             if (anyNoiseOperator)
-                fmNoiseState += noiseCoeff * ((fmNoiseRandom.nextFloat() * 2.0f - 1.0f) - fmNoiseState);
+                stepFmNoise (noiseCoeff);
             fmNoise[slot] = fmNoiseState;
 
             // The sub and the noise (their own smoothers and generator; the
@@ -2952,7 +2954,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // The noise operator: coloured noise into any oscillator's FM input.
         if (anyNoiseOperator)
         {
-            fmNoiseState += noiseCoeff * ((fmNoiseRandom.nextFloat() * 2.0f - 1.0f) - fmNoiseState);
+            stepFmNoise (noiseCoeff);
 
             for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                 fmInput[osc] += (double) (params.fmNoise[osc] * fmNoiseState);

@@ -122,6 +122,12 @@ public:
         noiseColourKnob->setCompact (true);
         noiseColourKnob->setSizeRole (IlanaTheme::KnobSize::mini);
         addAndMakeVisible (*noiseColourKnob);
+        // Its noise type: the colour knob's own noise, or one of the NOISE card's colours.
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p.apvts.getParameter ("fm_noise_type")))
+            noiseTypeMenu.addItemList (choice->getAllValueStrings(), 1);
+        noiseTypeMenu.setTooltip (describeParameter ("fm_noise_type"));
+        addAndMakeVisible (noiseTypeMenu);
+        noiseTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (p.apvts, "fm_noise_type", noiseTypeMenu);
 
         // The same heading as the open section ("EXTRAS", at the matrix's
         // foot) whatever the operator count (review 10, I10-5).
@@ -804,6 +810,7 @@ private:
                     sourceShown && std::find (ops.begin(), ops.end(), target) != ops.end());
         }
         noiseColourKnob->setVisible (extras);
+        noiseTypeMenu.setVisible (extras);
         ringMod->setVisible (extras);
         hardSync.setVisible (extras);
         moreButton.setVisible (true);
@@ -896,6 +903,9 @@ private:
             noiseHead = layoutHead (head);
             // NOISE, then its colour: a small dial with its name and value.
             noiseColourKnob->setBounds (noiseHead.getX() - 2, noiseHead.getY() + 20, 30, 30);
+            // (The noise's type under its colour, when the row is tall enough.)
+            noiseTypeMenu.setBounds (head.getHeight() >= 82 ? juce::Rectangle<int> (noiseHead.getX(), noiseHead.getY() + 54, juce::jmin (noiseHead.getWidth(), 112), 24)
+                                                                  : juce::Rectangle<int>());
             layoutCells (row,
                          [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
                          [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
@@ -1421,6 +1431,8 @@ private:
     std::unique_ptr<EnvelopeDisplay> ampGraph;
     int ampGraphEnvelope = -1, ampGraphOperator = -1;
     std::unique_ptr<KnobControl> noiseColourKnob;
+    juce::ComboBox noiseTypeMenu;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> noiseTypeAttachment;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
     std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
     std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;

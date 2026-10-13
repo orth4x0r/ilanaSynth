@@ -481,6 +481,38 @@ void runM5DeepFmTests()
                    + juce::String (darkCentroid, 0) + " Hz)");
     }
 
+    // The noise operator's type menu: Colour is the old noise, every other type is finite and bounded.
+    {
+        const auto base = renderCleanPatch ([] (IlanaSynthAudioProcessor& p) { setParam (p, "fm_noise1", 0.3f); }, 57, 0.5);
+        const auto colour = renderCleanPatch ([] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "fm_noise1", 0.3f);
+            setParam (p, "fm_noise_type", 0.0f);
+        }, 57, 0.5);
+        bool same = base.size() == colour.size();
+        for (size_t i = 0; same && i < base.size(); ++i)
+            same = base[i] == colour[i];
+        check (same, "FM noise type Colour is the old noise, sample for sample");
+
+        bool allOk = true;
+        juce::String detail;
+        for (int type = 1; type <= 6; ++type)
+        {
+            const auto out = renderCleanPatch ([type] (IlanaSynthAudioProcessor& p)
+            {
+                setParam (p, "fm_noise1", 0.5f);
+                setParam (p, "fm_noise_type", (float) type);
+            }, 57, 0.5);
+            double peak = 0.0;
+            for (auto v : out)
+                peak = juce::jmax (peak, (double) std::abs (v));
+            const auto ok = allFinite (out) && peak < 4.0 && rmsOf (out, 9600) > 0.001;
+            allOk = allOk && ok;
+            detail += " " + juce::String (type) + ":" + juce::String (peak, 2);
+        }
+        check (allOk, "every FM noise type is finite, bounded and audible (peaks" + detail + ")");
+    }
+
     // Level key scaling: +6 dB per octave at KEY LVL 1.
     {
         const auto levelAt = [] (int note, float keyLevel)

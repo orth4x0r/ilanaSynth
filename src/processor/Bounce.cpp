@@ -322,7 +322,7 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out",
                                 "_sample_sync", "_sample_bpm", "_sample_stretch",
                                 "_sample_loop_own", "_sample_loop_start", "_sample_loop_end",
-                                "_sample_loop_xfade", "_sample_snap", "_sample_playback", "_sample_pingpong", "_sample_start_rand", "_sample_start_safe", "_sample_quality", "_sample_unmapped" })
+                                "_sample_loop_xfade", "_sample_snap", "_sample_playback", "_sample_pingpong", "_sample_start_rand", "_sample_start_safe", "_sample_quality", "_sample_unmapped", "_sample_round_robin", "_sample_vel_blend" })
             reset (prefix + id);
         if (! audio->zones.empty())
         {
@@ -448,6 +448,8 @@ juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
             child.setProperty ("loop", zone.loop, nullptr);
             child.setProperty ("loopStart", zone.loopStart, nullptr);
             child.setProperty ("loopEnd", zone.loopEnd, nullptr);
+            if (zone.sequence != 0) // step 37; absent in every older patch
+                child.setProperty ("sequence", zone.sequence, nullptr);
             tree.appendChild (child, nullptr);
         }
         return tree;
@@ -493,6 +495,7 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::
             zone.loopStart = juce::jlimit (0, length, (int) child.getProperty ("loopStart", 0));
             zone.loopEnd = juce::jlimit (0, length, (int) child.getProperty ("loopEnd", 0));
             zone.loop = (bool) child.getProperty ("loop", false) && zone.loopEnd - zone.loopStart > 16;
+            zone.sequence = juce::jmax (0, (int) child.getProperty ("sequence", 0));
             data->zones.push_back (std::move (zone));
         }
         if (data->zones.empty())

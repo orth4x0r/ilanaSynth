@@ -1291,5 +1291,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_unmapped", name + " Sample Outside Zones", { "Nearest Zone", "Silence" }, 0);
     }
 
+    // Roadmap step 37: alternates for the same key take turns (Cycle) or
+    // are drawn at random; VELOCITY BLEND crossfades neighbouring velocity
+    // layers. Off and 0, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_round_robin", name + " Sample Round Robin", { "Off", "Cycle", "Random" }, 0);
+        addFloat (prefix + "_sample_vel_blend", name + " Sample Velocity Blend", 0.0f, 1.0f, 0.0f);
+    }
+
     return layout;
 }

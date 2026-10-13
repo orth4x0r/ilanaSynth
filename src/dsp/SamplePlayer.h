@@ -8,6 +8,7 @@
 #include "SampleTempo.h"
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -43,6 +44,9 @@ struct SampleZone
     // or (origin -1) the audio file it was added from.
     int origin = -1;
     juce::String file;
+    // Roadmap step 37: the order of a round-robin alternate among the zones
+    // covering the same note (an SFZ's seq_position; else the file's order).
+    int sequence = 0;
 
     bool covers (int note, int velocity) const noexcept
     {
@@ -50,6 +54,19 @@ struct SampleZone
     }
 
     double rootHz() const noexcept { return 440.0 * std::exp2 ((rootNote - 69.0) / 12.0); }
+};
+
+// Roadmap step 37: the plugin's round-robin counters, one per oscillator and
+// key, shared by every voice, so each new note on a key steps on to the next
+// of its alternates.
+struct SampleRoundRobin
+{
+    std::array<std::array<std::atomic<unsigned>, 128>, 8> counters {};
+
+    unsigned next (int osc, int note) noexcept
+    {
+        return counters[(size_t) (osc & 7)][(size_t) (note & 127)].fetch_add (1u, std::memory_order_relaxed);
+    }
 };
 
 struct SampleData
@@ -95,6 +112,66 @@ struct SampleData
             return nullptr;
         }
 
+        return nearestZone (note, velocity);
+    }
+
+    // Roadmap step 37: with round robin (1 Cycle, 2 Random) a note covered
+    // by several zones plays the pick-th of them in their sequence order;
+    // off (0), the first, as before.
+    const SampleZone* zoneFor (int note, int velocity, bool silenceOutside, int roundRobin, unsigned pick) const noexcept
+    {
+        if (roundRobin == 0)
+            return zoneFor (note, velocity, silenceOutside);
+        constexpr int maxAlternates = 64;
+        std::array<const SampleZone*, maxAlternates> covering {};
+        auto count = 0;
+        for (const auto& zone : zones)
+            if (zone.data != nullptr && zone.covers (note, velocity) && count < maxAlternates)
+                covering[(size_t) count++] = &zone;
+        if (count <= 1)
+            return zoneFor (note, velocity, silenceOutside);
+        // In sequence order; zones with the same sequence keep the file's order.
+        std::stable_sort (covering.begin(), covering.begin() + count,
+                          [] (const SampleZone* a, const SampleZone* b) { return a->sequence < b->sequence; });
+        return covering[(size_t) (pick % (unsigned) count)];
+    }
+
+    // Roadmap step 37: velocity blending. A velocity within width * 32 steps
+    // of the zone's layer edge also plays the layer across that edge, the
+    // two mixed equal-power so the sum stays as loud: partnerGain for it and
+    // keep for the zone. Null (keep 1) when nothing blends.
+    const SampleZone* blendPartner (const SampleZone& zone, int note, int velocity, float width, int roundRobin, unsigned pick,
+                                    float& keep, float& partnerGain) const noexcept
+    {
+        keep = 1.0f;
+        partnerGain = 0.0f;
+        if (width <= 0.0f)
+            return nullptr;
+        const auto reach = juce::jlimit (0.0f, 1.0f, width) * 32.0f;
+        const auto v = (float) velocity;
+        const SampleZone* partner = nullptr;
+        auto towardPartner = 0.0f; // 0..0.5: how far the mix leans to the partner
+        if (zone.hiVel < 127 && (float) zone.hiVel + 0.5f - v < reach)
+        {
+            partner = zoneFor (note, zone.hiVel + 1, true, roundRobin, pick);
+            towardPartner = (v - ((float) zone.hiVel + 0.5f) + reach) / (2.0f * reach);
+        }
+        else if (zone.loVel > 1 && v - ((float) zone.loVel - 0.5f) < reach)
+        {
+            partner = zoneFor (note, zone.loVel - 1, true, roundRobin, pick);
+            towardPartner = (reach - (v - ((float) zone.loVel - 0.5f))) / (2.0f * reach);
+        }
+        if (partner == nullptr || partner == &zone)
+            return nullptr;
+        towardPartner = juce::jlimit (0.0f, 0.5f, towardPartner);
+        keep = std::cos (towardPartner * juce::MathConstants<float>::halfPi);
+        partnerGain = std::sin (towardPartner * juce::MathConstants<float>::halfPi);
+        return partner;
+    }
+
+private:
+    const SampleZone* nearestZone (int note, int velocity) const noexcept
+    {
         const SampleZone* best = nullptr;
         auto bestDistance = 1 << 30;
         for (const auto& zone : zones)

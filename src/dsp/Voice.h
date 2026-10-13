@@ -244,6 +244,8 @@ struct VoiceParams
         bool sampleStartSafe = false;   // step 35: random starts land on attacks
         int sampleQuality = 0;          // step 39: SampleInterpolation::Quality
         bool sampleSilenceOutside = false; // step 36: keys outside every zone play nothing
+        int sampleRoundRobin = 0;          // step 37: Off, Cycle, Random
+        float sampleVelBlend = 0.0f;       // step 37: velocity layer crossfade width
         float sampleEnd = 1.0f;
         float sampleFadeIn = 0.0f;
         float sampleFadeOut = 0.0f;
@@ -322,6 +324,7 @@ struct VoiceParams
     float stretch = 0.0f; // M4: piano stretch tuning, 0 = equal temperament
     double hostBpm = 120.0; // the host's tempo, for samples that follow it (step 40)
     class StretchRenderer* stretchRenderer = nullptr; // rendered copies for TIME's engines
+    struct SampleRoundRobin* roundRobin = nullptr;    // step 37: the plugin's round-robin counters
     const Tuning* tuning = nullptr; // Scala tuning; nullptr = 12-TET (the old path)
     float unisonRandom = 0.0f;
 
@@ -699,6 +702,12 @@ private:
         return osc < 3 ? stringUnison[osc][unison] : extraStringUnison[osc - 3].voices[unison];
     }
     SamplePlayer sampleUnison[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    // Step 37: the velocity layer a note blends with, played beside it.
+    SamplePlayer sampleLayer[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
+    const SampleZone* layerZone[VoiceParams::numOscillators] {};
+    const SampleData* layerOrigin[VoiceParams::numOscillators] {};
+    float layerKeep[VoiceParams::numOscillators] {}, layerGain[VoiceParams::numOscillators] {};
+    unsigned zonePick[VoiceParams::numOscillators] {}; // step 37: the round-robin alternate, per note
     GranularOsc grains[VoiceParams::numOscillators][VoiceParams::maxBufferedUnison];
     double sampleRatio[VoiceParams::numOscillators][VoiceParams::maxUnison] {};
     ResonatorBank resonatorL, resonatorR;
@@ -1002,6 +1011,7 @@ private:
     float driftTarget = 0.0f;
     juce::Random driftRandom;
     juce::Random sampleStartRandom { 0x5a17 }; // step 35: random sample starts, apart from the others
+    juce::Random zoneRandom { 0x2b17 };        // step 37: Random round robin, apart from the others
     bool lastStringMode[VoiceParams::numOscillators] {};
     bool lastSampleMode[VoiceParams::numOscillators] {};
     bool lastEnabled[VoiceParams::numOscillators] { true, false, true };

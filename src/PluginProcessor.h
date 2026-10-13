@@ -1185,7 +1185,8 @@ private:
     std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27), crossfade (step 28)
-    std::array<std::array<ParamRef, 6>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39), outside zones (36)
+    std::array<std::array<ParamRef, 8>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39), outside zones (36), round robin and velocity blend (37)
+    SampleRoundRobin sampleRoundRobin; // step 37: shared by the voices
     std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;

@@ -214,7 +214,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end", prefix + "_sample_loop_xfade" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             samplePlayIds[(size_t) i] = { prefix + "_sample_playback", prefix + "_sample_pingpong", prefix + "_sample_start_rand",
-                                          prefix + "_sample_start_safe", prefix + "_sample_quality", prefix + "_sample_unmapped" };
+                                          prefix + "_sample_start_safe", prefix + "_sample_quality", prefix + "_sample_unmapped",
+                                          prefix + "_sample_round_robin", prefix + "_sample_vel_blend" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
                                          prefix + "_grain_spread" };
@@ -1461,6 +1462,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleStartSafe = getParam (play[3]) > 0.5f;
         osc.sampleQuality = juce::roundToInt (getParam (play[4]));
         osc.sampleSilenceOutside = getParam (play[5]) > 0.5f;
+        osc.sampleRoundRobin = juce::roundToInt (getParam (play[6]));
+        osc.sampleVelBlend = getParam (play[7]);
         const auto& tempo = sampleTempoIds[(size_t) oscIndex];
         osc.sampleSync = juce::roundToInt (getParam (tempo[0]));
         osc.sampleBpm = getParam (tempo[1]);
@@ -1545,6 +1548,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.anySpectralMods = false;
     p.spectralCache = spectralCache.get();
     p.stretchRenderer = stretchRenderer.get();
+    p.roundRobin = &sampleRoundRobin;
 
     for (int i = 0; i < numActiveSlots; ++i)
     {

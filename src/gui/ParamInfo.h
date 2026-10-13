@@ -1179,6 +1179,8 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_quality"), "How the sample is read between its samples. Linear: light, a little dull when pitched down and "
       "rough when pitched far up. Cubic: smoother. Sinc: the cleanest. Sinc + Anti-Alias: also filters the harsh folded tones a "
       "note far above the sample's own pitch would make (costs more CPU the higher it goes)." },
+    { ends ("_sample_round_robin"), "Zones sharing a key and velocity are alternates: Cycle plays them in turn, Random picks one for each note, Off always plays the first." },
+    { ends ("_sample_vel_blend"), "Crossfades neighbouring velocity layers: near a layer's edge the note also plays the next layer, mixed so the level stays even. 0 switches layers hard." },
     { ends ("_sample_unmapped"), "A key or velocity that no zone covers: Nearest Zone plays the closest one (stretched to the note), Silence plays nothing." },
     { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
 };

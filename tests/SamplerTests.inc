@@ -521,6 +521,127 @@ void runSampleZoneMapTest()
     folder.deleteRecursively();
 }
 
+// The level of one frequency in a signal, as a sine's amplitude (a
+// Hann-windowed DFT bin, so a neighbouring tone doesn't leak in).
+inline double toneLevel (const std::vector<float>& x, size_t from, double hz, double sampleRate)
+{
+    const auto w = juce::MathConstants<double>::twoPi * hz / sampleRate;
+    const auto n = (double) (x.size() - from);
+    double re = 0.0, im = 0.0;
+    for (size_t i = from; i < x.size(); ++i)
+    {
+        const auto window = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (double) (i - from) / n);
+        re += window * x[i] * std::cos (w * (double) i);
+        im -= window * x[i] * std::sin (w * (double) i);
+    }
+    return 4.0 * std::sqrt (re * re + im * im) / n;
+}
+
+// One note at a velocity after the last one has died; returns the output.
+inline std::vector<float> playAt (IlanaSynthAudioProcessor& processor, int note, int velocity, int blocks)
+{
+    juce::AudioBuffer<float> buffer (2, 512);
+    for (int block = 0; block < 60; ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::allSoundOff (1), 0);
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+    }
+    std::vector<float> out;
+    for (int block = 0; block < blocks; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) velocity), 0);
+        processor.processBlock (buffer, midi);
+        for (int i = 0; i < 512; ++i)
+            out.push_back (buffer.getSample (0, i));
+    }
+    return out;
+}
+
+// Step 37: round robin (alternates in turn or at random) and velocity
+// layers crossfaded near their edges.
+void runSampleRoundRobinTest()
+{
+    using namespace SamplerLab;
+    const auto folder = scratchFolder ("ilana-sampler-rr");
+    MultiSampleLab::writeWav (folder.getChildFile ("a.wav"), MultiSampleLab::sine (220.0, 48000.0, 48000), 48000.0);
+    MultiSampleLab::writeWav (folder.getChildFile ("b.wav"), MultiSampleLab::sine (330.0, 48000.0, 48000), 48000.0);
+
+    // Alternates: b listed first but second in the sequence.
+    const auto rr = folder.getChildFile ("rr.sfz");
+    rr.replaceWithText ("<region> sample=b.wav pitch_keycenter=57 seq_position=2\n<region> sample=a.wav pitch_keycenter=57 seq_position=1\n");
+    juce::String error;
+    const auto data = MultiSample::load (rr, error);
+    check (data != nullptr && data->zones.size() == 2 && data->zones[0].sequence == 2 && data->zones[1].sequence == 1,
+           "seq_position is read (" + error + ")");
+    if (data == nullptr || data->zones.size() != 2)
+        return;
+    check (data->zoneFor (57, 100, false, 0, 1) == &data->zones[0], "round robin Off plays the first zone, as before");
+    check (data->zoneFor (57, 100, false, 1, 0) == &data->zones[1] && data->zoneFor (57, 100, false, 1, 1) == &data->zones[0]
+               && data->zoneFor (57, 100, false, 1, 2) == &data->zones[1],
+           "the alternates take turns in sequence order");
+
+    IlanaSynthAudioProcessor processor;
+    MultiSampleLab::setUp (processor);
+    check (processor.loadUserSample (0, rr, true), "the alternates load");
+    const auto which = [&processor]
+    {
+        const auto out = playAt (processor, 57, 100, 12);
+        return toneLevel (out, 2048, 220.0, 48000.0) > toneLevel (out, 2048, 330.0, 48000.0) ? 'a' : 'b';
+    };
+    juce::String heard;
+    for (int i = 0; i < 4; ++i)
+        heard << juce::String::charToString (which());
+    check (heard == "bbbb", "Off: every note plays the first zone (" + heard + ")");
+    samplerSet (processor, "osc1_sample_round_robin", 1.0f);
+    heard.clear();
+    for (int i = 0; i < 4; ++i)
+        heard << juce::String::charToString (which());
+    check (heard == "abab" || heard == "baba", "Cycle: the notes alternate (" + heard + ")");
+    samplerSet (processor, "osc1_sample_round_robin", 2.0f);
+    heard.clear();
+    for (int i = 0; i < 16; ++i)
+        heard << juce::String::charToString (which());
+    check (heard.containsChar ('a') && heard.containsChar ('b'), "Random: both alternates come up (" + heard + ")");
+
+    // Velocity layers: a below 64, b from 65.
+    const auto layers = folder.getChildFile ("layers.sfz");
+    layers.replaceWithText ("<region> sample=a.wav pitch_keycenter=57 lovel=1 hivel=64\n<region> sample=b.wav pitch_keycenter=57 lovel=65 hivel=127\n");
+    const auto layered = MultiSample::load (layers, error);
+    check (layered != nullptr && layered->zones.size() == 2, "the layers load");
+    if (layered == nullptr || layered->zones.size() != 2)
+        return;
+    float keep = 0.0f, partner = 0.0f;
+    check (layered->blendPartner (layered->zones[0], 57, 60, 0.0f, 0, 0, keep, partner) == nullptr && keep == 1.0f,
+           "VELOCITY BLEND 0: no blend");
+    check (layered->blendPartner (layered->zones[0], 57, 64, 1.0f, 0, 0, keep, partner) == &layered->zones[1]
+               && std::abs (keep * keep + partner * partner - 1.0f) < 1.0e-4f && partner > 0.6f,
+           "at the edge the two layers mix equal-power, close to half and half");
+    check (layered->blendPartner (layered->zones[0], 57, 10, 1.0f, 0, 0, keep, partner) == nullptr, "far from the edge no blend");
+    check (layered->blendPartner (layered->zones[1], 57, 66, 1.0f, 0, 0, keep, partner) == &layered->zones[0], "the upper layer blends downward too");
+
+    check (processor.loadUserSample (0, layers, true), "the layered file loads in the plugin");
+    samplerSet (processor, "osc1_sample_round_robin", 0.0f);
+    auto out = playAt (processor, 57, 64, 12);
+    const auto hardA = toneLevel (out, 2048, 220.0, 48000.0), hardB = toneLevel (out, 2048, 330.0, 48000.0);
+    check (hardA > 0.01 && hardB < hardA * 0.01, "blend off: velocity 64 plays only the lower layer");
+    samplerSet (processor, "osc1_sample_vel_blend", 1.0f);
+    out = playAt (processor, 57, 64, 12);
+    const auto mixA = toneLevel (out, 2048, 220.0, 48000.0), mixB = toneLevel (out, 2048, 330.0, 48000.0);
+    check (mixB > mixA * 0.5 && mixA > hardA * 0.5,
+           "blend on: velocity 64 plays both layers (" + juce::String (mixA, 4) + ", " + juce::String (mixB, 4) + ")");
+    const auto power = mixA * mixA + mixB * mixB;
+    check (std::abs (power / (hardA * hardA) - 1.0) < 0.2, "the blend keeps the level even");
+    out = playAt (processor, 57, 10, 12);
+    check (toneLevel (out, 2048, 330.0, 48000.0) < toneLevel (out, 2048, 220.0, 48000.0) * 0.01, "a soft note stays on its own layer");
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -530,4 +651,5 @@ void runSamplerTests()
     runSampleRandomStartTest();
     runSampleQualityTest();
     runSampleZoneMapTest();
+    runSampleRoundRobinTest();
 }

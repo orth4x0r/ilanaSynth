@@ -213,6 +213,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         zone.hiVel = juce::jlimit (1, 127, get ("hivel", "127").getIntValue());
         zone.rootNote -= get ("tune", "0").getDoubleValue() / 100.0 + get ("transpose", "0").getDoubleValue();
         zone.gain = juce::Decibels::decibelsToGain (get ("volume", "0").getFloatValue());
+        // Step 37: a round-robin alternate's place among the regions sharing its keys.
+        zone.sequence = juce::jmax (0, get ("seq_position", "0").getIntValue());
         const auto length = zone.data->getNumSamples();
         const auto mode = get ("loop_mode", get ("loopmode"));
         zone.loopStart = juce::jlimit (0, length, get ("loop_start", get ("loopstart", "0")).getIntValue());

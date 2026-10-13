@@ -766,6 +766,7 @@ inline const HelpRow helpRows[] {
     { osc ("_warp2_amt"), "Bend of the second warp stage." },
     { osc ("_pd_env"), "An envelope that opens the warp. Like the Casio CZ's DCW, it adds to both warp amounts." },
     { osc ("_pd_env_amt"), "Warp envelope depth. How far it moves the warp amounts; negative values close them." },
+    { is ("fm_noise_type"), "Which noise modulates: Colour is the COLOUR knob's own noise (dark rumble to white); the others are the NOISE card's White, Pink, Brown, Blue, Violet and Grey." },
     { starts ("fm_noise").butNot (is ("fm_noise_color")), "The noise operator: how much noise frequency-modulates this oscillator (breath, grit, cymbals)." },
     { is ("fm_noise_color"), "Colour of the modulating noise. Dark rumble to full white noise (the NOISE FM row). "
       "The NOISE you hear, in SUB + NOISE on PLAY and OSC, is a separate source with its own COLOUR." },

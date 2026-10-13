@@ -8315,6 +8315,53 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_SWEEP: a held chord with LFO 1 on filter 1's cutoff, the
+    // filter graph with its sweep band: sweep-0.png before any audio, then
+    // sweep-1.png and sweep-2.png after about 0.6 s and 1.3 s of playing; stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SWEEP", "").isNotEmpty())
+    {
+       #if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+       #endif
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        const auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        processor.loadPresetByIndex (0);
+        set ("f1_cutoff", 900.0f);
+        set ("f1_reso", 0.45f);
+        set ("mod1_src", (float) Mod::Source::Lfo1);
+        set ("mod1_dst", (float) Mod::Destination::Filter1Cutoff);
+        set ("mod1_amt", 0.8f);
+        settle (400);
+        save (*editor, outDir.getChildFile ("sweep-0.png"));
+        processor.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+        const auto play = [&] (int blocks, bool chord)
+        {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::MidiBuffer midi;
+                if (chord && b == 0)
+                    for (const auto note : { 48, 55, 60, 64 })
+                        midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                if (b % 8 == 0)
+                    settle (20);
+            }
+        };
+        play (56, true);
+        save (*editor, outDir.getChildFile ("sweep-1.png"));
+        play (64, false);
+        save (*editor, outDir.getChildFile ("sweep-2.png"));
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_WIDGETS: the real pop-ups, drawn by the look the user
     // gets (the process default while the editor is open), then stop:
     //   widgets-knob-menu.png   FRAME's right-click menu with "Modulate with"

@@ -974,6 +974,9 @@ public:
     int getOscIndex() const { return oscIndex; }
     bool isDraggingWarp() const { return dragging && canDragWarp(); }
 
+    // Set by a wavetable oscillator's card: a dropped audio file asks what it is for.
+    std::function<void (const juce::File&)> onWavetableDrop;
+
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
         if (files.size() != 1)
@@ -1009,6 +1012,15 @@ public:
 
         if (! file.existsAsFile())
             return;
+
+        // A wavetable oscillator asks what the audio is for (wavetable, one
+        // of the make-a-table ways, or a sample); everything else takes it as a sample.
+        const auto soundFont = file.hasFileExtension ("sf2") || file.hasFileExtension ("sfz");
+        if (onWavetableDrop != nullptr && ! soundFont && ! isSampleMode() && modeId.isNotEmpty() && readChoice (modeId) == 0)
+        {
+            onWavetableDrop (file);
+            return;
+        }
 
         loadSampleFile (file);
     }

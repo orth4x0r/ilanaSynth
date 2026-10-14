@@ -612,7 +612,7 @@ inline const ValueRow valueRows[] {
 
     { ends ("_mix|_amount|_level|_width|_spread|_sustain|_velocity|_damping|_feedback|_curve|_frame|_start|_end|_fade_in|_fade_out"),
       Unit::percent },
-    { is ("drift|ring_mod|fm_amount|fm_feedback|fx_fold|res_amount|res_keytrack|fx_tilt|fx_shifter_mix"), Unit::percent },
+    { is ("drift|ring_mod|fm_amount|fm_feedback|fx_fold|res_amount|res_keytrack|fx_tilt|fx_shifter_mix|fx_filter_reso"), Unit::percent },
     { when (isAirwindowsKnob), Unit::percent },
     { is ("noise_level|noise_color|sub_colour|unison_random|voice_spread|body_material|body_size|body_coupling"), Unit::percent },
     { starts ("macro|mseg_level"), Unit::percent },

@@ -477,6 +477,12 @@ inline juce::String semitonesOrCents (const juce::String& id, float value)
     return juce::String (std::round (value * 10.0f) / 10.0f, std::round (value * 10.0f) == 10.0f * std::round (value) ? 0 : 1)
            + (id.endsWith ("_fine") || id.endsWith ("_detune") ? " ct" : " st");
 }
+// SCAN: how fast the grain position travels (1 = the sample's own speed).
+inline juce::String scanSpeed (const juce::String&, float value)
+{
+    return describeFixed (value, 2) + "x";
+}
+
 } // namespace ValueTexts
 
 // Every parameter's value text. A parameter no row covers is a plain number.
@@ -584,6 +590,7 @@ inline const ValueRow valueRows[] {
     { is ("fx_delay_time|fx_delay_time_r|fx_feedback_delay|fx_smear_size|fx_haas_delay|fx_comp_attack|fx_comp_release|fx_limit_release"),
       Unit::milliseconds },
     { ends ("_grain_size"), Unit::milliseconds },
+    { ends ("_grain_scan"), ValueTexts::scanSpeed },
     { ends ("_sample_bpm"), ValueTexts::bpm },
     { is ("poly_voices"), Unit::whole },
 
@@ -615,7 +622,7 @@ inline const ValueRow valueRows[] {
       Unit::percent },
     { is ("stretch|pedal_res|sym_amount|sym_decay"), Unit::percent },
     { starts ("sb_|mech_"), Unit::percent },
-    { ends ("_warp_amt|_spectral_amt|_grain_density|_grain_spray|_grain_pitch|_grain_spread|_uni_blend|_uni_frame|_uni_warp|_phase|_morph"),
+    { ends ("_warp_amt|_spectral_amt|_grain_density|_grain_spray|_grain_pitch|_grain_spread|_grain_pos|_uni_blend|_uni_frame|_uni_warp|_phase|_morph"),
       Unit::percent },
 };
 
@@ -936,6 +943,9 @@ inline const HelpRow helpRows[] {
     { ends ("_grain_spray"), "Random scatter of each grain's start around the position. More spray smears the sample into a cloud." },
     { ends ("_grain_pitch"), "Random detune per grain. Up to an octave either way. A little shimmers; a lot sounds like a swarm." },
     { ends ("_grain_spread"), "Stereo scatter of grains." },
+    { ends ("_grain_pos"), "Where in the sample the grains are taken from." },
+    { ends ("_grain_scan"), "Moves the position by itself: 1x is the sample's speed." },
+    { ends ("_grain_freeze"), "Holds the cloud in place until you let go." },
     { ends ("_spectral"), "Reshapes the harmonics, not the waveform. Stretch pulls them apart into bells and "
       "metal, Shift moves them all up for hollow ring-mod tones, Odd/Even keeps odd then even harmonics, "
       "Formant moves the vowel without changing pitch, Smear blurs them into a haze, Harmonic Cut keeps only "

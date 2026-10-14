@@ -54,6 +54,8 @@ public:
     {
         const juce::String samplePrefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
         startId = samplePrefix + "_sample_start";
+        grainPositionId = samplePrefix + "_grain_pos";
+        grainFreezeId = samplePrefix + "_grain_freeze";
         endId = samplePrefix + "_sample_end";
         fadeInId = samplePrefix + "_sample_fade_in";
         fadeOutId = samplePrefix + "_sample_fade_out";
@@ -499,7 +501,7 @@ public:
             if (isGranularMode())
             {
                 processorRef.beginEdit (editName());
-                beginGesture (startId);
+                beginGesture (grainPositionId);
                 setPositionFromX (event.position.x);
                 return;
             }
@@ -1396,14 +1398,14 @@ private:
     {
         const auto plotWidth = (float) juce::jmax (1, getWidth() - 20);
 
-        if (auto* parameter = processorRef.apvts.getParameter (startId))
+        if (auto* parameter = processorRef.apvts.getParameter (grainPositionId))
             parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, (x - 10.0f) / plotWidth));
     }
 
     void drawGrainCloud (juce::Graphics& g, juce::Rectangle<float> plot, float centreY, float halfHeight) const
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
-        const auto position = juce::jlimit (0.0f, 1.0f, readPlain (startId));
+        const auto position = juce::jlimit (0.0f, 1.0f, readPlain (grainPositionId));
         const auto spray = readPlain (prefix + "_grain_spray");
         const auto density = readPlain (prefix + "_grain_density");
         const auto size = readPlain (prefix + "_grain_size");
@@ -1447,6 +1449,13 @@ private:
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ positionX, centreY }));
         g.setColour (traceColour);
         g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ positionX, plot.getY() + 4.0f }));
+
+        if (readPlain (grainFreezeId) > 0.5f)
+        {
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("FROZEN", plot.toNearestInt().reduced (4), juce::Justification::topRight);
+        }
     }
 
     void drawSample (juce::Graphics& g) const
@@ -2546,7 +2555,7 @@ private:
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
-    juce::String startId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
+    juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     juce::Colour traceColour;
     bool followsTheme = false;

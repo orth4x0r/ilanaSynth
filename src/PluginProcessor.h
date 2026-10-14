@@ -1153,7 +1153,7 @@ private:
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
     std::array<ParamRef, OscillatorIds::count> sampleRootIds; // step 29
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27), crossfade (step 28)
-    std::array<std::array<ParamRef, 5>, OscillatorIds::count> grainParamIds;
+    std::array<std::array<ParamRef, 8>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;
     std::vector<std::shared_ptr<SampleData>> sampleSlots;

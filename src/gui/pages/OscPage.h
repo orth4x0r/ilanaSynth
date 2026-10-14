@@ -939,6 +939,7 @@ public:
             // corner chip still steps to every frame at once (3D) and the
             // harmonics (UI review 5, V6; design round 2).
             waveDisplays[(size_t) i]->setViewMode (0);
+            waveDisplays[(size_t) i]->onWavetableDrop = [this, i] (const juce::File& file) { askDroppedFile (i, file); };
             loadButtons[(size_t) i] = std::make_unique<juce::TextButton> ("LOAD...");
             editButtons[(size_t) i] = std::make_unique<juce::TextButton> ("EDIT");
             styleJumpLink (*editButtons[(size_t) i], "TABLE");
@@ -2766,35 +2767,70 @@ private:
 
                                        const auto file = chooser.getResult();
 
-                                       if (! file.existsAsFile())
-                                           return;
-
-                                       const auto factoryCount = TableFactory::getNumFactoryTables();
-                                       const auto domain = juce::jmax (0, safeThis->readTableChoiceIndex (tableId) - tableChoiceOffset);
-                                       // A User table selected is replaced; with a factory table
-                                       // selected the file goes to a free User slot (never over
-                                       // another oscillator's table).
-                                       auto slot = domain >= factoryCount
-                                                       ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1,
-                                                                       domain - factoryCount)
-                                                       : safeThis->processorRef.findFreeUserSlot();
-
-                                       if (slot < 0)
-                                       {
-                                           juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Load wavetable",
-                                                                                   "All 16 patch tables are in use. Pick a User table to replace it.");
-                                           return;
-                                       }
-
-                                       safeThis->processorRef.beginEdit ("Load wavetable"); // the table and the choice: one undo step
-                                       if (safeThis->processorRef.loadUserWavetable (slot, file, mode))
-                                       {
-                                           if (auto* parameter = safeThis->processorRef.apvts.getParameter (tableId))
-                                               parameter->setValueNotifyingHost (
-                                                   parameter->convertTo0to1 ((float) (tableChoiceOffset + factoryCount + slot)));
-                                       }
-                                       safeThis->processorRef.endEdit();
+                                       if (file.existsAsFile())
+                                           safeThis->loadTableFile (tableId, tableChoiceOffset, file, mode);
                                    });
+    }
+
+    // Loads a chosen or dropped audio file as a wavetable into a User slot and
+    // selects it on the oscillator whose table choice is tableId.
+    void loadTableFile (const juce::String& tableId, int tableChoiceOffset, const juce::File& file, Wavetable::LoadMode mode)
+    {
+        const auto factoryCount = TableFactory::getNumFactoryTables();
+        const auto domain = juce::jmax (0, readTableChoiceIndex (tableId) - tableChoiceOffset);
+        // A User table selected is replaced; with a factory table
+        // selected the file goes to a free User slot (never over
+        // another oscillator's table).
+        auto slot = domain >= factoryCount
+                        ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1, domain - factoryCount)
+                        : processorRef.findFreeUserSlot();
+
+        if (slot < 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Load wavetable",
+                                                    "All 16 patch tables are in use. Pick a User table to replace it.");
+            return;
+        }
+
+        processorRef.beginEdit ("Load wavetable"); // the table and the choice: one undo step
+        if (processorRef.loadUserWavetable (slot, file, mode))
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (tableId))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (tableChoiceOffset + factoryCount + slot)));
+        }
+        processorRef.endEdit();
+    }
+
+    // A file dropped on a wavetable oscillator's picture: the same ways the
+    // LOAD button offers, plus using it as a sample.
+    void askDroppedFile (int oscIndex, const juce::File& file)
+    {
+        const auto tableId = juce::String (OscillatorIds::prefixes[(size_t) oscIndex]) + "_table";
+        juce::PopupMenu menu;
+        menu.addSectionHeader (file.getFileName());
+        menu.addItem (1, "Load as a wavetable");
+        menu.addItem (2, "Make a wavetable from this audio");
+        menu.addItem (4, "Vocode: harmonics follow the audio's spectrum");
+        menu.addItem (5, "Time slice: equal slices, one cycle each");
+        menu.addSeparator();
+        menu.addItem (6, "Use as a sample instead");
+
+        juce::Component::SafePointer<OscPage> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&waveDisplay (oscIndex)),
+                            [safeThis, tableId, file, oscIndex] (int result)
+                            {
+                                if (safeThis == nullptr || result == 0)
+                                    return;
+
+                                if (result == 6)
+                                    safeThis->waveDisplay (oscIndex).loadSampleFile (file);
+                                else
+                                    safeThis->loadTableFile (tableId, 0, file,
+                                                             result == 2 ? Wavetable::LoadMode::Resynthesize
+                                                             : result == 4 ? Wavetable::LoadMode::Vocode
+                                                             : result == 5 ? Wavetable::LoadMode::TimeSlice
+                                                                           : Wavetable::LoadMode::Automatic);
+                            });
     }
 
     // Every component of one oscillator's card, to hide before the shown ones

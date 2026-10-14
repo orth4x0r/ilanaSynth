@@ -75,7 +75,7 @@ void runParamInfoTests()
     // curve choices, Multi-Core Voices and sustain_voices; listed, not failed.)
     IlanaSynthAudioProcessor processor;
     std::vector<bool> valueUsed (std::size (ParamInfo::valueRows)), helpUsed (std::size (ParamInfo::helpRows));
-    juce::StringArray withoutHelp;
+    juce::StringArray withoutHelp, plainUnitRange;
     for (auto* parameter : processor.getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
         {
@@ -86,6 +86,14 @@ void runParamInfoTests()
                 helpUsed[(size_t) row] = true;
             else
                 withoutHelp.add (id);
+
+            // A knob over 0..1 with no value row would show "0.50": a percent
+            // reads right (review 22: values read in one format everywhere).
+            if (auto* knob = dynamic_cast<juce::AudioParameterFloat*> (parameter))
+                if (juce::approximatelyEqual (knob->range.start, 0.0f) && juce::approximatelyEqual (knob->range.end, 1.0f)
+                    && ParamInfoLab::firstRow (ParamInfo::valueRows, ParamInfo::valueIndex(), id) < 0
+                    && ! (id.startsWith ("lfo") && id.contains ("_p"))) // (an LFO shape's own parameters: the LFO card names each)
+                    plainUnitRange.add (id);
         }
 
     for (size_t row = 0; row < valueUsed.size(); ++row)
@@ -94,6 +102,7 @@ void runParamInfoTests()
     for (size_t row = 0; row < helpUsed.size(); ++row)
         if (! helpUsed[row])
             check (false, "param help: help row " + juce::String ((int) row) + " covers no parameter (" + ParamInfo::helpRows[row].text + ")");
+    check (plainUnitRange.isEmpty(), "param text: knobs over 0..1 with no value row show a bare number: " + plainUnitRange.joinIntoString (" "));
     std::cout << "param help: " << withoutHelp.size() << " parameters without a help line: "
               << withoutHelp.joinIntoString (" ") << std::endl;
 }

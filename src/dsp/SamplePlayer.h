@@ -45,6 +45,13 @@ struct SampleZone
     double rootHz() const noexcept { return 440.0 * std::exp2 ((rootNote - 69.0) / 12.0); }
 };
 
+// The pitch a plain (zoneless) sample was recorded at, from the ROOT parameter.
+// 60 gives the literal C3 frequency every older patch used, bit for bit.
+inline double plainRootHz (float rootNote) noexcept
+{
+    return rootNote == 60.0f ? 261.6255653005986 : 440.0 * std::exp2 (((double) rootNote - 69.0) / 12.0);
+}
+
 struct SampleData
 {
     juce::AudioBuffer<float> buffer;

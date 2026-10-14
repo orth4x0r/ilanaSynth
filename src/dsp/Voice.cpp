@@ -301,7 +301,7 @@ const SampleData* Voice::stretchCopyFor (int osc, const SampleData* origin)
                                    : settings.tuneMode == OscTuning::Fixed
                                        ? oscFrequencyFactor (settings)
                                        : baseFrequency * settings.ratio * std::exp2 ((settings.semitones + settings.cents / 100.0) / 12.0);
-            const auto root = zone != nullptr ? zone->rootHz() : 261.6255653005986;
+            const auto root = zone != nullptr ? zone->rootHz() : plainRootHz (settings.sampleRoot);
             if (frequency > 0.0 && root > 0.0)
                 stretchSemis[osc] = juce::jlimit (-48, 48, (int) std::lround (12.0 * std::log2 (frequency / root)));
         }
@@ -3542,7 +3542,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                 stringFor (osc, u).setFrequency (frequencyU);
                 const auto* zone = sampleZone[osc];
                 const auto* played = zone != nullptr ? zone->data.get() : settings.sample;
-                sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : 261.6255653005986) : 1.0;
+                sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : plainRootHz (settings.sampleRoot)) : 1.0;
                 grains[osc][u].setPlaybackRatio (sampleRatio[osc][u]);
                 const auto rateRatio = played != nullptr ? played->sampleRate / sampleRate : 1.0;
                 // Step 40: SYNC speeds the sample to the host's tempo; with

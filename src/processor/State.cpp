@@ -4,6 +4,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
 {
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
+    state.setProperty ("grainPosSchema", 2, nullptr);
     state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 4, nullptr);
@@ -697,6 +698,42 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                            });
 
         state.setProperty ("osc3Schema", 2, nullptr);
+    }
+
+    // Step 45: the grain position became its own parameter. Before it, the
+    // cloud sat at Sample Start, so an older patch takes that value.
+    if ((int) state.getProperty ("grainPosSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+
+            return juce::ValueTree();
+        };
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        {
+            const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+            const auto start = find (prefix + "_sample_start");
+
+            if (! start.isValid() || ! start.hasProperty ("value"))
+                continue;
+
+            auto position = find (prefix + "_grain_pos");
+
+            if (! position.isValid())
+            {
+                position = juce::ValueTree ("PARAM");
+                position.setProperty ("id", prefix + "_grain_pos", nullptr);
+                state.appendChild (position, nullptr);
+            }
+
+            position.setProperty ("value", start.getProperty ("value"), nullptr);
+        }
+
+        state.setProperty ("grainPosSchema", 2, nullptr);
     }
 
     // v1.1 added factory wavetables ahead of the four user slots, so older

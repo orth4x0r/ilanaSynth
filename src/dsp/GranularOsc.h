@@ -23,6 +23,8 @@ public:
         float pitchSpray = 0.0f; // 0..1: up to +-12 semitones of random detune per grain
         float spread = 0.5f;    // 0..1: stereo scatter
         bool reverse = false;   // grains play backwards
+        float scan = 0.0f;      // -2..2: the position moves through the sample (1 = its own speed)
+        bool freeze = false;    // hold the position where it is (scan and position changes pause)
         // M7.5 live grains: the sample is the input's history, a ring
         // written up to liveWrite; position is how far back to read.
         bool live = false;
@@ -44,7 +46,10 @@ public:
             grain.active = false;
 
         random.setSeed ((juce::int64) seed);
-        untilNextGrain = 0.0;    }
+        untilNextGrain = 0.0;
+        scanOffset = 0.0;
+        frozen = false;
+    }
 
     void process (float& left, float& right)
     {
@@ -55,6 +60,26 @@ public:
             return;
 
         const auto grainLength = juce::jmax (64.0, (double) params.sizeMs * 0.001 * sampleRate);
+
+        // SCAN: the position travels through the sample (a negative speed goes
+        // backwards, the end wraps). FREEZE latches wherever the position is
+        // and holds it; letting go carries on from there.
+        if (params.freeze && ! frozen)
+        {
+            frozenHead = headPosition();
+            frozen = true;
+        }
+        else if (! params.freeze && frozen)
+        {
+            scanOffset = wrapUnit (frozenHead - (double) params.position);
+            frozen = false;
+        }
+
+        if (! frozen && params.scan != 0.0f)
+        {
+            const auto seconds = juce::jmax (0.01, (double) sample->getNumSamples() / juce::jmax (1.0, sample->sampleRate));
+            scanOffset = wrapUnit (scanOffset + (double) params.scan / (seconds * sampleRate));
+        }
 
         // Density sets how many grains overlap: 0.5 to 12.
         const auto overlap = 0.5 * std::pow (24.0, (double) juce::jlimit (0.0f, 1.0f, params.density));
@@ -108,6 +133,22 @@ public:
     }
 
 private:
+    static double wrapUnit (double value)
+    {
+        value -= std::floor (value);
+        return value;
+    }
+
+    // Where the cloud is centred, 0..1: the position (plus the scan), or the
+    // latched point while frozen. With no scan this is the position itself.
+    double headPosition() const
+    {
+        if (frozen)
+            return frozenHead;
+
+        return scanOffset == 0.0 ? (double) params.position : wrapUnit ((double) params.position + scanOffset);
+    }
+
     struct Grain
     {
         bool active = false;
@@ -133,7 +174,7 @@ private:
 
         const auto numSamples = (double) sample.getNumSamples();
         const auto offset = (random.nextFloat() * 2.0f - 1.0f) * params.spray * 0.5f;
-        const auto centre = juce::jlimit (0.0, 1.0, (double) (params.position + offset));
+        const auto centre = juce::jlimit (0.0, 1.0, headPosition() + (double) offset);
         const auto detune = (random.nextFloat() * 2.0f - 1.0f) * params.pitchSpray * 12.0f;
         const auto pan = (random.nextFloat() * 2.0f - 1.0f) * params.spread;
         const auto angle = (pan + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
@@ -185,4 +226,6 @@ private:
     // from run to run).
     juce::Random random { 0x6a41 };
     double sampleRate = 44100.0, ratio = 1.0, untilNextGrain = 0.0;
+    double scanOffset = 0.0, frozenHead = 0.0;
+    bool frozen = false;
 };

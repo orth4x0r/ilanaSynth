@@ -152,7 +152,7 @@ public:
             }
             strip->modeKnobs[1] = { knob ("_level", "LEVEL"), knob ("_string_decay", "DECAY"), knob ("_string_damp", "DAMP") };
             strip->modeKnobs[2] = { knob ("_level", "LEVEL"), knob ("_sample_start", "START"), knob ("_sample_end", "END") };
-            strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_sample_start", "POSITION"), knob ("_grain_size", "SIZE") };
+            strip->modeKnobs[3] = { knob ("_level", "LEVEL"), knob ("_grain_pos", "POSITION"), knob ("_grain_size", "SIZE") };
             // M7.5 Live: the input has no pitch or shape to set.
             strip->modeKnobs[4] = { knob ("_level", "LEVEL"), knob ("_pan", "PAN"), nullptr };
             // One level on an operator, OUTPUT; the oscillator's VOICE LEVEL is on OSC (I10-1)

@@ -598,6 +598,16 @@ inline const std::vector<ParamDestination>& getParamDestinations()
         add ("fx_filter_drive", "Filter FX Drive");
         add ("fx_filter_morph", "Filter FX Morph");
         add ("fx_filter_spread", "Filter FX Spread");
+
+        // Step 45 granular controls (append only): the cloud's position and
+        // scan speed. (Grain stereo spread is a destination since review 6.)
+        for (int osc = 0; osc < 6; ++osc)
+        {
+            const juce::String prefix (prefixes[osc]);
+            const auto name = "Osc" + juce::String (osc + 1) + " ";
+            add (prefix + "_grain_pos", name + "Grain Position");
+            add (prefix + "_grain_scan", name + "Grain Scan");
+        }
         return true;
     }();
     juce::ignoreUnused (extended);

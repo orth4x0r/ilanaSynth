@@ -851,7 +851,9 @@ class OscPage : public juce::Component,
               scale (state, prefix + "_scale", "SCALE"),
               scaleRoot (state, prefix + "_scale_root", "ROOT"),
               spectralAmt (state, prefix + "_spectral_amt", "SPEC AMT"),
-              grainPosition (state, prefix + "_sample_start", "POSITION"),
+              grainPosition (state, prefix + "_grain_pos", "POSITION"),
+              grainScan (state, prefix + "_grain_scan", "SCAN"),
+              grainFreeze (state, prefix + "_grain_freeze", "FREEZE"),
               grainSize (state, prefix + "_grain_size", "SIZE"),
               grainDensity (state, prefix + "_grain_density", "DENSITY"),
               grainSpray (state, prefix + "_grain_spray", "SPRAY"),
@@ -875,7 +877,7 @@ class OscPage : public juce::Component,
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
                                 &stringDecay, &stringDamp, &stringSustain, &sampleStart, &sampleEnd, &sampleFadeIn,
-                                &sampleLoopXfade, &sampleStartRandom, &sampleRoot, &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
+                                &sampleLoopXfade, &sampleStartRandom, &sampleRoot, &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainScan, &grainSize,
                                 &grainDensity, &grainSpray, &grainPitch, &grainSpread })
                 knob->setIdentityColour (colour);
         }
@@ -896,8 +898,8 @@ class OscPage : public juce::Component,
         KnobControl sampleStartRandom;
         KnobControl sampleBpm;
         KnobControl warpAmt, uniBlend, uniFrame, uniWarp, spectralAmt;
-        KnobControl grainPosition, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
-        ToggleControl grainLive; // M7.5: grains from the live input (ilanaSynth FX)
+        KnobControl grainPosition, grainScan, grainSize, grainDensity, grainSpray, grainPitch, grainSpread;
+        ToggleControl grainFreeze, grainLive; // M7.5: grains from the live input (ilanaSynth FX)
         // An FM operator's tuning, as on the FM page (UI review 6, I6-5).
         ComboControl tune;
         KnobControl ratio, fixedHz;
@@ -1008,7 +1010,7 @@ public:
         for (auto& item : controls)
         {
             auto& osc = *item;
-            addChildComponents (osc.grainPosition, osc.grainSize, osc.grainDensity,
+            addChildComponents (osc.grainPosition, osc.grainScan, osc.grainFreeze, osc.grainSize, osc.grainDensity,
                                 osc.grainSpray, osc.grainPitch, osc.grainSpread, osc.grainLive,
                                 osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode, osc.scale, osc.scaleRoot,
                                 osc.warpAmt, osc.uniBlend, osc.uniFrame, osc.uniWarp, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
@@ -1037,7 +1039,7 @@ public:
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
                                 &osc.samplePlayback, &osc.sampleQuality })
                 menu->setCompactLayout (true);
-            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe, &osc.grainLive })
+            for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe, &osc.grainLive, &osc.grainFreeze })
                 toggle->setInlineLabel (true);
             osc.on.setBareSwitch (true);
             osc.on.setSwitchColour (oscColour (i));
@@ -1686,25 +1688,25 @@ private:
             }
             case Kind::grain:
             {
-                int col = 0;
-                if (IlanaSynthAudioProcessor::isEffectBuild)
-                    add (osc.grainLive, 0, col++);
-                add (osc.sampleTuned, 0, col++);
-                add (osc.sampleReverse, 0, col++);
-                add (osc.grainPosition, 0, col++);
-                add (osc.grainSize, 0, col++);
-                add (osc.grainDensity, 0, col++);
-                add (osc.grainSpray, 0, col++);
-                // (PITCH RND is the longest name: it takes two cells when the row has one to spare.)
-                const auto wide = col <= 6;
-                add (osc.grainPitch, 0, col, wide ? 2 : 1);
-                col += wide ? 2 : 1;
-                add (osc.grainSpread, 0, col);
+                // GRAINS: where the cloud sits and moves, then its shape.
+                add (osc.grainPosition, 0, 0);
+                add (osc.grainScan, 0, 1);
+                add (osc.grainFreeze, 0, 2);
+                add (osc.grainSize, 0, 3);
+                add (osc.grainDensity, 0, 4);
+                add (osc.grainSpray, 0, 5);
+                // (PITCH RND is the longest name: it takes two cells.)
+                add (osc.grainPitch, 0, 6, 2);
+                add (osc.grainSpread, 0, 8);
                 add (osc.level, 1, 0);
                 add (osc.pan, 1, 1);
+                add (osc.sampleTuned, 1, 2);
                 add (osc.semi, 1, 3);
                 add (osc.fine, 1, 4);
                 add (osc.ampEnv, 1, 5);
+                add (osc.sampleReverse, 1, 6);
+                if (IlanaSynthAudioProcessor::isEffectBuild)
+                    add (osc.grainLive, 1, 7);
                 // BLEND and SPREAD keep their columns, dimmed with a dash:
                 // grains have no unison blend or spread (controls dim in place).
                 unisonRow (2, true);
@@ -2471,7 +2473,7 @@ private:
         return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleStartRandom, &osc.sampleRoot, &osc.sampleBpm, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
-                 &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
+                 &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
                  &osc.trim, &osc.feedback };
     }
@@ -2762,7 +2764,7 @@ private:
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
-                 &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
+                 &osc.grainPosition, &osc.grainScan, &osc.grainFreeze, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
                  &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback, &osc.feedbackType,
                  &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
@@ -2934,7 +2936,7 @@ private:
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
                                &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
-                               &osc.grainPosition, &osc.grainSize, &osc.grainDensity,
+                               &osc.grainPosition, &osc.grainScan, &osc.grainFreeze, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,
                                &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.ampEnv,
                                &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt,

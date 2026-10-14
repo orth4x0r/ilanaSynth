@@ -238,7 +238,9 @@ void Voice::syncSamplePlayers()
         {
             GranularOsc::Params grainParams;
             grainParams.sample = sample;
-            grainParams.position = juce::jlimit (0.0f, 1.0f, osc.sampleStart + startMod);
+            grainParams.position = juce::jlimit (0.0f, 1.0f, osc.grainPosition + startMod);
+            grainParams.scan = osc.grainScan;
+            grainParams.freeze = osc.grainFreeze;
             grainParams.sizeMs = osc.grainSizeMs;
             grainParams.density = osc.grainDensity;
             grainParams.spray = osc.grainSpray;

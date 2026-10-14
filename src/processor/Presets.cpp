@@ -1109,6 +1109,27 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                               });
     }
 
+    // Step 45: a preset written before Grain Position existed plays its
+    // cloud at Sample Start; give it that value.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto positionId = prefix + "_grain_pos";
+        const auto startId = prefix + "_sample_start";
+        const auto hasPosition = std::any_of (values.begin(), values.end(),
+                                              [&positionId] (const auto& entry) { return entry.first == positionId; });
+
+        if (hasPosition)
+            continue;
+
+        for (const auto& entry : values)
+            if (entry.first == startId)
+            {
+                values.push_back ({ positionId, entry.second });
+                break;
+            }
+    }
+
     for (const auto& value : values)
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (value.first)))
             targets[(size_t) ranged->getParameterIndex()] = ranged->convertTo0to1 (value.second);

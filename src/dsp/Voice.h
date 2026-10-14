@@ -262,6 +262,9 @@ struct VoiceParams
         float grainSpray = 0.15f;
         float grainPitch = 0.0f;
         float grainSpread = 0.6f;
+        float grainPosition = 0.0f; // 0..1 through the sample (apart from sampleStart)
+        float grainScan = 0.0f;     // -2..2: how fast the position moves (1 = the sample's own speed)
+        bool grainFreeze = false;
     };
 
     struct FilterParams

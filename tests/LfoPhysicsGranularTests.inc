@@ -744,7 +744,7 @@ void runGranularTests()
         };
 
         set ("osc1_mode", 3.0f);
-        set ("osc1_sample_start", 0.3f);
+        set ("osc1_grain_pos", 0.3f);
         set ("f1_cutoff", 20000.0f);
         set ("f1_env", 0.0f);
         setup (state);

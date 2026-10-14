@@ -217,7 +217,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             grainParamIds[(size_t) i] = { prefix + "_grain_size", prefix + "_grain_density",
                                          prefix + "_grain_spray", prefix + "_grain_pitch",
-                                         prefix + "_grain_spread" };
+                                         prefix + "_grain_spread", prefix + "_grain_pos",
+                                         prefix + "_grain_scan", prefix + "_grain_freeze" };
         }
     }
 
@@ -1468,6 +1469,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.grainSpray = getParam (grain[2]);
         osc.grainPitch = getParam (grain[3]);
         osc.grainSpread = getParam (grain[4]);
+        osc.grainPosition = getParam (grain[5]);
+        osc.grainScan = getParam (grain[6]);
+        osc.grainFreeze = getParam (grain[7]) > 0.5f;
     };
 
     for (int osc = 0; osc < OscillatorIds::count; ++osc)

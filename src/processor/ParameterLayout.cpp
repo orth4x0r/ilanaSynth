@@ -1247,5 +1247,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     // card's six colours as FM noise (colour then has no say).
     addChoice ("fm_noise_type", "FM Noise Type", { "Colour", "White", "Pink", "Brown", "Blue", "Violet", "Grey" }, 0);
 
+    // Roadmap step 45: granular controls (append only). The grain position
+    // is its own parameter, apart from Sample Start; patches saved before it
+    // take Sample Start's value on load. SCAN moves the position through the
+    // sample (1 = the sample's own speed, negative = backwards); FREEZE holds
+    // it where it is.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_grain_pos", name + " Grain Position", 0.0f, 1.0f, 0.0f);
+        addFloat (prefix + "_grain_scan", name + " Grain Scan", -2.0f, 2.0f, 0.0f);
+        addBool (prefix + "_grain_freeze", name + " Grain Freeze", false);
+    }
+
     return layout;
 }

@@ -153,6 +153,7 @@ public:
             drawMarker (g, plot, markers[1], 1, filterColour (1));
         drawMarker (g, plot, markers[0], 0, filterColour (0));
 
+        readoutBoxDrawn = {};
         if (big)
             for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
                 if (! (filterIndex == 1 && filter2Replaced()))
@@ -657,6 +658,7 @@ private:
         g.fillPath (path);
     }
 
+    mutable juce::Rectangle<float> readoutBoxDrawn; // the tag drawn first this paint
     // "F1  3.2 kHz  ·  RESO 35%" beside a marker: its cutoff and resonance in
     // numbers, on the side with room.
     void drawReadout (juce::Graphics& g, juce::Rectangle<float> plot, juce::Point<float> centre, int filterIndex) const
@@ -700,7 +702,9 @@ private:
                 candidate = candidate.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, candidate.getY()));
                 if (candidate.getX() < plot.getX() || candidate.getRight() > plot.getRight())
                     continue;
-                if (const auto count = crossings (candidate); count < fewest)
+                // (Never over the other filter's tag: with both cutoffs near the
+                // right edge the two used to print on top of each other, review 21.)
+                if (const auto count = crossings (candidate) + (candidate.intersects (readoutBoxDrawn) ? 1000 : 0); count < fewest)
                 {
                     fewest = count;
                     box = candidate;
@@ -712,6 +716,7 @@ private:
             box = juce::Rectangle<float> (width, 15.0f).withCentre ({ onLeft ? centre.x - markerSize - 6.0f - width * 0.5f : centre.x + markerSize + 6.0f + width * 0.5f, centre.y });
             box = box.withY (juce::jlimit (plot.getY() + 16.0f, plot.getBottom() - 30.0f, box.getY()));
         }
+        readoutBoxDrawn = box;
         g.setColour (IlanaTheme::Ui::bg.withAlpha (0.72f));
         g.fillRoundedRectangle (box, 7.0f);
         g.setColour (filterColour (filterIndex).withAlpha (0.5f));

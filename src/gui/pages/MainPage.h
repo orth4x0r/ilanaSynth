@@ -134,7 +134,7 @@ public:
                 // (exciters: 0-3 pluck, rub, saw, pulse; 4 bow; 5 hammer; 6 oscillator; 7 tine; 8 reed; 9 piano; 10 feedback)
                 for (int e = 0; e <= 3; ++e)
                     strip->stringRows[(size_t) e] = line ({ sustain, stiff, position, hardness, pickPos, slap });
-                strip->stringRows[4] = line ({ sustain, stiff, position, optional ("_bow_pressure", "BOW PRESS"), optional ("_bow_speed", "BOW SPEED"), pickup });
+                strip->stringRows[4] = line ({ sustain, stiff, position, optional ("_bow_pressure", "GRIP"), optional ("_bow_speed", "SPEED"), pickup });
                 strip->stringRows[5] = line ({ sustain, stiff, position, hammer, slap, pickup });
                 strip->stringRows[6] = line ({ sustain, stiff, position, slap, pickup, buzz });
                 strip->stringRows[7] = strip->stringRows[8] = line ({ optional ("_damper", "DAMPER"), hammer, optional ("_ep_distance", "DISTANCE"), optional ("_ep_position", "OFFSET") });

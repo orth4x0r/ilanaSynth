@@ -891,8 +891,8 @@ public:
 
         if (! on)
         {
-            paintOffBadge (g, ruler.withWidth (labelWidth - 4.0f), "ARP OFF");
-
+            // (The centre pill says it; a corner badge and a header note
+            // said the same a second and third time, review 21.)
             // The way on, where the eye is: drawing a step switches the ARP on
             // (UI review 13, S13-11), as the VECTOR pad says what switches it.
             const auto font = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body, true));
@@ -1180,7 +1180,7 @@ public:
 
         const auto engine = seqOn ? juce::String ("PROB SEQ") : arpOn ? juce::String ("ARP") : juce::String();
         const bool engineOn[] { arpOn, euclidOn, seqOn, clipOn };
-        const char* const offNotes[] { "ARP is off: draw to switch it on.",
+        const char* const offNotes[] { "",
                                        "EUCLID is off: drag to switch it on.",
                                        "PROB SEQ is off: draw to switch it on.",
                                        "CLIP is off: switch it on in its tab." };

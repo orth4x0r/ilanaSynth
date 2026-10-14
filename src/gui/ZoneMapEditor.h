@@ -638,7 +638,7 @@ private:
         {
             const auto& z = zones[(size_t) selected];
             const auto to = juce::String (" to ");
-            keysField.setText (noteName (z.loKey) + to + noteName (z.hiKey));
+            keysField.setText (z.loKey == z.hiKey ? noteName (z.loKey) : noteName (z.loKey) + to + noteName (z.hiKey)); // (one key: "C1", not "C1 to C1")
             velocityField.setText (juce::String (z.loVel) + to + juce::String (z.hiVel));
             rootField.setText (rootText (z.rootNote));
             levelField.setText (juce::String (juce::Decibels::gainToDecibels (z.gain, -100.0f), 1) + " dB");

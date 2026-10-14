@@ -84,7 +84,7 @@ public:
         g.drawRoundedRectangle (note.toFloat().reduced (0.5f), 6.0f, 1.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        IlanaTheme::drawFitted (g, "Replaced by WEST (its PLACE is Replaces F2).\nThese settings come back when WEST runs after the filters.",
+        IlanaTheme::drawFitted (g, "Replaced by WEST (its PLACE is set to Replaces F2).\nThese settings come back when WEST runs after the filters.",
                           note.reduced (10, 2), juce::Justification::centred, 2);
     }
 

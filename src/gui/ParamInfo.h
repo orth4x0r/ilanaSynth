@@ -511,6 +511,8 @@ inline const ValueRow valueRows[] {
     { is ("fx_feedback_tone|fx_flanger_depth|fx_dim_depth|fx_gate_smooth|fx_trem_depth|fx_delay_duck|fx_chorus_depth|fx_delay_wow"
           "|fx_phaser_depth|fx_reverb_size|fx_amp_bass|fx_amp_mid|fx_amp_treble|vec_x|vec_y"), Unit::percent },
     { starts ("fx_taps_step|vec_px|vec_py"), Unit::percent },
+    // (Sampler amounts that read "0" and "0.20" without a unit, review 21.)
+    { ends ("_sample_loop_xfade|_sample_start_rand|_sample_vel_blend"), Unit::percent },
     { ends ("_fb_gain|_fb_distance"), Unit::percent },
 
     { ends ("_pan"), ValueTexts::pan },
@@ -606,7 +608,7 @@ inline const ValueRow valueRows[] {
       Unit::fixed1, " dB" },
     { ends ("_gain").also (starts ("fx_eq_")), Unit::fixed1, " dB" },
 
-    { is ("fx_drive_amount|fx_amp_drive"), Unit::times1 },
+    { is ("fx_drive_amount|fx_amp_drive|fx_filter_drive"), Unit::times1 },
 
     { ends ("_mix|_amount|_level|_width|_spread|_sustain|_velocity|_damping|_feedback|_curve|_frame|_start|_end|_fade_in|_fade_out"),
       Unit::percent },

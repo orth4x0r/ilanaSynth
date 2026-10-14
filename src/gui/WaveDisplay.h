@@ -1312,12 +1312,14 @@ private:
     SampleChips sampleChips() const
     {
         const auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
-        const auto height = 16.0f;
+        // (Bigger than they were, 26 x 20: about 11 px of glyph in a 20 x 16
+        // chip was a small target and easy to miss, review 21.)
+        const auto height = juce::jmin (18.0f, header.getHeight());
         const auto y = header.getY() + (header.getHeight() - height) * 0.5f;
         SampleChips chips;
-        chips.play = { header.getRight() - 28.0f, y, 28.0f, height };
-        chips.zoomIn = { chips.play.getX() - 3.0f - 20.0f, y, 20.0f, height };
-        chips.zoomOut = { chips.zoomIn.getX() - 2.0f - 20.0f, y, 20.0f, height };
+        chips.play = { header.getRight() - 32.0f, y, 32.0f, height };
+        chips.zoomIn = { chips.play.getX() - 3.0f - 26.0f, y, 26.0f, height };
+        chips.zoomOut = { chips.zoomIn.getX() - 3.0f - 26.0f, y, 26.0f, height };
         return chips;
     }
 

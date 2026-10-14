@@ -773,8 +773,8 @@ class OscPage : public juce::Component,
               hardness (state, prefix + "_string_pick_hardness", "HARDNESS"),
               pickPos (state, prefix + "_string_pick_pos", "PICK POS"),
               slap (state, prefix + "_string_slap", "SLAP"),
-              bowPressure (state, prefix + "_bow_pressure", "BOW PRESS"),
-              bowSpeed (state, prefix + "_bow_speed", "BOW SPEED"),
+              bowPressure (state, prefix + "_bow_pressure", "GRIP"),
+              bowSpeed (state, prefix + "_bow_speed", "SPEED"),
               bridgeBuzz (state, prefix + "_bridge_buzz", "BRIDGE BUZZ"),
               fretRattle (state, prefix + "_fret_rattle", "FRET RATTLE"),
               hammer (state, prefix + "_hammer_hard", "HAMMER"),
@@ -1865,9 +1865,26 @@ private:
     std::vector<CardGeometry> cards;
     juce::Rectangle<int> stripArea, addArea;
 
+    // A switched-off oscillator folds to its header (review 21: two greyed
+    // 190 px cards hid the VOICE strip and the sampler rows below them, and
+    // PLAY already folds the same way). The switch opens it again.
+    static constexpr int foldedCardHeight = cardHeaderHeight + 2;
+    bool isFolded (int osc) const { return isOff (osc); }
+    static constexpr int foldedRoomMax = 220;
+    bool anyFolded() const
+    {
+        for (const auto osc : shownList())
+            if (isFolded (osc))
+                return true;
+        return false;
+    }
+
     // What a card needs at least, by what it holds.
     int minimumCardHeight (int osc) const
     {
+        if (isFolded (osc))
+            return foldedCardHeight;
+
         switch (kindOf (osc))
         {
             case Kind::live: return liveCardHeight;
@@ -1884,7 +1901,12 @@ private:
     // What a compact card grows to with spare height.
     int maximumCardHeight (int osc) const
     {
-        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap);
+        if (isFolded (osc))
+            return foldedCardHeight;
+
+        // A card beside folded ones takes their room (a taller picture and
+        // rows with air) instead of leaving a gap above the strip.
+        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap) + (anyFolded() ? foldedRoomMax : 0);
     }
 
     static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
@@ -1935,6 +1957,8 @@ private:
             for (size_t i = 0; i < shown.size(); ++i)
             {
                 const auto kind = kindOf (shown[i]);
+                if (isFolded (shown[i]))
+                    continue;
                 if (kind == Kind::sample)
                     samples.push_back (i);
                 else if (kind != Kind::live)
@@ -2050,6 +2074,15 @@ private:
             card.captionArea = status;
         }
 
+        if (isFolded (index))
+        {
+            card.rows = 0;
+            card.hintArea = {};
+            card.separatorY.clear();
+            pieces.status.setBounds ({});
+            return;
+        }
+
         if (card.kind == Kind::sample)
         {
             card.columns = sampleColumns;
@@ -2084,6 +2117,8 @@ private:
 
         card.rows = rowsOf (index);
         card.columns = 9;
+        // (Rows keep their size on a card of the usual height; one grown into folded neighbours' room spaces its rows evenly.)
+        const auto roomy = card.bounds.getHeight() > compactCardMax + (card.rows - 3) * (28 + rowGap);
         card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - (card.rows - 1) * rowGap - 8) / card.rows);
         const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);
         const auto padTop = juce::jmax (4, (body.getHeight() - rowsHeight) / 2);
@@ -2092,8 +2127,10 @@ private:
         card.gridX = card.labelX + rowLabelWidth + 8;
         card.gridWidth = inner.getRight() - 10 - card.gridX;
 
+        const auto spacing = roomy ? juce::jmax (rowGap, (body.getHeight() - card.rowHeight * card.rows) / (card.rows + 1)) : rowGap;
         for (int r = 0; r < card.rows; ++r)
-            card.rowY[(size_t) r] = body.getY() + padTop + r * (card.rowHeight + rowGap);
+            card.rowY[(size_t) r] = roomy ? body.getY() + spacing + r * (card.rowHeight + spacing)
+                                          : body.getY() + padTop + r * (card.rowHeight + rowGap);
 
         for (const auto& slot : slotsFor (index))
             placeSlot (card, slot);
@@ -2167,8 +2204,11 @@ private:
             g.beginTransparencyLayer (0.55f);
 
         IlanaTheme::paintCard (g, card.bounds.toFloat(), 10.0f, tint);
-        g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
-        g.fillRect (juce::Rectangle<int> (card.bounds.getX() + 1, card.header.getBottom() - 1, card.bounds.getWidth() - 2, 1));
+        if (! isFolded (index))
+        {
+            g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
+            g.fillRect (juce::Rectangle<int> (card.bounds.getX() + 1, card.header.getBottom() - 1, card.bounds.getWidth() - 2, 1));
+        }
 
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 17.0f, (float) centre }, tint);
@@ -2181,6 +2221,12 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         IlanaTheme::drawFitted (g, engineName (index), card.captionArea.withHeight (18).withCentre (card.captionArea.getCentre()),
                                 juce::Justification::centredLeft, 1);
+
+        if (isFolded (index))
+        {
+            g.endTransparencyLayer();
+            return;
+        }
 
         // Each row named at its left, in the oscillator's colour.
         if (card.kind == Kind::sample)
@@ -2842,6 +2888,19 @@ private:
             pieces.partials.setVisible (kind == Kind::physical && ! electric);
             pieces.status.setVisible (kind != Kind::sample);
             pieces.spreadView.setVisible (kind != Kind::live && ((kind != Kind::sample && kind != Kind::fm) || readFloat (prefix + "_unison") > 1.5f));
+
+            // A folded card shows its header only.
+            if (isFolded (index))
+            {
+                for (const auto& slot : slotsFor (index))
+                    slot.item->setVisible (false);
+                wave.setVisible (false);
+                pieces.stringView.setVisible (false);
+                pieces.opEnvGraph.setVisible (false);
+                pieces.partials.setVisible (false);
+                pieces.status.setVisible (false);
+                pieces.spreadView.setVisible (false);
+            }
         }
 
         // The strip.

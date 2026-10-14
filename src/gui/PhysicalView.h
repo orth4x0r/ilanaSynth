@@ -438,7 +438,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     if (excite == 5 || piano)
         exciter.push_back ({ "_hammer_hard", "HAMMER" });
     else if (excite == 4)
-        exciter.insert (exciter.end(), { { "_bow_pressure", "BOW PRESS" }, { "_bow_speed", "BOW SPEED" } });
+        exciter.insert (exciter.end(), { { "_bow_pressure", "GRIP" }, { "_bow_speed", "SPEED" } });
     else if (excite == 10)
         exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
 

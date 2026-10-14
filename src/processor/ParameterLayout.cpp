@@ -1264,7 +1264,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
         const auto name = "Osc" + juce::String (osc + 1);
-        addBool (prefix + "_sample_pingpong", name + " Sample Ping-Pong", false);
+        addBool (prefix + "_sample_pingpong", name + " Ping-Pong", false);
     }
 
     // Roadmap step 35: each note starts at a random place up to this far
@@ -1274,8 +1274,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
         const auto name = "Osc" + juce::String (osc + 1);
-        addFloat (prefix + "_sample_start_rand", name + " Sample Random Start", 0.0f, 1.0f, 0.0f);
-        addBool (prefix + "_sample_start_safe", name + " Sample Transient Safe", false);
+        addFloat (prefix + "_sample_start_rand", name + " Random Start", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_sample_start_safe", name + " Transient Safe", false);
     }
 
     // Roadmap step 39: how the sample is read between its samples. Linear,
@@ -1294,7 +1294,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
         const auto name = "Osc" + juce::String (osc + 1);
-        addChoice (prefix + "_sample_unmapped", name + " Sample Outside Zones", { "Nearest Zone", "Silence" }, 0);
+        addChoice (prefix + "_sample_unmapped", name + " Outside Zones", { "Nearest Zone", "Silence" }, 0);
     }
 
     // Roadmap step 37: alternates for the same key take turns (Cycle) or
@@ -1304,8 +1304,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
         const auto name = "Osc" + juce::String (osc + 1);
-        addChoice (prefix + "_sample_round_robin", name + " Sample Round Robin", { "Off", "Cycle", "Random" }, 0);
-        addFloat (prefix + "_sample_vel_blend", name + " Sample Velocity Blend", 0.0f, 1.0f, 0.0f);
+        addChoice (prefix + "_sample_round_robin", name + " Round Robin", { "Off", "Cycle", "Random" }, 0);
+        addFloat (prefix + "_sample_vel_blend", name + " Velocity Blend", 0.0f, 1.0f, 0.0f);
     }
 
     return layout;

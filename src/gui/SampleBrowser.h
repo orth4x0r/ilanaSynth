@@ -72,6 +72,7 @@ public:
         search.setIndents (8, 5);
         search.onTextChange = [this] { refresh(); };
         search.onEscapeKey = [this] { escape(); };
+        search.onFocusLost = [this] { repaint (search.getBounds()); };
         search.addKeyListener (this);
         addAndMakeVisible (search);
 
@@ -196,6 +197,16 @@ public:
 
     void paintOverChildren (juce::Graphics& g) override
     {
+        // The box's own hint hides while it has the keyboard focus, and it
+        // has the focus the moment the browser opens, so it read as an empty
+        // gold outline (review 21): draw the hint ourselves in that case.
+        if (search.getText().isEmpty() && search.hasKeyboardFocus (false))
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText ("Search this list", search.getBounds().withTrimmedLeft (9), juce::Justification::centredLeft);
+        }
+
         if (! rows.empty())
             return;
 
@@ -998,7 +1009,10 @@ private:
         juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<SampleBrowser> (this)]
         {
             if (safe != nullptr && safe->isShowing())
+            {
                 safe->search.grabKeyboardFocus();
+                safe->repaint (safe->search.getBounds());
+            }
         });
     }
 

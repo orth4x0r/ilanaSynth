@@ -27,7 +27,7 @@ public:
           crushBits (p.apvts, "fx_crush_bits", "BITS"),
           crushDown (p.apvts, "fx_crush_down", "DOWN"),
           crushMix (p.apvts, "fx_crush_mix", "MIX"),
-          compThreshold (p.apvts, "fx_comp_threshold", "THRESH"),
+          compThreshold (p.apvts, "fx_comp_threshold", "THRESHOLD"),
           compRatio (p.apvts, "fx_comp_ratio", "RATIO"),
           compAttack (p.apvts, "fx_comp_attack", "ATTACK"),
           compRelease (p.apvts, "fx_comp_release", "RELEASE"),
@@ -764,7 +764,10 @@ public:
                     const auto perRow = juce::jmax (1, std::min ({ 4, (int) offered.size(), (width + gap) / (minWidth + gap) }));
                     const auto room = stackArea.getBottom() - addTile.getBottom() - suggestCaptionHeight;
                     const auto rows = (int) offered.size() > perRow ? juce::jlimit (1, 2, (room + gap) / (suggestMinHeight + gap)) : 1;
-                    const auto count = juce::jmin ((int) offered.size(), perRow * rows);
+                    auto count = juce::jmin ((int) offered.size(), perRow * rows);
+                    // (Whole rows only: seven tiles left a hole at the end of the second row, review 21.)
+                    if (count > perRow && count % perRow != 0)
+                        count -= count % perRow;
                     const auto tileHeight = juce::jlimit (suggestMinHeight, suggestMaxHeight, (room - gap * (rows - 1)) / rows);
                     suggestCaption = { left, addTile.getBottom() + 6, width, suggestCaptionHeight - 6 };
                     const auto top = addTile.getBottom() + suggestCaptionHeight;
@@ -1276,7 +1279,7 @@ private:
     {
         if (patcherOn)
             return "The cables on PATCH decide what feeds what.";
-        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Series: each effect feeds the next one.";
+        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Effects run top to bottom. ROUTING ON PATCH rewires them.";
     }
 
     void chainABChanged()
@@ -2005,7 +2008,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("these slots work on the middle or the sides of the stereo image; the rest passes around them",
+            g.drawText ("These slots work on the middle or the sides of the stereo image; the rest passes around them",
                         heading.withTrimmedLeft (150).withTrimmedRight (14), juce::Justification::centredLeft, true);
         }
     }

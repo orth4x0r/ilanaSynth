@@ -242,7 +242,7 @@ public:
             // One short hint, the same on every type (I15-11); the longer
             // sentence is ENVELOPE's tooltip.
             IlanaTheme::drawFitted (g, isFmType (selectedOperator) ? "Edit the envelope on MOD or PLAY."
-                                                                    : "Ratio and OP ENV are FM / DX7's.",
+                                                                    : "Ratio and OP ENV are for FM / DX7 oscillators.",
                                     ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
                                     juce::Justification::centredLeft, 3);
         }

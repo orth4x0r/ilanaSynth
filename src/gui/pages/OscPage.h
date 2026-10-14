@@ -1870,7 +1870,7 @@ private:
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
     bool isFolded (int osc) const { return isOff (osc); }
-    static constexpr int foldedRoomMax = 110;
+    static constexpr int foldedRoomMax = 220;
     bool anyFolded() const
     {
         for (const auto osc : shownList())

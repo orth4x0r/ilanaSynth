@@ -58,6 +58,15 @@ def main():
           and clip(new_root, r["index"], r["category"]) is not None]
     print(len(ok), "of", len(new), "new drafts pass the gate")
     taken = set()
+    chosen = []  # embeddings of the drafts already in a pair
+    SAME = 0.93  # cosine above this = "sounds basically the same" (ilana, round 3: discard those)
+
+    def distinct(i):
+        return all(float(new_emb[i] @ new_emb[j]) < SAME for j in chosen)
+
+    def take(i):
+        taken.add(i)
+        chosen.append(i)
 
     def entry(pid, category, kind, sides):
         e = {"id": pid, "category": category, "kind": kind}
@@ -71,13 +80,19 @@ def main():
         """Highest taste scores, one per concept, then spread out (farthest-first)."""
         best = {}
         for i in ok:
-            if new[i]["category"] == category and i not in taken:
+            if new[i]["category"] == category and i not in taken and distinct(i):
                 c = new[i]["name"].split("~")[0]
                 if c not in best or taste[new[i]["index"]] > taste[new[best[c]]["index"]]:
                     best[c] = i
         ranked = sorted(best.values(), key=lambda i: -taste[new[i]["index"]])
         pool = ranked[: max(count + 2, int(len(ranked) * 0.6))]
-        return [pool[k] for k in farthest_first(new_emb[pool], min(count, len(pool)), rng)]
+        picked = []
+        if not pool:
+            return picked
+        for k in farthest_first(new_emb[pool], len(pool), rng):
+            if len(picked) < count and all(float(new_emb[pool[k]] @ new_emb[j]) < SAME for j in picked):
+                picked.append(pool[k])
+        return picked
 
     pairs = []
     for concept in REWORKED:
@@ -86,8 +101,9 @@ def main():
         if not cands or not old:
             print("skip fixcheck:", concept)
             continue
+        cands = [j for j in cands if distinct(j)] or cands
         i = max(cands, key=lambda j: float(rep[new[j]["index"]]["score"]))
-        taken.add(i)
+        take(i)
         old_row = {"index": str(old["index"]), "name": old["name"]}
         sides = [("draft", new_root, new[i]), ("old-draft", r3_root, old_row)]
         if rng.random() < 0.5:
@@ -95,23 +111,31 @@ def main():
         pairs.append(entry(f"r4-fix-{concept.lower().replace(' ', '-')}", new[i]["category"], "fixcheck", sides))
     for category, count in MODELRANDOM.items():
         for k, i in enumerate(top_drafts(category, count)):
-            taken.add(i)
-            others = [j for j in ok if new[j]["category"] == category and j not in taken
-                      and new[j]["name"].split("~")[0] != new[i]["name"].split("~")[0]]
+            if not distinct(i):
+                continue
+            take(i)
+            others = [j for j in ok if new[j]["category"] == category and j not in taken and distinct(j)]
+            if not others:
+                continue
             j = int(rng.choice(others))
-            taken.add(j)
+            take(j)
             sides = [("draft-model", new_root, new[i]), ("draft-random", new_root, new[j])]
             if rng.random() < 0.5:
                 sides.reverse()
             pairs.append(entry(f"r4-{category.lower()}-m{k + 1}", category, "modelrandom", sides))
     for category, count in LIBRARY.items():
-        picks = top_drafts(category, count)
+        picks = [d for d in top_drafts(category, count)]
+        if not picks:
+            print("no distinct drafts left for", category)
+            continue
         lib = [i for i, r in enumerate(fac) if r["category"] == category and r["name"] not in used
                and clip(fac_root, r["index"], category) is not None]
         lib_picks = [lib[k] for k in farthest_first(fac_emb[lib], len(picks), rng)]
         rng.shuffle(lib_picks)
         for k, (d, f) in enumerate(zip(picks, lib_picks)):
-            taken.add(d)
+            if not distinct(d):
+                continue
+            take(d)
             used.add(fac[f]["name"])
             sides = [("draft-model", new_root, new[d]), ("library", fac_root, fac[f])]
             if rng.random() < 0.5:

@@ -40,6 +40,7 @@
 #include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
+#include "dsp/SampleSlicer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 #include "dsp/WavetableDoc.h"
@@ -619,6 +620,18 @@ public:
     // sample source (the SOURCE menu goes back to the loaded sample).
     bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
 
+    // Roadmap step 42: the sample browser's audition. startSamplePreview decodes
+    // the file on the calling (message) thread, up to previewSeconds of it, sets
+    // a gain from its RMS so every preview plays at the same level, and hands it
+    // to the audio thread, which mixes it into the output after the effects (no
+    // lock, no allocation there). It returns false for a file it cannot read.
+    // stopSamplePreview fades it out. Nothing of this reaches a preset.
+    bool startSamplePreview (const juce::File& file);
+    void stopSamplePreview();
+    bool isSamplePreviewPlaying() const noexcept { return previewPlaying.load(); }
+    // The gain the running preview was given (1 with none).
+    float getSamplePreviewGain() const noexcept { return previewGain.load(); }
+
     // Portable sample presets (roadmap step 31; src/processor/SamplePortability.cpp).
     // Embedded audio is held to this many bytes of 16-bit samples in the patch.
     static constexpr juce::int64 maxEmbeddedSampleBytes = 64 * 1024 * 1024;
@@ -629,6 +642,16 @@ public:
         juce::StringArray partial; // an SFZ that loaded but could not find these audio files
     };
     juce::String getSamplePath (int oscIndex) const; // empty: embedded, factory or none
+    // Roadmap step 38: a SoundFont's preset by bank and program, kept with
+    // the patch. Returns false if it couldn't load.
+    bool selectSoundFontPreset (int oscIndex, int bank, int program);
+    // Roadmap step 32: cuts the oscillator's plain sample into slices on
+    // their own keys (mode off puts the whole sample back): one undo step,
+    // kept with the patch. False for a multisample or no sample.
+    bool setSampleSlices (int oscIndex, const SampleSlicer::Settings& settings, const juce::String& undoName);
+    SampleSlicer::Settings getSampleSlices (int oscIndex) const;
+    // The preset an SF2 oscillator plays (bank, program), or -1, -1 for the first.
+    std::pair<int, int> getSoundFontPreset (int oscIndex) const;
     bool isSampleFromFile (int oscIndex) const;
     std::vector<MissingSample> getMissingSamples() const;
     // True once per change of the missing list, while it holds something (the editor's prompt).
@@ -651,6 +674,28 @@ public:
     // Files in `folder` that have a missing sample's name (any thread). Relink each with relinkSample.
     std::vector<std::pair<int, juce::File>> findMissingSampleFiles (const juce::File& folder, bool recursive,
                                                                     const std::function<bool()>& shouldStop = {}) const;
+    // Roadmap step 43: why the last loadUserSample failed, in a sentence for
+    // the person (message thread).
+    juce::String getLastSampleError() const { return lastSampleError; }
+    // Roadmap step 44: writes an oscillator's sample (a resampled sound too)
+    // as a 24-bit WAV at its own rate. playedRange: START to END as the card
+    // plays it (REVERSE and the fades applied, pitch not); else all of it. A
+    // multisample writes its shown region (the one under middle C).
+    bool exportSampleWav (int oscIndex, const juce::File& target, bool playedRange, juce::String& error) const;
+
+    // Roadmap step 36: the zone map. The zones the oscillator plays (a copy;
+    // empty for a plain sample).
+    std::vector<SampleZone> getSampleZones (int oscIndex) const;
+    // Replaces the zones (their audio is shared, not copied): one undo step.
+    // A sample loaded from a file keeps its file and saves the map as edits
+    // to it; a sample kept in the patch (a resample) keeps the new zones.
+    bool setSampleZones (int oscIndex, std::vector<SampleZone> zones, const juce::String& undoName);
+    // Adds a zone playing an audio file; a plain sample becomes the map's
+    // first zone (over every key, rooted at middle C).
+    bool addSampleZone (int oscIndex, const juce::File& file, int loKey, int hiKey, int loVel, int hiVel, int rootKey, juce::String& error);
+    // A file's audio as a plain sample (step 43's messages in error, what
+    // was left out in loadWarning); null on failure.
+    static std::shared_ptr<SampleData> decodeAudioFile (const juce::File& file, juce::String& error);
     // The audio thread calls this at the top of each block's rack (a staged slot swap goes in here, FX-14).
     void beginFxBlock() noexcept;
     // The FX rack alone over a buffer (the audio path calls it; public for the tests).
@@ -851,6 +896,10 @@ private:
         std::array<std::shared_ptr<const WavetableDoc>, (size_t) numUserSlots> tables;
         std::array<std::shared_ptr<SampleData>, (size_t) OscillatorIds::count> embedded;
         std::array<juce::String, (size_t) OscillatorIds::count> samplePaths;
+        // Step 36: a file's edited zone map (and SF2 preset) and the sample
+        // as it played, so undo puts it back without reading the file again.
+        std::array<juce::String, (size_t) OscillatorIds::count> sampleOptions;
+        std::array<std::shared_ptr<SampleData>, (size_t) OscillatorIds::count> liveSamples;
         std::array<juce::String, (size_t) Mod::numMacros> macroNames;
         std::array<int, (size_t) Mod::numMacros> macroCcs {};
         std::array<int, 3> reveal {};
@@ -888,6 +937,16 @@ private:
     std::shared_ptr<SampleData> bounceResult;
     bool bounceReady = false;
     juce::String bounceMessage;
+    juce::String lastSampleError; // step 43, message thread
+    // Step 36 / 38: what a file-backed sample needs besides its path (an SF2
+    // preset, an edited zone map), as XML of a "SampleOptions" tree whose
+    // path property names the file it belongs to. Under stateLock.
+    std::array<juce::String, (size_t) OscillatorIds::count> sampleOptions;
+    juce::String getSampleOptions (int oscIndex) const;
+    void setSampleOptions (int oscIndex, const juce::String& options);
+    void retargetSampleOptions (int oscIndex, const juce::String& newPath); // the file moved (collect, relink)
+    // Puts a saved zone map back on a freshly loaded file's sample.
+    std::shared_ptr<SampleData> applyZoneOptions (std::shared_ptr<SampleData> loaded, const juce::ValueTree& options, const juce::File& file);
     static juce::ValueTree encodeSample (const SampleData& data);
     static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree, int depth = 0);
 
@@ -1153,6 +1212,8 @@ private:
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
     std::array<ParamRef, OscillatorIds::count> sampleRootIds; // step 29
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27), crossfade (step 28)
+    std::array<std::array<ParamRef, 8>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39), outside zones (36), round robin and velocity blend (37)
+    SampleRoundRobin sampleRoundRobin; // step 37: shared by the voices
     std::array<std::array<ParamRef, 8>, OscillatorIds::count> grainParamIds;
 
     static constexpr int numSampleOscs = OscillatorIds::count;
@@ -1161,6 +1222,28 @@ private:
     std::array<std::array<std::shared_ptr<SampleData>, 3>, (size_t) numSampleOscs> retiredSamples;
     std::array<int, (size_t) numSampleOscs> retiredIndex {};
     mutable juce::SpinLock sampleLock;
+
+    // Sample browser preview (step 42). The message thread fills previewPending
+    // under previewLock and bumps previewSerial; the audio thread try-locks to
+    // pick it up. Clips it replaced wait in previewRetired, so the audio thread
+    // never frees one.
+    struct PreviewClip
+    {
+        juce::AudioBuffer<float> buffer;
+        double sampleRate = 44100.0;
+        float gain = 1.0f;
+    };
+    void mixSamplePreview (juce::AudioBuffer<float>& buffer) noexcept;
+    mutable juce::SpinLock previewLock;
+    std::shared_ptr<PreviewClip> previewPending;
+    std::array<std::shared_ptr<PreviewClip>, 4> previewRetired;
+    int previewRetiredIndex = 0;
+    std::atomic<int> previewSerial { 0 };
+    std::atomic<bool> previewPlaying { false };
+    std::atomic<float> previewGain { 1.0f };
+    std::shared_ptr<PreviewClip> previewActive; // audio thread only
+    int previewSeenSerial = 0, previewFadeIn = 0, previewFadeOut = 0;
+    double previewPosition = 0.0;
     mutable juce::SpinLock stateLock;
     std::array<juce::String, (size_t) numSampleOscs> samplePaths;
     std::array<std::shared_ptr<SampleData>, (size_t) numSampleOscs> embeddedSamples; // under stateLock

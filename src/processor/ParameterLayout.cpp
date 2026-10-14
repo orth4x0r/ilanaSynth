@@ -1261,5 +1261,66 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_grain_freeze", name + " Grain Freeze", false);
     }
 
+    // Roadmap step 33: how a sample treats the key's release. Gate, as in
+    // every older patch: LOOP decides and the envelope ends the note. One
+    // Shot plays START to END once and keeps playing after the release.
+    // Sustain Loop loops while the key is down, then plays on to END.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_playback", name + " Sample Playback", { "Gate", "One Shot", "Sustain Loop" }, 0);
+    }
+
+    // Roadmap step 34: the loop runs forward and back instead of jumping to
+    // its start. Off, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addBool (prefix + "_sample_pingpong", name + " Ping-Pong", false);
+    }
+
+    // Roadmap step 35: each note starts at a random place up to this far
+    // into the played range; TRANSIENT SAFE moves it back onto the attack
+    // before it. 0, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addFloat (prefix + "_sample_start_rand", name + " Random Start", 0.0f, 1.0f, 0.0f);
+        addBool (prefix + "_sample_start_safe", name + " Transient Safe", false);
+    }
+
+    // Roadmap step 39: how the sample is read between its samples. Linear,
+    // as in every older patch; Sinc + Anti-Alias filters what a strong
+    // upward transposition would fold back.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_quality", name + " Sample Quality", { "Linear", "Cubic", "Sinc", "Sinc + Anti-Alias" }, 0);
+    }
+
+    // Roadmap step 36: a key no zone covers plays the nearest zone, as in
+    // every older patch, or nothing.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_unmapped", name + " Outside Zones", { "Nearest Zone", "Silence" }, 0);
+    }
+
+    // Roadmap step 37: alternates for the same key take turns (Cycle) or
+    // are drawn at random; VELOCITY BLEND crossfades neighbouring velocity
+    // layers. Off and 0, as in every older patch.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto name = "Osc" + juce::String (osc + 1);
+        addChoice (prefix + "_sample_round_robin", name + " Round Robin", { "Off", "Cycle", "Random" }, 0);
+        addFloat (prefix + "_sample_vel_blend", name + " Velocity Blend", 0.0f, 1.0f, 0.0f);
+    }
+
     return layout;
 }

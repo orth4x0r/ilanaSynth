@@ -3,12 +3,13 @@
 // SoundFont 2 (.sf2) and SFZ (.sfz) instruments for the Sample oscillator:
 // each is read into a SampleData whose zones hold the regions (key and
 // velocity ranges, root key, tuning, loop, level). One instrument per file:
-// an SF2's first preset (lowest bank, then program); every region of an SFZ.
+// an SF2 preset (by default the first: lowest bank, then program); every region of an SFZ.
 // Envelopes, filters and modulators in the files are ignored: the synth's own
 // do that job.
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <algorithm>
 #include <cctype>
 #include <map>
 #include <string>
@@ -28,6 +29,10 @@ inline bool isMultiSampleFile (const juce::File& file)
 // buffer, for the displays.
 inline void finish (SampleData& data)
 {
+    // Step 36: each zone knows its place in the file, for saved edits.
+    for (size_t i = 0; i < data.zones.size(); ++i)
+        if (data.zones[i].file.isEmpty())
+            data.zones[i].origin = (int) i;
     const auto* shown = data.zoneFor (60, 100);
     if (shown != nullptr && shown->data != nullptr)
     {
@@ -100,6 +105,9 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
     constexpr juce::int64 maxBytes = (juce::int64) 768 * 1024 * 1024;
     juce::int64 totalBytes = 0;
     auto overBudget = false;
+    // Step 43: what was left out, said once the instrument is in.
+    juce::StringArray missingFiles;
+    auto cutFiles = 0;
 
     const auto loadAudio = [&] (const juce::String& relative) -> std::shared_ptr<SampleData>
     {
@@ -122,6 +130,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (audioFile) }; reader != nullptr && reader->lengthInSamples > 1)
         {
             const auto length = (int) juce::jmin (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 120.0));
+            if (length < reader->lengthInSamples)
+                ++cutFiles;
             const auto bytes = (juce::int64) length * juce::jlimit (1, 2, (int) reader->numChannels) * (juce::int64) sizeof (float);
             if (totalBytes + bytes > maxBytes)
             {
@@ -139,6 +149,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
             else
                 scrubAudio (data->buffer);
         }
+        if (data == nullptr)
+            missingFiles.add (audioFile.getFileName());
         loaded[key] = data;
         return data;
     };
@@ -202,6 +214,8 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
         zone.hiVel = juce::jlimit (1, 127, get ("hivel", "127").getIntValue());
         zone.rootNote -= get ("tune", "0").getDoubleValue() / 100.0 + get ("transpose", "0").getDoubleValue();
         zone.gain = juce::Decibels::decibelsToGain (get ("volume", "0").getFloatValue());
+        // Step 37: a round-robin alternate's place among the regions sharing its keys.
+        zone.sequence = juce::jmax (0, get ("seq_position", "0").getIntValue());
         const auto length = zone.data->getNumSamples();
         const auto mode = get ("loop_mode", get ("loopmode"));
         zone.loopStart = juce::jlimit (0, length, get ("loop_start", get ("loopstart", "0")).getIntValue());
@@ -292,9 +306,20 @@ inline std::shared_ptr<SampleData> loadSfz (const juce::File& file, juce::String
 
     if (data->zones.empty())
     {
-        error = overBudget ? "the samples are too large (limit 768 MB)" : "no playable regions";
+        error = overBudget ? "the samples are too large (limit 768 MB)"
+                : missingFiles.isEmpty() ? "no playable regions"
+                                         : "none of its sample files could be read (first: " + missingFiles[0] + ")";
         return nullptr;
     }
+    juce::StringArray notes;
+    if (! missingFiles.isEmpty())
+        notes.add (juce::String (missingFiles.size()) + (missingFiles.size() == 1 ? " sample file" : " sample files")
+                   + " could not be read (" + missingFiles[0] + (missingFiles.size() > 1 ? ", ..." : "") + ").");
+    if (overBudget)
+        notes.add ("Some regions were left out: the samples together pass 768 MB.");
+    if (cutFiles > 0)
+        notes.add (juce::String (cutFiles) + (cutFiles == 1 ? " sample was" : " samples were") + " cut at 120 seconds.");
+    data->loadWarning = notes.joinIntoString (" ");
     finish (*data);
     return data;
 }
@@ -372,27 +397,28 @@ inline std::vector<Generators> zonesOf (const char* bags, juce::uint32 numBags, 
     }
     return zones;
 }
-} // namespace Sf2
 
-inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String& error)
+// A file read into memory with its sample data and preset-data chunks found.
+// The chunk pointers point into block, so keep the two together.
+struct Parsed
 {
-    using namespace Sf2;
     juce::MemoryBlock block;
-    if (! file.loadFileAsData (block) || block.getSize() < 12)
-    {
-        error = "unreadable file";
-        return nullptr;
-    }
-    const auto* raw = static_cast<const char*> (block.getData());
-    if (juce::String (raw, 4) != "RIFF" || juce::String (raw + 8, 4) != "sfbk")
-    {
-        error = "not a SoundFont";
-        return nullptr;
-    }
-
     const char* smpl = nullptr;
     juce::uint32 smplSize = 0;
     std::map<juce::String, Chunk> pdta;
+    int numPresets = 0; // without the terminator record
+};
+
+// Reads and checks the file. Returns an empty string, or what is wrong with it.
+inline juce::String parse (const juce::File& file, Parsed& parsed)
+{
+    auto& block = parsed.block;
+    if (! file.loadFileAsData (block) || block.getSize() < 12)
+        return "unreadable file";
+    const auto* raw = static_cast<const char*> (block.getData());
+    if (juce::String (raw, 4) != "RIFF" || juce::String (raw + 8, 4) != "sfbk")
+        return "not a SoundFont";
+
     for (const auto& list : children (raw + 8, (juce::uint32) juce::jmin<size_t> (u32 (raw + 4), block.getSize() - 8)))
     {
         if (list.id != "LIST")
@@ -400,38 +426,78 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
         for (const auto& chunk : children (list.data, list.size))
         {
             if (listType (list) == "sdta" && chunk.id == "smpl")
-                smpl = chunk.data, smplSize = chunk.size;
+                parsed.smpl = chunk.data, parsed.smplSize = chunk.size;
             else if (listType (list) == "pdta")
-                pdta[chunk.id] = chunk;
+                parsed.pdta[chunk.id] = chunk;
         }
     }
     for (const char* id : { "phdr", "pbag", "pgen", "inst", "ibag", "igen", "shdr" })
-        if (pdta.count (id) == 0)
-        {
-            error = juce::String ("missing ") + id;
-            return nullptr;
-        }
-    if (smpl == nullptr)
-    {
-        error = "no sample data";
-        return nullptr;
-    }
+        if (parsed.pdta.count (id) == 0)
+            return juce::String ("missing ") + id;
+    if (parsed.smpl == nullptr)
+        return "no sample data";
 
-    const auto& phdr = pdta["phdr"];
-    const auto numPresets = (int) (phdr.size / 38) - 1; // the last is the terminator
-    if (numPresets < 1)
-    {
-        error = "no presets";
+    parsed.numPresets = (int) (parsed.pdta["phdr"].size / 38) - 1; // the last is the terminator
+    if (parsed.numPresets < 1)
+        return "no presets";
+    return {};
+}
+
+inline int presetBank (const Parsed& parsed, int index) { return u16 (parsed.pdta.at ("phdr").data + index * 38 + 22); }
+inline int presetProgram (const Parsed& parsed, int index) { return u16 (parsed.pdta.at ("phdr").data + index * 38 + 20); }
+} // namespace Sf2
+
+struct Sf2Preset
+{
+    int bank = 0, program = 0;
+    juce::String name;
+};
+
+// Every preset of a SoundFont, by bank then program. Empty if the file is unusable.
+inline std::vector<Sf2Preset> listSf2Presets (const juce::File& file)
+{
+    Sf2::Parsed parsed;
+    std::vector<Sf2Preset> presets;
+    if (Sf2::parse (file, parsed).isNotEmpty())
+        return presets;
+    for (int p = 0; p < parsed.numPresets; ++p)
+        presets.push_back ({ Sf2::presetBank (parsed, p), Sf2::presetProgram (parsed, p),
+                             juce::String (parsed.pdta.at ("phdr").data + p * 38, 20).trim() });
+    // Stable, so presets sharing a bank and program keep the file's order.
+    std::stable_sort (presets.begin(), presets.end(), [] (const Sf2Preset& a, const Sf2Preset& b)
+                      { return a.bank != b.bank ? a.bank < b.bank : a.program < b.program; });
+    return presets;
+}
+
+// bank and program of -1 (or a pair the file lacks) pick the first preset:
+// lowest bank, then lowest program.
+inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String& error, int bank = -1, int program = -1)
+{
+    using namespace Sf2;
+    Parsed parsed;
+    error = parse (file, parsed);
+    if (error.isNotEmpty())
         return nullptr;
-    }
-    // The first preset: lowest bank, then lowest program.
-    auto chosen = 0;
-    for (int p = 1; p < numPresets; ++p)
-    {
-        const auto* a = phdr.data + p * 38;
-        const auto* b = phdr.data + chosen * 38;
-        if (u16 (a + 22) < u16 (b + 22) || (u16 (a + 22) == u16 (b + 22) && u16 (a + 20) < u16 (b + 20)))
+
+    const auto* smpl = parsed.smpl;
+    const auto smplSize = parsed.smplSize;
+    auto& pdta = parsed.pdta;
+    const auto& phdr = pdta["phdr"];
+    const auto numPresets = parsed.numPresets;
+    auto chosen = -1;
+    for (int p = 0; p < numPresets && chosen < 0; ++p)
+        if (presetBank (parsed, p) == bank && presetProgram (parsed, p) == program)
             chosen = p;
+    if (chosen < 0)
+    {
+        chosen = 0;
+        for (int p = 1; p < numPresets; ++p)
+        {
+            const auto* a = phdr.data + p * 38;
+            const auto* b = phdr.data + chosen * 38;
+            if (u16 (a + 22) < u16 (b + 22) || (u16 (a + 22) == u16 (b + 22) && u16 (a + 20) < u16 (b + 20)))
+                chosen = p;
+        }
     }
     const auto presetName = juce::String (phdr.data + chosen * 38, 20).trim();
     const auto presetZones = zonesOf (pdta["pbag"].data, pdta["pbag"].size / 4, pdta["pgen"].data, pdta["pgen"].size / 4,
@@ -564,15 +630,17 @@ inline std::shared_ptr<SampleData> loadSf2 (const juce::File& file, juce::String
 
     if (data->zones.empty())
     {
-        error = "the first preset has no playable zones";
+        error = "this preset has no playable zones";
         return nullptr;
     }
     finish (*data);
     return data;
 }
 
-inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error, SfzReport* report = nullptr)
+inline std::shared_ptr<SampleData> load (const juce::File& file, juce::String& error, SfzReport* report = nullptr,
+                                         int bank = -1, int program = -1)
 {
-    return file.hasFileExtension ("sfz") ? loadSfz (file, error, report) : loadSf2 (file, error);
+    // The bank and program only choose among an SF2's presets (step 38).
+    return file.hasFileExtension ("sfz") ? loadSfz (file, error, report) : loadSf2 (file, error, bank, program);
 }
 } // namespace MultiSample

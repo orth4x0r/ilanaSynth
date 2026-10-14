@@ -4,9 +4,11 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../dsp/EpTuning.h"
+#include "../dsp/MultiSample.h"
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 #include "../PluginProcessor.h"
@@ -20,6 +22,14 @@
 #include "TableBrowser.h"
 #include "PhysicalView.h"
 #include "SamplePortability.h"
+
+// Roadmap step 42: the editor sets this to open the sample browser for an
+// oscillator (given how to load a chosen file into it); empty without an editor.
+inline std::function<void (int, std::function<bool (const juce::File&)>)>& sampleBrowserHook()
+{
+    static std::function<void (int, std::function<bool (const juce::File&)>)> hook;
+    return hook;
+}
 
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
@@ -496,6 +506,16 @@ public:
             return;
         }
 
+        // Step 32: a right-click on a marker removes it.
+        if (event.mods.isPopupMenu() && isSampleMode() && ! compact)
+            if (const auto marker = sliceMarkerAt (event.position.x); marker > 0)
+            {
+                auto cuts = sliceCutFractions();
+                cuts.erase (cuts.begin() + (marker - 1));
+                setSliceMarkers (cuts, "Remove slice marker");
+                return;
+            }
+
         if (! event.mods.isPopupMenu())
         {
             if (isGranularMode())
@@ -515,6 +535,16 @@ public:
                     processorRef.beginEdit (editName());
                     beginGesture (handleParamId (handle));
                     setHandleFromX (event.position.x);
+                    return;
+                }
+
+            // Step 32: a marker (a hand-placed slice cut) is dragged where it is drawn.
+            if (isSampleMode() && ! compact)
+                if (const auto marker = sliceMarkerAt (event.position.x); marker > 0)
+                {
+                    markerDrag = marker;
+                    markerDragFraction = xToSampleFraction (event.position.x);
+                    repaint();
                     return;
                 }
 
@@ -548,7 +578,64 @@ public:
         juce::PopupMenu menu;
         constexpr int loadFileItem = 10000;
         constexpr int embedItem = 10001, embedAllItem = 10002, collectItem = 10003, relinkItem = 10004;
+        constexpr int browseItem = 10005;
+        menu.addItem (browseItem, "Browse Samples...", sampleBrowserHook() != nullptr);
         menu.addItem (loadFileItem, "Load Sample or SoundFont (SF2 / SFZ)...");
+
+        // Roadmap step 38: a SoundFont's presets, by bank, to switch between.
+        constexpr int presetItemBase = 20000;
+        const juce::File soundFont (processorRef.getSamplePath (oscIndex));
+        const auto presets = soundFont.hasFileExtension ("sf2") && isSampleMode() ? MultiSample::listSf2Presets (soundFont)
+                                                                                  : std::vector<MultiSample::Sf2Preset> {};
+        if (presets.size() > 1)
+        {
+            auto [currentBank, currentProgram] = processorRef.getSoundFontPreset (oscIndex);
+            if (currentBank < 0)
+                currentBank = presets.front().bank, currentProgram = presets.front().program;
+            const auto label = [] (const MultiSample::Sf2Preset& preset)
+            {
+                return juce::String (preset.program + 1).paddedLeft ('0', 3) + "  " + preset.name;
+            };
+            juce::PopupMenu presetMenu;
+            const auto oneBank = presets.front().bank == presets.back().bank;
+            for (size_t i = 0; i < presets.size();)
+            {
+                juce::PopupMenu bankMenu;
+                const auto bank = presets[i].bank;
+                auto& into = oneBank ? presetMenu : bankMenu;
+                for (; i < presets.size() && presets[i].bank == bank; ++i)
+                    into.addItem (presetItemBase + (int) i, label (presets[i]), true,
+                                  presets[i].bank == currentBank && presets[i].program == currentProgram);
+                if (! oneBank)
+                    presetMenu.addSubMenu ("Bank " + juce::String (bank), bankMenu, true, nullptr, bank == currentBank);
+            }
+            menu.addSubMenu ("SoundFont Preset", presetMenu);
+        }
+
+        // Roadmap step 32: slices, each on its own key.
+        {
+            const auto* shown = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
+            const auto sliceable = shown != nullptr && shown->getNumSamples() > 1 && (shown->zones.empty() || shown->isSliced());
+            const auto slicing = processorRef.getSampleSlices (oscIndex);
+            juce::PopupMenu sliceMenu, transientMenu, equalMenu, keyMenu;
+            const auto byTransients = slicing.mode == SampleSlicer::transients;
+            transientMenu.addItem (sliceFewerItem, "Fewer Slices", true, byTransients && slicing.sensitivity < 0.4f);
+            transientMenu.addItem (sliceMediumItem, "Medium", true, byTransients && slicing.sensitivity >= 0.4f && slicing.sensitivity < 0.7f);
+            transientMenu.addItem (sliceMoreItem, "More Slices", true, byTransients && slicing.sensitivity >= 0.7f);
+            sliceMenu.addSubMenu ("By Transients", transientMenu, true, nullptr, byTransients);
+            for (const auto parts : { 2, 4, 8, 16, 32, 64 })
+                equalMenu.addItem (sliceEqualItem + parts, juce::String (parts) + " Parts", true,
+                                   slicing.mode == SampleSlicer::equal && slicing.count == parts);
+            sliceMenu.addSubMenu ("Into Equal Parts", equalMenu, true, nullptr, slicing.mode == SampleSlicer::equal);
+            sliceMenu.addItem (sliceMarkersItem, "At Markers (double-click the wave to add one, right-click to remove)", true,
+                               slicing.mode == SampleSlicer::markers);
+            sliceMenu.addSeparator();
+            for (const auto key : { 24, 36, 48, 60 })
+                keyMenu.addItem (sliceKeyItem + key, juce::MidiMessage::getMidiNoteName (key, true, true, 3), true, slicing.baseKey == key);
+            sliceMenu.addSubMenu ("First Slice on Key", keyMenu);
+            sliceMenu.addItem (sliceOffItem, "Remove Slices", slicing.mode != SampleSlicer::off);
+            menu.addSubMenu ("Slice", sliceMenu, sliceable);
+        }
         menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
@@ -578,7 +665,7 @@ public:
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
-                            [safeThis, paramId] (int result)
+                            [safeThis, paramId, presets] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
@@ -589,7 +676,42 @@ public:
                                     return;
                                 }
 
-                                if (result >= embedItem)
+                                if (result >= sliceItemBase && result < sliceItemBase + 1000)
+                                {
+                                    safeThis->applySliceMenu (result);
+                                    return;
+                                }
+
+                                if (result == browseItem)
+                                {
+                                    if (auto hook = sampleBrowserHook())
+                                        hook (safeThis->oscIndex, [safeThis] (const juce::File& file)
+                                        {
+                                            if (safeThis == nullptr || ! safeThis->processorRef.loadUserSample (safeThis->oscIndex, file, true))
+                                                return false;
+                                            safeThis->switchToSampleMode();
+                                            safeThis->repaint();
+                                            return true;
+                                        });
+                                    return;
+                                }
+
+                                if (result >= presetItemBase && result - presetItemBase < (int) presets.size())
+                                {
+                                    const auto preset = presets[(size_t) (result - presetItemBase)];
+                                    auto& processor = safeThis->processorRef;
+                                    const auto osc = safeThis->oscIndex;
+                                    processor.performEdit ("SoundFont Preset", [&]
+                                    {
+                                        if (! processor.selectSoundFontPreset (osc, preset.bank, preset.program))
+                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "SoundFont Preset",
+                                                                                    processor.getLastSampleError());
+                                    });
+                                    safeThis->repaint();
+                                    return;
+                                }
+
+                                if (result >= embedItem && result != browseItem)
                                 {
                                     auto& processor = safeThis->processorRef;
                                     if (result == embedItem || result == embedAllItem)
@@ -623,6 +745,13 @@ public:
             return;
         }
 
+        if (markerDrag > 0)
+        {
+            markerDragFraction = xToSampleFraction (event.position.x);
+            repaint();
+            return;
+        }
+
         if (isGranularMode())
             setPositionFromX (event.position.x);
 
@@ -649,6 +778,15 @@ public:
         if (std::exchange (pressInHeader, false))
             return;
 
+        if (const auto marker = std::exchange (markerDrag, 0); marker > 0)
+        {
+            auto cuts = sliceCutFractions();
+            if (marker - 1 < (int) cuts.size())
+                cuts[(size_t) (marker - 1)] = markerDragFraction;
+            setSliceMarkers (cuts, "Move slice marker");
+            return;
+        }
+
         endGestures();
         processorRef.endEdit();
         handleDrag = 0;
@@ -665,8 +803,16 @@ public:
     {
         if (hasZoomableSample() && ! event.mods.isPopupMenu() && event.position.y >= (float) headerHeight)
         {
+            const auto slicing = processorRef.getSampleSlices (oscIndex);
             if (const auto handle = sampleHandleAt (event.position.x, event.position.y); handle != 0)
                 openPositionEditor (handle);
+            else if (slicing.mode == SampleSlicer::markers && event.position.y >= samplePlotArea().getY())
+            {
+                // Step 32: at markers, a double-click cuts a new slice there.
+                auto cuts = sliceCutFractions();
+                cuts.push_back (xToSampleFraction (event.position.x));
+                setSliceMarkers (cuts, "Add slice marker");
+            }
             else if (! sampleView.isFull())
                 setSampleView ({});
             else
@@ -688,6 +834,128 @@ public:
             setPlain (warpAmountId(), 0.0f);
             endGestures();
         });
+    }
+
+    // ---------------------------------------------------------------- slices (step 32)
+
+    // The position (0..1 of the whole sample) under x, given the zoom window.
+    float xToSampleFraction (float x) const
+    {
+        const auto plot = samplePlotArea();
+        return (float) sampleView.fromView (juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / juce::jmax (1.0f, plot.getWidth())));
+    }
+
+    // The inner cuts of a sliced sample, as fractions (not 0 or the end).
+    std::vector<float> sliceCutFractions() const
+    {
+        std::vector<float> cuts;
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || ! sample->isSliced())
+            return cuts;
+        const auto length = (float) juce::jmax (1, sample->getNumSamples());
+        for (size_t i = 1; i + 1 < sample->sliceStarts.size(); ++i)
+            cuts.push_back ((float) sample->sliceStarts[i] / length);
+        return cuts;
+    }
+
+    // 1.. for the inner cut under x (within 6 px) while slicing at markers, else 0.
+    int sliceMarkerAt (float x) const
+    {
+        if (processorRef.getSampleSlices (oscIndex).mode != SampleSlicer::markers)
+            return 0;
+        const auto plot = samplePlotArea();
+        const auto cuts = sliceCutFractions();
+        auto best = 0;
+        auto bestDistance = 6.0f;
+        for (size_t i = 0; i < cuts.size(); ++i)
+            if (const auto distance = std::abs (sampleFractionToX (plot, cuts[i]) - x); distance <= bestDistance)
+                bestDistance = distance, best = (int) i + 1;
+        return best;
+    }
+
+    void setSliceMarkers (std::vector<float> cuts, const juce::String& undoName)
+    {
+        auto slicing = processorRef.getSampleSlices (oscIndex);
+        slicing.mode = SampleSlicer::markers;
+        slicing.markers = std::move (cuts);
+        processorRef.setSampleSlices (oscIndex, slicing, undoName);
+        repaint();
+    }
+
+    void applySliceMenu (int result)
+    {
+        auto slicing = processorRef.getSampleSlices (oscIndex);
+        auto name = juce::String ("Slice sample");
+        if (result == sliceOffItem)
+            slicing.mode = SampleSlicer::off, name = "Remove slices";
+        else if (result >= sliceFewerItem && result <= sliceMoreItem)
+        {
+            slicing.mode = SampleSlicer::transients;
+            slicing.sensitivity = result == sliceFewerItem ? 0.25f : result == sliceMediumItem ? 0.5f : 0.8f;
+        }
+        else if (result > sliceEqualItem && result <= sliceEqualItem + 128)
+            slicing.mode = SampleSlicer::equal, slicing.count = result - sliceEqualItem;
+        else if (result == sliceMarkersItem)
+        {
+            // Markers start where the slices are now, or at the attacks.
+            auto cuts = sliceCutFractions();
+            if (cuts.empty())
+                if (const auto* sample = processorRef.getSampleForOsc (oscIndex); sample != nullptr && sample->getNumSamples() > 1)
+                {
+                    auto attacks = SampleSlicer::settingsOf (*sample);
+                    attacks.mode = SampleSlicer::transients;
+                    const auto bounds = SampleSlicer::boundaries (*sample, attacks);
+                    for (size_t i = 1; i + 1 < bounds.size(); ++i)
+                        cuts.push_back ((float) bounds[i] / (float) sample->getNumSamples());
+                }
+            slicing.mode = SampleSlicer::markers;
+            slicing.markers = cuts;
+        }
+        else if (result > sliceKeyItem && result <= sliceKeyItem + 127)
+        {
+            slicing.baseKey = result - sliceKeyItem;
+            name = "Move slices to " + juce::MidiMessage::getMidiNoteName (slicing.baseKey, true, true, 3);
+            if (slicing.mode == SampleSlicer::off)
+                slicing.mode = SampleSlicer::transients;
+        }
+        if (! processorRef.setSampleSlices (oscIndex, slicing, name))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Slice",
+                                                    "Only a plain sample can be sliced (a multisample already has its zones).");
+        repaint();
+    }
+
+    void drawSlices (juce::Graphics& g, const SampleData& sample, juce::Rectangle<float> plot) const
+    {
+        const auto length = (float) juce::jmax (1, sample.getNumSamples());
+        const auto manual = sample.sliceMode == SampleSlicer::markers;
+        const auto at = [&] (size_t i)
+        {
+            return sampleFractionToX (plot, (int) i == markerDrag ? markerDragFraction : (float) sample.sliceStarts[i] / length);
+        };
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        for (size_t i = 0; i + 1 < sample.sliceStarts.size(); ++i)
+        {
+            const auto x = at (i), nextX = at (i + 1);
+            if (i > 0)
+            {
+                g.setColour (traceColour.withAlpha (manual ? 0.95f : 0.6f));
+                g.fillRect (juce::Rectangle<float> (manual ? 1.5f : 1.0f, plot.getHeight()).withPosition (x - 0.5f, plot.getY()));
+            }
+            // (Under the START flag's row, so the first slice's label shows too.)
+            if (nextX - x > 16.0f && plot.getHeight() > 50.0f)
+            {
+                const auto key = sample.sliceBaseKey + (int) i;
+                const auto label = juce::String ((int) i + 1)
+                                   + (nextX - x > 56.0f ? " " + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
+                // On a dark tag, so the label reads over the wave's attack.
+                const auto tagWidth = juce::jmin (nextX - x - 4.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 6.0f);
+                const auto tag = juce::Rectangle<float> (x + 2.0f, plot.getY() + 18.0f, tagWidth, 13.0f);
+                g.setColour (juce::Colours::black.withAlpha (0.6f));
+                g.fillRoundedRectangle (tag, 2.0f);
+                g.setColour (IlanaTheme::Ui::text2);
+                g.drawText (label, tag.withTrimmedLeft (3.0f), juce::Justification::centredLeft, true);
+            }
+        }
     }
 
     // The undo step's name for a drag or pick on this display.
@@ -742,9 +1010,18 @@ public:
         if (! file.existsAsFile())
             return;
 
+        loadSampleFile (file);
+    }
+
+    // Loads a chosen or dropped file; a file that can't be read says why
+    // (roadmap step 43) instead of doing nothing.
+    void loadSampleFile (const juce::File& file)
+    {
         if (processorRef.loadUserSample (oscIndex, file, true))
             switchToSampleMode();
-
+        else
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load sample",
+                                                    processorRef.getLastSampleError());
         repaint();
     }
 
@@ -787,9 +1064,7 @@ public:
                                   {
                                       if (safeThis == nullptr || ! chooser.getResult().existsAsFile())
                                           return;
-                                      if (safeThis->processorRef.loadUserSample (safeThis->oscIndex, chooser.getResult(), true))
-                                          safeThis->switchToSampleMode();
-                                      safeThis->repaint();
+                                      safeThis->loadSampleFile (chooser.getResult());
                                   });
     }
 
@@ -1733,6 +2008,10 @@ private:
                 }
             }
 
+        // Step 32: the slices, a line at each cut with its number and key.
+        if (sample->isSliced() && ! compact && sample->sliceStarts.size() > 2)
+            drawSlices (g, *sample, plot);
+
         if (fadeIn > 0.001f)
         {
             juce::Path fadePath;
@@ -1779,10 +2058,11 @@ private:
         {
             paintSampleChips (g);
             const auto chipsWidth = getLocalBounds().toFloat().getRight() - sampleChips().zoomOut.getX() + 4.0f;
-            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size()) + juce::String::fromUTF8 (" zones \xc2\xb7 ")
+            drawHeaderText (g, sample->name, (sample->zones.size() > 1 ? juce::String ((int) sample->zones.size())
+                                                                               + juce::String::fromUTF8 (sample->isSliced() ? " slices \xc2\xb7 " : " zones \xc2\xb7 ")
                                                                            : juce::String())
                                                  + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"),
-                            chipsWidth);
+                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String());
         }
     }
 
@@ -1960,6 +2240,10 @@ private:
 
         if (isTableMode() && ! subTableMapping && (slimAreas().name.contains (at) || tableNameArea.contains (at)))
             return getTableName() + "\nClick to pick another table.";
+
+        if (isSampleMode() && ! warningTagArea.isEmpty() && at.y < headerHeight)
+            if (const auto* sample = processorRef.getSampleForOsc (oscIndex); sample != nullptr && sample->loadWarning.isNotEmpty())
+                return sample->loadWarning;
 
         return juce::SettableTooltipClient::getTooltip();
     }
@@ -2283,18 +2567,40 @@ private:
 
     // A title and a quieter caption in the header line; the caption only
     // where both fit (with a gap).
-    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f) const
+    void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f,
+                         const juce::String& warning = {}) const
     {
         auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
         header.removeFromRight (rightReserve);
         const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
         const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        const auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
+        auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
         const auto captionWidth = juce::GlyphArrangement::getStringWidth (captionFont, caption);
+
+        // Step 43: a sample that came in only in part says so after its
+        // name, in the accent; the tooltip has the whole sentence.
+        warningTagArea = {};
+        if (warning.isNotEmpty())
+        {
+            const auto warningWidth = juce::GlyphArrangement::getStringWidth (captionFont, warning) + 12.0f;
+            const auto shownTitle = juce::jmin (titleWidth, header.getWidth() - warningWidth);
+            if (shownTitle > 24.0f)
+            {
+                warningTagArea = juce::Rectangle<float> (header.getX() + shownTitle + 8.0f, header.getY(), warningWidth - 4.0f, header.getHeight());
+                g.setColour (IlanaTheme::Ui::accent2);
+                g.setFont (captionFont);
+                g.drawText (warning, warningTagArea, juce::Justification::centredLeft, false);
+                titleWidth = shownTitle + warningWidth;
+                g.setColour (traceColour);
+                g.setFont (titleFont);
+                g.drawText (title, header.withWidth (shownTitle), juce::Justification::centredLeft, true);
+            }
+        }
 
         g.setColour (traceColour);
         g.setFont (titleFont);
-        g.drawText (title, header, juce::Justification::centredLeft, true);
+        if (warningTagArea.isEmpty())
+            g.drawText (title, header, juce::Justification::centredLeft, true);
 
         if (caption.isNotEmpty() && titleWidth + captionWidth + 14.0f <= header.getWidth())
         {
@@ -2557,8 +2863,13 @@ private:
     int oscIndex = 0;
     juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
+    int markerDrag = 0; // step 32: 1.. the slice marker being dragged
+    float markerDragFraction = 0.0f;
+    static constexpr int sliceItemBase = 30000, sliceOffItem = 30001, sliceMarkersItem = 30002, sliceFewerItem = 30011,
+                         sliceMediumItem = 30012, sliceMoreItem = 30013, sliceEqualItem = 30100, sliceKeyItem = 30300;
     juce::Colour traceColour;
     bool followsTheme = false;
+    mutable juce::Rectangle<float> warningTagArea; // step 43: PARTLY LOADED in the header, for its tooltip
     mutable const SampleData* cachedSample = nullptr;
     mutable unsigned cachedSampleEpoch = 0;
     mutable std::vector<float> cachedPeaks;

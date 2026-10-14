@@ -164,6 +164,7 @@ inline std::shared_ptr<SampleData> generate (int index)
             out[i] *= scale;
     }
 
+    data->findOnsets(); // step 35
     return data;
 }
 } // namespace SampleFactory

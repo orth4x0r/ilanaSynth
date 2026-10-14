@@ -161,6 +161,7 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
         {
             stringFor (osc, u).prepare (newRate);
             sampleUnison[osc][u].prepare (newRate);
+            sampleLayer[osc][u].prepare (newRate);
             grains[osc][u].prepare (newRate);
         }
     }
@@ -182,12 +183,15 @@ void Voice::setCurrentPlaybackSampleRate (double newRate)
 void Voice::syncSamplePlayers()
 {
     const auto setup = [] (const VoiceParams::OscParams& osc, const SampleZone* zone, const SampleData* copy, bool sameSound,
-                           SamplePlayer* players, GranularOsc* clouds, float startMod, float endMod)
+                           SamplePlayer* players, GranularOsc* clouds, float startMod, float endMod, float level)
     {
         const auto start = juce::jlimit (0.0f, 0.98f, osc.sampleStart + startMod);
         const auto end = juce::jlimit (start + 0.01f, 1.0f, osc.sampleEnd + endMod);
-        // A multisample plays the region the note picked, with its loop.
-        const auto* sample = zone != nullptr ? zone->data.get() : osc.sample;
+        // A multisample plays the region the note picked, with its loop; a
+        // key outside every zone, with OUTSIDE ZONES on Silence, nothing.
+        const auto* sample = zone != nullptr ? zone->data.get()
+                             : osc.sample != nullptr && ! osc.sample->zones.empty() && (osc.sampleSilenceOutside || osc.sample->isSliced()) ? nullptr
+                                                                                                                 : osc.sample;
         // A rendered copy is the whole sample stretched, so the region's
         // start and end stay where they were; a region loop scales with it.
         const auto loopScale = copy != nullptr && sample != nullptr && sample->getNumSamples() > 0
@@ -199,7 +203,7 @@ void Voice::syncSamplePlayers()
         sampleParams.keepPosition = sameSound;
         if (zone != nullptr)
         {
-            sampleParams.gain = zone->gain;
+            sampleParams.gain = zone->gain * level;
             if (zone->loop)
             {
                 sampleParams.loopStart = (int) std::lround (zone->loopStart * loopScale);
@@ -211,7 +215,13 @@ void Voice::syncSamplePlayers()
         sampleParams.loopFrom = osc.sampleLoopStart;
         sampleParams.loopTo = osc.sampleLoopEnd;
         sampleParams.loopCrossfade = osc.sampleLoopXfade;
-        sampleParams.reverse = osc.sampleReverse;
+        sampleParams.playback = osc.samplePlayback;
+        sampleParams.pingPong = osc.samplePingPong;
+        sampleParams.startRandom = osc.sampleStartRandom;
+        sampleParams.startSafe = osc.sampleStartSafe;
+        sampleParams.quality = osc.sampleQuality;
+        // Step 32: a slice (or zone) can be reversed on its own.
+        sampleParams.reverse = osc.sampleReverse != (zone != nullptr && zone->reverse);
         sampleParams.start = start;
         sampleParams.end = end;
         sampleParams.fadeIn = osc.sampleFadeIn;
@@ -224,7 +234,7 @@ void Voice::syncSamplePlayers()
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
             players[u].setParams (sampleParams);
 
-        if (osc.granularMode)
+        if (osc.granularMode && clouds != nullptr)
         {
             GranularOsc::Params grainParams;
             grainParams.sample = sample;
@@ -262,14 +272,28 @@ void Voice::syncSamplePlayers()
         {
             const auto& settings = params.oscillators[osc];
             const auto* sample = settings.sample;
-            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity) : nullptr;
+            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity, settings.sampleSilenceOutside || sample->isSliced(),
+                                                                                                    settings.sampleRoundRobin, zonePick[osc])
+                                                                                    : nullptr;
+            // Step 37: near a velocity layer's edge, the layer across it too.
+            layerKeep[osc] = 1.0f;
+            layerGain[osc] = 0.0f;
+            layerZone[osc] = sampleZone[osc] != nullptr && ! settings.granularMode
+                                 ? sample->blendPartner (*sampleZone[osc], lastNote, lastVelocity, settings.sampleVelBlend,
+                                                         settings.sampleRoundRobin, zonePick[osc], layerKeep[osc], layerGain[osc])
+                                 : nullptr;
             const auto* origin = sampleZone[osc] != nullptr ? sampleZone[osc]->data.get() : sample;
             const auto* copy = settings.granularMode ? nullptr : stretchCopyFor (osc, origin);
             const auto sameSound = origin != nullptr && origin == stretchOrigin[osc];
             stretchOrigin[osc] = origin;
             stretchCopy[osc] = copy;
             setup (settings, sampleZone[osc], copy, sameSound, sampleUnison[osc], grains[osc],
-                   blockMod (startDestinations[osc]), blockMod (endDestinations[osc]));
+                   blockMod (startDestinations[osc]), blockMod (endDestinations[osc]), layerKeep[osc]);
+            const auto* layer = layerZone[osc] != nullptr ? layerZone[osc]->data.get() : nullptr;
+            if (layer != nullptr)
+                setup (settings, layerZone[osc], nullptr, layer == layerOrigin[osc], sampleLayer[osc], nullptr,
+                       blockMod (startDestinations[osc]), blockMod (endDestinations[osc]), layerGain[osc]);
+            layerOrigin[osc] = layer;
         }
     stretchNew = false;
 }
@@ -487,6 +511,15 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         }
     }
 
+    // Step 37: each oscillator's round-robin alternate, picked once per note.
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto mode = params.oscillators[osc].sampleRoundRobin;
+        zonePick[osc] = mode == 1 && params.roundRobin != nullptr ? params.roundRobin->next (osc, midiNoteNumber)
+                        : mode == 2                                ? (unsigned) zoneRandom.nextInt (1 << 30)
+                                                                   : 0u;
+    }
+
     syncSamplePlayers();
 
     const auto bufferedCount = [] (int unison) { return juce::jlimit (1, VoiceParams::maxBufferedUnison, unison); };
@@ -498,7 +531,11 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         if (settings.sampleMode && params.oscillatorEnabled[osc] && settings.sample != nullptr)
             for (int u = 0; u < bufferedCount (settings.unison); ++u)
             {
-                sampleUnison[osc][u].trigger();
+                // Step 35: its own generator, drawn only while a random start
+                // is set, so older patches' random sequences don't shift.
+                const auto startUnit = settings.sampleStartRandom > 0.0f ? sampleStartRandom.nextFloat() : 0.0f;
+                sampleUnison[osc][u].trigger (startUnit);
+                sampleLayer[osc][u].trigger (startUnit); // step 37: the blended layer starts with it
                 // Live grains (ilanaSynth FX) draw their seeds from their own
                 // seeded generator, so an input renders the same every time;
                 // sample grains stay free, as the plugin's analog randomness is.
@@ -609,6 +646,7 @@ void Voice::resetForNewPatch()
             {
                 stringFor (osc, u).reset();
                 sampleUnison[osc][u].reset();
+                sampleLayer[osc][u].reset();
             }
         feedbackHistory[osc] = feedbackFiltered[osc] = previousOsc[osc] = 0.0f;
     }
@@ -624,6 +662,8 @@ void Voice::resetForNewPatch()
     fmNoiseRandom.setSeed (31337);
     lfoPoolRandom.setSeed (27183);
     liveGrainRandom.setSeed (0x1f3a);
+    zoneRandom.setSeed (0x2b17);
+    sampleStartRandom.setSeed (0x5a17);
     lfoSimNotes = 0;
     driftValue = driftTarget = 0.0f;
     hasPlayedNote = false;
@@ -649,21 +689,25 @@ void Voice::stopNote (float, bool allowTailOff)
 
     if (allowTailOff)
     {
-        if (params.resonatorOn && params.bodyType != 0)
-            bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
-                1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
-        if (dx7Playing)
-            dx7Note.keyUp();
-        ampEnv.noteOff();
-        filterEnv.noteOff();
-        filter2Env.noteOff();
-        modEnv.noteOff();
-        env4.noteOff();
-        for (auto& env : extraEnvs)
-            env.noteOff();
+        // Step 33: a Sustain Loop leaves its loop now; a One Shot still
+        // playing holds the envelopes' release until it ends.
+        for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        {
+            for (auto& player : sampleUnison[osc])
+                player.release();
+            for (auto& player : sampleLayer[osc])
+                player.release();
+        }
+        if (oneShotPlaying())
+        {
+            oneShotHold = true;
+            return;
+        }
+        releaseEnvelopes();
     }
     else
     {
+        oneShotHold = false;
         bodyTailSamplesRemaining = 0;
         ampEnv.reset();
         filterEnv.reset();
@@ -679,6 +723,36 @@ void Voice::stopNote (float, bool allowTailOff)
         lastFilterValue = 0.0f;
         lastModValue = 0.0f;
         clearCurrentNote();
+    }
+}
+
+bool Voice::oneShotPlaying() const
+{
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+        if (params.oscillators[osc].sampleMode && params.oscillators[osc].samplePlayback == SamplePlayer::oneShot
+            && params.oscillatorEnabled[osc])
+            for (const auto& player : sampleUnison[osc])
+                if (player.holdsRelease())
+                    return true;
+    return false;
+}
+
+void Voice::releaseEnvelopes()
+{
+    oneShotHold = false;
+    {
+        if (params.resonatorOn && params.bodyType != 0)
+            bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
+                1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
+        if (dx7Playing)
+            dx7Note.keyUp();
+        ampEnv.noteOff();
+        filterEnv.noteOff();
+        filter2Env.noteOff();
+        modEnv.noteOff();
+        env4.noteOff();
+        for (auto& env : extraEnvs)
+            env.noteOff();
     }
 }
 
@@ -1206,6 +1280,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
     sounded = true;
 
+    // Step 33: the One Shot that held the release has played out.
+    if (oneShotHold && ! oneShotPlaying())
+        releaseEnvelopes();
+
     // Block-rate modulation first: everything below can use it. The
     // per-sample values only clear destinations that are routed, so wipe
     // them all here too: a routing removed since the last block must not
@@ -1468,8 +1546,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto sampling = settings.sampleMode && params.oscillatorEnabled[osc] && settings.sample != nullptr;
 
         if (sampling)
+        {
             retriggerNewPlayers (sampleUnison[osc], lastSampleMode[osc], lastEnabled[osc],
                                  lastUnison[osc], numOscUnison[osc]);
+            retriggerNewPlayers (sampleLayer[osc], lastSampleMode[osc], lastEnabled[osc],
+                                 lastUnison[osc], numOscUnison[osc]);
+        }
 
         lastSampleMode[osc] = settings.sampleMode;
         lastEnabled[osc] = params.oscillatorEnabled[osc];
@@ -3100,6 +3182,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     else if (settings.sampleMode)
                     {
                         sampleUnison[osc][u].process (sampleL, sampleR);
+                        if (layerZone[osc] != nullptr)
+                        {
+                            float layerL = 0.0f, layerR = 0.0f;
+                            sampleLayer[osc][u].process (layerL, layerR);
+                            sampleL += layerL;
+                            sampleR += layerR;
+                        }
                         raw = 0.5f * (sampleL + sampleR);
                     }
                     else
@@ -3570,6 +3659,22 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
                         sampleUnison[osc][u].setRates (rateRatio * tempo, rateRatio * sampleRatio[osc][u]);
                     else
                         sampleUnison[osc][u].setPlaybackRatio (rateRatio * sampleRatio[osc][u] * tempo);
+                }
+
+                // Step 37: the blended velocity layer, at its own root and rate.
+                if (const auto* layer = layerZone[osc]; layer != nullptr && layer->data->sampleRate > 0.0)
+                {
+                    const auto layerRate = layer->data->sampleRate / sampleRate;
+                    const auto layerPitch = settings.sampleTuned ? frequencyU / layer->rootHz() : 1.0;
+                    const auto layerSeconds = (double) juce::jmax (0.0f, settings.sampleEnd - settings.sampleStart)
+                                              * layer->data->getNumSamples() / layer->data->sampleRate;
+                    const auto layerTempo = settings.sampleSync == SampleTempo::off
+                                                ? 1.0
+                                                : SampleTempo::tempoRatio (settings.sampleSync, settings.sampleBpm, layerSeconds, params.hostBpm);
+                    if (settings.sampleStretch || settings.sampleEngine >= 0)
+                        sampleLayer[osc][u].setRates (layerRate * layerTempo, layerRate * layerPitch);
+                    else
+                        sampleLayer[osc][u].setPlaybackRatio (layerRate * layerPitch * layerTempo);
                 }
             }
         }

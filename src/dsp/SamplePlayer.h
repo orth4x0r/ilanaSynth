@@ -2,10 +2,13 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "SampleInterpolation.h"
+#include "SampleOnsets.h"
 #include "SampleRange.h"
 #include "SampleTempo.h"
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -36,6 +39,16 @@ struct SampleZone
     float gain = 1.0f;
     bool loop = false;
     int loopStart = 0, loopEnd = 0; // samples into data
+    // Roadmap step 36: where the zone came from, so an edited map can be
+    // saved as edits to its file: its index in the file it was read from,
+    // or (origin -1) the audio file it was added from.
+    int origin = -1;
+    juce::String file;
+    // Roadmap step 37: the order of a round-robin alternate among the zones
+    // covering the same note (an SFZ's seq_position; else the file's order).
+    int sequence = 0;
+    // Roadmap step 32: a slice (or any zone) can play backwards on its own.
+    bool reverse = false;
 
     bool covers (int note, int velocity) const noexcept
     {
@@ -45,6 +58,18 @@ struct SampleZone
     double rootHz() const noexcept { return 440.0 * std::exp2 ((rootNote - 69.0) / 12.0); }
 };
 
+// Roadmap step 37: the plugin's round-robin counters, one per oscillator and
+// key, shared by every voice, so each new note on a key steps on to the next
+// of its alternates.
+struct SampleRoundRobin
+{
+    std::array<std::array<std::atomic<unsigned>, 128>, 8> counters {};
+
+    unsigned next (int osc, int note) noexcept
+    {
+        return counters[(size_t) (osc & 7)][(size_t) (note & 127)].fetch_add (1u, std::memory_order_relaxed);
+    }
+};
 // The pitch a plain (zoneless) sample was recorded at, from the ROOT parameter.
 // 60 gives the literal C3 frequency every older patch used, bit for bit.
 inline double plainRootHz (float rootNote) noexcept
@@ -60,13 +85,124 @@ struct SampleData
     // A multisample's regions. Empty for a plain sample; otherwise buffer
     // holds the region under middle C, for the displays.
     std::vector<SampleZone> zones;
+    // Roadmap step 43: what the load left out (a file cut at 120 seconds,
+    // an SFZ's missing files), for the display. Empty when all of it came in.
+    juce::String loadWarning;
+    // Roadmap step 35: where its attacks start (frames), for a random start
+    // that lands on one. Found once when the sample comes in (findOnsets).
+    std::vector<int> onsets;
+    bool onsetsFound = false;
+    // Roadmap step 32: a plain sample cut into slices, each a zone on its own
+    // key. buffer stays the whole sample (for the display); sliceStarts are
+    // the cuts in frames, from 0 to its length. sliceMode 0: not sliced.
+    int sliceMode = 0;
+    int sliceCount = 8;
+    float sliceSensitivity = 0.5f;
+    int sliceBaseKey = 36;
+    std::vector<float> sliceMarkers; // the hand-placed cuts (fractions)
+    std::vector<int> sliceStarts;
+    bool isSliced() const noexcept { return sliceMode != 0 && ! zones.empty(); }
+    void copySlicingFrom (const SampleData& other)
+    {
+        sliceMode = other.sliceMode;
+        sliceCount = other.sliceCount;
+        sliceSensitivity = other.sliceSensitivity;
+        sliceBaseKey = other.sliceBaseKey;
+        sliceMarkers = other.sliceMarkers;
+        sliceStarts = other.sliceStarts;
+        if (other.sliceMode != 0)
+        {
+            buffer = other.buffer;
+            sampleRate = other.sampleRate;
+        }
+    }
+
+    // Finds the attacks once (message thread, at load: about 10 ms for two
+    // minutes of stereo).
+    void findOnsets()
+    {
+        if (onsetsFound || getNumSamples() < 2)
+            return;
+        const float* channels[2] { buffer.getReadPointer (0), buffer.getReadPointer (juce::jmin (1, getNumChannels() - 1)) };
+        onsets = SampleOnsets::find (channels, juce::jmin (2, getNumChannels()), getNumSamples(), sampleRate);
+        onsetsFound = true;
+    }
 
     int getNumChannels() const noexcept { return buffer.getNumChannels(); }
     int getNumSamples() const noexcept { return buffer.getNumSamples(); }
 
     // The region a note plays: the one that covers it, else the nearest by
-    // key (a velocity outside every range takes the closest layer).
-    const SampleZone* zoneFor (int note, int velocity) const noexcept
+    // key (a velocity outside every range takes the closest layer), or none
+    // when silenceOutside asks for silence there (step 36).
+    const SampleZone* zoneFor (int note, int velocity, bool silenceOutside = false) const noexcept
+    {
+        if (silenceOutside)
+        {
+            for (const auto& zone : zones)
+                if (zone.data != nullptr && zone.covers (note, velocity))
+                    return &zone;
+            return nullptr;
+        }
+
+        return nearestZone (note, velocity);
+    }
+
+    // Roadmap step 37: with round robin (1 Cycle, 2 Random) a note covered
+    // by several zones plays the pick-th of them in their sequence order;
+    // off (0), the first, as before.
+    const SampleZone* zoneFor (int note, int velocity, bool silenceOutside, int roundRobin, unsigned pick) const noexcept
+    {
+        if (roundRobin == 0)
+            return zoneFor (note, velocity, silenceOutside);
+        constexpr int maxAlternates = 64;
+        std::array<const SampleZone*, maxAlternates> covering {};
+        auto count = 0;
+        for (const auto& zone : zones)
+            if (zone.data != nullptr && zone.covers (note, velocity) && count < maxAlternates)
+                covering[(size_t) count++] = &zone;
+        if (count <= 1)
+            return zoneFor (note, velocity, silenceOutside);
+        // In sequence order; zones with the same sequence keep the file's order.
+        std::stable_sort (covering.begin(), covering.begin() + count,
+                          [] (const SampleZone* a, const SampleZone* b) { return a->sequence < b->sequence; });
+        return covering[(size_t) (pick % (unsigned) count)];
+    }
+
+    // Roadmap step 37: velocity blending. A velocity within width * 32 steps
+    // of the zone's layer edge also plays the layer across that edge, the
+    // two mixed equal-power so the sum stays as loud: partnerGain for it and
+    // keep for the zone. Null (keep 1) when nothing blends.
+    const SampleZone* blendPartner (const SampleZone& zone, int note, int velocity, float width, int roundRobin, unsigned pick,
+                                    float& keep, float& partnerGain) const noexcept
+    {
+        keep = 1.0f;
+        partnerGain = 0.0f;
+        if (width <= 0.0f)
+            return nullptr;
+        const auto reach = juce::jlimit (0.0f, 1.0f, width) * 32.0f;
+        const auto v = (float) velocity;
+        const SampleZone* partner = nullptr;
+        auto towardPartner = 0.0f; // 0..0.5: how far the mix leans to the partner
+        if (zone.hiVel < 127 && (float) zone.hiVel + 0.5f - v < reach)
+        {
+            partner = zoneFor (note, zone.hiVel + 1, true, roundRobin, pick);
+            towardPartner = (v - ((float) zone.hiVel + 0.5f) + reach) / (2.0f * reach);
+        }
+        else if (zone.loVel > 1 && v - ((float) zone.loVel - 0.5f) < reach)
+        {
+            partner = zoneFor (note, zone.loVel - 1, true, roundRobin, pick);
+            towardPartner = (reach - (v - ((float) zone.loVel - 0.5f))) / (2.0f * reach);
+        }
+        if (partner == nullptr || partner == &zone)
+            return nullptr;
+        towardPartner = juce::jlimit (0.0f, 0.5f, towardPartner);
+        keep = std::cos (towardPartner * juce::MathConstants<float>::halfPi);
+        partnerGain = std::sin (towardPartner * juce::MathConstants<float>::halfPi);
+        return partner;
+    }
+
+private:
+    const SampleZone* nearestZone (int note, int velocity) const noexcept
     {
         const SampleZone* best = nullptr;
         auto bestDistance = 1 << 30;
@@ -124,7 +260,30 @@ public:
         // playing note carries on from the same place in it, with a short
         // crossfade, rather than starting again.
         bool keepPosition = false;
+        // Roadmap step 33: how a note's release treats the sample. Gate, as
+        // before: LOOP (and a region's loop) decide, the envelope ends it.
+        // One Shot: plays START to END once, loops ignored, and the voice
+        // holds it past the key's release. Sustain Loop: loops while the key
+        // is down (LOOP or not), then plays on out of the loop to END.
+        int playback = 0;
+        // Roadmap step 34: the loop runs forward and back instead of jumping
+        // to its start (whichever span loops: LOOP PTS, a region's loop or
+        // the whole START..END). Off, as before.
+        bool pingPong = false;
+        // Roadmap step 35: each note starts up to this fraction of the way
+        // into the played range (a fresh random offset per note and unison
+        // voice). With startSafe the offset moves back to the attack before
+        // it, onto a zero crossing, so no note starts mid-hit. 0, as before.
+        float startRandom = 0.0f;
+        bool startSafe = false;
+        // Roadmap step 39: how the read between samples is worked out
+        // (SampleInterpolation::Quality): Linear, as before; Cubic; Sinc;
+        // Sinc with anti-aliasing for strong upward transposition. STRETCH's
+        // grains stay linear.
+        int quality = 0;
     };
+
+    enum Playback { gate = 0, oneShot = 1, sustainLoop = 2 };
 
     void prepare (double newSampleRate)
     {
@@ -138,11 +297,14 @@ public:
     void reset()
     {
         active = false;
+        released = false;
+        bounced = false;
         tail.remaining = 0;
         position = regionStart;
     }
 
-    void trigger()
+    // randomUnit (0..1) places the start for a random start (step 35).
+    void trigger (float randomUnit = 0.0f)
     {
         if (params.sample == nullptr || params.sample->getNumSamples() <= 1)
         {
@@ -151,7 +313,11 @@ public:
         }
 
         position = params.reverse ? regionEnd - 1.0 : regionStart;
+        if (params.startRandom > 0.0f && randomUnit > 0.0f)
+            position = randomStart (randomUnit);
         active = true;
+        released = false;
+        bounced = false;
         tail.remaining = 0;
 
         if (params.stretch)
@@ -181,7 +347,7 @@ public:
         regionLength = regionEnd - regionStart;
 
         ownLoopOn = false;
-        if (params.ownLoop && params.loop)
+        if (params.ownLoop && loopCapable())
         {
             const auto resolved = SampleRange::resolveLoop (regionStart, regionEnd, (double) params.loopFrom * length,
                                                             (double) params.loopTo * length, minLoopLength);
@@ -195,7 +361,7 @@ public:
         // as there is sound beyond the loop's far side to blend in.
         xfadeLength = 0.0;
         const auto zoneLoop = ! ownLoopOn && params.loopEnd > params.loopStart;
-        if (params.loop && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop)
+        if (loopCapable() && params.loopCrossfade > 0.0f && ! params.stretch && ! zoneLoop && ! params.pingPong)
         {
             xfadeStart = ownLoopOn ? ownLoopStart : regionStart;
             xfadeEnd = ownLoopOn ? ownLoopEnd : regionEnd;
@@ -245,6 +411,17 @@ public:
 
     bool isActive() const noexcept { return active; }
 
+    // Step 33: the key let go. A Sustain Loop leaves its loop and plays on
+    // to END; the other modes don't change.
+    void release() noexcept
+    {
+        released = true;
+        bounced = false; // a ping-pong heading back turns to play on out
+    }
+
+    // A One Shot still playing: the voice holds its release until it ends.
+    bool holdsRelease() const noexcept { return active && params.playback == oneShot; }
+
     double getSourcePosition() const noexcept { return position; }
 
     void process (float& left, float& right)
@@ -255,10 +432,15 @@ public:
         if (! active || params.sample == nullptr)
             return;
 
+        const auto looping = loopingNow();
+
+        // Step 34: a ping-pong loop turns at its ends instead of wrapping.
+        if (looping && params.pingPong)
+            bounceInLoop();
         // The loop's own span (roadmap step 27): the first pass through the
         // attack is not repeated. Reversed, the note runs the other way and
         // wraps when it falls below the loop's start.
-        if (ownLoopOn)
+        else if (ownLoopOn && looping)
         {
             const auto length = ownLoopEnd - ownLoopStart;
             if (params.reverse)
@@ -270,13 +452,13 @@ public:
                 position = ownLoopStart + std::fmod (position - ownLoopStart, length);
         }
         // A region's sustain loop: forward only, inside the played range.
-        else if (params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
+        else if (zoneLoopPlays() && params.loopEnd > params.loopStart && ! params.reverse && position >= (double) params.loopEnd
             && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
             position -= (double) (params.loopEnd - params.loopStart);
 
-        if (position >= regionEnd || position < regionStart)
+        if ((position >= regionEnd || position < regionStart) && ! (looping && params.pingPong))
         {
-            if (! params.loop)
+            if (! looping)
             {
                 // START modulated above the playhead moves it up; only the
                 // end (or a reverse note's start) finishes a one-shot.
@@ -312,9 +494,12 @@ public:
         const auto next = juce::jmin (index + 1, numSamples - 1);
         const auto frac = (float) (position - (double) index);
 
+        const auto quality = (SampleInterpolation::Quality) juce::jlimit (0, 3, params.quality);
         const auto readChannel = [&] (int channel)
         {
             const auto* data = sample->buffer.getReadPointer (juce::jmin (channel, sample->getNumChannels() - 1));
+            if (quality != SampleInterpolation::Quality::Linear)
+                return SampleInterpolation::read (data, numSamples, position, quality, ratio);
             return data[index] + (data[next] - data[index]) * frac;
         };
 
@@ -323,7 +508,7 @@ public:
 
         // Step 28: near the wrap the loop's end gives way to the sound just
         // beyond its other side, so the jump lands on matching material.
-        if (xfadeLength > 0.0)
+        if (xfadeLength > 0.0 && looping)
         {
             const auto distance = params.reverse ? position - xfadeStart : xfadeEnd - position;
             if (distance >= 0.0 && distance < xfadeLength)
@@ -335,6 +520,8 @@ public:
                 const auto readPartner = [&] (int channel)
                 {
                     const auto* data = sample->buffer.getReadPointer (juce::jmin (channel, sample->getNumChannels() - 1));
+                    if (quality != SampleInterpolation::Quality::Linear)
+                        return SampleInterpolation::read (data, numSamples, partner, quality, ratio);
                     return data[partnerIndex] + (data[partnerNext] - data[partnerIndex]) * partnerFrac;
                 };
                 // Linear: the blend never exceeds the louder of the two reads.
@@ -364,10 +551,86 @@ public:
         left = readL * (float) gain;
         right = readR * (float) gain;
 
-        position += params.reverse ? -ratio : ratio;
+        position += direction() * ratio;
     }
 
 private:
+    // Step 33: whether the note can loop at all (LOOP, or a Sustain Loop),
+    // and whether it loops now (a Sustain Loop only until the release).
+    bool loopCapable() const noexcept
+    {
+        return params.playback == sustainLoop || (params.playback == gate && params.loop);
+    }
+
+    bool loopingNow() const noexcept
+    {
+        return params.playback == sustainLoop ? ! released : params.playback == gate && params.loop;
+    }
+
+    // A region's own sustain loop: always in Gate, as before; never in a
+    // One Shot; in a Sustain Loop until the release.
+    bool zoneLoopPlays() const noexcept
+    {
+        return params.playback == gate || (params.playback == sustainLoop && ! released);
+    }
+
+    // Step 35: a start up to startRandom of the way in, kept before an own
+    // loop's end (a note still reaches its loop), moved back onto an attack
+    // and a zero crossing when startSafe asks.
+    double randomStart (float randomUnit) const noexcept
+    {
+        const auto& sample = *params.sample;
+        const auto limit = ownLoopOn ? (params.reverse ? regionEnd - ownLoopStart : ownLoopEnd - regionStart) : regionLength;
+        const auto offset = (double) juce::jlimit (0.0f, 1.0f, params.startRandom) * (double) juce::jlimit (0.0f, 1.0f, randomUnit)
+                            * juce::jmax (0.0, limit - 2.0);
+        auto start = params.reverse ? regionEnd - 1.0 - offset : regionStart + offset;
+        if (params.startSafe)
+        {
+            const auto frame = (int) start;
+            if (! params.reverse)
+            {
+                const auto attack = SampleOnsets::atOrBefore (sample.onsets, frame);
+                start = attack >= 0 && (double) attack >= regionStart ? (double) attack : regionStart;
+            }
+            const float* channels[2] { sample.buffer.getReadPointer (0), sample.buffer.getReadPointer (juce::jmin (1, sample.getNumChannels() - 1)) };
+            const auto radius = juce::jmax (1, (int) (0.002 * juce::jmax (8000.0, sample.sampleRate)));
+            start = (double) SampleOnsets::nearestZeroCrossing (channels, juce::jmin (2, sample.getNumChannels()), sample.getNumSamples(), (int) start, radius);
+        }
+        return juce::jlimit (regionStart, regionEnd - 1.0, start);
+    }
+
+    // Which way the read moves: REVERSE, turned by a ping-pong bounce.
+    double direction() const noexcept { return (params.reverse ? -1.0 : 1.0) * (bounced ? -1.0 : 1.0); }
+
+    // Step 34: folds the position back into the looping span, turning the
+    // read at each end (a fast read may cross the span more than once).
+    void bounceInLoop() noexcept
+    {
+        auto from = regionStart, to = regionEnd;
+        if (ownLoopOn)
+            from = ownLoopStart, to = ownLoopEnd;
+        else if (zoneLoopPlays() && params.loopEnd > params.loopStart && params.loopEnd <= regionEnd && params.loopStart >= regionStart)
+            from = (double) params.loopStart, to = (double) params.loopEnd;
+        const auto length = to - from;
+        if (length < 2.0)
+            return;
+        // The last readable place before the span's end.
+        const auto top = to - 1.0e-6;
+        const auto forward = direction() > 0.0;
+        if (forward && position > top)
+        {
+            const auto over = std::fmod (position - top, 2.0 * length);
+            position = over < length ? top - over : from + (over - length);
+            bounced = over < length ? ! bounced : bounced;
+        }
+        else if (! forward && position < from)
+        {
+            const auto over = std::fmod (from - position, 2.0 * length);
+            position = over < length ? from + over : top - (over - length);
+            bounced = over < length ? ! bounced : bounced;
+        }
+    }
+
     struct Grain
     {
         double read = 0.0; // source position
@@ -471,7 +734,7 @@ private:
     void processStretched (float& left, float& right)
     {
         const auto& sample = *params.sample;
-        const auto direction = params.reverse ? -1.0 : 1.0;
+        const auto direction = this->direction();
 
         if (hopCountdown <= 0)
         {
@@ -586,4 +849,6 @@ private:
     bool ownLoopOn = false;
     double ratio = 1.0;
     bool active = false;
+    bool released = false; // step 33: the key is up
+    bool bounced = false;  // step 34: a ping-pong loop is running back
 };

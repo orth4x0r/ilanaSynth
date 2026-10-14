@@ -322,7 +322,7 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
         for (const auto* id : { "_sample_loop", "_sample_reverse", "_sample_start", "_sample_end", "_sample_fade_in", "_sample_fade_out",
                                 "_sample_sync", "_sample_bpm", "_sample_stretch",
                                 "_sample_loop_own", "_sample_loop_start", "_sample_loop_end", "_sample_root",
-                                "_sample_loop_xfade", "_sample_snap" })
+                                "_sample_loop_xfade", "_sample_snap", "_sample_playback", "_sample_pingpong", "_sample_start_rand", "_sample_start_safe", "_sample_quality", "_sample_unmapped", "_sample_round_robin", "_sample_vel_blend" })
             reset (prefix + id);
         if (! audio->zones.empty())
         {
@@ -350,12 +350,89 @@ bool IlanaSynthAudioProcessor::applyBounce (const BounceRequest& request, std::s
     return true;
 }
 
+bool IlanaSynthAudioProcessor::exportSampleWav (int oscIndex, const juce::File& target, bool playedRange, juce::String& error) const
+{
+    const auto sample = getSharedSampleForOsc (oscIndex);
+    if (sample == nullptr || sample->getNumSamples() < 2 || sample->sampleRate <= 0.0)
+    {
+        error = "There is no sample on this oscillator to export.";
+        return false;
+    }
+
+    const auto length = sample->getNumSamples();
+    auto from = 0, to = length;
+    const juce::String prefix (OscillatorIds::prefixes[(size_t) oscIndex]);
+    const auto plain = [this] (const juce::String& id)
+    {
+        const auto* value = apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+    if (playedRange)
+    {
+        // The same rounding as the player's region.
+        const auto start = juce::jlimit (0.0f, 0.999f, plain (prefix + "_sample_start"));
+        from = juce::jlimit (0, length - 1, (int) ((double) start * length));
+        to = juce::jlimit (from + 1, length, (int) ((double) juce::jlimit (0.0f, 1.0f, plain (prefix + "_sample_end")) * length));
+    }
+
+    const auto frames = to - from;
+    juce::AudioBuffer<float> out (sample->getNumChannels(), frames);
+    for (int ch = 0; ch < out.getNumChannels(); ++ch)
+        out.copyFrom (ch, 0, sample->buffer, ch, from, frames);
+    if (playedRange)
+    {
+        if (plain (prefix + "_sample_reverse") > 0.5f)
+            out.reverse (0, frames);
+        // FADE IN / OUT are fractions of the played range, as the player has them.
+        const auto fadeIn = (int) (plain (prefix + "_sample_fade_in") * (float) frames);
+        const auto fadeOut = (int) (plain (prefix + "_sample_fade_out") * (float) frames);
+        if (fadeIn > 1)
+            out.applyGainRamp (0, juce::jmin (fadeIn, frames), 0.0f, 1.0f);
+        if (fadeOut > 1)
+            out.applyGainRamp (frames - juce::jmin (fadeOut, frames), juce::jmin (fadeOut, frames), 1.0f, 0.0f);
+    }
+
+    // Write beside the target first, so a failed write never leaves half a file in its place.
+    juce::TemporaryFile temp (target);
+    {
+        std::unique_ptr<juce::OutputStream> stream (temp.getFile().createOutputStream());
+        if (stream == nullptr)
+        {
+            error = "Couldn't write to " + target.getParentDirectory().getFullPathName() + ".";
+            return false;
+        }
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            wav.createWriterFor (stream.get(), sample->sampleRate, (unsigned int) out.getNumChannels(), 24, {}, 0));
+        if (writer == nullptr)
+        {
+            error = "This sample rate can't be written as a WAV.";
+            return false;
+        }
+        stream.release(); // the writer owns it now
+        if (! writer->writeFromAudioSampleBuffer (out, 0, frames))
+        {
+            error = "Writing the WAV stopped part way (is the disk full?).";
+            return false;
+        }
+    }
+    if (! temp.overwriteTargetFileWithTemporary())
+    {
+        error = "Couldn't replace " + target.getFileName() + ".";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
 juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
 {
     juce::ValueTree tree ("Sample");
     tree.setProperty ("name", data.name, nullptr);
     if (! data.zones.empty())
     {
+        if (data.sliceMode != 0) // step 32: how it was cut, to rebuild the whole
+            SampleSlicer::write (tree, SampleSlicer::settingsOf (data));
         // A multisample (roadmap step 41): its zones, each a sample of its
         // own; the displayed region is rebuilt on loading.
         for (const auto& zone : data.zones)
@@ -373,6 +450,12 @@ juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
             child.setProperty ("loop", zone.loop, nullptr);
             child.setProperty ("loopStart", zone.loopStart, nullptr);
             child.setProperty ("loopEnd", zone.loopEnd, nullptr);
+            if (zone.sequence != 0) // step 37; absent in every older patch
+                child.setProperty ("sequence", zone.sequence, nullptr);
+            if (zone.reverse) // step 32
+                child.setProperty ("reverse", true, nullptr);
+            if (data.sliceMode != 0)
+                child.setProperty ("slice", zone.origin, nullptr);
             tree.appendChild (child, nullptr);
         }
         return tree;
@@ -418,11 +501,48 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::
             zone.loopStart = juce::jlimit (0, length, (int) child.getProperty ("loopStart", 0));
             zone.loopEnd = juce::jlimit (0, length, (int) child.getProperty ("loopEnd", 0));
             zone.loop = (bool) child.getProperty ("loop", false) && zone.loopEnd - zone.loopStart > 16;
+            zone.sequence = juce::jmax (0, (int) child.getProperty ("sequence", 0));
+            zone.reverse = (bool) child.getProperty ("reverse", false);
+            zone.origin = (int) child.getProperty ("slice", -1);
             data->zones.push_back (std::move (zone));
         }
         if (data->zones.empty())
             return nullptr;
         MultiSample::finish (*data);
+        // Step 32: a sliced sample: the slices end to end are the whole.
+        if (const auto settings = SampleSlicer::read (tree); settings.mode != SampleSlicer::off)
+        {
+            std::vector<const SampleZone*> slices;
+            for (const auto& zone : data->zones)
+                if (zone.origin >= 0)
+                    slices.push_back (&zone);
+            std::sort (slices.begin(), slices.end(), [] (const SampleZone* a, const SampleZone* b) { return a->origin < b->origin; });
+            auto length = 0;
+            auto channels = 1;
+            for (const auto* zone : slices)
+                length += zone->data->getNumSamples(), channels = juce::jmax (channels, zone->data->getNumChannels());
+            if (! slices.empty() && length > 1)
+            {
+                data->buffer.setSize (channels, length);
+                data->sampleRate = slices.front()->data->sampleRate;
+                data->sliceStarts.clear();
+                auto at = 0;
+                for (const auto* zone : slices)
+                {
+                    data->sliceStarts.push_back (at);
+                    const auto& audio = zone->data->buffer;
+                    for (int c = 0; c < channels; ++c)
+                        data->buffer.copyFrom (c, at, audio, juce::jmin (c, audio.getNumChannels() - 1), 0, audio.getNumSamples());
+                    at += audio.getNumSamples();
+                }
+                data->sliceStarts.push_back (at);
+                data->sliceMode = settings.mode;
+                data->sliceCount = settings.count;
+                data->sliceSensitivity = settings.sensitivity;
+                data->sliceBaseKey = settings.baseKey;
+                data->sliceMarkers = settings.markers;
+            }
+        }
         return data;
     }
     const auto rate = (double) tree.getProperty ("rate", 0.0);

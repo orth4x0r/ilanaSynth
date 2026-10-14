@@ -248,6 +248,12 @@ def style_rules(params, category):
     else:
         params["glide"] = min(params.get("glide", 0.0), 0.012)
         params["glide_legato"] = 1.0
+    if category == "Pluck":
+        # ilana's round 1-2 votes: the winning plucks attack in ~10 ms and die away;
+        # the losing ones sustained at about -12 dB and rang on for seconds.
+        params["amp_attack"] = min(params.get("amp_attack", 0.003), 0.008)
+        params["amp_sustain"] = min(params.get("amp_sustain", 0.0), 0.05)
+        params["amp_release"] = min(params.get("amp_release", 0.3), 0.6)
     if category in ("Bass", "Pluck", "Keys", "Lead"):
         params["amp_attack"] = min(params.get("amp_attack", 0.003), 0.02)
         params["amp_release"] = min(params.get("amp_release", 0.3), 1.5 if category == "Keys" else 0.8)
@@ -260,12 +266,14 @@ def cmd_draft(args):
     defaults = read_defaults()
     seeds = load_seeds(defaults)
     rng = random.Random(args.seed)
-    out = GEN / "drafts"
+    out = Path(args.out)
     if out.exists():
         for old in out.rglob("*.ilanapreset"):
             old.unlink()
     manifest = []
     for concept in CONCEPTS:
+        if args.only and concept["name"] not in args.only:
+            continue
         seed = seeds[concept["seed"]]
         for draw in range(args.per):
             params = dict(seed["params"])
@@ -284,8 +292,8 @@ def cmd_draft(args):
             stem = f"{concept['name']}~{draw}"
             write_preset(out / f"{stem}.ilanapreset", stem, concept["category"], params, macros, seed["curves"])
             manifest.append({"stem": stem, "concept": concept["name"], "draw": draw})
-    (GEN / "drafts.json").write_text(json.dumps(manifest, indent=1))
-    print(f"{len(manifest)} drafts of {len(CONCEPTS)} concepts in {out}")
+    (out.parent / (out.name + ".json")).write_text(json.dumps(manifest, indent=1))
+    print(f"{len(manifest)} drafts in {out}")
 
 
 def load_render(folder):
@@ -469,6 +477,8 @@ def main():
     draft = sub.add_parser("draft")
     draft.add_argument("--per", type=int, default=6)
     draft.add_argument("--seed", type=int, default=1)
+    draft.add_argument("--only", nargs="*", help="draw only these concepts (by name)")
+    draft.add_argument("--out", default=str(GEN / "drafts"), help="folder for the drafts (drafts.json goes beside it)")
     pick = sub.add_parser("pick")
     pick.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
     bake = sub.add_parser("bake")

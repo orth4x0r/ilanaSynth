@@ -835,6 +835,7 @@ class OscPage : public juce::Component,
               sampleEnd (state, prefix + "_sample_end", "END"),
               sampleFadeIn (state, prefix + "_sample_fade_in", "FADE IN"),
               sampleFadeOut (state, prefix + "_sample_fade_out", "FADE OUT"),
+              sampleRoot (state, prefix + "_sample_root", "ROOT"),
               sampleSync (state, prefix + "_sample_sync", "SYNC"),
               sampleStretch (state, prefix + "_sample_stretch", "TIME"),
               sampleBpm (state, prefix + "_sample_bpm", "BPM"),
@@ -874,7 +875,7 @@ class OscPage : public juce::Component,
         {
             for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
                                 &stringDecay, &stringDamp, &stringSustain, &sampleStart, &sampleEnd, &sampleFadeIn,
-                                &sampleLoopXfade, &sampleStartRandom, &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
+                                &sampleLoopXfade, &sampleStartRandom, &sampleRoot, &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainSize,
                                 &grainDensity, &grainSpray, &grainPitch, &grainSpread })
                 knob->setIdentityColour (colour);
         }
@@ -886,7 +887,7 @@ class OscPage : public juce::Component,
         KnobControl warp2Amt, pdEnvAmt;
         KnobControl frame, level, pan, semi, fine, unison, detune, spread;
         KnobControl stringDecay, stringDamp, stringSustain;
-        KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut, sampleLoopXfade;
+        KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut, sampleLoopXfade, sampleRoot;
         // Step 40: the sample follows the host tempo.
         ComboControl sampleSync, sampleStretch;
         // The sampler steps: the PLAYBACK row (33...).
@@ -1016,7 +1017,7 @@ public:
                                 osc.unison, osc.detune, osc.spread, osc.stringDecay,
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleSnap, osc.sampleLoopXfade, osc.sampleStart,
-                                osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut,
+                                osc.sampleEnd, osc.sampleFadeIn, osc.sampleFadeOut, osc.sampleRoot,
                                 osc.sampleSync, osc.sampleBpm, osc.sampleStretch, osc.samplePlayback, osc.samplePingPong, osc.sampleStartRandom, osc.sampleStartSafe, osc.sampleQuality,
                                 osc.chord, osc.ampEnv, osc.tune, osc.ratio, osc.fixedHz,
                                 osc.egOut, osc.trim, osc.feedback, osc.feedbackType);
@@ -1157,6 +1158,19 @@ public:
             };
             styleHeaderButton (card.sampleZonesButton);
             addChildComponent (card.sampleZonesButton);
+
+            // Step 29: DETECT finds the sample's pitch and sets ROOT to it.
+            card.sampleDetectButton.setButtonText ("DETECT");
+            card.sampleDetectButton.setTooltip ("Find the pitch of the sample and set ROOT to it. You can still change ROOT by hand");
+            card.sampleDetectButton.onClick = [this, i]
+            {
+                const auto message = processorRef.detectSampleRoot (i);
+                // Found: the ROOT knob shows the note. Otherwise say why not.
+                if (! message.startsWith ("Root set"))
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Detect root note", message);
+            };
+            styleHeaderButton (card.sampleDetectButton);
+            addChildComponent (card.sampleDetectButton);
         }
 
         // The TABLE lists open the wavetable browser.
@@ -1267,6 +1281,14 @@ public:
                                      return sample != nullptr && sample->getNumSamples() >= 2;
                                  },
                                  "load a sample first");
+
+            // Step 29: ROOT is for a plain sample; a multisample keeps its zone roots.
+            effectRules.add (osc.sampleRoot, [this, i]
+                             {
+                                 const auto* sample = processorRef.getSampleForOsc (i);
+                                 return sample != nullptr && sample->getNumSamples() >= 2 && sample->zones.empty();
+                             },
+                             "load a plain sample (a multisample has a root per zone)");
 
             // Step 27: LOOP PTS only acts while LOOP is on.
             effectRules.add (osc.sampleLoopOwn, [this, i, loopOn = effectRules.isOn (prefix + "_sample_loop")]
@@ -1720,6 +1742,8 @@ private:
                 // Step 28: the blend at the wrap, and the snap of the markers to zero crossings.
                 add (osc.sampleLoopXfade, 2, 4);
                 add (osc.sampleSnap, 2, 5);
+                // Step 29: the note the sample was recorded at (DETECT is in the header).
+                add (osc.sampleRoot, 2, 6);
                 // The sampler steps: how the note plays (step 33...).
                 add (osc.samplePlayback, 3, 0);
                 add (osc.samplePingPong, 3, 1);
@@ -2001,7 +2025,7 @@ private:
             osc.on.setBounds (juce::Rectangle<int> (40, 22).withCentre ({ card.header.getRight() - 8 - 20, centre }));
             auto right = card.header.withRight (osc.on.getX() - 8);
 
-            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleZonesButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
+            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleDetectButton, &pieces.sampleZonesButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
                                   editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
                 if (button != nullptr && button->isVisible())
                 {
@@ -2438,7 +2462,7 @@ private:
         UnisonSpreadView spreadView;
         StringPartialsView partials;
         OscStatusView status;
-        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton, sampleZonesButton;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -2446,7 +2470,7 @@ private:
     {
         return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleStartRandom, &osc.sampleBpm, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleStartRandom, &osc.sampleRoot, &osc.sampleBpm, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
                  &osc.trim, &osc.feedback };
@@ -2736,7 +2760,7 @@ private:
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
-                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
+                 &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
@@ -2746,7 +2770,7 @@ private:
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
-                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.sampleZonesButton };
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton };
     }
 
     // The cards show every shown oscillator with its own controls; the strip
@@ -2797,6 +2821,7 @@ private:
             pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
             pieces.sampleExportButton.setVisible (kind == Kind::sample);
             pieces.sampleZonesButton.setVisible (kind == Kind::sample);
+            pieces.sampleDetectButton.setVisible (kind == Kind::sample);
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
             pieces.opEnvButton.setVisible (opEnv);
             pieces.stringButton.setVisible (kind == Kind::physical);
@@ -2905,7 +2930,7 @@ private:
             setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
                                &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune,
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
-                               &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade,
+                               &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade, &osc.sampleRoot,
                                &osc.sampleStart, &osc.sampleEnd, &osc.sampleFadeIn, &osc.sampleFadeOut,
                                &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                                &osc.chord, &osc.warp, &osc.warpAmt, &osc.spectral, &osc.spectralAmt,
@@ -2957,6 +2982,7 @@ private:
             pieces.sampleLoadButton.setAlpha (alpha);
             pieces.sampleExportButton.setAlpha (alpha);
             pieces.sampleZonesButton.setAlpha (alpha);
+            pieces.sampleDetectButton.setAlpha (alpha);
         }
 
         effectRules.apply();

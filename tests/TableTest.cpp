@@ -20,6 +20,7 @@
 #include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
 #include "dsp/PolyBlepOsc.h"
+#include "dsp/PitchDetect.h"
 #include "dsp/SampleRange.h"
 #include "dsp/SpectralFreeze.h"
 #include "dsp/Svf.h"
@@ -681,6 +682,7 @@ int main()
     timedRun ("runSampleOscTest", [] { runSampleOscTest(); });
     timedRun ("runSampleRangeTest", [] { runSampleRangeTest(); });
     timedRun ("runSampleLoopPointsTest", [] { runSampleLoopPointsTest(); });
+    timedRun ("runSampleRootTest", [] { runSampleRootTest(); });
     timedRun ("runSampleLoopCrossfadeTest", [] { runSampleLoopCrossfadeTest(); });
     timedRun ("runPresetSanityTest", [] { runPresetSanityTest(); });
     timedRun ("runOsc2Test", [] { runOsc2Test(); });

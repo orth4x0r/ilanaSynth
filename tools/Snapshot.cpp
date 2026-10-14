@@ -4462,6 +4462,12 @@ int runUiTests()
             expect (wave->handleAtForTest (plot.getX() + 1.0f, midY) == 1 && wave->handleAtForTest (plot.getRight() - 1.0f, midY) == 2,
                     "START and END keep their handles");
             shot ("sample-loop-points.png");
+
+            // Step 29: ROOT and ROOT FINE on the card, and DETECT in the header.
+            set ("osc2_sample_root", 45.0f);
+            settle (150);
+            expect (! processor.detectSampleRoot (1).isEmpty(), "DETECT always says what it found");
+            shot ("sample-root.png");
             wave->setSamplePosition (3, 0.4f);
             expect (std::abs (read ("osc2_sample_loop_start") - 0.4f) < 0.002f, "a typed LOOP START lands");
             wave->setSamplePosition (4, 0.3f);

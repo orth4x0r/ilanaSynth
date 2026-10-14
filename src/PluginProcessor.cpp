@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "dsp/MultiSample.h"
 #include "gui/SampleBrowserModel.h"
+#include "dsp/PitchDetect.h"
 
 #ifdef ILANA_TEST_BUILD
 #include "dsp/Modulation.h"
@@ -212,6 +213,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_sample_reverse", prefix + "_sample_start",
                                            prefix + "_sample_end", prefix + "_sample_fade_in",
                                            prefix + "_sample_fade_out" };
+            sampleRootIds[(size_t) i] = prefix + "_sample_root";
             sampleLoopIds[(size_t) i] = { prefix + "_sample_loop_own", prefix + "_sample_loop_start", prefix + "_sample_loop_end", prefix + "_sample_loop_xfade" };
             sampleTempoIds[(size_t) i] = { prefix + "_sample_sync", prefix + "_sample_bpm", prefix + "_sample_stretch" };
             samplePlayIds[(size_t) i] = { prefix + "_sample_playback", prefix + "_sample_pingpong", prefix + "_sample_start_rand",
@@ -1571,6 +1573,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.sampleFadeIn = getParam (ids[5]);
         osc.sampleFadeOut = getParam (ids[6]);
         const auto& loopIds = sampleLoopIds[(size_t) oscIndex];
+        osc.sampleRoot = getParam (sampleRootIds[(size_t) oscIndex]);
         osc.sampleLoopOwn = getParam (loopIds[0]) > 0.5f;
         osc.sampleLoopStart = getParam (loopIds[1]);
         osc.sampleLoopEnd = getParam (loopIds[2]);
@@ -2282,6 +2285,38 @@ const SampleData* IlanaSynthAudioProcessor::getSampleForOsc (int oscIndex) const
     return user;
 }
 
+juce::String IlanaSynthAudioProcessor::detectSampleRoot (int oscIndex)
+{
+    const auto* sample = getSampleForOsc (oscIndex);
+    if (sample == nullptr || sample->getNumSamples() < 2)
+        return "Load a sample first.";
+    if (! sample->zones.empty())
+        return "A multisample keeps the root note of each zone.";
+
+    const auto found = PitchDetect::detect (sample->buffer, sample->sampleRate);
+    if (! found.found())
+        return "No clear pitch found. Set ROOT by hand.";
+
+    const auto note = juce::jlimit (0, 127, (int) std::lround (found.midiNote));
+    const auto cents = juce::jlimit (-50, 50, (int) std::lround ((found.midiNote - note) * 100.0));
+    const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) oscIndex]);
+    const auto set = [this, &prefix] (const char* suffix, float value)
+    {
+        if (auto* parameter = apvts.getParameter (prefix + suffix))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            parameter->endChangeGesture();
+        }
+    };
+    // The cents go to the oscillator's FINE (its play-pitch offset), the same
+    // correction a sample that is a little off its note needs.
+    set ("_sample_root", (float) note);
+    set ("_fine", (float) -cents);
+    return "Root set to " + describeValue (prefix + "_sample_root", (float) note) + (cents != 0 ? ", FINE " + juce::String (-cents) + " ct" : juce::String())
+           + " (" + juce::String (found.frequency, 1) + " Hz).";
+}
+
 std::shared_ptr<const SampleData> IlanaSynthAudioProcessor::getSharedSampleForOsc (int oscIndex) const
 {
     if (oscIndex < 0 || oscIndex >= numSampleOscs)
@@ -2745,10 +2780,11 @@ bool IlanaSynthAudioProcessor::addSampleZone (int oscIndex, const juce::File& fi
         zones = current->zones;
     else if (current != nullptr && current->getNumSamples() > 1)
     {
-        // A plain sample becomes the map's first zone: every key, rooted at middle C as it plays now.
+        // A plain sample becomes the map's first zone: every key, rooted where it plays now.
         SampleZone first;
         first.data = current;
         first.file = path;
+        first.rootNote = getRawParam (sampleRootIds[(size_t) oscIndex]); // its ROOT (step 29)
         zones.push_back (first);
     }
 

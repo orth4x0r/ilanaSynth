@@ -808,6 +808,9 @@ public:
     void setUserSample (int oscIndex, std::shared_ptr<SampleData> data, const juce::String& path);
     bool isSampleEmbedded (int oscIndex) const;
     const SampleData* getSampleForOsc (int oscIndex) const;
+    // Step 29: DETECT. Finds the pitch of a plain sample and sets its ROOT; the
+    // message says what happened (a multisample, a noise, or the note found).
+    juce::String detectSampleRoot (int oscIndex);
     void useLoadedSample (int oscIndex, bool fromUser);
     // The same, kept alive by the pointer (the stretch worker's view).
     std::shared_ptr<const SampleData> getSharedSampleForOsc (int oscIndex) const;
@@ -1207,6 +1210,7 @@ private:
     std::array<ParamRef, 16> gateStepIds;
     std::array<std::array<ParamRef, 7>, OscillatorIds::count> sampleParamIds;
     std::array<std::array<ParamRef, 3>, OscillatorIds::count> sampleTempoIds; // sync, bpm, stretch
+    std::array<ParamRef, OscillatorIds::count> sampleRootIds; // step 29
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> sampleLoopIds;  // own loop on, start, end (step 27), crossfade (step 28)
     std::array<std::array<ParamRef, 8>, OscillatorIds::count> samplePlayIds;  // the sampler steps: playback mode (33), ping-pong (34), random start and its attack snap (35), quality (39), outside zones (36), round robin and velocity blend (37)
     SampleRoundRobin sampleRoundRobin; // step 37: shared by the voices

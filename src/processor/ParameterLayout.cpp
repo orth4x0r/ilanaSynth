@@ -1232,6 +1232,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addBool (prefix + "_sample_snap", name + " Sample Snap To Zero", false);
     }
 
+    // Roadmap step 29: the note a plain sample was recorded at (a MIDI note, C3 = 60 as on the keyboard strip). 60 is what every older
+    // patch assumed, so they play as before. A multisample keeps its zones' roots.
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+        addFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_sample_root",
+                  "Osc" + juce::String (osc + 1) + " Sample Root Note", 0.0f, 127.0f, 60.0f, 1.0f, 1.0f);
+
     // Review (E-7): a MIDI program change no longer replaces the patch
     // unless asked (it loaded a factory preset, silently, before).
     addBool ("midi_program_change", "MIDI Program Change Loads Presets", false);

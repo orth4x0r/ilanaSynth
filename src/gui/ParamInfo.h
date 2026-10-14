@@ -549,6 +549,7 @@ inline const ValueRow valueRows[] {
     { is ("in_dry|in_body|in_strings"), Unit::percent },
     { starts ("sym_note"), ValueTexts::noteName },
     { is ("in_note"), ValueTexts::noteName },
+    { ends ("_sample_root"), ValueTexts::noteName },
     { is ("spray_range"), Unit::whole, " st" },
 
     // M5 operators, M6 phase distortion, DAHDSR extras.
@@ -1160,6 +1161,7 @@ inline const HelpRow helpRows[] {
       "or double-click one to type it). The note plays from START once, then repeats that span. Off, LOOP repeats the whole START to END region." },
     { ends ("_sample_loop_start"), "Where the loop begins. Held between START and LOOP END." },
     { ends ("_sample_loop_end"), "Where the loop ends and jumps back. Held between LOOP START and END." },
+    { ends ("_sample_root"), "The note the sample was recorded at. DETECT sets it and FINE." },
     { ends ("_sample_loop_xfade"), "Blends the loop end into the sound before its start." },
     { ends ("_sample_snap"), "START, END and the loop handles jump to the nearest zero crossing." },
     { ends ("_sample_sync"), "Follows the host tempo. BPM: the sample's own tempo is the BPM knob. A length (1 beat to 16 bars): "

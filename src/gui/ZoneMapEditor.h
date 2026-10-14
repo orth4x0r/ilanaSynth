@@ -807,7 +807,7 @@ private:
 
     static juce::String noteName (int note)
     {
-        return juce::MidiMessage::getMidiNoteName (juce::jlimit (0, 127, note), true, true, 4);
+        return juce::MidiMessage::getMidiNoteName (juce::jlimit (0, 127, note), true, true, 3); // C3 = 60, as on the keyboard strip
     }
 
     // "A3" or "A3 -50 cents" (the minus is a true minus sign).
@@ -862,7 +862,7 @@ private:
             auto octave = 0;
             while (index < text.length() && juce::CharacterFunctions::isDigit (text[index]))
                 octave = octave * 10 + (int) (text[index++] - '0');
-            note = (double) ((sign * octave + 1) * 12 + pitchClass); // C4 = 60
+            note = (double) ((sign * octave + 2) * 12 + pitchClass); // C3 = 60
             rest = text.substring (index).trim();
         }
 

@@ -8668,6 +8668,58 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_SAMPLER: the sampler steps. OSC 1 plays a three-tone
+    // sample cut into slices (the PLAYBACK row, slice lines on the wave),
+    // then the zone map and the sample browser; sampler-card.png,
+    // sampler-zones.png, sampler-browser.png, then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SAMPLER", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        const auto setParam = [&] (const char* id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        auto tones = std::make_shared<SampleData>();
+        tones->sampleRate = 48000.0;
+        tones->name = "Three Tones";
+        tones->buffer.setSize (2, 96000);
+        for (int i = 0; i < 96000; ++i)
+        {
+            const auto part = i / 12000, local = i % 12000;
+            const auto value = (float) (0.7 * std::exp (-4.0 * local / 12000.0)
+                                        * std::sin (juce::MathConstants<double>::twoPi * (110.0 * (1 + part % 4)) * local / 48000.0));
+            tones->buffer.setSample (0, i, value);
+            tones->buffer.setSample (1, i, value);
+        }
+        setParam ("osc1_mode", 2.0f);
+        processor.setUserSample (0, tones, {});
+        SampleSlicer::Settings slicing;
+        slicing.mode = SampleSlicer::transients;
+        processor.setSampleSlices (0, slicing, "Slice sample");
+        setParam ("osc1_sample_playback", 1.0f);
+        setParam ("osc1_sample_quality", 2.0f);
+        setParam ("osc1_sample_start_rand", 0.2f);
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        pages->showPage ("OSC");
+        settle (500);
+        save (*editor, outDir.getChildFile ("sampler-card.png"));
+        pages->openZoneEditor (0, IlanaTheme::accent());
+        settle (400);
+        save (*editor, outDir.getChildFile ("sampler-zones.png"));
+        pages->closeZoneEditor();
+        settle (100);
+        pages->openSampleBrowser (0);
+        settle (400);
+        save (*editor, outDir.getChildFile ("sampler-browser.png"));
+        pages->closeSampleBrowser();
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_SWEEP: a held chord with LFO 1 on filter 1's cutoff, the
     // filter graph with its sweep band: sweep-0.png before any audio, then
     // sweep-1.png and sweep-2.png after about 0.6 s and 1.3 s of playing; stop.

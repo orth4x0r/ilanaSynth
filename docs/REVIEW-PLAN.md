@@ -408,47 +408,47 @@ A. **Shared patch-graph foundation** (**DONE**, PR #56; no ID of its own; needed
    Size: medium-large. Samples are saved by path and come back only if the file is still there (the features file, `/mnt/project-files/ilanasynth/sample-player/sample-player-features.md`). Touches the patch and preset save and load (`src/processor`, `src/Presets.h`) and the missing-file dialog. Changes the saved format, so old patches must still load.
    Order 20. Why here: samples are saved by path today. Portable saving should exist before slicing and multisample resampling add more data to a patch.
 
-43. **Import feedback** (ilana, 2026-10-10: decided, not started). Explain decoding failures, and warn when a file is cut at 120 seconds.
+43. **Import feedback** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: a file that won't load says why (missing, empty, an unknown kind naming its extension, undecodable, no audio, cut short), a file cut at 120 s or with more than two channels loads with a PARTLY LOADED tag and its reason, an SFZ names the files it couldn't read; no parameter or preset change). Explain decoding failures, and warn when a file is cut at 120 seconds.
    Size: small. Touches the loader behind the OSC card's LOAD button and the drop on `src/gui/WaveDisplay.h`, plus the 120 s cut in `src/dsp/SampleFactory.h` and `src/dsp/MultiSample.h`.
    Order 21. Why here: small, and the truncation warning should land before slices are cut from long files.
 
-44. **WAV export** (ilana, 2026-10-10: decided, not started). Save a resampled sound or a selected range as a WAV file.
+44. **WAV export** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: EXPORT on the sample card writes a 24-bit WAV of the played range (START to END, REVERSE and fades applied) or the whole sample, a resampled sound too; no parameter or preset change). Save a resampled sound or a selected range as a WAV file.
    Size: small. Touches the RESAMPLE path (`src/processor/Bounce.cpp`) and a save dialog in the OSC card. Slices reuse it once step 32 exists.
    Order 22. Why here: small, and resampled sounds can be exported now.
 
-32. **Real slice mode** (ilana, 2026-10-10: decided, not started). Split a sample by transients, into equal divisions, or at manual markers, then trigger each slice from its own MIDI key. Per-slice reverse, tuning and level.
+32. **Real slice mode** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: the sample menu's Slice item cuts a plain sample by transients (fewer, medium, more), into 2-64 equal parts or at hand-placed markers on the wave; each slice is a zone on its own key from C1 (C0/C2/C3 selectable), keys past them silent; the zone map edits each slice's key, tuning, level and a new per-zone REVERSE; kept with the patch (file options or embedded audio) and undo; no parameter or preset change). Split a sample by transients, into equal divisions, or at manual markers, then trigger each slice from its own MIDI key. Per-slice reverse, tuning and level.
    Size: large. The biggest sample feature here. Touches `src/dsp/SamplePlayer.h` (a slice table and note-to-slice mapping), `syncSamplePlayers` in `src/dsp/Voice.cpp`, the markers in `WaveDisplay.h`, and the parameter layout. Depends on steps 27, 29, 30 and 31.
    Order 23. Why here: by now the zoom, loop points, root notes and portable saving it depends on exist.
 
-33. **Playback behaviour selector** (ilana, 2026-10-10: decided, not started). Gate, one-shot and sustain-loop modes. A sustain loop exits on note release and plays the remaining tail, and a one-shot keeps playing after key release.
+33. **Playback behaviour selector** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: PLAYBACK on the sample card's new PLAYBACK row: Gate (default, as before), One Shot, Sustain Loop; new parameters appended, 0 preset changes). Gate, one-shot and sustain-loop modes. A sustain loop exits on note release and plays the remaining tail, and a one-shot keeps playing after key release.
    Size: medium. Touches `src/dsp/SamplePlayer.h` and the release handling in `src/dsp/Voice.cpp`. The new modes are new choices (appended); existing patches keep their current behaviour by default.
    Order 24. Why here: a playback mode applies to slices too, so it comes after slicing.
 
-34. **Ping-pong looping** (ilana, 2026-10-10: decided, not started). Alternate forward and backward playback inside the loop, for evolving pads and textures.
+34. **Ping-pong looping** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: PING-PONG toggle on the PLAYBACK row, region loops bounce too; off by default; new parameters appended, 0 preset changes). Alternate forward and backward playback inside the loop, for evolving pads and textures.
    Size: small-medium. Touches the position advance at the loop end in `src/dsp/SamplePlayer.h`. A new choice (appended).
    Order 25. Why here: a small change to the loop wrap, after loops and playback modes exist.
 
-35. **Start-position variation** (ilana, 2026-10-10: decided, not started). Randomise the starting offset for each note, with an amount control and an optional transient-safe range. Useful for unison.
+35. **Start-position variation** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: RANDOM START amount and TRANSIENT SAFE on the PLAYBACK row, its own seeded generator, attacks found at load; new parameters appended, 0 preset changes). Randomise the starting offset for each note, with an amount control and an optional transient-safe range. Useful for unison.
    Size: small-medium. Touches the start offset in `src/dsp/SamplePlayer.h` and needs its own random generator (appended, so existing random sequences don't shift).
    Order 26. Why here: a per-note start offset applies to slices and unison, so it comes after slicing.
 
-39. **Playback quality modes** (ilana, 2026-10-10: decided, not started). Higher-quality interpolation and an anti-aliasing option for strong upward transposition, alongside the current linear mode.
+39. **Playback quality modes** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: QUALITY on the PLAYBACK row: Linear (default, bit for bit), Cubic, 16-tap Kaiser Sinc, Sinc + Anti-Alias; new parameters appended, 0 preset changes). Higher-quality interpolation and an anti-aliasing option for strong upward transposition, alongside the current linear mode.
    Size: small-medium. Touches the interpolation in `src/dsp/SamplePlayer.h`. Linear stays the default, so existing presets don't change.
    Order 27. Why here: independent. It sits after the playback features so the default stays linear until ilana decides.
 
-36. **Editable zone map** (ilana, 2026-10-10: decided, not started). Drag key and velocity boundaries, change root notes, add samples, and audition zones. Offer silence outside the mapped zones instead of always playing the nearest one.
+36. **Editable zone map** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: ZONES on the sample card opens the zone map (drag keys and velocities, root, level, audition, add samples by file or drop, delete); OUTSIDE ZONES Nearest Zone or Silence; edits saved as edits to the file, undoable; new parameters appended, 0 preset changes). Drag key and velocity boundaries, change root notes, add samples, and audition zones. Offer silence outside the mapped zones instead of always playing the nearest one.
    Size: medium-large. Touches the zone choice in `src/dsp/MultiSample.h` (today the nearest zone plays when none covers the key), the zone boxes under the wave in `src/gui/WaveDisplay.h`, and a silence option.
    Order 28. Why here: the zone map is the editing surface that multisample resampling (41) produces zones for.
 
-37. **Round-robin and velocity blending** (ilana, 2026-10-10: decided, not started). Alternate recordings of a repeated note, and optionally crossfade between velocity layers.
+37. **Round-robin and velocity blending** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: ROUND ROBIN (Off, Cycle, Random; SFZ seq_position sets the order) and VELOCITY BLEND (equal-power crossfade of neighbouring layers) in the zone map; new parameters appended, 0 preset changes). Alternate recordings of a repeated note, and optionally crossfade between velocity layers.
    Size: medium. Touches the zone choice in `src/dsp/MultiSample.h` (an alternation counter per note) and the velocity crossfade in the sum. Depends on step 36.
    Order 29. Why here: it uses the zone choice that step 36 edits.
 
-38. **SF2 preset browser** (ilana, 2026-10-10: decided, not started). Choose the bank and program inside a SoundFont, instead of loading only its first preset.
+38. **SF2 preset browser** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: the sample menu lists an SF2's presets by bank and program; the pick is kept with the patch and undo; no parameter or preset change). Choose the bank and program inside a SoundFont, instead of loading only its first preset.
    Size: medium. Today the reader takes the first preset only (`src/dsp/MultiSample.h`). Touches that and a picker in the OSC card.
    Order 30. Why here: independent, but it changes the same zone loading as step 36, so it comes after.
 
-42. **Sample browser** (ilana, 2026-10-10: decided, not started). Favourites, recent files, folder navigation, and level-matched previews.
+42. **Sample browser** (ilana, 2026-10-10: decided; **DONE** 2026-10-14, cloud, branch `claude/project-thread-vivlu8`, the grouped sampler step: Browse Samples... in the sample menu: places (favourites, recent, Music, Documents, Desktop, added folders), folder navigation, search, stars, previews levelled to -18 dBFS RMS; no parameter or preset change). Favourites, recent files, folder navigation, and level-matched previews.
    Size: medium. A new browser component for samples, plus the favourites and recent lists. Level matching uses the synth's existing level tools.
    Order 31. Why here: a browser for samples. It comes after step 31 so favourites can store portable paths.
 

@@ -238,7 +238,19 @@ def sample(spec, rng):
     return spec
 
 
-def style_rules(params, category):
+DEFAULTS = {}  # set by cmd_draft: the parameter defaults
+
+
+def free_fx_slot(params):
+    """The first FX slot with no effect in it (None when all are used)."""
+    for n in range(1, 9):
+        key = f"fx_slot{n}"
+        if key in DEFAULTS and params.get(key, DEFAULTS[key]) == 0:
+            return n
+    return None
+
+
+def style_rules(params, category, rng=None):
     """What her presets do and the factory ones often don't: no glide on
     polyphonic patches, a few ms legato glide at most on mono ones, quick
     attacks outside pads, releases that end."""
@@ -248,6 +260,14 @@ def style_rules(params, category):
     else:
         params["glide"] = min(params.get("glide", 0.0), 0.012)
         params["glide_legato"] = 1.0
+    if category == "Lead" and rng is not None:
+        # ilana's round 3 tags: the "boring" leads were narrow (stereo width 0.13 against 0.50)
+        # and dry (release 0.36 s against 1.5 s). Give a lead some width and a little room.
+        params["amp_release"] = max(params.get("amp_release", 0.3), rng.uniform(0.3, 0.6))
+        slot = free_fx_slot(params)
+        if slot is not None:
+            params[f"fx_slot{slot}"] = float(rng.choice([36, 7, 41]))  # Ensemble, Chorus, Stereo
+            params[f"fx_slot{slot}_mix"] = rng.uniform(0.3, 0.55)
     if category == "Pluck":
         # ilana's round 1-2 votes: the winning plucks attack in ~10 ms and die away;
         # the losing ones sustained at about -12 dB and rang on for seconds.
@@ -264,6 +284,7 @@ def cmd_draft(args):
     from preset_gen_concepts import CONCEPTS  # the concepts, kept in their own file
 
     defaults = read_defaults()
+    DEFAULTS.update(defaults)
     seeds = load_seeds(defaults)
     rng = random.Random(args.seed)
     out = Path(args.out)
@@ -283,7 +304,7 @@ def cmd_draft(args):
                 params[key] = float(sample(spec, rng))
             for key, spec in concept.get("scale", {}).items():
                 params[key] = params[key] * float(sample(spec, rng))
-            params = style_rules(params, concept["category"])
+            params = style_rules(params, concept["category"], rng)
             macros = [m for m, _ in concept.get("macros", [])]
             params = wire_macros(params, concept.get("macros", []))
             for macro in range(8):  # macros start at 0 (the seed's knob positions go)

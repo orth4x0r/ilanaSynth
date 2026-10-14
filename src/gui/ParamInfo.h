@@ -1187,7 +1187,7 @@ inline const HelpRow helpRows[] {
       "Sustain Loop: loops while the key is down, then leaves the loop and plays on to END." },
     { ends ("_sample_start_rand"), "Each note starts at a random place up to this far in. "
       "Every unison voice gets its own, so a stack sounds like several takes." },
-    { ends ("_sample_start_safe"), "A random start moves back onto the attack before it. It also lands on a zero crossing, so no note starts in the middle of a hit." },
+    { ends ("_sample_start_safe"), "A random start moves back to the attack. It lands just before it, on a zero crossing, so no note starts in the middle of a hit." },
     { ends ("_sample_quality"), "How the sample is read between its samples. Linear: light, a little dull when pitched down and "
       "rough when pitched far up. Cubic: smoother. Sinc: the cleanest. Sinc + Anti-Alias: also filters the harsh folded tones a "
       "note far above the sample's own pitch would make (costs more CPU the higher it goes)." },

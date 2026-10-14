@@ -1175,16 +1175,16 @@ inline const HelpRow helpRows[] {
     { ends ("_sample_playback"), "Gate: the note plays while the envelope lasts; LOOP decides whether it repeats. "
       "One Shot: plays from START to END once and keeps going after you let go of the key (loops are skipped). "
       "Sustain Loop: loops while the key is down, then leaves the loop and plays on to END." },
-    { ends ("_sample_start_rand"), "Each note starts at a random place, up to this far into the played range. "
+    { ends ("_sample_start_rand"), "Each note starts at a random place up to this far in. "
       "Every unison voice gets its own, so a stack sounds like several takes." },
-    { ends ("_sample_start_safe"), "A random start moves back to the attack before it and onto a zero crossing, so no note starts in the middle of a hit." },
+    { ends ("_sample_start_safe"), "A random start moves back onto the attack before it. It also lands on a zero crossing, so no note starts in the middle of a hit." },
     { ends ("_sample_quality"), "How the sample is read between its samples. Linear: light, a little dull when pitched down and "
       "rough when pitched far up. Cubic: smoother. Sinc: the cleanest. Sinc + Anti-Alias: also filters the harsh folded tones a "
       "note far above the sample's own pitch would make (costs more CPU the higher it goes)." },
-    { ends ("_sample_round_robin"), "Zones sharing a key and velocity are alternates: Cycle plays them in turn, Random picks one for each note, Off always plays the first." },
-    { ends ("_sample_vel_blend"), "Crossfades neighbouring velocity layers: near a layer's edge the note also plays the next layer, mixed so the level stays even. 0 switches layers hard." },
-    { ends ("_sample_unmapped"), "A key or velocity that no zone covers: Nearest Zone plays the closest one (stretched to the note), Silence plays nothing." },
-    { ends ("_sample_pingpong"), "The loop plays forward, then backward, then forward again, instead of jumping back to its start." },
+    { ends ("_sample_round_robin"), "How zones sharing a key take turns. Cycle plays them in order, Random picks one for each note, Off always plays the first." },
+    { ends ("_sample_vel_blend"), "Crossfades neighbouring velocity layers. Near a layer's edge the note also plays the next one, mixed so the level stays even. 0 switches layers hard." },
+    { ends ("_sample_unmapped"), "What a key no zone covers plays. Nearest Zone: the closest zone, stretched to the note. Silence: nothing." },
+    { ends ("_sample_pingpong"), "The loop runs forward, then back, then forward again. It never jumps back to its start." },
 };
 
 inline const RowIndex& helpIndex()

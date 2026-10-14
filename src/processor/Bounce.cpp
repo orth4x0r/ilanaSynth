@@ -431,6 +431,8 @@ juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
     tree.setProperty ("name", data.name, nullptr);
     if (! data.zones.empty())
     {
+        if (data.sliceMode != 0) // step 32: how it was cut, to rebuild the whole
+            SampleSlicer::write (tree, SampleSlicer::settingsOf (data));
         // A multisample (roadmap step 41): its zones, each a sample of its
         // own; the displayed region is rebuilt on loading.
         for (const auto& zone : data.zones)
@@ -450,6 +452,10 @@ juce::ValueTree IlanaSynthAudioProcessor::encodeSample (const SampleData& data)
             child.setProperty ("loopEnd", zone.loopEnd, nullptr);
             if (zone.sequence != 0) // step 37; absent in every older patch
                 child.setProperty ("sequence", zone.sequence, nullptr);
+            if (zone.reverse) // step 32
+                child.setProperty ("reverse", true, nullptr);
+            if (data.sliceMode != 0)
+                child.setProperty ("slice", zone.origin, nullptr);
             tree.appendChild (child, nullptr);
         }
         return tree;
@@ -496,11 +502,47 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::decodeSample (const juce::
             zone.loopEnd = juce::jlimit (0, length, (int) child.getProperty ("loopEnd", 0));
             zone.loop = (bool) child.getProperty ("loop", false) && zone.loopEnd - zone.loopStart > 16;
             zone.sequence = juce::jmax (0, (int) child.getProperty ("sequence", 0));
+            zone.reverse = (bool) child.getProperty ("reverse", false);
+            zone.origin = (int) child.getProperty ("slice", -1);
             data->zones.push_back (std::move (zone));
         }
         if (data->zones.empty())
             return nullptr;
         MultiSample::finish (*data);
+        // Step 32: a sliced sample: the slices end to end are the whole.
+        if (const auto settings = SampleSlicer::read (tree); settings.mode != SampleSlicer::off)
+        {
+            std::vector<const SampleZone*> slices;
+            for (const auto& zone : data->zones)
+                if (zone.origin >= 0)
+                    slices.push_back (&zone);
+            std::sort (slices.begin(), slices.end(), [] (const SampleZone* a, const SampleZone* b) { return a->origin < b->origin; });
+            auto length = 0;
+            auto channels = 1;
+            for (const auto* zone : slices)
+                length += zone->data->getNumSamples(), channels = juce::jmax (channels, zone->data->getNumChannels());
+            if (! slices.empty() && length > 1)
+            {
+                data->buffer.setSize (channels, length);
+                data->sampleRate = slices.front()->data->sampleRate;
+                data->sliceStarts.clear();
+                auto at = 0;
+                for (const auto* zone : slices)
+                {
+                    data->sliceStarts.push_back (at);
+                    const auto& audio = zone->data->buffer;
+                    for (int c = 0; c < channels; ++c)
+                        data->buffer.copyFrom (c, at, audio, juce::jmin (c, audio.getNumChannels() - 1), 0, audio.getNumSamples());
+                    at += audio.getNumSamples();
+                }
+                data->sliceStarts.push_back (at);
+                data->sliceMode = settings.mode;
+                data->sliceCount = settings.count;
+                data->sliceSensitivity = settings.sensitivity;
+                data->sliceBaseKey = settings.baseKey;
+                data->sliceMarkers = settings.markers;
+            }
+        }
         return data;
     }
     const auto rate = (double) tree.getProperty ("rate", 0.0);

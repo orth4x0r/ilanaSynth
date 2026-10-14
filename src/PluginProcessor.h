@@ -40,6 +40,7 @@
 #include "dsp/airwindows/Categories.h"
 #include "dsp/Vocoder.h"
 #include "dsp/SamplePlayer.h"
+#include "dsp/SampleSlicer.h"
 #include "dsp/SpectralCache.h"
 #include "dsp/Wavetable.h"
 #include "dsp/WavetableDoc.h"
@@ -644,6 +645,11 @@ public:
     // Roadmap step 38: a SoundFont's preset by bank and program, kept with
     // the patch. Returns false if it couldn't load.
     bool selectSoundFontPreset (int oscIndex, int bank, int program);
+    // Roadmap step 32: cuts the oscillator's plain sample into slices on
+    // their own keys (mode off puts the whole sample back): one undo step,
+    // kept with the patch. False for a multisample or no sample.
+    bool setSampleSlices (int oscIndex, const SampleSlicer::Settings& settings, const juce::String& undoName);
+    SampleSlicer::Settings getSampleSlices (int oscIndex) const;
     // The preset an SF2 oscillator plays (bank, program), or -1, -1 for the first.
     std::pair<int, int> getSoundFontPreset (int oscIndex) const;
     bool isSampleFromFile (int oscIndex) const;

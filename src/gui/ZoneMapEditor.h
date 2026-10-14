@@ -39,8 +39,18 @@ public:
           colour (colourIn),
           prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)])
     {
-        for (auto* button : { &closeButton, &auditionButton, &deleteButton, &addButton })
+        for (auto* button : { &closeButton, &auditionButton, &deleteButton, &reverseButton, &addButton })
             addAndMakeVisible (*button);
+
+        // Step 32: a zone (a slice) played backwards on its own.
+        reverseButton.setClickingTogglesState (true);
+        reverseButton.setTooltip ("Play the selected zone backwards (on top of the card's REVERSE)");
+        reverseButton.onClick = [this]
+        {
+            const auto on = reverseButton.getToggleState();
+            editSelected ([on] (SampleZone& z) { z.reverse = on; });
+            commit ("Reverse zone");
+        };
 
         closeButton.onClick = [this] { close(); };
         deleteButton.onClick = [this] { deleteSelected(); };
@@ -200,7 +210,7 @@ public:
         area.removeFromBottom (gap);
 
         const auto room = row1.getWidth() - gap * 6;
-        const auto fieldWidth = juce::roundToInt ((float) room * 0.15f);
+        const auto fieldWidth = juce::roundToInt ((float) room * 0.14f);
         for (auto* field : { &keysField, &velocityField, &rootField, &levelField })
         {
             field->setBounds (row1.removeFromLeft (fieldWidth));
@@ -209,6 +219,8 @@ public:
         auditionButton.setBounds (row1.removeFromLeft (juce::roundToInt ((float) room * 0.11f)).removeFromBottom (24));
         row1.removeFromLeft (gap);
         deleteButton.setBounds (row1.removeFromLeft (juce::roundToInt ((float) room * 0.09f)).removeFromBottom (24));
+        row1.removeFromLeft (gap);
+        reverseButton.setBounds (row1.removeFromLeft (juce::roundToInt ((float) room * 0.10f)).removeFromBottom (24));
         row1.removeFromLeft (gap);
         addButton.setBounds (row1.removeFromBottom (24));
 
@@ -636,6 +648,8 @@ private:
             for (auto* field : { &keysField, &velocityField, &rootField, &levelField })
                 field->setText ({});
         }
+        reverseButton.setToggleState (valid && zones[(size_t) selected].reverse, juce::dontSendNotification);
+        reverseButton.setEnabled (valid);
         auditionButton.setEnabled (valid);
         deleteButton.setEnabled (valid);
     }
@@ -1097,7 +1111,7 @@ private:
     juce::Rectangle<int> titleArea, hintArea;
     juce::Rectangle<float> wellBounds, mapBounds, stripBounds;
 
-    juce::TextButton closeButton { "CLOSE" }, auditionButton { "AUDITION" }, deleteButton { "DELETE" },
+    juce::TextButton closeButton { "CLOSE" }, auditionButton { "AUDITION" }, deleteButton { "DELETE" }, reverseButton { "REVERSE" },
         addButton { "ADD SAMPLE..." };
     Field keysField, velocityField, rootField, levelField;
     std::unique_ptr<ComboControl> unmappedControl, roundRobinControl;

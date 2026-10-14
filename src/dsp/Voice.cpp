@@ -190,7 +190,7 @@ void Voice::syncSamplePlayers()
         // A multisample plays the region the note picked, with its loop; a
         // key outside every zone, with OUTSIDE ZONES on Silence, nothing.
         const auto* sample = zone != nullptr ? zone->data.get()
-                             : osc.sample != nullptr && ! osc.sample->zones.empty() && osc.sampleSilenceOutside ? nullptr
+                             : osc.sample != nullptr && ! osc.sample->zones.empty() && (osc.sampleSilenceOutside || osc.sample->isSliced()) ? nullptr
                                                                                                                  : osc.sample;
         // A rendered copy is the whole sample stretched, so the region's
         // start and end stay where they were; a region loop scales with it.
@@ -220,7 +220,8 @@ void Voice::syncSamplePlayers()
         sampleParams.startRandom = osc.sampleStartRandom;
         sampleParams.startSafe = osc.sampleStartSafe;
         sampleParams.quality = osc.sampleQuality;
-        sampleParams.reverse = osc.sampleReverse;
+        // Step 32: a slice (or zone) can be reversed on its own.
+        sampleParams.reverse = osc.sampleReverse != (zone != nullptr && zone->reverse);
         sampleParams.start = start;
         sampleParams.end = end;
         sampleParams.fadeIn = osc.sampleFadeIn;
@@ -269,7 +270,7 @@ void Voice::syncSamplePlayers()
         {
             const auto& settings = params.oscillators[osc];
             const auto* sample = settings.sample;
-            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity, settings.sampleSilenceOutside,
+            sampleZone[osc] = sample != nullptr && ! sample->zones.empty() ? sample->zoneFor (lastNote, lastVelocity, settings.sampleSilenceOutside || sample->isSliced(),
                                                                                                     settings.sampleRoundRobin, zonePick[osc])
                                                                                     : nullptr;
             // Step 37: near a velocity layer's edge, the layer across it too.

@@ -929,6 +929,115 @@ void runSampleBrowserTest()
     folder.deleteRecursively();
 }
 
+// Step 32: slice mode. Three tones end to end, sliced three ways; each
+// slice on its own key, reversible, kept with the patch and undo.
+void runSampleSliceTest()
+{
+    using namespace SamplerLab;
+    const auto folder = scratchFolder ("ilana-sampler-slices");
+    // 220, 330 and 440 Hz, a quarter second each with a sharp attack.
+    juce::AudioBuffer<float> tones (1, 36000);
+    for (int i = 0; i < 36000; ++i)
+    {
+        const auto part = i / 12000, local = i % 12000;
+        const auto hz = part == 0 ? 220.0 : part == 1 ? 330.0 : 440.0;
+        const auto envelope = std::exp (-3.0 * local / 12000.0);
+        tones.setSample (0, i, (float) (0.6 * envelope * std::sin (juce::MathConstants<double>::twoPi * hz * local / 48000.0)));
+    }
+    const auto wav = folder.getChildFile ("tones.wav");
+    MultiSampleLab::writeWav (wav, tones, 48000.0);
+
+    SampleData whole;
+    whole.buffer = tones;
+    whole.sampleRate = 48000.0;
+    SampleSlicer::Settings equal;
+    equal.mode = SampleSlicer::equal;
+    equal.count = 3;
+    const auto cutEqual = SampleSlicer::boundaries (whole, equal);
+    check (cutEqual == std::vector<int> { 0, 12000, 24000, 36000 }, "equal parts cut evenly");
+    SampleSlicer::Settings attacks;
+    attacks.mode = SampleSlicer::transients;
+    const auto cutAttacks = SampleSlicer::boundaries (whole, attacks);
+    auto nearCuts = cutAttacks.size() == 4;
+    for (size_t i = 1; nearCuts && i < 3; ++i)
+        nearCuts = std::abs (cutAttacks[i] - (int) i * 12000) < 600;
+    check (nearCuts, "transients find the three attacks (" + juce::String ((int) cutAttacks.size() - 1) + " slices)");
+    SampleSlicer::Settings marks;
+    marks.mode = SampleSlicer::markers;
+    marks.markers = { 0.5f };
+    check (SampleSlicer::boundaries (whole, marks) == std::vector<int> { 0, 18000, 36000 }, "markers cut where they are put");
+
+    IlanaSynthAudioProcessor processor;
+    MultiSampleLab::setUp (processor);
+    samplerSet (processor, "osc1_sample_tuned", 0.0f); // each slice at its own pitch on any key
+    check (processor.loadUserSample (0, wav, true), "the sample loads");
+    check (processor.setSampleSlices (0, equal, "Slice sample"), "it slices");
+    const auto zones = processor.getSampleZones (0);
+    check (zones.size() == 3 && zones[0].loKey == 36 && zones[2].hiKey == 38, "three slices on C1, C#1 and D1");
+    const auto* shown = processor.getSampleForOsc (0);
+    check (shown != nullptr && shown->getNumSamples() == 36000 && shown->isSliced(), "the display still shows the whole sample");
+
+    const auto pitchOf = [&processor] (int note)
+    {
+        const auto out = playAt (processor, note, 100, 10);
+        return MultiSampleLab::sineFrequency (std::vector<float> (out.begin() + 512, out.begin() + 4096), 48000.0);
+    };
+    check (std::abs (pitchOf (37) - 330.0) < 4.0, "the second key plays the second slice");
+    check (std::abs (pitchOf (38) - 440.0) < 4.0, "the third key plays the third slice");
+    const auto outside = playAt (processor, 70, 100, 10);
+    check (*std::max_element (outside.begin(), outside.end()) < 1.0e-4f, "a key past the slices plays nothing");
+
+    // Per slice: reverse (a decaying tone backwards rises).
+    auto edited = processor.getSampleZones (0);
+    edited[0].reverse = true;
+    edited[0].gain = 0.5f;
+    check (processor.setSampleZones (0, edited, "Reverse zone"), "a slice is reversed");
+    check (processor.getSampleForOsc (0)->isSliced() && processor.getSampleForOsc (0)->getNumSamples() == 36000, "an edited slice keeps the whole");
+    const auto reversed = playAt (processor, 36, 100, 22);
+    double early = 0.0, late = 0.0;
+    for (size_t i = 1000; i < 3000; ++i) early += std::abs (reversed[i]);
+    for (size_t i = 9000; i < 11000; ++i) late += std::abs (reversed[i]);
+    check (late > early * 1.5, "the reversed slice swells instead of dying away");
+
+    // The patch keeps the slicing and the slice edits.
+    juce::MemoryBlock saved;
+    processor.getStateInformation (saved);
+    IlanaSynthAudioProcessor reloaded;
+    reloaded.prepareToPlay (48000.0, 512);
+    reloaded.setStateInformation (saved.getData(), (int) saved.getSize());
+    reloaded.flushAsyncUpdates();
+    const auto back = reloaded.getSampleZones (0);
+    check (back.size() == 3 && back[0].reverse && std::abs (back[0].gain - 0.5f) < 1.0e-4f && reloaded.getSampleSlices (0).mode == SampleSlicer::equal,
+           "slices and their edits come back with the patch (" + juce::String ((int) back.size()) + ")");
+
+    // Undo takes the slicing away again.
+    processor.getUndoManager().undo();
+    processor.getUndoManager().undo();
+    check (processor.getSampleZones (0).empty() && ! processor.getSampleForOsc (0)->isSliced(), "undo puts the plain sample back");
+    processor.getUndoManager().redo();
+    check (processor.getSampleZones (0).size() == 3, "redo slices it again");
+
+    // A resampled (embedded) sample keeps its slices in the patch.
+    IlanaSynthAudioProcessor embedded;
+    MultiSampleLab::setUp (embedded);
+    auto plain = std::make_shared<SampleData>();
+    plain->buffer = tones;
+    plain->sampleRate = 48000.0;
+    embedded.setUserSample (0, plain, {});
+    check (embedded.setSampleSlices (0, marks, "Slice sample") && embedded.getSampleZones (0).size() == 2, "an embedded sample slices");
+    embedded.getStateInformation (saved);
+    IlanaSynthAudioProcessor embeddedBack;
+    embeddedBack.prepareToPlay (48000.0, 512);
+    embeddedBack.setStateInformation (saved.getData(), (int) saved.getSize());
+    const auto* rebuilt = embeddedBack.getSampleForOsc (0);
+    check (rebuilt != nullptr && rebuilt->isSliced() && rebuilt->getNumSamples() == 36000 && rebuilt->sliceStarts.size() == 3,
+           "its slices come back with the whole sample rebuilt");
+
+    // Removing the slices; a multisample can't be sliced.
+    check (processor.setSampleSlices (0, {}, "Remove slices") && processor.getSampleZones (0).empty(), "remove slices gives the plain sample back");
+    folder.deleteRecursively();
+}
+
 void runSamplerTests()
 {
     runSampleImportFeedbackTest();
@@ -941,4 +1050,5 @@ void runSamplerTests()
     runSampleRoundRobinTest();
     runSoundFontPresetTest();
     runSampleBrowserTest();
+    runSampleSliceTest();
 }

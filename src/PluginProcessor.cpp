@@ -2432,6 +2432,10 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
             return fail (error);
     }
 
+    // Step 32: a plain sample saved sliced is cut again the same way; the
+    // zone edits after it refer to its slices.
+    if (options.isValid() && ! multi && options.getChildWithName ("Slices").isValid())
+        data = SampleSlicer::slice (*data, SampleSlicer::read (options.getChildWithName ("Slices")));
     if (options.isValid())
         data = applyZoneOptions (std::move (data), options, file);
 
@@ -2448,6 +2452,64 @@ bool IlanaSynthAudioProcessor::loadUserSample (int oscIndex, const juce::File& f
         ++missingSamplesVersion;
     }
     useLoadedSample (oscIndex, fromUser);
+    return true;
+}
+
+SampleSlicer::Settings IlanaSynthAudioProcessor::getSampleSlices (int oscIndex) const
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs || (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0)
+        return {};
+    const juce::SpinLock::ScopedLockType lock (sampleLock);
+    const auto& current = sampleSlots[(size_t) oscIndex];
+    return current != nullptr ? SampleSlicer::settingsOf (*current) : SampleSlicer::Settings {};
+}
+
+bool IlanaSynthAudioProcessor::setSampleSlices (int oscIndex, const SampleSlicer::Settings& settings, const juce::String& undoName)
+{
+    if (oscIndex < 0 || oscIndex >= numSampleOscs || (int) getRawParam (sampleFactoryIds[(size_t) oscIndex]) > 0)
+        return false;
+    std::shared_ptr<SampleData> current;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        current = sampleSlots[(size_t) oscIndex];
+    }
+    // A plain sample, or one already sliced (cut again from the whole).
+    if (current == nullptr || current->getNumSamples() < 2 || (! current->zones.empty() && current->sliceMode == 0))
+        return false;
+
+    const auto whole = SampleSlicer::wholeOf (*current);
+    auto data = SampleSlicer::slice (*whole, settings);
+
+    juce::String path;
+    {
+        const juce::SpinLock::ScopedLockType lock (stateLock);
+        path = samplePaths[(size_t) oscIndex];
+    }
+
+    beginEdit (undoName);
+    if (path.isNotEmpty())
+    {
+        // Saved with the file's options: how it is cut. Edits to the old
+        // slices (the zone map) don't carry over to new ones.
+        juce::ValueTree options ("SampleOptions");
+        if (const auto xml = juce::parseXML (getSampleOptions (oscIndex)))
+            if (const auto old = juce::ValueTree::fromXml (*xml); old.isValid() && old.getProperty ("path").toString() == path)
+                options = old.createCopy();
+        options.setProperty ("path", path, nullptr);
+        options.removeChild (options.getChildWithName ("Zones"), nullptr);
+        options.removeChild (options.getChildWithName ("Slices"), nullptr);
+        if (data->sliceMode != 0)
+        {
+            juce::ValueTree slices ("Slices");
+            SampleSlicer::write (slices, SampleSlicer::settingsOf (*data));
+            options.appendChild (slices, nullptr);
+        }
+        setUserSample (oscIndex, data, path);
+        setSampleOptions (oscIndex, options.getNumChildren() > 0 || options.getNumProperties() > 1 ? options.toXmlString() : juce::String());
+    }
+    else
+        setUserSample (oscIndex, data, {}); // kept in the patch: its slices travel with it
+    endEdit();
     return true;
 }
 
@@ -2548,6 +2610,7 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::applyZoneOptions (std::sha
         zone.hiVel = juce::jlimit (zone.loVel, 127, (int) entry.getProperty ("hiVel", zone.hiVel));
         zone.rootNote = juce::jlimit (-24.0, 151.0, (double) entry.getProperty ("root", zone.rootNote));
         zone.gain = juce::jlimit (0.0f, 8.0f, (float) (double) entry.getProperty ("gain", (double) zone.gain));
+        zone.reverse = (bool) entry.getProperty ("reverse", zone.reverse);
         zones.push_back (std::move (zone));
     }
     if (zones.empty())
@@ -2561,6 +2624,7 @@ std::shared_ptr<SampleData> IlanaSynthAudioProcessor::applyZoneOptions (std::sha
         data->loadWarning << (data->loadWarning.isEmpty() ? "" : " ") << "Zones whose files are gone were left out ("
                           << missing.joinIntoString (", ") << ").";
     MultiSample::finish (*data);
+    data->copySlicingFrom (*loaded); // step 32: a sliced sample still shows the whole
     return data;
 }
 
@@ -2603,6 +2667,7 @@ bool IlanaSynthAudioProcessor::setSampleZones (int oscIndex, std::vector<SampleZ
     data->loadWarning = current->loadWarning;
     data->zones = zones;
     MultiSample::finish (*data);
+    data->copySlicingFrom (*current); // step 32: a sliced sample still shows the whole
     // (finish numbers zones by place only when they came from no file: an
     // edited zone keeps the origin it was read with.)
 
@@ -2637,6 +2702,8 @@ bool IlanaSynthAudioProcessor::setSampleZones (int oscIndex, std::vector<SampleZ
             entry.setProperty ("hiVel", zone.hiVel, nullptr);
             entry.setProperty ("root", zone.rootNote, nullptr);
             entry.setProperty ("gain", (double) zone.gain, nullptr);
+            if (zone.reverse)
+                entry.setProperty ("reverse", true, nullptr);
             map.appendChild (entry, nullptr);
         }
         options.appendChild (map, nullptr);

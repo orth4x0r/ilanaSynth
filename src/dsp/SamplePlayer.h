@@ -47,6 +47,8 @@ struct SampleZone
     // Roadmap step 37: the order of a round-robin alternate among the zones
     // covering the same note (an SFZ's seq_position; else the file's order).
     int sequence = 0;
+    // Roadmap step 32: a slice (or any zone) can play backwards on its own.
+    bool reverse = false;
 
     bool covers (int note, int velocity) const noexcept
     {
@@ -84,6 +86,30 @@ struct SampleData
     // that lands on one. Found once when the sample comes in (findOnsets).
     std::vector<int> onsets;
     bool onsetsFound = false;
+    // Roadmap step 32: a plain sample cut into slices, each a zone on its own
+    // key. buffer stays the whole sample (for the display); sliceStarts are
+    // the cuts in frames, from 0 to its length. sliceMode 0: not sliced.
+    int sliceMode = 0;
+    int sliceCount = 8;
+    float sliceSensitivity = 0.5f;
+    int sliceBaseKey = 36;
+    std::vector<float> sliceMarkers; // the hand-placed cuts (fractions)
+    std::vector<int> sliceStarts;
+    bool isSliced() const noexcept { return sliceMode != 0 && ! zones.empty(); }
+    void copySlicingFrom (const SampleData& other)
+    {
+        sliceMode = other.sliceMode;
+        sliceCount = other.sliceCount;
+        sliceSensitivity = other.sliceSensitivity;
+        sliceBaseKey = other.sliceBaseKey;
+        sliceMarkers = other.sliceMarkers;
+        sliceStarts = other.sliceStarts;
+        if (other.sliceMode != 0)
+        {
+            buffer = other.buffer;
+            sampleRate = other.sampleRate;
+        }
+    }
 
     // Finds the attacks once (message thread, at load: about 10 ms for two
     // minutes of stereo).

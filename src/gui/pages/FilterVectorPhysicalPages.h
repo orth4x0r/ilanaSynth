@@ -114,13 +114,11 @@ public:
 
         std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
 
-        // (FILTER 1's and FILTER 2's knobs share one column pitch, P-3: seven
-        // columns while either card has a MORPH, else six spread across the
-        // whole card; review 20, R20-3.)
-        const auto anyMorph = morph.isVisible() || std::any_of (std::begin (panels), std::end (panels),
-                                                                [] (const FilterPanel* panel) { return panel != nullptr && panel->morph.isVisible(); });
-        if (anyMorph)
-            knobs.push_back (morph.isVisible() ? &morph : nullptr);
+        // (Each card spreads its own knobs across the whole card: seven columns
+        // while it has a MORPH, else six. ilana 2026-10-15: FILTER 2 stays six
+        // wide when FILTER 1 gets a MORPH, so it leaves no empty slot.)
+        if (morph.isVisible())
+            knobs.push_back (&morph);
 
         layoutRow (area, knobs);
     }

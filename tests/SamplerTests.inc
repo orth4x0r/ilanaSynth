@@ -401,6 +401,30 @@ void runSampleQualityTest()
     const auto edges = runPlayer (*bright, [] (SamplePlayer::Params& p) { p.quality = 3; p.reverse = true; }, 30000, -1, 3.9);
     check (std::all_of (edges.out.begin(), edges.out.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 2.0f; }),
            "the quality reads stay finite at the sample's edges");
+
+    // Through the whole voice: QUALITY changes how the sample is read, never its pitch.
+    {
+        const auto folder = scratchFolder ("ilana-sampler-quality");
+        const auto wav = folder.getChildFile ("c4.wav");
+        MultiSampleLab::writeWav (wav, MultiSampleLab::sine (261.6255653005986, 48000.0, 48000), 48000.0);
+        for (const int note : { 60, 72, 84 })
+        {
+            const auto expected = 261.6255653005986 * std::pow (2.0, (note - 60) / 12.0);
+            for (int quality = 0; quality <= 3; ++quality)
+            {
+                IlanaSynthAudioProcessor processor;
+                MultiSampleLab::setUp (processor);
+                processor.loadUserSample (0, wav, true);
+                samplerSet (processor, "osc1_sample_quality", (float) quality);
+                const auto out = MultiSampleLab::play (processor, note, 20);
+                const std::vector<float> tail (out.begin() + 2048, out.end());
+                const auto hz = MultiSampleLab::sineFrequency (tail, 48000.0);
+                check (std::abs (hz / expected - 1.0) < 0.01,
+                       "quality " + juce::String (quality) + " keeps the pitch of note " + juce::String (note)
+                           + " (" + juce::String (hz, 1) + " Hz, wanted " + juce::String (expected, 1) + ")");
+            }
+        }
+    }
 }
 
 // Step 36: the zone map: silence outside the zones, edits that survive a

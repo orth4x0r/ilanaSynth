@@ -450,13 +450,14 @@ inline void groupExciteMenu (ComboControl& control)
 // The unison block's little picture (the OSC cards' UNISON row): one bar per
 // voice, spread across the width as far as DETUNE reaches, the outer voices
 // shorter. A picture only; it takes no clicks.
-class UnisonSpreadView : public juce::Component
+class UnisonSpreadView : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     UnisonSpreadView (IlanaSynthAudioProcessor& p, int index)
         : processorRef (p), prefix (OscillatorIds::prefixes[(size_t) index])
     {
-        setInterceptsMouseClicks (false, false);
+        setInterceptsMouseClicks (false, true);
+        setTooltip ("The unison voices spread by the detune amount (picture only)");
     }
 
     void setColour (juce::Colour newColour)
@@ -3068,6 +3069,7 @@ private:
             loadButton (index).setAlpha (alpha);
             editButtons[(size_t) index]->setEnabled (enabled);
             editButtons[(size_t) index]->setAlpha (alpha);
+            bounceButtons[(size_t) index]->setEnabled (enabled && bouncingOsc < 0);
             bounceButtons[(size_t) index]->setAlpha (alpha);
             pieces.stringView.setAlpha (alpha);
             pieces.opEnvGraph.setAlpha (alpha);

@@ -587,13 +587,13 @@ public:
 
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        // (Review 22: two plain lines, not three starting with "or".)
         const char* const tips[] {
-            "Drag a source chip from the bar below onto any knob",
-            "or right-click a knob for quick modulation",
-            "or press  + ADD MODULATION  above to build a routing here"
+            "Drag a source chip from the bar below onto any knob,",
+            "right-click a knob for quick modulation, or press  + ADD MODULATION  above"
         };
 
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 2; ++i)
             g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
 
         g.setColour (IlanaTheme::Ui::text);

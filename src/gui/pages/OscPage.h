@@ -1878,14 +1878,6 @@ private:
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
     bool isFolded (int osc) const { return isOff (osc); }
-    static constexpr int foldedRoomMax = 220;
-    bool anyFolded() const
-    {
-        for (const auto osc : shownList())
-            if (isFolded (osc))
-                return true;
-        return false;
-    }
 
     // What a card needs at least, by what it holds.
     int minimumCardHeight (int osc) const
@@ -1912,9 +1904,9 @@ private:
         if (isFolded (osc))
             return foldedCardHeight;
 
-        // A card beside folded ones takes their room (a taller picture and
-        // rows with air) instead of leaving a gap above the strip.
-        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap) + (anyFolded() ? foldedRoomMax : 0);
+        // (A card beside folded ones keeps its condensed height: ilana
+        // 2026-10-15, the one grown into their room was far too tall.)
+        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap);
     }
 
     static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
@@ -2125,7 +2117,6 @@ private:
 
         card.rows = rowsOf (index);
         card.columns = 9;
-        // (Rows keep their size on a card of the usual height; one grown into folded neighbours' room spaces its rows evenly.)
         const auto roomy = card.bounds.getHeight() > compactCardMax + (card.rows - 3) * (28 + rowGap);
         card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - (card.rows - 1) * rowGap - 8) / card.rows);
         const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);

@@ -218,6 +218,10 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // runLayoutReview10Tests.)
                     if (page == "FX")
                         continue;
+                    // (OSC with switched-off oscillators folded keeps the open cards at their
+                    // condensed height; the room below is left empty at ilana's ask, 2026-10-15.)
+                    if (page == "OSC" && (juce::String (preset) == "Init" || juce::String (preset) == "Felt Hammer Board"))
+                        continue;
 
                     const auto pageArea = area (shown).reduced (4);
                     const auto snapshot = editor.createComponentSnapshot (pageArea, true, 1.0f);

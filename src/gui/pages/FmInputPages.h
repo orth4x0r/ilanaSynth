@@ -900,12 +900,16 @@ private:
         {
             auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
             auto head = row.removeFromLeft (headWidth);
-            noiseHead = layoutHead (head);
-            // NOISE, then its colour: a small dial with its name and value.
-            noiseColourKnob->setBounds (noiseHead.getX() - 2, noiseHead.getY() + 20, 30, 30);
-            // (The noise's type under its colour, when the row is tall enough.)
-            noiseTypeMenu.setBounds (head.getHeight() >= 82 ? juce::Rectangle<int> (noiseHead.getX(), noiseHead.getY() + 54, juce::jmin (noiseHead.getWidth(), 112), 24)
-                                                                  : juce::Rectangle<int>());
+            // NOISE, then its colour (a small dial with its name and value), then
+            // the noise's type under it. A short row keeps the type menu too
+            // (ilana 2026-10-15): the head sits at the row's top, tighter.
+            const auto roomForMenu = head.getHeight() >= 82;
+            const auto tight = ! roomForMenu && head.getHeight() >= 70;
+            noiseHead = tight ? head.withHeight (juce::jmin (head.getHeight(), 74)) : layoutHead (head);
+            const auto knobY = noiseHead.getY() + (tight ? 16 : 20);
+            noiseColourKnob->setBounds (noiseHead.getX() - 2, knobY, 30, 30);
+            noiseTypeMenu.setBounds (roomForMenu || tight ? juce::Rectangle<int> (noiseHead.getX(), noiseHead.getY() + (tight ? 48 : 54), juce::jmin (noiseHead.getWidth(), 112), 24)
+                                                          : juce::Rectangle<int>());
             layoutCells (row,
                          [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
                          [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });

@@ -247,7 +247,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* cutoff = knobFor ("f2_cutoff");
         expect (reso != nullptr && cutoff != nullptr && reso->getAlpha() < 0.7f && cutoff->getAlpha() > 0.99f,
                 "FILTER: an open Filter 2 dims its card but not CUTOFF");
-        // P-3: FILTER 1's seven columns and FILTER 2's six share one pitch, so a knob sits at the same place in both cards.
+        // P-3: with no MORPH on either card both have six columns, so a knob sits at the same place in both.
         {
             auto sameColumns = true;
             juce::String where;
@@ -262,6 +262,20 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 }
             }
             expect (sameColumns, "FILTER: F1 and F2 knobs share their columns (" + where + ")");
+        }
+        // ilana 2026-10-15: a MORPH on FILTER 1 gives its card seven columns, but
+        // FILTER 2 keeps spreading its own six across its whole card.
+        {
+            auto* before = knobFor ("f2_fm");
+            const auto fmX = before != nullptr ? before->getX() : -1;
+            setParam ("f1_type", (float) FilterType::VowelMorph);
+            settle (400);
+            auto* after = knobFor ("f2_fm");
+            auto* morph1 = knobFor ("f1_morph");
+            expect (morph1 != nullptr && morph1->isVisible() && after != nullptr && std::abs (after->getX() - fmX) <= 1,
+                    "FILTER: a MORPH on Filter 1 leaves Filter 2's knobs where they were");
+            setParam ("f1_type", 0.0f);
+            settle (300);
         }
         setParam ("f2_cutoff", 800.0f);
         settle (400);

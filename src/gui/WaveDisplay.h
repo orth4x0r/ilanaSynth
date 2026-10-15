@@ -946,7 +946,7 @@ public:
             {
                 const auto key = sample.sliceBaseKey + (int) i;
                 const auto label = juce::String ((int) i + 1)
-                                   + (nextX - x > 56.0f ? " " + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
+                                   + (nextX - x > 62.0f ? juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
                 // On a dark tag, so the label reads over the wave's attack.
                 const auto tagWidth = juce::jmin (nextX - x - 4.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 6.0f);
                 const auto tag = juce::Rectangle<float> (x + 2.0f, plot.getY() + 18.0f, tagWidth, 13.0f);

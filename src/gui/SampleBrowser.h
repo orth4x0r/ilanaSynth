@@ -167,7 +167,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        IlanaTheme::drawFitted (g, "Click to hear a sample, double click or Return to load it, the star keeps it under FAVOURITES",
+        IlanaTheme::drawFitted (g, "Click to hear a sample, double click or Return to load it, the star adds it to your favourites",
                                 hintArea, juce::Justification::centredRight, 2);
 
         IlanaTheme::paintWell (g, placesWell, 6.0f);

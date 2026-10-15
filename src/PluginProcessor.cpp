@@ -640,6 +640,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     fxParallelIn.setSize (2, expectedBlockSize, false, true, true);
     fxBranch.setSize (2, expectedBlockSize, false, true, true);
     fxScratch.setSize (2, expectedBlockSize, false, true, true);
+    fxScratchOld.setSize (2, expectedBlockSize, false, true, true);
     fxBand.setSize (2, expectedBlockSize, false, true, true);
 
     // The first-use tables of the modulation lookups, built here and not on

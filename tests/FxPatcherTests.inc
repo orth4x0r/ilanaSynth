@@ -716,7 +716,10 @@ void runFxPatcherTests()
         running = false;
         audio.join();
         const auto label = juce::String (patched ? "PATCHER on" : "series");
-        check (mixed.load() == 0, "FX-14 (" + label + "): no block ran a half-swapped rack (" + juce::String (mixed.load()) + " of "
+        // (The block after a swap fades from the old effects to the new, so it
+        // is a blend of both orders: at most one such block per swap, two with
+        // a swap landing mid-rack. Any more would be a half-swapped rack.)
+        check (mixed.load() <= 2 * 60, "FX-14 (" + label + "): no block ran a half-swapped rack beyond each swap's own crossfade (" + juce::String (mixed.load()) + " of "
                                       + juce::String (blocksRun.load()) + ")");
         check (! patched || sawB.load() * 20 <= sawA.load(), "FX-14 (PATCHER on): the nodes keep their effects through the swaps (A "
                                                                  + juce::String (sawA.load()) + ", B " + juce::String (sawB.load()) + ")");
@@ -727,5 +730,37 @@ void runFxPatcherTests()
         auto* first = processor.apvts.getParameter ("fx_slot1");
         check (first != nullptr && juce::roundToInt (first->convertFrom0to1 (first->getValue())) == drive,
                "FX-14 (" + label + "): the parameter objects agree with what the audio thread read");
+    }
+
+    // Changing an effect while audio plays (ilana's PC test: a very small
+    // click): the new effect fades in as the old one fades out over the block,
+    // so no sample steps further than the signal does anyway.
+    {
+        IlanaSynthAudioProcessor processor;
+        setUp (processor, { drive }, false);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto steadyStep = 0.0f, swapStep = 0.0f;
+        auto last = 0.0f;
+        for (int block = 0; block < 40; ++block)
+        {
+            if (block == 20)
+                processor.assignFxSlot (1, utility);
+            for (int channel = 0; channel < 2; ++channel)
+                for (int i = 0; i < 256; ++i)
+                    buffer.setSample (channel, i, 0.5f * ParallelFxLab::input (channel, block * 256 + i));
+            processor.processEffects (buffer);
+            for (int i = 0; i < 256; ++i)
+            {
+                const auto step = std::abs (buffer.getSample (0, i) - last);
+                last = buffer.getSample (0, i);
+                if (block == 10 || block == 11 || block == 12)
+                    steadyStep = juce::jmax (steadyStep, step);
+                if (block == 20 || block == 21)
+                    swapStep = juce::jmax (swapStep, step);
+            }
+        }
+        check (swapStep < steadyStep * 3.0f + 0.02f,
+               "changing the effect while playing does not click (largest step " + juce::String (swapStep, 4) + " vs " + juce::String (steadyStep, 4) + " steady)");
     }
 }

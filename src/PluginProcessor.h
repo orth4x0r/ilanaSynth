@@ -1555,6 +1555,8 @@ private:
     // skipped for longer than the longest delay memory starts it empty.
     std::array<bool, (size_t) numFxSlots> fxSlotLive {}, fxSlotFaded {};
     std::array<std::int64_t, (size_t) numFxSlots> fxSlotLastRun {};
+    // The effect a slot ran last block (0: none), so a change of type crossfades from the old one.
+    std::array<int, (size_t) numFxSlots> fxSlotPrevType {};
     std::int64_t fxClock = 0; // samples the rack has run (processEffects)
     int fxBlockLength = 0;
     BlockRamp masterRamp;
@@ -1565,10 +1567,11 @@ private:
             ramp.reset();
         fxSlotLive.fill (false);
         fxSlotFaded.fill (false);
+        fxSlotPrevType.fill (0);
         masterRamp.reset();
     }
 
-    juce::AudioBuffer<float> fxScratch;
+    juce::AudioBuffer<float> fxScratch, fxScratchOld;
     // Roadmap step 17: the effects' memory lives in engines (FxEngine.h).
     // fxMain is the rack's shared one (one set per effect type, as always);
     // a slot that is its own instance of an effect runs on its own engine.

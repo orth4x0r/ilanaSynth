@@ -106,6 +106,15 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         expect (h.graph.findCable ({ a, 0 }, { outputNodeId, 0 }) < 0 && h.cableEdits == 3,
                 "cable view: a cable lifted off an input and dropped on nothing is removed");
 
+        // Dragged the other way (ilana 2026-10-15): from a free input port to an output port makes the same cable.
+        dragFromTo (h.view, h.view.portPosition ({ outputNodeId, 0 }, true), h.view.portPosition ({ a, 0 }, false));
+        expect (h.graph.findCable ({ a, 0 }, { outputNodeId, 0 }) >= 0 && h.cableEdits == 4,
+                "cable view: a cable dragged from OUTPUT's free input onto DRIVE's output port makes DRIVE -> OUTPUT");
+        dragFromTo (h.view, h.view.portPosition ({ outputNodeId, 0 }, true), { 600.0f, 300.0f });
+        dragFromTo (h.view, h.view.portPosition ({ a, 0 }, true), { 600.0f, 300.0f });
+        expect (h.graph.findCable ({ inputNodeId, 0 }, { a, 0 }) < 0 && h.graph.findCable ({ a, 0 }, { outputNodeId, 0 }) < 0,
+                "cable view: lifting both cables off leaves no cables");
+
         // A node dragged lands on the 10 px grid and counts as a layout edit only.
         const auto revision = h.graph.revision();
         const auto grab = h.view.nodeBounds (*h.graph.find (a)).getCentre();

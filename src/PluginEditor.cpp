@@ -424,10 +424,11 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
     // SUB + NOISE pinned below the oscillator cards: an editor setting, not a preset's.
-    mainPage->setSubNoisePinned (settings->getBoolValue ("subNoisePinned", false));
+    // (V2 key: ilana 2026-10-15, start unpinned again, as pinned they squeeze OSC 3 out of PLAY.)
+    mainPage->setSubNoisePinned (settings->getBoolValue ("subNoisePinnedV2", false));
     mainPage->onSubNoisePinChanged = [this] (bool pinned)
     {
-        settings->setValue ("subNoisePinned", pinned);
+        settings->setValue ("subNoisePinnedV2", pinned);
         settings->saveIfNeeded();
     };
     // The header's VOICES: the OSC page's VOICE tab (one voice panel).

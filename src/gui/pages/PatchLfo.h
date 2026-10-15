@@ -209,7 +209,7 @@ inline float fxLfoPictureValue (int shape, double phase)
 }
 
 inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, const FxLfo::Settings& settings, juce::Colour colour,
-                            float livePhase, bool showDot, bool withArea)
+                            float livePhase, bool showDot, bool withArea, bool detailed = false)
 {
     const auto shape = FxLfo::shapeOf (settings.shape);
     const auto cycles = 2.0;
@@ -220,6 +220,62 @@ inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, cons
     // The zero line (where the knob is set) under the trace.
     g.setColour (IlanaTheme::Ui::line);
     g.fillRect (plot.getX(), std::round (centreY) - 0.5f, plot.getWidth(), 1.0f);
+
+    // The big picture (the LFO window, as the MOD page's LFO: ilana
+    // 2026-10-15, "visualization parity"): +1 / 0 / -1 against the zero line
+    // with faint rails, the live reading above and the time under it.
+    if (detailed)
+    {
+        const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (tiny);
+        const auto label = [&] (const juce::String& text, float y)
+        {
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+            g.drawText (text, juce::Rectangle<float> (plot.getX() - 26.0f, y - 6.0f, 22.0f, 12.0f), juce::Justification::centredRight);
+        };
+        const auto rail = [&] (float y)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.fillRect (plot.getX(), std::round (y) - 0.5f, plot.getWidth(), 1.0f);
+        };
+        rail (centreY - half);
+        label ("+1", centreY - half);
+        if (settings.bipolar)
+        {
+            rail (centreY + half);
+            label ("0", centreY);
+            label ("-1", centreY + half);
+        }
+        else
+            label ("0", centreY);
+
+        const auto cycleSeconds = settings.sync ? 0.0 : 1.0 / (double) settings.rateHz;
+        for (int tick = 0; tick <= 4; ++tick)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) tick / 4.0f;
+            juce::String text;
+            if (settings.sync)
+                text = tick == 0 ? juce::String ("0") : tick == 2 ? FxLfo::rateText (settings) : tick == 4 ? "2 x " + FxLfo::rateText (settings) : juce::String();
+            else
+            {
+                const auto ms = cycleSeconds * 2.0 * 1000.0 * (double) tick / 4.0;
+                text = ms >= 1000.0 ? juce::String (ms / 1000.0, 1) + " s" : juce::String (juce::roundToInt (ms)) + " ms";
+            }
+            if (text.isNotEmpty())
+            {
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+                g.drawText (text, juce::Rectangle<float> (x - 30.0f, plot.getBottom() + 3.0f, 60.0f, 12.0f), juce::Justification::centred);
+            }
+        }
+
+        const auto phase = (double) livePhase;
+        const auto value = FxLfo::output (settings, fxLfoPictureValue (shape, phase));
+        const auto readout = juce::String ("PHASE ") + juce::String (phase - std::floor (phase), 2) + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  VALUE "))
+                             + (value >= 0.0f ? "+" : "") + juce::String (value, 2);
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (readout, juce::Rectangle<float> (plot.getX(), plot.getY() - 15.0f, plot.getWidth(), 12.0f), juce::Justification::centredLeft);
+    }
 
     juce::Path path;
     const auto width = juce::jmax (2, (int) plot.getWidth());
@@ -259,8 +315,9 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, bounds, 6.0f);
-        paintFxLfoWave (g, bounds.reduced (10.0f, 8.0f), controls.settings(), fxLfoColour (controls.id), processorRef.getFxLfoPhase (controls.id),
-                        true, true);
+        const auto detailed = bounds.getHeight() >= 100.0f;
+        const auto plot = detailed ? bounds.reduced (34.0f, 8.0f).withTrimmedTop (16.0f).withTrimmedBottom (16.0f) : bounds.reduced (10.0f, 8.0f);
+        paintFxLfoWave (g, plot, controls.settings(), fxLfoColour (controls.id), processorRef.getFxLfoPhase (controls.id), true, true, detailed);
     }
 
 private:
@@ -367,7 +424,7 @@ public:
 
 private:
     // (The effect windows' grid: FxMiniWindow.)
-    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, cellWidth = 116, cellHeight = 44;
+    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 124, cellWidth = 116, cellHeight = 44;
 
     struct Constrainer : juce::ComponentBoundsConstrainer
     {

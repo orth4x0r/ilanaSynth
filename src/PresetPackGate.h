@@ -15,18 +15,34 @@ inline void addGatePresets (const std::function<void (const FactoryPreset&)>& ad
     // ======================================================================
 
     // 3+3+2 over two beats: every onset hits hard and leaves a soft second step.
-    add (B ("Tresillo Gate", "Chords")
-             .osc1 (SawToSquare, 0.25f, 0.55f).unison (1, 9, 26.0f, 0.95f, Hypersaw).chord (1, 5)
-             .osc2 (SoftSaw, 0.3f, 0.35f, 12).unison (2, 5, 18.0f, 0.8f, Hypersaw)
-             .filter1 (LadderLP, 3200.0f, 0.25f, 1.2f, 1.4f, 0.4f).fenv (0.002f, 0.35f, 0.5f, 0.3f)
-             .amp (0.003f, 0.4f, 0.9f, 0.5f)
-             .master (-7.5f)
-             .macro (1, "CUTOFF", { { D::Filter1Cutoff, 0.45f }, { D::Filter1Morph, 0.1f } })
-             .macro (2, "CHOP", { { param ("fx_gate_mix"), -0.85f } })
-             .macro (3, "SMOOTH", { { param ("fx_gate_smooth"), 0.6f } })
-             .macro (4, "SPACE", { { D::FxDelayMix, 0.3f }, { D::FxReverbMix, 0.25f } })
-             .fx ({ FxGate, FxDelay, FxReverb }).gateSteps (D1_16, "9409409494094094", 0.12f)
-             .delay (D1_8D, 0.4f, 0.2f, true).reverb (Hall, 0.75f, 0.22f));
+    // ilana's own version (2026-10-15, her "Tresillo Gate_edited"), baked as the default.
+    {
+        FactoryPreset p { "Tresillo Gate", {} };
+        p.category = "Chords";
+        p.values = {
+            { "amp_attack", 0.003f }, { "amp_decay", 0.3999999f }, { "amp_release", 0.4999999f }, { "amp_sustain", 0.9f },
+            { "f1_cutoff", 3200.0f }, { "f1_drive", 1.4f }, { "f1_env", 1.2f }, { "f1_keytrack", 0.4f },
+            { "f1_type", 4.0f }, { "fe_attack", 0.002000001f }, { "fe_decay", 0.35f }, { "fe_sustain", 0.5f },
+            { "fx_delay_div", 9.0f }, { "fx_delay_feedback", 0.4f }, { "fx_delay_mix", 0.2f }, { "fx_delay_on", 1.0f },
+            { "fx_delay_pingpong", 1.0f }, { "fx_delay_sync", 1.0f }, { "fx_gate_pattern", 8.0f }, { "fx_gate_smooth", 0.12f },
+            { "fx_gate_step10", 0.4444444f }, { "fx_gate_step11", 0.0f }, { "fx_gate_step13", 0.4444444f }, { "fx_gate_step14", 0.0f },
+            { "fx_gate_step16", 0.4444444f }, { "fx_gate_step2", 0.4444444f }, { "fx_gate_step3", 0.0f }, { "fx_gate_step5", 0.4444444f },
+            { "fx_gate_step6", 0.0f }, { "fx_gate_step8", 0.4444444f }, { "fx_reverb_mix", 0.22f }, { "fx_reverb_on", 1.0f },
+            { "fx_reverb_size", 0.75f }, { "fx_reverb_type", 1.0f }, { "fx_slot1", 16.0f }, { "fx_slot2", 9.0f },
+            { "fx_slot3", 13.0f }, { "mod1_amt", 0.45f }, { "mod1_dst", 9.0f }, { "mod1_src", 12.0f },
+            { "mod2_amt", 0.1f }, { "mod2_dst", 87.0f }, { "mod2_src", 12.0f }, { "mod3_amt", -0.85f },
+            { "mod3_dst", 154.0f }, { "mod3_src", 13.0f }, { "mod4_amt", 0.6f }, { "mod4_dst", 153.0f },
+            { "mod4_src", 14.0f }, { "mod5_amt", 0.3f }, { "mod5_dst", 22.0f }, { "mod5_src", 15.0f },
+            { "mod6_amt", 0.25f }, { "mod6_dst", 26.0f }, { "mod6_src", 15.0f }, { "osc1_detune", 22.46148f },
+            { "osc1_frame", 0.25f }, { "osc1_level", 0.55f }, { "osc1_spread", 0.95f }, { "osc1_table", 45.0f },
+            { "osc1_uni_mode", 1.0f }, { "osc1_unison", 9.0f }, { "osc2_detune", 13.83299f }, { "osc2_fine", 0.0f },
+            { "osc2_frame", 0.3f }, { "osc2_level", 0.35f }, { "osc2_on", 1.0f }, { "osc2_semi", 12.0f },
+            { "osc2_spread", 0.8f }, { "osc2_table", 16.0f }, { "osc2_uni_mode", 1.0f }, { "osc2_unison", 5.0f },
+            { "master", -7.5f },
+        };
+        p.macroNames = { "CUTOFF", "CHOP", "SMOOTH", "SPACE" };
+        add (p);
+    }
 
     // A seven-step pattern in a four-beat bar: the chop slides against the grid.
     add (B ("Seven Over Four", "Pad")

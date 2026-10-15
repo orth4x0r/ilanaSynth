@@ -729,9 +729,34 @@ private:
 // Shift by 0.1 %, Page Up / Down by 10 %. A click does not take the keys
 // from the editor, so the shortcuts and the note keys keep working; a focus
 // ring is drawn by the look and feel while the keys are here (G-10).
+// A page that scrolls (the OSC page in a short window) must scroll when the
+// wheel or a touchpad sweeps over a knob or menu too, not change it (ilana:
+// scrolling did nothing on a touchpad, the pointer being over controls
+// nearly everywhere). Hold Ctrl / Cmd to turn the control instead. A page that
+// does not scroll leaves the wheel to the control as before.
+inline bool scrollPageInstead (juce::Component& control, const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    if (event.mods.isCommandDown() || event.mods.isCtrlDown())
+        return false;
+
+    auto* viewport = control.findParentComponentOfClass<juce::Viewport>();
+    if (viewport == nullptr || viewport->getViewedComponent() == nullptr
+        || viewport->getViewedComponent()->getHeight() <= viewport->getMaximumVisibleHeight())
+        return false;
+
+    viewport->mouseWheelMove (event.getEventRelativeTo (viewport), wheel);
+    return true;
+}
+
 class KeyboardSlider : public juce::Slider
 {
 public:
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
+    {
+        if (! scrollPageInstead (*this, event, wheel))
+            juce::Slider::mouseWheelMove (event, wheel);
+    }
+
     KeyboardSlider()
     {
         setWantsKeyboardFocus (true);
@@ -2645,6 +2670,12 @@ public:
         std::function<void()> popupOverride;
         double lastOverrideOpen = 0.0;
         std::function<void (int)> nudgeOverride;
+
+        void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
+        {
+            if (! scrollPageInstead (*this, event, wheel))
+                juce::ComboBox::mouseWheelMove (event, wheel);
+        }
 
         bool keyPressed (const juce::KeyPress& key) override
         {

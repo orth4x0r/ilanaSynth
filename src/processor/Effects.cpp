@@ -386,6 +386,7 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
             fxSlotIn[(size_t) (slot - 1)].store (fxSlotIn[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
             fxSlotOut[(size_t) (slot - 1)].store (fxSlotOut[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
             fxSlotCpu[(size_t) (slot - 1)].store (fxSlotCpu[(size_t) (slot - 1)].load() * 0.9f);
+            fxSlotPrevType[(size_t) (slot - 1)] = type;
             return;
         }
 
@@ -405,15 +406,24 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         }
         fxSlotLastRun[(size_t) (slot - 1)] = fxClock;
 
+        // A different effect than last block (swapped or chosen while playing):
+        // its wet part fades in as the old one's fades out across this block,
+        // instead of one cutting to the other with a click.
+        const auto previousType = fxSlotPrevType[(size_t) (slot - 1)];
+        fxSlotPrevType[(size_t) (slot - 1)] = type;
+        const auto typeChanged = working && previousType > 0 && previousType != type && band == 0;
+
         if (band > 0 && numChannels == 2)
         {
             processSlotBand (slot - 1, type, band, buffer, solo, blend, blendFrom);
         }
-        else if (solo || blend < 0.999f || blendFrom < 0.999f)
+        else if (solo || typeChanged || blend < 0.999f || blendFrom < 0.999f)
         {
             // (Sized in prepareToPlay; the grow is for a longer block than announced.)
             if (fxScratch.getNumChannels() < numChannels || fxScratch.getNumSamples() < numSamples)
                 fxScratch.setSize (numChannels, numSamples, false, false, true);
+            if (typeChanged && (fxScratchOld.getNumChannels() < numChannels || fxScratchOld.getNumSamples() < numSamples))
+                fxScratchOld.setSize (numChannels, numSamples, false, false, true);
 
             // The effect gets a view of exactly this block (it works on getNumSamples()).
             juce::AudioBuffer<float> scratch (fxScratch.getArrayOfWritePointers(), numChannels, numSamples);
@@ -421,6 +431,20 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
                 scratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
 
             engineForSlot (slot - 1).processSlot (type, scratch);
+
+            if (typeChanged)
+            {
+                juce::AudioBuffer<float> old (fxScratchOld.getArrayOfWritePointers(), numChannels, numSamples);
+                for (int channel = 0; channel < numChannels; ++channel)
+                    old.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+                engineForSlot (slot - 1).processSlot (previousType, old);
+                for (int channel = 0; channel < numChannels; ++channel)
+                {
+                    scratch.applyGainRamp (channel, 0, numSamples, 0.0f, 1.0f);
+                    scratch.addFromWithRamp (channel, 0, old.getReadPointer (channel), numSamples, 1.0f, 0.0f);
+                }
+                sanitiseBuffer (scratch);
+            }
 
             for (int channel = 0; channel < numChannels; ++channel)
             {

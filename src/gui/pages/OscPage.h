@@ -1142,6 +1142,13 @@ public:
             addChildComponent (card.sampleLoadButton);
 
             // Roadmap step 44: the sample (a resampled sound too) out as a WAV.
+            card.sampleSliceButton.setButtonText ("SLICE");
+            card.sampleSliceButton.setTooltip ("Cut the sample into slices, each on its own key: by transients, by beat (equal parts) or at markers you place. "
+                                               "Right-click the wave for the same choices; right-click a slice to play it backwards");
+            card.sampleSliceButton.onClick = [this, i] { waveDisplay (i).showSliceMenu (aux[(size_t) i]->sampleSliceButton); };
+            styleHeaderButton (card.sampleSliceButton);
+            addChildComponent (card.sampleSliceButton);
+
             card.sampleExportButton.setButtonText ("EXPORT");
             card.sampleExportButton.setTooltip ("Save this sample as a WAV file: the played range (START to END, with REVERSE and the "
                                                 "fades, as the card plays it) or the whole sample. A resampled sound is saved the same way.");
@@ -2052,7 +2059,7 @@ private:
             osc.on.setBounds (juce::Rectangle<int> (40, 22).withCentre ({ card.header.getRight() - 8 - 20, centre }));
             auto right = card.header.withRight (osc.on.getX() - 8);
 
-            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleDetectButton, &pieces.sampleZonesButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
+            for (auto* button : { &loadButton (index), &pieces.sampleLoadButton, &pieces.sampleDetectButton, &pieces.sampleZonesButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
                                   editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
                 if (button != nullptr && button->isVisible())
                 {
@@ -2511,7 +2518,7 @@ private:
         UnisonSpreadView spreadView;
         StringPartialsView partials;
         OscStatusView status;
-        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -2854,7 +2861,7 @@ private:
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
-                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton };
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton };
     }
 
     // The cards show every shown oscillator with its own controls; the strip
@@ -2903,6 +2910,7 @@ private:
             // 7, I7-24).
             loadButton (index).setVisible (kind == Kind::wavetable);
             pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
+            pieces.sampleSliceButton.setVisible (kind == Kind::sample);
             pieces.sampleExportButton.setVisible (kind == Kind::sample);
             pieces.sampleZonesButton.setVisible (kind == Kind::sample);
             pieces.sampleDetectButton.setVisible (kind == Kind::sample);
@@ -3077,6 +3085,7 @@ private:
             pieces.opEnvButton.setAlpha (alpha);
             pieces.stringButton.setAlpha (alpha);
             pieces.sampleLoadButton.setAlpha (alpha);
+            pieces.sampleSliceButton.setAlpha (alpha);
             pieces.sampleExportButton.setAlpha (alpha);
             pieces.sampleZonesButton.setAlpha (alpha);
             pieces.sampleDetectButton.setAlpha (alpha);

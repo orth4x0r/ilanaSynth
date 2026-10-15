@@ -746,8 +746,10 @@ private:
 
         {
             auto line = area.removeFromTop (20);
-            const auto text = (isUserPreset (index) ? juce::String (juce::CharPointer_UTF8 ("USER  \xc2\xb7  ")) : juce::String())
-                              + categories[index].toUpperCase();
+            // (A preset named for its own category, like Init, doesn't say it twice.)
+            const auto category = categories[index].equalsIgnoreCase (shownNames[index]) ? juce::String() : categories[index].toUpperCase();
+            const auto text = isUserPreset (index) ? juce::String (juce::CharPointer_UTF8 ("USER")) + (category.isNotEmpty() ? juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + category : juce::String())
+                                                   : category;
             g.setColour (colour);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             g.drawText (text, line, juce::Justification::centredLeft);
@@ -837,7 +839,10 @@ private:
 
                 const auto* mode = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_mode");
                 const auto type = juce::jlimit (0, OscMode::count - 1, mode != nullptr ? (int) mode->load() : 0);
-                lines.add ("OSC " + juce::String (osc + 1) + "|" + juce::String (OscMode::names[(size_t) type]));
+                const auto* on = processorRef.apvts.getRawParameterValue (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on");
+                const auto off = on != nullptr && on->load() < 0.5f;
+                lines.add ("OSC " + juce::String (osc + 1) + "|" + juce::String (OscMode::names[(size_t) type])
+                           + (off ? juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  Off")) : juce::String()));
             }
 
             if (! lines.isEmpty())

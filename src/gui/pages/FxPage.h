@@ -768,7 +768,8 @@ public:
                     // (Whole rows only: seven tiles left a hole at the end of the second row, review 21.)
                     if (count > perRow && count % perRow != 0)
                         count -= count % perRow;
-                    const auto tileHeight = juce::jlimit (suggestMinHeight, suggestMaxHeight, (room - gap * (rows - 1)) / rows);
+                    // (One row takes the height two would, so a rack with four suggestions leaves no black band under them, review 22.)
+                    const auto tileHeight = juce::jlimit (suggestMinHeight, rows == 1 ? suggestMaxHeight * 2 : suggestMaxHeight, (room - gap * (rows - 1)) / rows);
                     suggestCaption = { left, addTile.getBottom() + 6, width, suggestCaptionHeight - 6 };
                     const auto top = addTile.getBottom() + suggestCaptionHeight;
                     for (int i = 0; i < count; ++i)

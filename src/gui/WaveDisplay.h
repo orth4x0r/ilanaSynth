@@ -1016,7 +1016,7 @@ public:
             {
                 const auto key = sample.sliceBaseKey + (int) i;
                 const auto label = juce::String ((int) i + 1)
-                                   + (nextX - x > 56.0f ? " " + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
+                                   + (nextX - x > 62.0f ? juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
                 // On a dark tag, so the label reads over the wave's attack.
                 const auto tagWidth = juce::jmin (nextX - x - 4.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 6.0f);
                 const auto tag = juce::Rectangle<float> (x + 2.0f, plot.getY() + 18.0f, tagWidth, 13.0f);
@@ -1399,9 +1399,10 @@ private:
         const auto height = juce::jmin (18.0f, header.getHeight());
         const auto y = header.getY() + (header.getHeight() - height) * 0.5f;
         SampleChips chips;
-        chips.play = { header.getRight() - 32.0f, y, 32.0f, height };
-        chips.zoomIn = { chips.play.getX() - 3.0f - 26.0f, y, 26.0f, height };
-        chips.zoomOut = { chips.zoomIn.getX() - 3.0f - 26.0f, y, 26.0f, height };
+        // (Wider again, 30 and 36: the header's height is fixed by the plot below it.)
+        chips.play = { header.getRight() - 36.0f, y, 36.0f, height };
+        chips.zoomIn = { chips.play.getX() - 3.0f - 30.0f, y, 30.0f, height };
+        chips.zoomOut = { chips.zoomIn.getX() - 3.0f - 30.0f, y, 30.0f, height };
         return chips;
     }
 
@@ -2146,7 +2147,7 @@ private:
                                                                                + juce::String::fromUTF8 (sample->isSliced() ? " slices \xc2\xb7 " : " zones \xc2\xb7 ")
                                                                            : juce::String())
                                                  + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"),
-                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String());
+                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String(), true);
         }
     }
 
@@ -2652,12 +2653,12 @@ private:
     // A title and a quieter caption in the header line; the caption only
     // where both fit (with a gap).
     void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f,
-                         const juce::String& warning = {}) const
+                         const juce::String& warning = {}, bool largeCaption = false) const
     {
         auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
         header.removeFromRight (rightReserve);
         const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        const juce::Font captionFont (IlanaTheme::font (largeCaption ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::tiny));
         auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
         const auto captionWidth = juce::GlyphArrangement::getStringWidth (captionFont, caption);
 

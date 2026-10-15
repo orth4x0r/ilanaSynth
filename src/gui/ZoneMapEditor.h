@@ -965,12 +965,15 @@ private:
             g.fillRect (keyX (key), map.getY(), 1.0f, map.getHeight());
         }
         // Velocity lines.
-        for (const auto velocity : { 32, 64, 96 })
+        // (1 and 127 end the axis, so the whole range reads; the top one is written under its line.)
+        for (const auto velocity : { 1, 32, 64, 96, 127 })
         {
+            const auto edge = velocity == 127;
             g.setColour (juce::Colours::white.withAlpha (0.05f));
             g.fillRect (map.getX(), velocityY (velocity), map.getWidth(), 1.0f);
             g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
-            g.drawText (juce::String (velocity), juce::Rectangle<float> (map.getX() + 3.0f, velocityY (velocity) - 13.0f, 30.0f, 13.0f),
+            g.drawText (juce::String (velocity),
+                        juce::Rectangle<float> (map.getX() + 3.0f, edge ? velocityY (velocity) + 1.0f : velocityY (velocity) - 13.0f, 30.0f, 13.0f),
                         juce::Justification::centredLeft, false);
         }
 

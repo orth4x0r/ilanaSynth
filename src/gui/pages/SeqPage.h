@@ -504,7 +504,8 @@ public:
                 // (V15-15: the spare height is shared out between the rows, so the column fills
                 // its height instead of leaving a floor above and below.)
                 const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
-                const auto extra = juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount);
+                // (Review 22 #9: at most 8 px each, so STEPS/GATE/OCTAVES/CHANCE stay a compact block, centred.)
+                const auto extra = juce::jmin (8, juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount));
                 column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed + extra * rowCount));
                 menuRowHeight = menuRow + extra;
                 rowHeight += extra;

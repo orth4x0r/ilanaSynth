@@ -1278,7 +1278,56 @@ private:
         row.resize (7, nullptr);
         layoutRow (columns.knobs, row);
         if (mode <= 3)
-            layoutRow (columns.second, strip.secondFor(), true);
+            layoutSecondRow (strip, columns.second, mode);
+    }
+
+    // The wavetable's second row: each menu with its amount's dial beside the
+    // menu's box on one line (the dial alone, its value in the tooltip), then
+    // SCALE and ROOT; other engines' second rows are plain grids.
+    void layoutSecondRow (OscStrip& strip, juce::Rectangle<int> area, int mode)
+    {
+        const auto items = strip.secondFor();
+
+        for (auto* item : items)
+            if (auto* knob = dynamic_cast<KnobControl*> (item))
+            {
+                knob->setInlineKnob (false);
+                knob->setCompact (mode == 0);
+            }
+
+        if (mode != 0)
+        {
+            layoutRow (area, items, true);
+            return;
+        }
+
+        // Menu 1.0, dial 0.34 of a column (a menu with its dial is one group).
+        constexpr auto dialShare = 0.42f;
+        const auto columns = (float) (4 + 2 * dialShare);
+        const auto column = (float) area.getWidth() / columns;
+        const auto dialWidth = juce::roundToInt (column * dialShare);
+        const auto band = area.withSizeKeepingCentre (area.getWidth(), 13 + 24);
+        auto x = area.getX();
+
+        for (size_t i = 0; i < items.size(); ++i)
+        {
+            auto* item = items[i];
+            if (item == nullptr)
+                continue;
+
+            if (dynamic_cast<KnobControl*> (item) != nullptr)
+            {
+                const auto size = juce::jmin (30, dialWidth);
+                item->setBounds (juce::Rectangle<int> (size, size).withCentre ({ x + dialWidth / 2 - 3, band.getY() + 13 + 12 }));
+                x += dialWidth;
+            }
+            else
+            {
+                const auto width = juce::roundToInt (column);
+                item->setBounds (band.withX (x).withWidth (width - 10));
+                x += width;
+            }
+        }
     }
 
     void layoutStrip (int index, juce::Rectangle<int> card)
@@ -1756,7 +1805,7 @@ private:
     // picture, 4 px between the rows, and the engine, source and warp menus
     // (100 / 96 / 78 px) in the header line.
     static constexpr int twoRowHeight = 148, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54, maxFillGrowth = 80, maxSubGrowth = 70;
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54, maxFillGrowth = 80, maxSubGrowth = 0; // (SUB + NOISE keep their compact height: ilana 2026-10-15, grown they were far too tall)
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;

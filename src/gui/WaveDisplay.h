@@ -567,13 +567,99 @@ public:
             return;
         }
 
-        showSampleMenu (*this);
+        showSampleMenu (*this, sliceAt (event.position));
+    }
+
+    // The slice under the pointer in a sliced sample's picture, else -1.
+    int sliceAt (juce::Point<float> position) const
+    {
+        if (! isSampleMode() || compact || position.y < (float) headerHeight)
+            return -1;
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || ! sample->isSliced() || sample->sliceStarts.size() < 2)
+            return -1;
+        const auto at = (int) (xToSampleFraction (position.x) * (float) sample->getNumSamples());
+        for (size_t i = 0; i + 1 < sample->sliceStarts.size(); ++i)
+            if (at >= sample->sliceStarts[i] && at < sample->sliceStarts[i + 1])
+                return (int) i;
+        return (int) sample->sliceStarts.size() - 2;
+    }
+
+    // Plays one slice backwards (or forwards again): the zone map's REVERSE,
+    // from the wave itself.
+    void toggleSliceReverse (int slice)
+    {
+        auto zones = processorRef.getSampleZones (oscIndex);
+        for (auto& zone : zones)
+            if (zone.origin == slice)
+            {
+                zone.reverse = ! zone.reverse;
+                const juce::String name = zone.reverse ? "Reverse slice" : "Play slice forwards";
+                processorRef.setSampleZones (oscIndex, std::move (zones), name);
+                repaint();
+                return;
+            }
+    }
+
+    bool sliceIsReversed (int slice) const
+    {
+        for (const auto& zone : processorRef.getSampleZones (oscIndex))
+            if (zone.origin == slice)
+                return zone.reverse;
+        return false;
+    }
+
+    // Roadmap step 32: slices, each on its own key. The choices sit at the top
+    // of the sample menu (and under the card's SLICE button), not in a submenu
+    // of a submenu: by transients, by beat, at markers.
+    void addSliceItems (juce::PopupMenu& menu, int slice)
+    {
+        const auto* shown = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
+        const auto sliceable = shown != nullptr && shown->getNumSamples() > 1 && (shown->zones.empty() || shown->isSliced());
+        const auto slicing = processorRef.getSampleSlices (oscIndex);
+        juce::PopupMenu transientMenu, equalMenu, keyMenu;
+        const auto byTransients = slicing.mode == SampleSlicer::transients;
+
+        if (slice >= 0)
+        {
+            menu.addItem (reverseSliceItem, "Reverse Slice " + juce::String (slice + 1), true, sliceIsReversed (slice));
+            menu.addSeparator();
+        }
+
+        transientMenu.addItem (sliceFewerItem, "Fewer Slices", true, byTransients && slicing.sensitivity < 0.4f);
+        transientMenu.addItem (sliceMediumItem, "Medium", true, byTransients && slicing.sensitivity >= 0.4f && slicing.sensitivity < 0.7f);
+        transientMenu.addItem (sliceMoreItem, "More Slices", true, byTransients && slicing.sensitivity >= 0.7f);
+        menu.addSubMenu ("Slice by Transients", transientMenu, sliceable, nullptr, byTransients);
+        for (const auto parts : { 2, 4, 8, 16, 32, 64 })
+            equalMenu.addItem (sliceEqualItem + parts, juce::String (parts) + " Equal Parts", true,
+                               slicing.mode == SampleSlicer::equal && slicing.count == parts);
+        menu.addSubMenu ("Slice by Beat", equalMenu, sliceable, nullptr, slicing.mode == SampleSlicer::equal);
+        menu.addItem (sliceMarkersItem, "Slice at Markers (double-click the wave to add one, right-click to remove)", sliceable,
+                      slicing.mode == SampleSlicer::markers);
+        for (const auto key : { 24, 36, 48, 60 })
+            keyMenu.addItem (sliceKeyItem + key, juce::MidiMessage::getMidiNoteName (key, true, true, 3), true, slicing.baseKey == key);
+        menu.addSubMenu ("First Slice on Key", keyMenu, sliceable);
+        menu.addItem (sliceOffItem, "Remove Slices", slicing.mode != SampleSlicer::off);
+    }
+
+    // The card's SLICE button: just the slice choices.
+    void showSliceMenu (juce::Component& target)
+    {
+        juce::PopupMenu menu;
+        addSliceItems (menu, -1);
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                            [safeThis] (int result)
+                            {
+                                if (safeThis != nullptr && result >= sliceItemBase && result < sliceItemBase + 1000)
+                                    safeThis->applySliceMenu (result);
+                            });
     }
 
     // The sample menu: the factory samples, then a file (a sample, or an SF2
     // / SFZ multisample). The display's right-click and the OSC card's LOAD
     // button open it (UI review 7, I7-24).
-    void showSampleMenu (juce::Component& target)
+    void showSampleMenu (juce::Component& target, int slice = -1)
     {
         juce::PopupMenu menu;
         constexpr int loadFileItem = 10000;
@@ -612,30 +698,8 @@ public:
             menu.addSubMenu ("SoundFont Preset", presetMenu);
         }
 
-        // Roadmap step 32: slices, each on its own key.
-        {
-            const auto* shown = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
-            const auto sliceable = shown != nullptr && shown->getNumSamples() > 1 && (shown->zones.empty() || shown->isSliced());
-            const auto slicing = processorRef.getSampleSlices (oscIndex);
-            juce::PopupMenu sliceMenu, transientMenu, equalMenu, keyMenu;
-            const auto byTransients = slicing.mode == SampleSlicer::transients;
-            transientMenu.addItem (sliceFewerItem, "Fewer Slices", true, byTransients && slicing.sensitivity < 0.4f);
-            transientMenu.addItem (sliceMediumItem, "Medium", true, byTransients && slicing.sensitivity >= 0.4f && slicing.sensitivity < 0.7f);
-            transientMenu.addItem (sliceMoreItem, "More Slices", true, byTransients && slicing.sensitivity >= 0.7f);
-            sliceMenu.addSubMenu ("By Transients", transientMenu, true, nullptr, byTransients);
-            for (const auto parts : { 2, 4, 8, 16, 32, 64 })
-                equalMenu.addItem (sliceEqualItem + parts, juce::String (parts) + " Parts", true,
-                                   slicing.mode == SampleSlicer::equal && slicing.count == parts);
-            sliceMenu.addSubMenu ("Into Equal Parts", equalMenu, true, nullptr, slicing.mode == SampleSlicer::equal);
-            sliceMenu.addItem (sliceMarkersItem, "At Markers (double-click the wave to add one, right-click to remove)", true,
-                               slicing.mode == SampleSlicer::markers);
-            sliceMenu.addSeparator();
-            for (const auto key : { 24, 36, 48, 60 })
-                keyMenu.addItem (sliceKeyItem + key, juce::MidiMessage::getMidiNoteName (key, true, true, 3), true, slicing.baseKey == key);
-            sliceMenu.addSubMenu ("First Slice on Key", keyMenu);
-            sliceMenu.addItem (sliceOffItem, "Remove Slices", slicing.mode != SampleSlicer::off);
-            menu.addSubMenu ("Slice", sliceMenu, sliceable);
-        }
+        menu.addSeparator();
+        addSliceItems (menu, slice);
         menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
@@ -665,7 +729,7 @@ public:
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
-                            [safeThis, paramId, presets] (int result)
+                            [safeThis, paramId, presets, slice] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
@@ -673,6 +737,12 @@ public:
                                 if (result == loadFileItem)
                                 {
                                     safeThis->chooseSampleFile();
+                                    return;
+                                }
+
+                                if (result == reverseSliceItem)
+                                {
+                                    safeThis->toggleSliceReverse (slice);
                                     return;
                                 }
 
@@ -2880,7 +2950,8 @@ private:
     int markerDrag = 0; // step 32: 1.. the slice marker being dragged
     float markerDragFraction = 0.0f;
     static constexpr int sliceItemBase = 30000, sliceOffItem = 30001, sliceMarkersItem = 30002, sliceFewerItem = 30011,
-                         sliceMediumItem = 30012, sliceMoreItem = 30013, sliceEqualItem = 30100, sliceKeyItem = 30300;
+                         sliceMediumItem = 30012, sliceMoreItem = 30013, sliceEqualItem = 30100, sliceKeyItem = 30300,
+                         reverseSliceItem = 30900;
     juce::Colour traceColour;
     bool followsTheme = false;
     mutable juce::Rectangle<float> warningTagArea; // step 43: PARTLY LOADED in the header, for its tooltip

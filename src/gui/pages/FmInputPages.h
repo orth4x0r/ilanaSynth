@@ -2,6 +2,8 @@
 // after its includes; the contents stay in the same anonymous namespace.
 #pragma once
 
+#include <map>
+
 namespace
 {
 // FM between six oscillators: the algorithms, the operator diagram and the
@@ -192,6 +194,8 @@ public:
             if (cablesAnimated && IlanaAnim::showing (*this))
             {
                 flowPhase = std::fmod (flowPhase + 0.014f, 1.0f);
+                for (auto& entry : cableGrow)
+                    entry.second = juce::jmin (1.0f, entry.second + 0.06f); // (about 0.7 s)
                 repaint (matrixCard);
             }
         };
@@ -1221,6 +1225,7 @@ private:
     {
         juce::Colour colour;
         float amount = 0.0f, length = 0.0f;
+        int source = 0, target = 0;
         std::vector<juce::Point<float>> points;
     };
 
@@ -1248,6 +1253,8 @@ private:
             RouteCable cable;
             cable.colour = colour;
             cable.amount = amount;
+            cable.source = source;
+            cable.target = target;
             for (int k = 0; k <= 24; ++k)
             {
                 const auto t = (float) k / 24.0f, u = 1.0f - t;
@@ -1285,7 +1292,27 @@ private:
         const auto cables = routeCables (ops);
         cablesAnimated = ! cables.empty();
         if (cables.empty())
+        {
+            cableGrow.clear();
+            cableGrowKnown = false;
             return;
+        }
+
+        // A route made now draws itself from its row to its column heading
+        // (ilana 2026-10-15: "extending and connecting"); the cables already
+        // there when the page opens are drawn whole. A removed route is gone.
+        {
+            std::map<std::pair<int, int>, float> next;
+            for (const auto& cable : cables)
+            {
+                const auto id = std::make_pair (cable.source, cable.target);
+                const auto found = cableGrow.find (id);
+                next[id] = found != cableGrow.end() ? found->second : (cableGrowKnown ? 0.0f : 1.0f);
+            }
+            cableGrow = std::move (next);
+            cableGrowKnown = true;
+        }
+        const auto growOf = [this] (const RouteCable& cable) { return cableGrow[std::make_pair (cable.source, cable.target)]; };
 
         // Glass: every cell's rectangle.
         juce::Array<juce::Rectangle<int>> glass;
@@ -1304,7 +1331,7 @@ private:
         key << area.toString();
         for (const auto& cable : cables)
             key << ";" << cable.colour.toString() << ":" << juce::roundToInt (cable.amount * 100.0f) << ":"
-                << cable.points.front().toString() << cable.points.back().toString();
+                << cable.points.front().toString() << cable.points.back().toString() << (growOf (cable) >= 1.0f ? "" : "g");
         if (key != cableKey || ! cableSharp.isValid())
         {
             cableKey = key;
@@ -1313,6 +1340,8 @@ private:
             ig.addTransform (juce::AffineTransform::translation ((float) -area.getX(), (float) -area.getY()));
             for (const auto& cable : cables)
             {
+                if (growOf (cable) < 1.0f)
+                    continue; // (drawn growing, below)
                 juce::Path path;
                 path.startNewSubPath (cable.points.front());
                 for (size_t k = 1; k < cable.points.size(); ++k)
@@ -1343,12 +1372,42 @@ private:
                 }
         };
 
+        // A cable still extending: its start dot, the line so far and a bright tip.
+        const auto growing = [&] (float alpha)
+        {
+            for (const auto& cable : cables)
+            {
+                const auto grow = growOf (cable);
+                if (grow >= 1.0f)
+                    continue;
+                const auto eased = grow * grow * (3.0f - 2.0f * grow);
+                juce::Path path;
+                path.startNewSubPath (cable.points.front());
+                auto remaining = eased * cable.length;
+                auto tip = cable.points.front();
+                for (size_t k = 1; k < cable.points.size() && remaining > 0.0f; ++k)
+                {
+                    const auto segment = cable.points[k].getDistanceFrom (cable.points[k - 1]);
+                    tip = segment > 0.0f ? cable.points[k - 1] + (cable.points[k] - cable.points[k - 1]) * juce::jmin (1.0f, remaining / segment)
+                                         : cable.points[k];
+                    path.lineTo (tip);
+                    remaining -= segment;
+                }
+                g.setColour (cable.colour.withAlpha (alpha * (0.65f + 0.3f * cable.amount)));
+                g.strokePath (path, juce::PathStrokeType (0.8f + 1.3f * cable.amount, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (cable.points.front()));
+                g.setColour (cable.colour.brighter (0.8f).withAlpha (alpha));
+                g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (tip));
+            }
+        };
+
         // Outside the cells: sharp.
         {
             juce::Graphics::ScopedSaveState state (g);
             for (const auto& rect : glass)
                 g.excludeClipRegion (rect);
             g.drawImageAt (cableSharp, area.getX(), area.getY());
+            growing (1.0f);
             pulses (0.85f, 1.0f);
         }
         // Behind the glass: the blurred copy and a softer pulse.
@@ -1359,6 +1418,7 @@ private:
             clip.addRoundedRectangle (rect.toFloat(), 6.0f);
             g.reduceClipRegion (clip);
             g.drawImageAt (cableBlur, area.getX(), area.getY());
+            growing (0.35f);
             pulses (0.3f, 1.2f);
         }
     }
@@ -1367,6 +1427,9 @@ private:
     juce::String cableKey;
     float flowPhase = 0.0f;
     bool cablesAnimated = false;
+    // How far each route's cable has extended (0 to 1), by (source, target; -1 is the noise row).
+    std::map<std::pair<int, int>, float> cableGrow;
+    bool cableGrowKnown = false;
 
     // The pulses on the cables: 24 frames a second, only while the page is
     // showing and a route has an amount.

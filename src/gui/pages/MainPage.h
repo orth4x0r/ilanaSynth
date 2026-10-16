@@ -1261,7 +1261,7 @@ private:
         strip.table->getComboBox().setTooltip (strip.tableTip);
 
         // The dials grow with the card (28 px at the 160 px height, up to 38).
-        const auto dial = juce::jlimit (IlanaTheme::KnobSize::minimum, 38, columns.knobs.getHeight() - 27);
+        const auto dial = juce::jlimit (IlanaTheme::KnobSize::minimum, 38, columns.knobs.getHeight() - 31);
         for (auto& entry : strip.allKnobs)
         {
             entry.second->setInlineKnob (false);
@@ -1800,7 +1800,7 @@ private:
     // The two-row wavetable card: 160 px (three fit the column), a 150 px
     // picture, 4 px between the rows, and the engine, source and warp menus
     // (100 / 96 / 78 px) in the header line.
-    static constexpr int twoRowHeight = 148, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
+    static constexpr int twoRowHeight = 162, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
     static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxFillGrowth = 24, maxSubGrowth = 0; // (SUB + NOISE keep their compact height: ilana 2026-10-15, grown they were far too tall)
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;

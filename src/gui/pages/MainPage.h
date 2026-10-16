@@ -503,17 +503,13 @@ public:
         }
         else if (flexible > 0)
         {
+            // Cards keep their content height (ilana 2026-10-15: an open OSC card
+            // grown to fill was mostly dead space); the spare height goes to the
+            // PATCH tile and OUTPUT view below. Only a sliver too small for a
+            // PATCH tile is shared among the strips, so no bare band is left.
             const auto spare = free - wanted - slotGap;
             if (spare < patchMinHeight)
-            {
-                // Too little for a PATCH tile: the strips grow, then SUB + NOISE,
-                // so no empty band is left between the add row and the foot (P-1).
                 extra = juce::jlimit (0, maxFillGrowth, (free - wanted) / flexible);
-                if (! subNoisePinned)
-                    subExtra = juce::jlimit (0, maxSubGrowth, free - wanted - extra * flexible);
-            }
-            else if (spare < patchMinHeight + slotGap + outputMinHeight && spare > maxPatchOnlyHeight)
-                extra = juce::jlimit (0, maxGrowth, (spare - maxPatchOnlyHeight) / flexible);
             oscHeight += extra;
         }
         const auto cardHeightOf = [&] (int osc)
@@ -602,7 +598,7 @@ public:
         const auto showOutput = spare >= patchMinHeight + slotGap + outputMinHeight;
         if (showPatch)
         {
-            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : juce::jmin (spare, maxPatchOnlyHeight));
+            patchCard = column.removeFromTop (showOutput ? juce::jlimit (patchMinHeight, patchMinHeight + 30, spare / 2) : spare);
             column.removeFromTop (slotGap);
             if (showOutput)
                 outputCard = column.removeFromTop (column.getHeight());
@@ -1805,7 +1801,7 @@ private:
     // picture, 4 px between the rows, and the engine, source and warp menus
     // (100 / 96 / 78 px) in the header line.
     static constexpr int twoRowHeight = 148, oneRowHeight = 112, twoRowPicture = 150, twoRowGap = 4, twoRowPadY = 5, twoRowMenus = 100 + 6 + 96 + 6 + 78;
-    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxGrowth = 54, maxFillGrowth = 80, maxSubGrowth = 0; // (SUB + NOISE keep their compact height: ilana 2026-10-15, grown they were far too tall)
+    static constexpr int oscHeightDesign = 146, subHeightDesign = 100, addRowHeight = 28, foldedHeight = 36, maxFillGrowth = 24, maxSubGrowth = 0; // (SUB + NOISE keep their compact height: ilana 2026-10-15, grown they were far too tall)
     static constexpr int filterDisplayWidth = 170, stripPictureWidth = 190, stripMenuHeight = 26;
     static constexpr int roomyHeight = 132, headerHeight = 20, editLinkWidth = 56;
     static constexpr int titleWidth = 84, pictureWidth = 100, menuWidth = 96, switchWidth = 46, minKnobsWidth = 244;
@@ -1816,7 +1812,7 @@ private:
     juce::Rectangle<int> subCard, noiseCard, patchCard, outputCard;
     SignalFlow patchFlow { processorRef };
     OutputView outputView { processorRef };
-    static constexpr int patchMinHeight = 150, outputMinHeight = 100, maxPatchOnlyHeight = 170, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
+    static constexpr int patchMinHeight = 120, outputMinHeight = 100, // (taller tiles, V14-10: the nodes at a legible size, the output view with room for both traces)
                                    maxGrownSlotHeight = 200;
     std::unique_ptr<ToggleControl> subOn, noiseOn;
     std::unique_ptr<ComboControl> subShape;

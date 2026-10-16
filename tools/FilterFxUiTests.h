@@ -58,7 +58,7 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         auto checked = 0;
         juce::String small;
         for (auto* knob : knobs)
-            if (visibleInTree (knob) && knob->getWidth() > 0 && knob->getDialSize() >= 28)
+            if (visibleInTree (knob) && knob->getWidth() > 0 && knob->getDialSize() >= 22)
             {
                 ++checked;
                 if (knob->getDialRadius() < 0.33f * (float) knob->getDialSize())

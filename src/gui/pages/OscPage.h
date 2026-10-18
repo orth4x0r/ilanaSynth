@@ -1456,7 +1456,13 @@ public:
             const auto colour = oscColour (i);
             control->setPopupOverride ([this, i, control, id, colour]
             {
-                TableBrowser::show (processorRef, id, colour, control->getComboBox(), [this, i] { loadButton (i).triggerClick(); });
+                juce::Component::SafePointer<OscPage> safe (this);
+                TableBrowser::show (processorRef, id, colour, control->getComboBox(), [this, i] { loadButton (i).triggerClick(); },
+                                    [safe, id] (const juce::File& file)
+                                    {
+                                        if (safe != nullptr)
+                                            safe->loadTableFile (id, 0, file, Wavetable::LoadMode::Automatic);
+                                    });
             });
         }
 
@@ -3488,7 +3494,7 @@ private:
         if (slot < 0)
         {
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Load wavetable",
-                                                    "All 16 patch tables are in use. Pick a User table to replace it.");
+                                                    "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to replace it.");
             return;
         }
 
@@ -4034,7 +4040,15 @@ public:
     {
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table")))
         {
-            const auto next = juce::jlimit (0, choice->choices.size() - 1, choice->getIndex() + step);
+            // Stepping skips the empty User slots (there are hundreds).
+            const auto factoryCount = TableFactory::getNumFactoryTables();
+            auto next = choice->getIndex();
+            do
+                next += step;
+            while (next >= factoryCount && next < choice->choices.size() && ! processorRef.isUserSlotEdited (next - factoryCount));
+            next = juce::jlimit (0, choice->choices.size() - 1, next);
+            if (next >= factoryCount && ! processorRef.isUserSlotEdited (next - factoryCount))
+                next = choice->getIndex();
             if (next != choice->getIndex())
                 processorRef.performEdit ("OSC " + juce::String (index + 1) + " table", [choice, next]
                 {
@@ -4058,7 +4072,7 @@ public:
             if (slot < 0)
             {
                 juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable editor",
-                                                        "All 16 patch tables are in use. Pick a User table to edit it.");
+                                                        "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to edit it.");
                 return;
             }
             auto doc = WavetableDoc::fromFactory (choice);

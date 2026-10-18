@@ -10955,6 +10955,11 @@ int main (int argc, char** argv)
         settle (100);
         save (browser, outDir.getChildFile ("table-browser.png"));
 
+        // As the oscillator opens it: with LOAD... and LIBRARY.
+        browser.setLoaders ([] {}, [] (const juce::File&) {});
+        settle (100);
+        save (browser, outDir.getChildFile ("table-browser-library.png"));
+
         // The size it opens at over a 100% editor (see TableBrowser::show).
         browser.setSize (912, 576);
         settle (100);

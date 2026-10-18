@@ -225,6 +225,18 @@ inline juce::ValueTree toValueTree (const Patch& patch)
         child.setProperty ("depth", lfo.settings.depth, nullptr);
         child.setProperty ("bipolar", lfo.settings.bipolar, nullptr);
         child.setProperty ("phase", lfo.settings.phase, nullptr);
+        // (Newer settings are written only when set, so an older box saves as it did.)
+        if (lfo.settings.smooth > 0.0f)
+            child.setProperty ("smooth", lfo.settings.smooth, nullptr);
+        if (lfo.settings.retrig)
+            child.setProperty ("retrig", true, nullptr);
+        if (lfo.settings.drawn != FxLfo::defaultDrawn())
+        {
+            juce::StringArray points;
+            for (const auto point : lfo.settings.drawn)
+                points.add (juce::String (point, 4));
+            child.setProperty ("drawn", points.joinIntoString (" "), nullptr);
+        }
         tree.appendChild (child, nullptr);
     }
     for (const auto& cable : patch.lfoCables)
@@ -276,6 +288,14 @@ inline Patch fromValueTree (const juce::ValueTree& tree)
             lfo.settings.depth = (float) child.getProperty ("depth", 1.0f);
             lfo.settings.bipolar = (bool) child.getProperty ("bipolar", true);
             lfo.settings.phase = (float) child.getProperty ("phase", 0.0f);
+            lfo.settings.smooth = (float) child.getProperty ("smooth", 0.0f);
+            lfo.settings.retrig = (bool) child.getProperty ("retrig", false);
+            {
+                const auto points = juce::StringArray::fromTokens (child.getProperty ("drawn", "").toString(), " ", "");
+                if (points.size() == FxLfo::drawSteps)
+                    for (int i = 0; i < FxLfo::drawSteps; ++i)
+                        lfo.settings.drawn[(size_t) i] = points[i].getFloatValue();
+            }
             lfo.settings = lfo.settings.sanitised();
             if (lfo.id >= 1 && lfo.id <= FxLfo::maxLfos && patch.findLfo (lfo.id) == nullptr)
                 patch.lfos.push_back (lfo);

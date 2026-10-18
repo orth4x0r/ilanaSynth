@@ -155,6 +155,71 @@ inline void runFxLfoUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     expect (processor.getFxPatch().lfoCables.empty() && processor.getFxPatch().lfoRoutes.empty(),
             "FX LFO: REMOVE CABLE takes the cable and its knobs out");
 
+    // The LFO's own window: SMOOTH and RETRIG are in it, and Drawn / Steps are
+    // drawn on its picture (a drag sets the points).
+    {
+        const auto* lfoBox = view->getGraph().find (lfoNode);
+        if (lfoBox != nullptr)
+            view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (*lfoBox).getCentre() * view->getZoom(), false));
+        settle (300);
+        std::function<juce::Component* (juce::Component&)> window = [&] (juce::Component& parent) -> juce::Component*
+        {
+            for (auto* child : parent.getChildren())
+            {
+                if (child->isVisible() && child->getName().equalsIgnoreCase ("FX WINDOW FX LFO 1"))
+                    return child;
+                if (auto* found = window (*child))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto* lfoWindow = window (editor);
+        expect (lfoWindow != nullptr, "FX LFO: double-clicking the box opens its window");
+        if (lfoWindow != nullptr)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*lfoWindow, knobs);
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*lfoWindow, buttons);
+            const auto has = [&] (const juce::String& text)
+            {
+                for (auto* knob : knobs)
+                    if (knob->getLabelText() == text && visibleInTree (knob))
+                        return true;
+                for (auto* control : buttons)
+                    if (control->getButtonText() == text && visibleInTree (control))
+                        return true;
+                return false;
+            };
+            expect (has ("SMOOTH"), "FX LFO: the window has SMOOTH");
+            expect (has ("RETRIG") || buttons.size() > 3, "FX LFO: the window has RETRIG");
+
+            // Drawn: the shape on the picture, then a drag across it.
+            auto settings = processor.getFxPatch().lfos[0].settings;
+            settings.shape = 9;
+            processor.setFxLfoSettings (1, settings);
+            settle (300);
+            juce::Component* picture = nullptr;
+            for (auto* child : lfoWindow->getChildren())
+                if (child->getHeight() == 124 && child->isVisible())
+                    picture = child;
+            expect (picture != nullptr, "FX LFO: the window has its picture");
+            if (picture != nullptr)
+            {
+                const auto w = (float) picture->getWidth(), h = (float) picture->getHeight();
+                const auto top = juce::Point<float> (w * 0.35f, h * 0.30f);
+                picture->mouseDown (PatchCableUi::mouse (*picture, top, true));
+                for (int k = 1; k <= 6; ++k)
+                    picture->mouseDrag (PatchCableUi::mouse (*picture, top + juce::Point<float> ((float) k * 8.0f, 0.0f), true, false, top));
+                picture->mouseUp (PatchCableUi::mouse (*picture, top + juce::Point<float> (48.0f, 0.0f), false));
+                settle (200);
+                const auto drawn = processor.getFxPatch().lfos[0].settings.drawn;
+                const auto changed = std::count_if (drawn.begin(), drawn.end(), [] (float v) { return v > 0.35f; });
+                expect (drawn != FxLfo::defaultDrawn() && changed >= 4, "FX LFO: dragging across a Drawn picture sets points (" + juce::String ((int) changed) + ")");
+            }
+        }
+    }
+
     // The box selected: REMOVE takes it away.
     const auto centre = [view] { const auto* node = view->getGraph().find (lfoNode); return node != nullptr ? view->nodeBounds (*node).getCentre() * view->getZoom() : juce::Point<float>(); };
     view->mouseDown (PatchCableUi::mouse (*view, centre(), true));

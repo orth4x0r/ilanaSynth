@@ -1626,6 +1626,7 @@ private:
     std::array<std::atomic<float>, FxLfo::maxLfos> fxLfoShownValue {}, fxLfoShownPhase {};
     double fxLfoLastPpq = -1.0;
     juce::int64 fxLfoSamplesSincePpq = 0;
+    unsigned fxLfoLastNoteCount = 0; // noteOnCount at the last chunk (RETRIG)
     bool fxLfoRunning = false;
     void advanceFxLfos (const FxLfoProgram& program, int numSamples);
     void processEffectsNow (juce::AudioBuffer<float>& buffer);

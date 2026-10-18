@@ -38,8 +38,6 @@ class WaveDisplay : public juce::Component,
 {
 public:
     // The FRAME knob beside the picture says which frame: the card's picture needs no readout of its own.
-    // The wavetable card's picture as the review 23 mockup draws it: the frames as brighter ribbons, the back ones shifted right.
-    void setRibbonLook (bool shouldBeRibbons) { if (ribbonLook != shouldBeRibbons) { ribbonLook = shouldBeRibbons; repaint(); } }
     void setFrameReadout (bool shouldShow) { if (frameReadout != shouldShow) { frameReadout = shouldShow; repaint(); } }
     WaveDisplay (IlanaSynthAudioProcessor& processor,
                  juce::String tableIdIn,
@@ -252,10 +250,7 @@ public:
 
         // The OSC card's well (design round 2): a quarter grid behind the
         // picture, the picture under the full height (the slim line shows
-        // over its top only while the mouse is on it), and the WAVE view as
-        // the design draws it, the table's frames stacked flat with the one
-        // playing lit.
-        const auto flatStack = slim && shownViewMode() == 0 && ! isStaticTable (processorRef.getWavetable (tableIndex));
+        // over its top only while the mouse is on it).
         if (slim)
         {
             g.setColour (juce::Colours::white.withAlpha (0.05f));
@@ -267,11 +262,7 @@ public:
             plot.removeFromBottom (8.0f); // (the frame's number)
         }
 
-        if (flatStack)
-        {
-            drawFlatStack (g, table, frame, plot);
-        }
-        else if (shownViewMode() == 1)
+        if (shownViewMode() == 1)
         {
             drawWaterfall (g, table, frame, plot);
         }
@@ -370,40 +361,6 @@ public:
     void openTableBrowser()
     {
         TableBrowser::show (processorRef, tableId, traceColour, *this);
-    }
-
-    // The design's 2D well: up to nine of the table's frames as flat lines one
-    // under the other (front to back, top to bottom), faint, and the cycle
-    // playing now lit at its place among them (warped when a warp is on).
-    void drawFlatStack (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const
-    {
-        const auto frameCount = table->getNumFrames();
-        const auto lines = juce::jmin (ribbonLook ? 11 : 9, frameCount);
-        const auto amplitude = plot.getHeight() * (ribbonLook ? 0.19f : 0.1f);
-        const auto top = plot.getY() + (ribbonLook ? 1.0f : 1.5f) * amplitude, span = plot.getHeight() - (ribbonLook ? 2.0f : 3.0f) * amplitude;
-        const auto yFor = [&] (float position) { return top + span * position; };
-        // (Ribbons: each frame behind the front one sits further right, so the stack reads as depth.)
-        const auto skew = ribbonLook ? plot.getWidth() * 0.07f : 0.0f;
-        const auto plotFor = [&] (float position) { return plot.withTrimmedLeft (skew * (1.0f - position)); };
-
-        for (int i = 0; i < lines; ++i)
-        {
-            const auto position = lines > 1 ? (float) i / (float) (lines - 1) : 0.0f;
-            const auto index = juce::jlimit (0, frameCount - 1, juce::roundToInt (position * (float) (frameCount - 1)));
-            drawFrame (g, table, index, plotFor (position), yFor (position), amplitude,
-                       juce::Colours::white.withAlpha (ribbonLook ? 0.3f + 0.3f * position : 0.2f), 1.0f);
-        }
-
-        const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
-        const auto centre = yFor (juce::jlimit (0.0f, 1.0f, frame));
-        const auto tracePlot = plotFor (juce::jlimit (0.0f, 1.0f, frame));
-        if (hasWarp())
-        {
-            drawFrame (g, table, frameIndex, tracePlot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
-            drawWarpedFrame (g, table, frameIndex, tracePlot, centre, amplitude);
-        }
-        else
-            drawFrame (g, table, frameIndex, tracePlot, centre, amplitude, traceColour, 2.0f);
     }
 
     // Where the slim line's view chip and arrows sit, for the UI tests.
@@ -571,7 +528,9 @@ public:
 
             dragStartY = event.position.y;
             dragging = true;
-            setFrameFromX (event.position.x);
+            // (A click on a card's small picture flips 2D and 3D, so only a drag moves the frame there.)
+            if (! (compact || slim))
+                setFrameFromX (event.position.x);
             repaint();
             return;
         }
@@ -850,12 +809,19 @@ public:
         repaint();
     }
 
-    void mouseUp (const juce::MouseEvent&) override
+    void mouseUp (const juce::MouseEvent& event) override
     {
         stopPreview();
 
         if (std::exchange (pressInHeader, false))
             return;
+
+        if ((compact || slim) && dragging && isTableMode() && ! subTableMapping && ! event.mouseWasDraggedSinceMouseDown())
+        {
+            stack3d = ! stack3d;
+            updateViewButtons();
+            repaint();
+        }
 
         if (const auto marker = std::exchange (markerDrag, 0); marker > 0)
         {
@@ -1160,7 +1126,9 @@ public:
     }
 
 private:
-    bool frameReadout = true, ribbonLook = false;
+    bool frameReadout = true;
+    // A click on a table's picture flips between the classic cycle (2D) and the 3D stack of frames.
+    bool stack3d = false;
     // A table whose frames are all the same cycle (a sine operator's): 3D
     // and a frame readout say nothing about it (UI review 7, V7-31).
     bool isStaticTable (const Wavetable* table) const
@@ -1197,10 +1165,12 @@ private:
         // whose frames differ shows as the lit 3D stack, as Serum 2's and
         // Vital's strips do (UI review 17, R17-7).
         if (compact && ! slim)
-            return ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
+            return stack3d && ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
 
         if (singleCycle)
             return 0;
+        if (slim && stack3d && viewMode == 0 && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())))
+            return 1;
         if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
             && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
             return 0;
@@ -2438,14 +2408,17 @@ private:
         const auto currentFrame = juce::jlimit (0, numFrames - 1,
                                                 (int) std::round (frame * (float) (numFrames - 1)));
 
+        const auto warped = hasWarp();
+        const auto stages = readWarp();
+
         for (int f = numFrames - 1; f >= 0; --f)
         {
             const auto depth = numFrames > 1 ? (float) f / (float) (numFrames - 1) : 0.0f;
             const auto inset = plot.getWidth() * 0.08f * depth;
             // The front frame's troughs stay inside the plot (on a tall
             // plot a fixed 6 px margin let them run under the frame readout).
-            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.15f) - depth * plot.getHeight() * 0.62f;
-            const auto amplitude = plot.getHeight() * 0.15f * (1.0f - depth * 0.35f);
+            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.2f) - depth * plot.getHeight() * 0.66f;
+            const auto amplitude = plot.getHeight() * 0.19f * (1.0f - depth * 0.35f);
             const auto* data = table->getFrameData (0, f);
             const auto highlight = f == currentFrame;
 
@@ -2456,7 +2429,8 @@ private:
             for (int x = 0; x < width; x += 2)
             {
                 const auto sampleIndex = juce::jlimit (1, Wavetable::frameSize, x * step + 1);
-                const auto sample = data[sampleIndex];
+                const auto sample = warped ? warpedSampleAt (stages, data, (double) x / (double) juce::jmax (1, width - 1))
+                                           : data[sampleIndex];
                 const auto px = plot.getX() + inset + (float) x;
                 const auto py = baseline - sample * amplitude;
 
@@ -2549,6 +2523,31 @@ private:
         return stages.amount1 > 0.0f || stages.amount2 > 0.0f;
     }
 
+    // A frame's value at a cycle position with the card's warp stages on it (the picture of what the oscillator reads).
+    static float warpedSampleAt (const WarpStages& stages, const float* data, double position)
+    {
+        const auto applyStage = [] (int mode, float amount, double phase, bool& silent, float& gain)
+        {
+            if (amount <= 0.0f)
+                return phase;
+
+            if (Warp::isPhaseDistortion (mode))
+                return Warp::applyPhaseDistortion (mode, amount, phase, gain);
+
+            return Warp::apply (mode, amount, phase, silent);
+        };
+
+        auto silent = false;
+        auto gain = 1.0f, gain2 = 1.0f;
+        auto phase = juce::jlimit (0.0, 0.999999, position);
+        phase = applyStage (stages.mode1, stages.amount1, phase, silent, gain);
+        if (! silent)
+            phase = applyStage (stages.mode2, stages.amount2, phase, silent, gain2);
+
+        const auto index = (int) (phase * (double) Wavetable::frameSize);
+        return silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+    }
+
     void drawWarpedFrame (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot,
                           float centreY, float halfHeight) const
     {
@@ -2561,28 +2560,9 @@ private:
         const auto* data = table->getFrameData (0, frameIndex);
         juce::Path path;
 
-        const auto applyStage = [] (int mode, float amount, double phase, bool& silent, float& gain)
-        {
-            if (amount <= 0.0f)
-                return phase;
-
-            if (Warp::isPhaseDistortion (mode))
-                return Warp::applyPhaseDistortion (mode, amount, phase, gain);
-
-            return Warp::apply (mode, amount, phase, silent);
-        };
-
         for (int x = 0; x < width; ++x)
         {
-            auto silent = false;
-            auto gain = 1.0f, gain2 = 1.0f;
-            auto phase = juce::jlimit (0.0, 0.999999, (double) x / (double) (width - 1));
-            phase = applyStage (stages.mode1, stages.amount1, phase, silent, gain);
-            if (! silent)
-                phase = applyStage (stages.mode2, stages.amount2, phase, silent, gain2);
-
-            const auto index = (int) (phase * (double) Wavetable::frameSize);
-            const auto sample = silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+            const auto sample = warpedSampleAt (stages, data, (double) x / (double) (width - 1));
             const auto y = centreY - sample * halfHeight;
 
             if (x == 0)

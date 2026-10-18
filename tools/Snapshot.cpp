@@ -4588,7 +4588,7 @@ int runUiTests()
                     if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
                     {
                         shown = true;
-                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (0, 3)));
+                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (1, 3)));
                     }
                 if (! shown)
                     missing.add (id);

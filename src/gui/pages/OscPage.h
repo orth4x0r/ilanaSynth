@@ -2140,7 +2140,7 @@ private:
             "Another oscillator drives the string.",
             "A struck tine and its pickup.",
             "A struck reed and its pickup.",
-            "A felt strike: HAMMER sets its brightness, POSITION where it lands.",
+            "A felt strike; HAMMER sets brightness.",
             "The amp pushes sound back at the string." };
         return hints[juce::jlimit (0, 10, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
     }
@@ -3585,7 +3585,6 @@ private:
             menu->setPackedMenu (panels);
         osc.table.setPackedMenu (kind == Kind::wavetable);
         waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
-        waveDisplay (index).setRibbonLook (kind == Kind::wavetable);
 
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
         const auto string = kind == Kind::physical;
@@ -4165,11 +4164,40 @@ public:
 
     OscPage* getPage() const { return dynamic_cast<OscPage*> (getViewedComponent()); }
 
+    // The page is laid out for 1060 design units of width, and its cards pack
+    // a lot in; where the window is wider than the packing needs, the whole
+    // page is drawn this much larger (the wave column takes the rest), so the
+    // labels and dials read like the other tabs'. Where it would have to
+    // scroll, it stays at 1.
+    static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
+
     void resized() override
     {
         juce::Viewport::resized();
         if (auto* page = getPage())
         {
+            const auto width = (float) getWidth(), height = (float) getHeight();
+            const auto widest = juce::jlimit (1.0f, maximumContentScale, width / minimumVirtualWidth);
+
+            auto chosen = 1.0f;
+            for (auto scale = widest; scale > 1.005f; scale -= 0.02f)
+            {
+                page->setSize (juce::jmax (1, juce::roundToInt (width / scale)), juce::jmax (1, juce::roundToInt (height / scale)));
+                if (page->getMinimumHeight() <= juce::roundToInt (height / scale))
+                {
+                    chosen = scale;
+                    break;
+                }
+            }
+
+            page->setTransform (juce::AffineTransform::scale (chosen));
+
+            if (chosen > 1.0f)
+            {
+                page->setSize (juce::roundToInt (width / chosen), juce::roundToInt (height / chosen));
+                return;
+            }
+
             const auto needed = page->getMinimumHeight();
             const auto scrolls = needed > getHeight();
             page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)),

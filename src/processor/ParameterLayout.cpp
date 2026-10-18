@@ -1180,14 +1180,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addBool ("route_cables", "Routing Cables", false);
     {
         juce::StringArray masks;
-        for (int mask = 0; mask < 16; ++mask)
+        for (int mask = 0; mask < 32; ++mask)
             masks.add (VoiceRouting::maskNames()[mask]);
         const auto defaults = VoiceRouting::defaultPatch();
         for (int source = 0; source < VoiceRouting::numSources; ++source)
-            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks, defaults.source[(size_t) source]);
-        for (int stage = 0; stage < VoiceRouting::numStages; ++stage)
+            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks,
+                       VoiceRouting::toParamMask (defaults.source[(size_t) source]));
+        // (BODY's cable is appended at the end of the layout.)
+        for (int stage = 0; stage < VoiceRouting::body; ++stage)
             addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + stage), VoiceRouting::cableParamName (VoiceRouting::numSources + stage),
-                       masks, defaults.stage[(size_t) stage]);
+                       masks, VoiceRouting::toParamMask (defaults.stage[(size_t) stage]));
     }
 
     // FX type 42, FILTER (ilana 2026-10-11: feed an effect back into a
@@ -1320,6 +1322,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto name = "Osc" + juce::String (osc + 1);
         addChoice (prefix + "_sample_round_robin", name + " Round Robin", { "Off", "Cycle", "Random" }, 0);
         addFloat (prefix + "_sample_vel_blend", name + " Velocity Blend", 0.0f, 1.0f, 0.0f);
+    }
+
+    // The physical body as a stage of the ROUTING cables (dsp/VoiceRouting.h):
+    // where it goes. Nothing cabled into it, it is the body of every older patch.
+    {
+        juce::StringArray masks;
+        for (int mask = 0; mask < 32; ++mask)
+            masks.add (VoiceRouting::maskNames()[mask]);
+        addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + VoiceRouting::body),
+                   VoiceRouting::cableParamName (VoiceRouting::numSources + VoiceRouting::body), masks,
+                   VoiceRouting::toParamMask (VoiceRouting::defaultPatch().stage[(size_t) VoiceRouting::body]));
     }
 
     return layout;

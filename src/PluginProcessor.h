@@ -1691,7 +1691,7 @@ private:
     const VoiceRouting::Table& currentRoutingTable();
     ParamRef routeCablesRef { "route_cables" };
     std::array<ParamRef, VoiceRouting::numCableParams> cableRefs { "cable_osc1", "cable_osc2", "cable_osc3", "cable_osc4", "cable_osc5",
-                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west" };
+                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west", "cable_body" };
     VoiceRouting::Table routingTable;
     std::uint64_t routingSignature = ~(std::uint64_t) 0;
     struct FxSlotTypeListener : juce::AudioProcessorParameter::Listener

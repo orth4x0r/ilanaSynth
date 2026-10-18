@@ -15,7 +15,7 @@ VoiceRouting::Patch IlanaSynthAudioProcessor::getRoutePatch() const
     VoiceRouting::Patch patch;
     for (int index = 0; index < VoiceRouting::numCableParams; ++index)
     {
-        const auto mask = (std::uint8_t) juce::jlimit (0, 15, juce::roundToInt (getRawParam (cableRefs[(size_t) index])));
+        const auto mask = VoiceRouting::fromParamMask ((std::uint8_t) juce::jlimit (0, 31, juce::roundToInt (getRawParam (cableRefs[(size_t) index]))));
         if (index < VoiceRouting::numSources)
             patch.source[(size_t) index] = mask;
         else
@@ -53,7 +53,8 @@ void IlanaSynthAudioProcessor::setRouteCables (const VoiceRouting::Patch& patch,
     const auto clean = VoiceRouting::withoutLoops (patch);
     for (int index = 0; index < VoiceRouting::numCableParams; ++index)
         write (VoiceRouting::cableParamId (index),
-               (float) (index < VoiceRouting::numSources ? clean.source[(size_t) index] : clean.stage[(size_t) (index - VoiceRouting::numSources)]));
+               (float) VoiceRouting::toParamMask (index < VoiceRouting::numSources ? clean.source[(size_t) index]
+                                                                                   : clean.stage[(size_t) (index - VoiceRouting::numSources)]));
     write ("route_cables", on ? 1.0f : 0.0f);
 
     // A cable into WEST plays it: WEST switches on (off, it would pass the
@@ -73,10 +74,10 @@ const VoiceRouting::Table& IlanaSynthAudioProcessor::currentRoutingTable()
     if (getRawParam (routeCablesRef) < 0.5f)
         return chain;
 
-    // Ten 4-bit masks.
+    // Eleven 5-bit masks.
     std::uint64_t signature = 0;
     for (int index = 0; index < VoiceRouting::numCableParams; ++index)
-        signature = (signature << 4) | (std::uint64_t) juce::jlimit (0, 15, juce::roundToInt (getRawParam (cableRefs[(size_t) index])));
+        signature = (signature << 5) | (std::uint64_t) juce::jlimit (0, 31, juce::roundToInt (getRawParam (cableRefs[(size_t) index])));
 
     if (signature != routingSignature)
     {

@@ -68,6 +68,7 @@ inline Patch only (std::uint8_t osc1, std::uint8_t f1Out, std::uint8_t f2Out, st
     patch.stage[f1] = f1Out;
     patch.stage[f2] = f2Out;
     patch.stage[west] = westOut;
+    patch.stage[body] = toOut;
     return patch;
 }
 } // namespace OscRoutingLab
@@ -203,6 +204,56 @@ void runOscRoutingTests (bool everyPreset)
         check (peakOf (westFirst) > 0.01f && db (last) - db (first) > 10.0,
                "cables set the order: WEST after Filter 1 keeps its fold's harmonics, before it they are filtered ("
                    + juce::String (db (last) - db (first), 1) + " dB)");
+    }
+
+    // BODY, the physical body as a stage: ordered like the others, its cables
+    // saved, a loop through it cut, its output bounded and gone when unpatched.
+    {
+        Patch bodyFirst;
+        bodyFirst.source.fill (toBody);
+        bodyFirst.stage = { toOut, toOut, toOut, toF1 };
+        const auto b = compile (bodyFirst);
+        check (b.used[body] && b.used[f1] && b.numOrdered == 2 && b.order[0] == body && b.order[1] == f1,
+               "BODY -> F1 runs the body first");
+
+        Patch bodyLoop = bodyFirst;
+        bodyLoop.stage[f1] = toBody | toOut;
+        check (hasLoop (bodyLoop) && ! hasLoop (withoutLoops (bodyLoop)), "a loop through BODY is found and cut");
+
+        const auto nothing = compile (defaultPatch());
+        check (! nothing.used[body], "BODY with nothing cabled into it is not run (the old behaviour)");
+
+        IlanaSynthAudioProcessor processor;
+        processor.setRouteCables (bodyFirst, true);
+        check (processor.getRoutePatch() == withoutLoops (bodyFirst), "cable_body is saved and read back");
+        Patch inLoop = bodyFirst;
+        inLoop.stage[f1] = toBody;
+        processor.setRouteCables (inLoop, true);
+        check (! hasLoop (processor.getRoutePatch()), "a loop through BODY never reaches the parameters");
+
+        const auto bodyPatch = [] (int type)
+        {
+            return [type] (IlanaSynthAudioProcessor& p)
+            {
+                setPlain (p, "res_on", 1.0f);
+                setPlain (p, "res_amount", 1.0f);
+                setPlain (p, "body_type", (float) type);
+            };
+        };
+        for (const auto type : { 0, 1, 2, 3, 4 })
+        {
+            const auto through = renderCables (only (toBody, toOut, toOut, toOut), bodyPatch (type), 48);
+            const auto around = renderCables (only (toOut, toOut, toOut, toOut), bodyPatch (type), 48);
+            auto finite = true;
+            for (const auto v : through)
+                finite = finite && std::isfinite (v);
+            check (finite && peakOf (through) < 8.0f, "BODY type " + juce::String (type) + " cabled in stays finite and bounded (peak "
+                                                         + juce::String (peakOf (through), 2) + ")");
+            check (worstOf (through, around) > 1.0e-4f, "BODY type " + juce::String (type) + " cabled in changes the sound");
+        }
+        const auto unpatched = renderCables (only (toOut, toOut, toOut, toOut), bodyPatch (1), 48);
+        const auto bodyOff = renderCables (only (toOut, toOut, toOut, toOut), [] (IlanaSynthAudioProcessor& p) { setPlain (p, "res_on", 0.0f); }, 48);
+        check (peakOf (unpatched) > 0.01f && peakOf (bodyOff) > 0.01f, "with nothing cabled into BODY the voice still plays");
     }
 
     // Migration: every factory preset, its chain played as cables, renders as

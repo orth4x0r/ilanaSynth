@@ -2,17 +2,28 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 // Reroutable oscillators (roadmap step 16): where each oscillator goes inside
 // the voice, set by cables on the PATCH tab.
 //
 //   Patch    what the cables say: for each source (OSC 1-6, the SUB + NOISE
-//            pair) and each stage (Filter 1, Filter 2, WEST) the set of
-//            places its output goes (F1, F2, WEST, OUT), as a 4-bit mask.
-//            Saved as the appended choice parameters cable_* (one per
+//            pair) and each stage (Filter 1, Filter 2, WEST, BODY) the set of
+//            places its output goes (F1, F2, WEST, BODY, OUT), as a 5-bit
+//            mask. Saved as the appended choice parameters cable_* (one per
 //            source and stage) and switched on by route_cables. Off, as in
 //            every older patch, the voice runs its fixed chain (the _route
-//            menus, SERIAL / PARALLEL and WEST's position).
+//            menus, SERIAL / PARALLEL and WEST's position). BODY is the
+//            physical model's body (the Classic resonator or a material
+//            body): with nothing cabled into it, it is the body of every
+//            older patch, struck by the strings and ringing beside the
+//            chain; cabled in, audio runs through it and it goes where its
+//            cable says.
+//
+//            In the saved parameters the bits are F1 1, F2 2, WEST 4, OUT 8
+//            (as before BODY existed) and BODY 16; in the code BODY sits
+//            before OUT (so a stage's number is its bit). toParamMask /
+//            fromParamMask swap the two at the parameters.
 //   compile  the patch to a Table the voice indexes (docs/ROUTING-CPU.md,
 //            rules B1-B3): the stages in the order they run, which of them
 //            are used (a stage with no input or not heard is skipped), and
@@ -29,9 +40,18 @@ enum Target : std::uint8_t
     toF1 = 1,
     toF2 = 2,
     toWest = 4,
-    toOut = 8,
-    allTargets = 15
+    toBody = 8,
+    toOut = 16,
+    allTargets = 31
 };
+
+// The saved masks keep OUT at 8 and put BODY at 16 (the bits swap).
+inline constexpr std::uint8_t swapBodyAndOut (std::uint8_t mask)
+{
+    return (std::uint8_t) ((mask & 7) | ((mask & 8) != 0 ? 16 : 0) | ((mask & 16) != 0 ? 8 : 0));
+}
+inline constexpr std::uint8_t toParamMask (std::uint8_t mask) { return swapBodyAndOut (mask); }
+inline constexpr std::uint8_t fromParamMask (std::uint8_t mask) { return swapBodyAndOut (mask); }
 
 inline constexpr int numOscSources = 6;
 inline constexpr int subNoiseSource = 6; // the SUB + NOISE pair shares one route
@@ -42,8 +62,9 @@ enum Stage
     f1 = 0,
     f2 = 1,
     west = 2,
-    numStages = 3,
-    out = 3 // (a destination, not a stage)
+    body = 3,
+    numStages = 4,
+    out = 4 // (a destination, not a stage)
 };
 
 inline constexpr std::uint8_t bitOf (int destination) { return (std::uint8_t) (1u << destination); }
@@ -126,7 +147,7 @@ inline bool hasLoop (const Patch& patch)
 }
 
 // A patch with a loop between stages keeps only its forward edges (F1 before
-// F2 before WEST).
+// F2 before WEST before BODY).
 inline Patch withoutLoops (Patch patch)
 {
     patch = withoutSelfEdges (patch);
@@ -241,6 +262,7 @@ inline Patch fromChain (const std::array<int, numSources>& routes, bool parallel
     // follows is kept, so a cable into it plays at once.)
     patch.stage[f2] = afterFilters;
     patch.stage[west] = toOut;
+    patch.stage[body] = toOut; // (nothing cabled into it: the body of the fixed chain)
     return patch;
 }
 
@@ -249,13 +271,13 @@ inline Patch fromChain (const std::array<int, numSources>& routes, bool parallel
 inline Patch defaultPatch() { return fromChain ({}, false, false, 0); }
 
 // The parameters holding a patch: the sources (OSC 1-6, then SUB + NOISE),
-// then the stages (F1, F2, WEST).
+// then the stages (F1, F2, WEST, BODY).
 inline constexpr int numCableParams = numSources + numStages;
 
 inline const char* cableParamId (int index)
 {
     static const char* const ids[numCableParams] { "cable_osc1", "cable_osc2", "cable_osc3", "cable_osc4", "cable_osc5",
-                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west" };
+                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west", "cable_body" };
     return ids[index];
 }
 
@@ -263,16 +285,35 @@ inline const char* cableParamName (int index)
 {
     static const char* const names[numCableParams] { "OSC 1 Cables", "OSC 2 Cables", "OSC 3 Cables", "OSC 4 Cables",
                                                      "OSC 5 Cables", "OSC 6 Cables", "Sub + Noise Cables",
-                                                     "Filter 1 Cables", "Filter 2 Cables", "West Cables" };
+                                                     "Filter 1 Cables", "Filter 2 Cables", "West Cables", "Body Cables" };
     return names[index];
 }
 
-// Choice names for a mask (the cable_* parameters' text): "F1 + OUT".
+// Choice names for a saved mask (the cable_* parameters' text, 32 of them:
+// the first sixteen as before BODY existed): "F1 + OUT", "F2 + BODY + OUT".
 inline const char* const* maskNames()
 {
-    static const char* const names[16] { "None", "F1", "F2", "F1 + F2", "WEST", "F1 + WEST", "F2 + WEST", "F1 + F2 + WEST",
-                                         "OUT", "F1 + OUT", "F2 + OUT", "F1 + F2 + OUT", "WEST + OUT", "F1 + WEST + OUT",
-                                         "F2 + WEST + OUT", "All" };
-    return names;
+    static const auto names = []
+    {
+        static std::array<std::string, 32> text;
+        static std::array<const char*, 32> pointers {};
+        for (int mask = 0; mask < 32; ++mask)
+        {
+            std::string name;
+            const auto add = [&name] (const char* part) { name += name.empty() ? "" : " + "; name += part; };
+            if ((mask & 1) != 0) add ("F1");
+            if ((mask & 2) != 0) add ("F2");
+            if ((mask & 4) != 0) add ("WEST");
+            if ((mask & 16) != 0) add ("BODY");
+            if ((mask & 8) != 0) add ("OUT");
+            if (mask == 0) name = "None";
+            if (mask == 15) name = "All";
+            if (mask == 31) name = "All + BODY";
+            text[(size_t) mask] = name;
+            pointers[(size_t) mask] = text[(size_t) mask].c_str();
+        }
+        return pointers;
+    }();
+    return names.data();
 }
 } // namespace VoiceRouting

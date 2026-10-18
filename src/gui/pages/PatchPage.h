@@ -691,6 +691,8 @@ private:
             return FilterColours::filter (1);
         if (kind == stageKind + VoiceRouting::west)
             return FilterColours::west();
+        if (kind == stageKind + VoiceRouting::body)
+            return FilterColours::body();
         return IlanaTheme::Ui::text2; // SUB + NOISE, as SIGNAL FLOW draws it
     }
 
@@ -704,6 +706,8 @@ private:
             return "FILTER 1";
         if (kind == stageKind + VoiceRouting::f2)
             return "FILTER 2";
+        if (kind == stageKind + VoiceRouting::body)
+            return "BODY";
         return "WEST";
     }
 
@@ -755,6 +759,8 @@ private:
                 return "NOT IN USE";
             if (stage == VoiceRouting::west)
                 return read ("west_on") > 0.5f ? "FOLD + GATE" : "OFF: PASSES THROUGH";
+            if (stage == VoiceRouting::body)
+                return read ("res_on") > 0.5f ? (read ("body_type") > 0.5f ? "MATERIAL BODY" : "RESONATOR") : "OFF: PASSES THROUGH";
             return FilterTypes::displayName (juce::roundToInt (read (stage == VoiceRouting::f1 ? "f1_type" : "f2_type"))).toUpperCase();
         }
         if (! sourceOn (kind))
@@ -1897,7 +1903,7 @@ private:
     // The voice's boxes; returns where VOICES goes.
     juce::Point<float> addVoice (PatchGraph::Graph& graph, const VoiceRouting::Patch& patch, const std::vector<int>& sources)
     {
-        std::array<int, VoiceRouting::numStages> column { 1, 1, 1 };
+        std::array<int, VoiceRouting::numStages> column { 1, 1, 1, 1 };
         std::array<int, VoiceRouting::numStages> order {};
         VoiceRouting::topologicalOrder (patch, order);
         for (const auto stage : order)

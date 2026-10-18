@@ -51,6 +51,25 @@ inline void runFxCarouselUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
     };
     const auto centreOf = [carousel] (int index) { return carousel->tileBounds (index).toFloat().getCentre(); };
 
+    // The category picker: ALL then one chip per category; a click shows that category's tiles only.
+    expect (carousel->numChips() == 1 + (int) fxLibraryGroups().size() && carousel->getShownGroup() == -1, "CAROUSEL: a picker with ALL and every category");
+    {
+        const auto chip = carousel->chipBounds (2).toFloat().getCentre(); // (DRIVE)
+        carousel->mouseDown (PatchCableUi::mouse (*carousel, chip, true));
+        carousel->mouseUp (PatchCableUi::mouse (*carousel, chip, false, false, chip));
+        auto driveCount = 0;
+        for (const auto& entry : fxLibraryGroups()[1].entries)
+            driveCount += entry.twin > 0 ? 2 : 1;
+        auto allDrive = true;
+        for (int i = 0; i < carousel->numTiles(); ++i)
+            allDrive = allDrive && carousel->tileAt (i).group == 1;
+        expect (carousel->getShownGroup() == 1 && carousel->numTiles() == driveCount && allDrive, "CAROUSEL: a category chip shows only that category's effects");
+        const auto all = carousel->chipBounds (0).toFloat().getCentre();
+        carousel->mouseDown (PatchCableUi::mouse (*carousel, all, true));
+        carousel->mouseUp (PatchCableUi::mouse (*carousel, all, false, false, all));
+        expect (carousel->getShownGroup() == -1 && carousel->numTiles() == expected, "CAROUSEL: ALL brings every effect back");
+    }
+
     // A tile that is on screen is clicked: Reverb is added, wired before OUT.
     const auto reverbTile = tileOf (reverb);
     expect (reverbTile >= 0 && carousel->viewport().contains (centreOf (reverbTile).toInt()), "CAROUSEL: Reverb's tile is in view");

@@ -20,6 +20,7 @@ public:
         int type;
         juce::String name;
         bool airwindows;
+        int group; // an index into fxLibraryGroups()
     };
 
     // Click: add (type, name). Drag: add it with the pointer (in this
@@ -30,22 +31,43 @@ public:
     std::function<void (const juce::MouseEvent&)> onGrabDrag, onGrabEnd;
     std::function<bool()> isFull;
 
-    static constexpr int stripHeight = 36;
+    // The category picker (a line of small text) above the tiles.
+    static constexpr int pickerHeight = 16, stripHeight = pickerHeight + 4 + 28 + 4;
 
     FxCarousel()
     {
+        auto index = 0;
         for (const auto& group : fxLibraryGroups())
+        {
             for (const auto& entry : group.entries)
             {
-                tiles.push_back ({ entry.type, entry.name, false });
+                allTiles.push_back ({ entry.type, entry.name, false, index });
                 if (entry.twin > 0)
-                    tiles.push_back ({ entry.twin, entry.twinName, true });
+                    allTiles.push_back ({ entry.twin, entry.twinName, true, index });
             }
+            ++index;
+        }
+        showGroup (-1);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         setTooltip ("Click an effect to add it before OUT, or drag it onto the canvas, or onto a cable to drop it in.");
     }
 
+    // The tiles on show: every effect, or one category's.
     int numTiles() const { return (int) tiles.size(); }
+    // The picker: ALL, then one chip a category. -1 is ALL.
+    int numChips() const { return 1 + (int) fxLibraryGroups().size(); }
+    int getShownGroup() const { return shownGroup; }
+    juce::Rectangle<int> chipBounds (int chip) const { return chipArea (chip); }
+    void showGroup (int group)
+    {
+        shownGroup = group;
+        tiles.clear();
+        for (const auto& tile : allTiles)
+            if (group < 0 || tile.group == group)
+                tiles.push_back (tile);
+        scroll = 0.0f;
+        repaint();
+    }
     const Tile& tileAt (int index) const { return tiles[(size_t) index]; }
     juce::Rectangle<int> tileBounds (int index) const { return tileArea (index); }
     juce::Rectangle<int> viewport() const { return strip; }
@@ -60,6 +82,8 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (0, 4);
+        picker = area.removeFromTop (pickerHeight).withTrimmedLeft (arrowWidth + 4);
+        area.removeFromTop (4);
         leftArrow = area.removeFromLeft (arrowWidth);
         rightArrow = area.removeFromRight (arrowWidth);
         area.reduce (4, 0);
@@ -71,6 +95,17 @@ public:
     {
         using namespace IlanaTheme;
         const auto full = isFull != nullptr && isFull();
+        for (int chip = 0; chip < numChips(); ++chip)
+        {
+            const auto selected = chip - 1 == shownGroup;
+            const auto colour = chip == 0 ? Ui::text : fxColour (groupColourType (chip - 1));
+            const auto box = chipArea (chip).toFloat();
+            g.setFont (font (TextSize::label, selected));
+            g.setColour (selected ? colour : (chip == hoveredChip ? Ui::text2 : Ui::text3));
+            g.drawText (chipName (chip), box, juce::Justification::centred, false);
+            if (selected)
+                g.fillRect (box.getX() + 4.0f, box.getBottom() - 1.0f, box.getWidth() - 8.0f, 1.5f);
+        }
         paintArrow (g, leftArrow, true, scroll > 0.5f);
         paintArrow (g, rightArrow, false, scroll < maxScroll() - 0.5f);
 
@@ -110,13 +145,29 @@ public:
         }
     }
 
-    void mouseMove (const juce::MouseEvent& e) override { setHovered (tileIndexAt (e.getPosition())); }
-    void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        setHovered (tileIndexAt (e.getPosition()));
+        const auto chip = chipIndexAt (e.getPosition());
+        if (chip != hoveredChip)
+        {
+            hoveredChip = chip;
+            repaint();
+        }
+    }
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        setHovered (-1);
+        hoveredChip = -1;
+        repaint();
+    }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
         grabbed = false;
         pressed = -1;
+        if (const auto chip = chipIndexAt (e.getPosition()); chip >= 0)
+            return showGroup (chip - 1);
         if (leftArrow.contains (e.getPosition()))
             return page (-1);
         if (rightArrow.contains (e.getPosition()))
@@ -176,8 +227,9 @@ public:
 private:
     static constexpr int arrowWidth = 22, tileHeight = 28, gap = 6;
 
-    std::vector<Tile> tiles;
-    juce::Rectangle<int> leftArrow, rightArrow, strip;
+    std::vector<Tile> allTiles, tiles;
+    int shownGroup = -1, hoveredChip = -1;
+    juce::Rectangle<int> leftArrow, rightArrow, strip, picker;
     float scroll = 0.0f, dragScroll = 0.0f;
     int hovered = -1, pressed = -1;
     bool grabbed = false;
@@ -203,6 +255,38 @@ private:
         for (int i = 0; i < index; ++i)
             x += tileWidthOf (tiles[(size_t) i]) + gap;
         return { x, strip.getCentreY() - tileHeight / 2, tileWidthOf (tiles[(size_t) index]), tileHeight };
+    }
+
+    static juce::String chipName (int chip)
+    {
+        if (chip == 0)
+            return "ALL";
+        const juce::String title (fxLibraryGroups()[(size_t) chip - 1].title);
+        return title == "TONE & LEVEL" ? "TONE" : (title == "MORE AIRWINDOWS" ? "AIRWINDOWS" : title);
+    }
+
+    // A type of the category's family, for its chip's colour.
+    static int groupColourType (int group) { return fxLibraryGroups()[(size_t) group].entries.front().type; }
+
+    int chipWidth (int chip) const
+    {
+        return (int) std::ceil (juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), chipName (chip))) + 18;
+    }
+
+    juce::Rectangle<int> chipArea (int chip) const
+    {
+        auto x = picker.getX();
+        for (int i = 0; i < chip; ++i)
+            x += chipWidth (i);
+        return { x, picker.getY(), chipWidth (chip), picker.getHeight() };
+    }
+
+    int chipIndexAt (juce::Point<int> point) const
+    {
+        for (int chip = 0; chip < numChips(); ++chip)
+            if (chipArea (chip).contains (point))
+                return chip;
+        return -1;
     }
 
     int tileIndexAt (juce::Point<int> point) const

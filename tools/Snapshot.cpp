@@ -9603,6 +9603,10 @@ int main (int argc, char** argv)
         std::printf ("carousel bounds %s showing %d tiles %d\n", carousel->getBounds().toString().toRawUTF8(), (int) carousel->isShowing(), carousel->numTiles());
         carousel->scrollTo (carousel->getScroll() + 400.0f);
         shot ("scrolled");
+        carousel->mouseDown (PatchCableUi::mouse (*carousel, carousel->chipBounds (2).toFloat().getCentre(), true));
+        carousel->mouseUp (PatchCableUi::mouse (*carousel, carousel->chipBounds (2).toFloat().getCentre(), false));
+        shot ("category");
+        carousel->showGroup (-1);
         carousel->scrollTo (0.0f);
         const auto& graph = view->getGraph();
         std::vector<const PatchGraph::Node*> effects;

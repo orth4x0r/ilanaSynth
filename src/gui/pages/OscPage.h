@@ -2077,6 +2077,9 @@ private:
     }
 
     // The rows a card shows: a Physical card adds its EXCITER row.
+    // An operator's two rows still need the room its feedback knob's rings and the graph's labels take.
+    int twoRowRoom (int osc) const { return kindOf (osc) == Kind::fm && rowsOf (osc) == 2 ? 10 : 0; }
+
     int rowsOf (int osc) const
     {
         const auto kind = kindOf (osc);
@@ -2234,7 +2237,7 @@ private:
                 return 1 + cardHeaderHeight + 8 + sampleWaveMin + 8 + sampleGroupHeight (rows) + 8 + 1;
             }
             // (A Physical card's fourth row, EXCITER, at the same row height and gap.)
-            default: return compactCardMin + (rowsOf (osc) - 3) * (26 + rowGap);
+            default: return compactCardMin + (rowsOf (osc) - 3) * (26 + rowGap) + twoRowRoom (osc);
         }
     }
 
@@ -2249,7 +2252,7 @@ private:
 
         // (A card beside folded ones keeps its condensed height: ilana
         // 2026-10-15, the one grown into their room was far too tall.)
-        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap);
+        return compactCardMax + (rowsOf (osc) - 3) * (28 + rowGap) + twoRowRoom (osc);
     }
 
     static int sampleGroupHeight (int rows) { return 8 + rows * sampleRowHeight + (rows - 1); }
@@ -2824,7 +2827,7 @@ private:
 
         card.rows = rowsOf (index);
         card.columns = 9;
-        const auto roomy = card.bounds.getHeight() > compactCardMax + (card.rows - 3) * (28 + rowGap);
+        const auto roomy = card.bounds.getHeight() > compactCardMax + (card.rows - 3) * (28 + rowGap) + twoRowRoom (index);
         card.rowHeight = juce::jlimit (26, 28, (body.getHeight() - (card.rows - 1) * rowGap - 8) / card.rows);
         const auto rowsHeight = card.rowHeight * card.rows + rowGap * (card.rows - 1);
         const auto padTop = juce::jmax (4, (body.getHeight() - rowsHeight) / 2);

@@ -877,7 +877,7 @@ public:
     void setText (const juce::String& newText) { text = newText; repaint(); }
     const juce::String& getText() const { return text; }
     void setSolid (bool shouldBeSolid) { solid = shouldBeSolid; repaint(); }
-    int preferredWidth() const { return juce::GlyphArrangement::getStringWidthInt (chipFont().withHeight (7.0f), text) + 14; }
+    int preferredWidth() const { return juce::GlyphArrangement::getStringWidthInt (chipFont(), text) + 14; }
 
     void paint (juce::Graphics& g) override
     {
@@ -1798,7 +1798,7 @@ private:
     // (Review 23: one margin all round and one gap, as the mockup's 10 px at 1.5x; the
     // header is 23 high.)
     static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 7;
-    static constexpr int cardHeaderHeight = 23, compactCardMin = 123, compactCardMax = 135, liveCardHeight = 77;
+    static constexpr int cardHeaderHeight = 23, compactCardMin = 112, compactCardMax = 124, liveCardHeight = 77;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 175, mixW = 164, unisonW = 275;
@@ -2387,7 +2387,7 @@ private:
 
     static int packedButtonWidth (const juce::String& text)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f)).withHeight (7.0f), text) + 14;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f)), text) + 16;
     }
 
     // The filter route as the bar's five segments: AUTO F1 F2 BOTH NONE.
@@ -2515,9 +2515,10 @@ private:
             const auto envX = c.getX() + 2 * knobCell + 3;
             osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
             const auto filterY = top + cellH + 3;
-            const auto labelW = 30;
-            card.labels.push_back ({ { c.getX(), filterY, labelW, filterH }, "FILTER" });
-            pieces.routeBar.setBounds ({ c.getX() + labelW, filterY, c.getWidth() - labelW, filterH });
+            const auto labelW = 28;
+            // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
+            card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
+            pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
             pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
         }
 
@@ -2535,7 +2536,7 @@ private:
                 x += cell;
             }
             const auto spreadY = top + cellH + 4;
-            const auto labelW = 32;
+            const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
             pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
         }
@@ -3070,7 +3071,7 @@ private:
             return area;
         };
 
-        const auto legatoW = 64, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4"));
+        const auto legatoW = 72, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4")) + 4;
         placeStripRow (panelAt (0, 0, rowAY, "VOICE", accent),
                        { { voiceMode.get(), 69 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } });
         placeStripRow (panelAt (1, 1, rowAY, "STEREO", accent), { { voiceSpread.get(), knobCell }, { unisonRandom.get(), knobCell }, { drift.get(), knobCell } });

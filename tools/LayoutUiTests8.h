@@ -198,9 +198,15 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                             shown.push_back (control);
                     // (A knob's bounds reach 3 px past its row for the modulation
                     // rings; the cores must not meet.)
+                    // (A packed knob is measured by its cell, without the room round it for the rings.)
+                    const auto core = [&] (juce::Component* control)
+                    {
+                        auto* knob = static_cast<KnobControl*> (control);
+                        return knob->isPacked() ? editor.getLocalArea (knob, knob->packedCell()) : area (control).reduced (2, 6);
+                    };
                     for (size_t a = 0; a < shown.size(); ++a)
                         for (size_t b = a + 1; b < shown.size(); ++b)
-                            if (area (shown[a]).reduced (2, 6).intersects (area (shown[b]).reduced (2, 6)))
+                            if (core (shown[a]).intersects (core (shown[b])))
                                 problems.add ("mode " + juce::String (mode) + ": " + static_cast<KnobControl*> (shown[a])->getParameterId() + " on "
                                               + static_cast<KnobControl*> (shown[b])->getParameterId());
                     // PLAY: LEVEL stands in OSC 2's LEVEL column (one grid for every mode).

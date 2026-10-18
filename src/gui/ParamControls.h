@@ -1148,6 +1148,8 @@ public:
 
     bool isPacked() const { return packedD > 0.0f; }
     // The whole cell a packed knob takes for a dial (the page sizes it with this).
+    // The cell a packed knob stands in, without the room round it for the rings (a layout test's measure).
+    juce::Rectangle<int> packedCell() const { return isPacked() ? getLocalBounds().reduced (packedPadX, 0).withTrimmedTop (packedPadTop) : getLocalBounds(); }
     static juce::Rectangle<int> packedBoundsFor (juce::Rectangle<int> cell) { return cell.expanded (packedPadX, 0).withTrimmedTop (-packedPadTop); }
     // Opens the value for typing over the dial (double-click, as the text box did).
     void showValueEditor()
@@ -1423,11 +1425,14 @@ public:
         const auto on = isEnabled() ? 1.0f : 0.5f;
         auto& mutableSlider = const_cast<KnobSlider&> (slider);
         auto value = mutableSlider.getTextFromValue (mutableSlider.getValue());
-        const auto inner = knobBounds.toFloat().reduced (packedD * 0.17f);
+        const auto inner = knobBounds.toFloat().reduced (packedD * 0.1f);
         const auto valueFont = [] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? 5.0f : 5.67f, true, true); };
 
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 0.5f && value.containsChar (' '))
             value = value.upToLastOccurrenceOf (" ", false, false);
+        // (Under the floor at a small zoom even "100%" is wider than the dial: the number alone.)
+        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 2.5f && value.endsWithChar ('%'))
+            value = value.dropLastCharacters (1);
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         g.setFont (valueFont (value));
@@ -1567,7 +1572,7 @@ public:
             slider.setPaintingIsUnclipped (true);
             slider.setBounds (knobBounds);
             label.setBounds ({});
-            packedNameArea = { cell.getX() - packedPadX, knobBounds.getBottom(), cell.getWidth() + 2 * packedPadX, juce::jmax (0, cell.getBottom() - knobBounds.getBottom()) };
+            packedNameArea = { cell.getX() - packedPadX - 4, knobBounds.getBottom(), cell.getWidth() + 2 * packedPadX + 8, juce::jmax (0, cell.getBottom() - knobBounds.getBottom()) };
             layoutDots();
             return;
         }
@@ -2964,10 +2969,10 @@ public:
     // The segments' widths: each its text and a little air (or, with `equal`, the same).
     void setEqual (bool equalWidths) { equal = equalWidths; repaint(); }
 
-    static juce::Font segmentFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.07f); }
+    static juce::Font segmentFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.03f); }
     // Widths measured at a fixed size (the 10 px floor at the design zoom), so the layout
     // does not move with the zoom the page was laid out at.
-    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (segmentFont().withHeight (7.0f), text); }
+    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (segmentFont(), text); }
 
     int preferredWidth() const
     {
@@ -3078,7 +3083,7 @@ public:
     void refresh() { repaint(); }
 
     static juce::Font pillFont() { return IlanaTheme::font (6.2f, true); }
-    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (pillFont().withHeight (6.8f), text) + 9; }
+    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (pillFont(), text) + 9; }
 
     // The rectangles the pills take in a row of `width`, wrapped.
     std::vector<juce::Rectangle<int>> flow (int width) const

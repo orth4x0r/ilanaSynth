@@ -437,7 +437,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         findAll<ComboControl> (editor, combos);
         juce::String hammerName;
         for (auto* combo : combos)
-            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
+            if (combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
                 hammerName = combo->getComboBox().getText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
                     && knobFor ("osc1_couple", "COUPLE") != nullptr,
@@ -511,8 +511,9 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* view : views)
             stringShown = stringShown || (visibleInTree (view) && view->getOscillator() == "osc1");
         // (STRING and EXCITER are two rows of one grid: the hammer sits under the decay.)
-        const auto sameGrid = decay != nullptr && hammer != nullptr
-                              && decay->getParentComponent() == hammer->getParentComponent() && decay->getBottom() <= hammer->getY() + 6;
+        // (Review 23: TONE and EXCITER are two panels of one card, side by side.)
+        const auto sameGrid = decay != nullptr && hammer != nullptr && visibleInTree (decay) && visibleInTree (hammer)
+                              && decay->getParentComponent() == hammer->getParentComponent();
         expect (stringShown && sameGrid && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
                 "OSC: a Physical card shows its moving string, STRING and EXCITER on one grid, EDIT BODY > links to FILTER");
         juce::String exciteText;
@@ -990,6 +991,20 @@ int runUiTests()
             runLayoutReview9Tests (processor, *pages);
         else
             runReview9T2Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "OSC")
+    {
+        runOscTypeTests (processor, *pages);
+        runLayoutReview8Tests (processor, *pages);
+        runLayoutReview9Tests (processor, *pages);
+        runLayoutReview10Tests (processor, *pages);
+        runOscCardOverlapTests (processor, *pages);
+        runGlobalReview8Tests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -3000,8 +3015,9 @@ int runUiTests()
         set ("osc1_warp2", 1.0f);
         set ("osc1_pd_env", 1.0f);
         settle (300);
-        expect (drawnBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
-                "OSC 1 always shows its PD chain row (second stage and warp envelope)");
+        // (Review 23: the extra stages sit behind + WARP until they are in use.)
+        expect (! drawnBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
+                "OSC 1 shows its PD chain row (second stage and warp envelope) once the stages are in use");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
         // the oscillator's card).
@@ -4570,7 +4586,7 @@ int runUiTests()
                     if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
                     {
                         shown = true;
-                        boxes.push_back (editor->getLocalArea (knob->getParentComponent(), knob->getBounds().reduced (0, 3)));
+                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (0, 3)));
                     }
                 if (! shown)
                     missing.add (id);

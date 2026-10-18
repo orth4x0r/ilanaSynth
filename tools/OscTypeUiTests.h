@@ -36,7 +36,8 @@ void runOscTypeTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProces
         std::vector<ComboControl*> combos;
         findAll<ComboControl> (editor, combos);
         for (auto* combo : combos)
-            if (inCard (combo, osc) && combo->getComboBox().getTooltip().startsWith (name + "\n"))
+            // (The type menu is the header's type bar now; the combo behind it is hidden but still the menu's model.)
+            if ((id.endsWith ("_mode") || inCard (combo, osc)) && combo->getComboBox().getTooltip().startsWith (name + "\n"))
                 return combo;
         return nullptr;
     };

@@ -1548,7 +1548,12 @@ public:
     {
         const auto prefix = box.getProperties()["textPrefix"].toString();
         if (prefix.isNotEmpty() && (bool) box.getProperties().getWithDefault ("packedMenu", false))
-            return juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameText, true).withKerningFactor (0.09f), prefix) + 5;
+        {
+            const auto prefixW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameText, true).withKerningFactor (0.09f), prefix) + 5;
+            // (The value comes first: a menu with no room for both drops its name, which the tooltip keeps.)
+            const auto valueW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuText), box.getText()) + 2;
+            return valueW > box.getWidth() - 5 - prefixW - 15 ? 0 : prefixW;
+        }
         // (A menu too narrow for its name and a value drops the name: the 75 % zoom's.)
         if (prefix.isEmpty() || box.getWidth() < 118)
             return 0;

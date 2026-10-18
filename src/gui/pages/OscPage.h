@@ -2082,6 +2082,15 @@ private:
         const auto kind = kindOf (osc);
         if (kind == Kind::physical)
             return physicalRowsMerged (osc) ? 3 : 4;
+        // An operator's third row (UNISON and any shapers in use) is only there while it holds something.
+        if (kind == Kind::fm)
+        {
+            const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+            auto third = readFloat (prefix + "_unison") > 1.5f;
+            for (const auto* stage : { "_warp", "_warp2", "_spectral", "_pd_env" })
+                third = third || readChoice (prefix + stage) != 0;
+            return third ? 3 : 2;
+        }
         return numRows (kind, kind != Kind::sample || unisonShown (osc));
     }
 

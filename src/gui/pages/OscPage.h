@@ -1814,7 +1814,7 @@ private:
     // (Review 23: one margin all round and one gap, as the mockup's 10 px at 1.5x; the
     // header is 23 high.)
     static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 7;
-    static constexpr int cardHeaderHeight = 23, compactCardMin = 112, compactCardMax = 124, liveCardHeight = 77;
+    static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130, liveCardHeight = 77;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 175, mixW = 164, unisonW = 275;

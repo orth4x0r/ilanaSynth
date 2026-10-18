@@ -433,12 +433,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         setParam ("osc1_excite", 5.0f);
         editor.showPage ("OSC");
         settle (400);
-        std::vector<ComboControl*> combos;
-        findAll<ComboControl> (editor, combos);
-        juce::String hammerName;
-        for (auto* combo : combos)
-            if (combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
-                hammerName = combo->getComboBox().getText();
+        // (Review 23: the exciter is a row of pills; the menu behind them holds the choice.)
+        const auto hammerName = processor.apvts.getParameter ("osc1_excite")->getCurrentValueAsText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
                     && knobFor ("osc1_couple", "COUPLE") != nullptr,
                 "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
@@ -516,12 +512,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                               && decay->getParentComponent() == hammer->getParentComponent();
         expect (stringShown && sameGrid && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
                 "OSC: a Physical card shows its moving string, STRING and EXCITER on one grid, EDIT BODY > links to FILTER");
-        juce::String exciteText;
-        std::vector<ComboControl*> combos;
-        findAll<ComboControl> (editor, combos);
-        for (auto* combo : combos)
-            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
-                exciteText = combo->getComboBox().getText();
+        const auto exciteText = processor.apvts.getParameter ("osc1_excite")->getCurrentValueAsText();
         expect (exciteText == "Piano Hammer", "OSC: EXCITE reads Piano Hammer ('" + exciteText + "')");
         expect (editor.getPageIds().indexOf ("PHYSICAL") < 0, "the PHYSICAL tab is gone: the card holds the whole string");
     }

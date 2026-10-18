@@ -45,6 +45,7 @@
 #include "gui/ScopeDisplay.h"
 #include "gui/SequencerEditors.h"
 #include "gui/SubTabBar.h"
+#include "gui/FxCarousel.h"
 #include "gui/PatchCableView.h"
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"

@@ -160,6 +160,29 @@ public:
         repaint();
     }
 
+    // The graph point under a point of this view (view pixels).
+    juce::Point<float> graphPointAt (juce::Point<float> viewPosition) const { return viewPosition / zoom - origin; }
+
+    // Picks a box up as if it had been pressed on: the mouse events that follow
+    // (mouseDrag, mouseUp, forwarded by the owner) drag it, and it drops into a
+    // cable like any other. For the owner's row of effects to drag from.
+    bool beginNodeDrag (PatchGraph::NodeId id)
+    {
+        const auto* node = graph.find (id);
+        if (node == nullptr || node->isFixed() || (movable && ! movable (*node)))
+            return false;
+        finishGlide();
+        selectedNode = id;
+        selectedCable = -1;
+        drag = {};
+        drag.kind = DragKind::node;
+        drag.node = id;
+        drag.grabOffset = { nodeWidth * 0.5f, nodeHeight * 0.5f };
+        drag.start = { node->x, node->y };
+        repaint();
+        return true;
+    }
+
     // Zoom: the whole view drawn larger (1 = design size). Positions in the
     // hit tests and geometry below are in unzoomed view coordinates.
     void setZoom (float newZoom)

@@ -1442,7 +1442,9 @@ public:
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
         {
             g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-            g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+            // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
+            const auto nameFont = IlanaTheme::font (5.67f, true);
+            g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
         }
     }

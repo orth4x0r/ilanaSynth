@@ -82,7 +82,7 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (0, 4);
-        picker = area.removeFromTop (pickerHeight).withTrimmedLeft (arrowWidth + 4);
+        picker = area.removeFromTop (pickerHeight).withTrimmedLeft (arrowWidth + 4).translated (0, -3); // (the text sits a little high)
         area.removeFromTop (4);
         leftArrow = area.removeFromLeft (arrowWidth);
         rightArrow = area.removeFromRight (arrowWidth);

@@ -1826,7 +1826,7 @@ private:
     static constexpr int pitchW = 175, mixW = 164, unisonW = 275;
     static constexpr int mainDial = 25, ampDial = 20, frameDial = 40, nameLine = 8, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 27, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 18, stripDial = 22, stripPanelH = 52, stripBaseHeight = 2 * stripPanelH + panelGap, stripRowsExtra = 2 * (stripPanelH + panelGap);
+    static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2282,11 +2282,15 @@ private:
 
     bool canAdd() const { return numShown() < OscillatorIds::count; }
 
-    int stripHeight() const { return stripBaseHeight + (stripOpen ? stripRowsExtra : 0); }
+    // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
+    int stripPanelHeight() const { return stripPanelBase + stripBonus; }
+    int stripDialSize() const { return stripDialBase + stripBonus; }
+    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (stripOpen ? 2 * (panel + panelGap) : 0); }
+    int stripHeight() const { return stripHeightFor (stripBonus); }
 
     int contentHeight (const std::vector<int>& heights) const
     {
-        auto total = topMargin + stripHeight() + bottomMargin;
+        auto total = topMargin + stripHeightFor (0) + bottomMargin;
         for (const auto height : heights)
             total += height + gap;
         if (canAdd())
@@ -2323,6 +2327,18 @@ private:
             else if (! compacts.empty())
                 for (const auto i : compacts)
                     heights[i] = juce::jmin (maximumCardHeight (shown[i]), heights[i] + slack / (int) compacts.size());
+        }
+
+        // What the cards left over goes to the strip's panels: bigger dials where the window has room.
+        {
+            auto used = contentHeight (heights);
+            const auto rows = stripOpen ? 4 : 2;
+            const auto bonus = juce::jlimit (0, stripMaxBonus, (getHeight() - used) / rows);
+            if (bonus != stripBonus)
+            {
+                stripBonus = bonus;
+                applyStripStyle();
+            }
         }
 
         const auto width = getWidth() - sideMargin * 2;
@@ -3071,12 +3087,12 @@ private:
             used += entry.width;
         const auto each = (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size());
         auto x = (float) c.getX() + each * 0.5f;
-        const auto cellH = stripDial + nameLine;
+        const auto cellH = stripDialSize() + nameLine;
         for (const auto& entry : entries)
         {
             const auto left = juce::roundToInt (x);
             if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
-                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDial);
+                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDialSize());
             else if (auto* toggle = dynamic_cast<ToggleControl*> (entry.item))
                 toggle->setBounds ({ left, c.getY() + (c.getHeight() - 15) / 2 - 1, entry.width, 15 });
             else
@@ -3098,10 +3114,10 @@ private:
         const auto cols = columnsFor (stripArea.getX(), stripArea.getWidth());
         const auto accent = IlanaTheme::accent();
         const auto grey = stripGrey();
-        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelH + panelGap;
+        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + panelGap;
         const auto panelAt = [&] (int from, int to, int y, const juce::String& title, juce::Colour colour)
         {
-            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelH);
+            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight());
             stripPanels.push_back ({ area, title, {}, colour });
             return area;
         };
@@ -3128,10 +3144,10 @@ private:
         // Under MORE: the strings' manual tuning, then the keys' extras.
         if (stripOpen)
         {
-            const auto tuning = panelAt (0, 3, rowBY + stripPanelH + panelGap, "STRING TUNING", grey);
+            const auto tuning = panelAt (0, 3, rowBY + stripPanelHeight() + panelGap, "STRING TUNING", grey);
             placeStripRow (tuning, { { &symManual, 66 }, { symNotes[0].get(), knobCell }, { symNotes[1].get(), knobCell }, { symNotes[2].get(), knobCell },
                                      { symNotes[3].get(), knobCell }, { symNotes[4].get(), knobCell }, { symNotes[5].get(), knobCell } });
-            const auto keys = panelAt (0, 3, rowBY + 2 * (stripPanelH + panelGap), "KEYS", accent);
+            const auto keys = panelAt (0, 3, rowBY + 2 * (stripPanelHeight() + panelGap), "KEYS", accent);
             placeStripRow (keys, { { &stretch, knobCell }, { &pedalRes, knobCell }, { &mechKey, knobCell }, { &mechDamper, knobCell }, { &mechPedal, knobCell } });
         }
     }
@@ -3144,9 +3160,9 @@ private:
         for (auto* knob : { voiceCount.get(), bendRange.get(), glideTime.get(), voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(),
                             noiseColourStrip.get(), subOscLevel.get(), &symAmount, &symCount, &symDecay, &sbSize, &sbTone, &sbMix,
                             &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            knob->setPackedDial ((float) stripDial);
+            knob->setPackedDial ((float) stripDialSize());
         for (auto& note : symNotes)
-            note->setPackedDial ((float) stripDial);
+            note->setPackedDial ((float) stripDialSize());
         for (auto* menu : { voiceMode.get(), &subShape, &subOctave, &sbModel })
             menu->setPackedMenu (true);
         glideLegato->setPackedName (ToggleControl::NamePlace::left);
@@ -4108,6 +4124,7 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> scrubberAttachments;
     int lastRevealVersion = -1;
     int selected = 0;
+    int stripBonus = 0;
     bool stripOpen = false;
     float laidOutScale = 0.0f;
 

@@ -1122,6 +1122,82 @@ public:
 
     bool isInlineKnob() const { return inlineLayout; }
 
+    // Packed (the OSC cards' panels, review 23): a dial of `dial` units with its
+    // value written inside it and its name under it, in a cell `dial` wide plus
+    // the room the knob needs round it (packedPadX each side, packedPadTop above,
+    // for the modulation rings). 0 turns it off. Text is painted here through
+    // font(), so it holds the 10 px screen floor at every zoom; the name Label
+    // and the slider's text box stay empty and hidden.
+    static constexpr int packedPadX = 3, packedPadTop = 6;
+
+    void setPackedDial (float dial)
+    {
+        if (juce::approximatelyEqual (packedD, dial))
+            return;
+
+        packedD = dial;
+        if (packedD > 0.0f)
+            slider.getProperties().set ("packedDial", packedD);
+        else
+            slider.getProperties().remove ("packedDial");
+        slider.setTextBoxStyle (packedD > 0.0f ? juce::Slider::NoTextBox : (inlineLayout ? juce::Slider::TextBoxRight : juce::Slider::TextBoxBelow), false, 60, 14);
+        label.setVisible (packedD <= 0.0f);
+        resized();
+        repaint();
+    }
+
+    bool isPacked() const { return packedD > 0.0f; }
+    // The whole cell a packed knob takes for a dial (the page sizes it with this).
+    static juce::Rectangle<int> packedBoundsFor (juce::Rectangle<int> cell) { return cell.expanded (packedPadX, 0).withTrimmedTop (-packedPadTop); }
+    // Opens the value for typing over the dial (double-click, as the text box did).
+    void showValueEditor()
+    {
+        if (! isPacked() || valueEditor != nullptr || ! isEnabled())
+            return;
+
+        valueEditor = std::make_unique<juce::TextEditor>();
+        auto& editor = *valueEditor;
+        editor.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true, true));
+        editor.setJustification (juce::Justification::centred);
+        editor.setBorder ({ 0, 2, 0, 2 });
+        editor.setIndents (0, 0);
+        editor.setColour (juce::TextEditor::backgroundColourId, IlanaTheme::Ui::bg);
+        editor.setColour (juce::TextEditor::textColourId, IlanaTheme::Ui::text);
+        editor.setColour (juce::TextEditor::outlineColourId, knobAccent);
+        editor.setColour (juce::TextEditor::focusedOutlineColourId, knobAccent);
+        editor.setText (slider.getTextFromValue (slider.getValue()), false);
+        const auto width = juce::jmax (knobBounds.getWidth() + 10, 54);
+        editor.setBounds (juce::Rectangle<int> (width, 16).withCentre (knobBounds.getCentre()));
+        editor.onReturnKey = [this]
+        {
+            if (valueEditor != nullptr)
+                slider.setValue (slider.getValueFromText (valueEditor->getText()), juce::sendNotificationSync);
+            closeValueEditor();
+        };
+        editor.onEscapeKey = [this] { closeValueEditor(); };
+        editor.onFocusLost = [this] { closeValueEditor(); };
+        addAndMakeVisible (editor);
+        editor.grabKeyboardFocus();
+        editor.selectAll();
+    }
+
+    void closeValueEditor()
+    {
+        if (valueEditor == nullptr)
+            return;
+        auto old = std::move (valueEditor);
+        removeChildComponent (old.get());
+        // (Deleted after the callback that closed it returns.)
+        juce::MessageManager::callAsync ([keep = std::make_shared<std::unique_ptr<juce::TextEditor>> (std::move (old))] { keep->reset(); });
+        repaint();
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        if (isPacked() && ! event.mods.isCtrlDown() && ! event.mods.isCommandDown() && knobBounds.expanded (4).contains (event.getEventRelativeTo (this).getPosition()))
+            showValueEditor();
+    }
+
     // A row mixing modulatable and fixed knobs: the fixed ones draw the same
     // smaller dial a ring-bearing inline knob does (S1-10, the VOICE strip).
     void setCapDialLikeRings (bool cap)
@@ -1339,6 +1415,33 @@ public:
     // knob's value (both sides for a source that swings both ways), shows
     // what it adds right now as a brighter stretch with a white dot, and
     // ends in a handle at full depth. Drag a ring to set its depth.
+    // The packed knob's value in its dial and name under it (the mockup's 8.5 px
+    // and 7.5 px at 1.5x, held to the 10 px floor by font()). A value too wide
+    // for the dial loses its unit ("-12 st" reads "-12"); the name says what it is.
+    void paintPackedText (juce::Graphics& g) const
+    {
+        const auto on = isEnabled() ? 1.0f : 0.5f;
+        auto& mutableSlider = const_cast<KnobSlider&> (slider);
+        auto value = mutableSlider.getTextFromValue (mutableSlider.getValue());
+        const auto inner = knobBounds.toFloat().reduced (packedD * 0.17f);
+        const auto valueFont = [] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? 5.0f : 5.67f, true, true); };
+
+        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 0.5f && value.containsChar (' '))
+            value = value.upToLastOccurrenceOf (" ", false, false);
+
+        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
+        g.setFont (valueFont (value));
+        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
+
+        const auto name = label.getText();
+        if (name.isNotEmpty() && ! packedNameArea.isEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
+            g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+            IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
+        }
+    }
+
     void paintRings (juce::Graphics& g, int highlighted)
     {
         const auto count = numRings();
@@ -1436,6 +1539,12 @@ public:
 
     void paintOverChildren (juce::Graphics& g) override
     {
+        if (packedD > 0.0f)
+        {
+            paintPackedText (g);
+            return;
+        }
+
         if (! inlineText || inlineValueArea.isEmpty())
             return;
 
@@ -1447,6 +1556,22 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (packedD > 0.0f)
+        {
+            // The cell inside the room for the rings: the dial at its top, the name under it.
+            const auto cell = area.reduced (packedPadX, 0).withTrimmedTop (packedPadTop);
+            const auto dial = juce::roundToInt (packedD);
+            slider.getProperties().remove ("dialRadiusCap");
+            knobBounds = juce::Rectangle<int> (dial, dial).withPosition (cell.getCentreX() - dial / 2, cell.getY());
+            slider.setPaintingIsUnclipped (true);
+            slider.setBounds (knobBounds);
+            label.setBounds ({});
+            packedNameArea = { cell.getX() - packedPadX, knobBounds.getBottom(), cell.getWidth() + 2 * packedPadX, juce::jmax (0, cell.getBottom() - knobBounds.getBottom()) };
+            layoutDots();
+            return;
+        }
+
         // (Only an inline knob caps its dial: set below; a knob switched
         // back to stacked must not keep a small dial.)
         slider.getProperties().remove ("dialRadiusCap");
@@ -1659,12 +1784,16 @@ private:
     // (above its value box), less its 4 px inset, radius 14-30.
     juce::Rectangle<float> dialBounds() const
     {
+        if (packedD > 0.0f)
+            return knobBounds.toFloat();
         auto& s = const_cast<KnobSlider&> (slider);
         return s.getLookAndFeel().getSliderLayout (s).sliderBounds.toFloat().translated ((float) slider.getX(), (float) slider.getY()).reduced (4.0f);
     }
     juce::Point<float> dialCentre() const { return dialBounds().getCentre(); }
     float dialRadius() const
     {
+        if (packedD > 0.0f)
+            return packedD * 0.5f;
         const auto area = dialBounds();
         return juce::jmin ((float) slider.getProperties().getWithDefault ("dialRadiusCap", 30.0f),
                            juce::jlimit (14.0f, 30.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f));
@@ -1902,6 +2031,8 @@ private:
 
     float knobRadiusFor (juce::Rectangle<int>) const
     {
+        if (packedD > 0.0f)
+            return packedD * 0.5f;
         // Deliberately not reduced like the knob itself: the mod ring sits
         // just outside the value arc.
         const auto area = rotaryArea();
@@ -1914,6 +2045,9 @@ private:
     juce::Rectangle<float> rotaryArea() const
     {
         auto area = knobBounds.toFloat();
+
+        if (packedD > 0.0f)
+            return area;
 
         if (! compact && ! inlineLayout)
             area.setHeight (juce::jmax (8.0f, area.getHeight() - 16.0f));
@@ -2510,6 +2644,9 @@ private:
     juce::Colour pulseColour;
     bool hover = false;
     bool compact = false, inlineText = false;
+    float packedD = 0.0f;
+    juce::Rectangle<int> packedNameArea;
+    std::unique_ptr<juce::TextEditor> valueEditor;
     juce::Rectangle<int> inlineValueArea;
     bool inlineLayout = false;
     bool capDialLikeRings = false;
@@ -2593,8 +2730,29 @@ public:
     void setLabelText (const juce::String& text)
     {
         if (label.getText() != text)
+        {
             label.setText (text, juce::dontSendNotification);
+            if (packedMenu)
+                combo.getProperties().set ("textPrefix", text);
+        }
     }
+
+    // Packed (the OSC cards' panels, review 23): one box, its name inside before
+    // the value; the box and its text are the look-and-feel's ("packedMenu").
+    void setPackedMenu (bool packed)
+    {
+        if (packedMenu == packed)
+            return;
+
+        packedMenu = packed;
+        combo.getProperties().set ("packedMenu", packed);
+        combo.getProperties().set ("textPrefix", packed ? label.getText() : juce::String());
+        label.setVisible (! packed);
+        resized();
+        combo.resized();
+        combo.repaint();
+    }
+    bool isPackedMenu() const { return packedMenu; }
 
     // A menu 18 px high under a 9 px name (the OSC cards and the voice strip).
     void setCompactLayout (bool shouldBeCompact)
@@ -2611,6 +2769,13 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (packedMenu)
+        {
+            label.setBounds ({});
+            combo.setBounds (area);
+            return;
+        }
 
         if (compactLayout && label.getText().isNotEmpty())
         {
@@ -2774,7 +2939,231 @@ private:
     float hover = 0.0f;
     juce::Colour currentTint;
     bool compactLayout = false;
+    bool packedMenu = false;
     juce::String parameterId;
+};
+
+// A row of choices as one segmented box (the OSC header's type, a filter route;
+// review 23): the chosen segment filled in the family colour. The page says what
+// is chosen and what a click does; nothing here owns a parameter.
+class SegmentBar : public juce::Component,
+                   public juce::SettableTooltipClient
+{
+public:
+    std::function<int()> getChosen;
+    std::function<void (int)> onChoose;
+
+    void setItems (juce::StringArray names, std::vector<juce::String> tips = {})
+    {
+        items = std::move (names);
+        itemTips = std::move (tips);
+        repaint();
+    }
+    void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
+    const juce::StringArray& getItems() const { return items; }
+    // The segments' widths: each its text and a little air (or, with `equal`, the same).
+    void setEqual (bool equalWidths) { equal = equalWidths; repaint(); }
+
+    static juce::Font segmentFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.07f); }
+    // Widths measured at a fixed size (the 10 px floor at the design zoom), so the layout
+    // does not move with the zoom the page was laid out at.
+    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (segmentFont().withHeight (7.0f), text); }
+
+    int preferredWidth() const
+    {
+        auto width = 6;
+        for (const auto& name : items)
+            width += measure (name) + 14;
+        return width;
+    }
+
+    void refresh() { repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (bounds, 5.0f);
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+
+        const auto chosen = getChosen != nullptr ? getChosen() : -1;
+        const auto on = isEnabled() ? 1.0f : 0.5f;
+        for (int i = 0; i < items.size(); ++i)
+        {
+            const auto cell = segmentRect (i);
+            if (i == chosen)
+            {
+                g.setColour (colour.withMultipliedAlpha (on));
+                g.fillRoundedRectangle (cell, 3.5f);
+            }
+            else if (i == hovered)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.06f));
+                g.fillRoundedRectangle (cell, 3.5f);
+            }
+            g.setColour ((i == chosen ? juce::Colour (0xff14110a) : IlanaTheme::Ui::text3).withMultipliedAlpha (on));
+            g.setFont (segmentFont());
+            IlanaTheme::drawFitted (g, items[i], cell.toNearestInt(), juce::Justification::centred, 1);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override { setHovered (segmentAt (event.position)); }
+    void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! isEnabled())
+            return;
+        if (const auto index = segmentAt (event.position); index >= 0 && onChoose != nullptr)
+            onChoose (index);
+        repaint();
+    }
+
+    juce::Rectangle<float> segmentRect (int index) const
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.5f);
+        if (items.isEmpty())
+            return {};
+        auto total = 0.0f;
+        std::vector<float> widths;
+        for (const auto& name : items)
+        {
+            widths.push_back (equal ? 1.0f : (float) measure (name) + 14.0f);
+            total += widths.back();
+        }
+        auto x = area.getX();
+        for (int i = 0; i < index; ++i)
+            x += area.getWidth() * widths[(size_t) i] / total;
+        return { x, area.getY(), area.getWidth() * widths[(size_t) index] / total, area.getHeight() };
+    }
+
+    int segmentAt (juce::Point<float> position) const
+    {
+        for (int i = 0; i < items.size(); ++i)
+            if (segmentRect (i).expanded (1.0f, 3.0f).contains (position))
+                return i;
+        return -1;
+    }
+
+private:
+    void setHovered (int index)
+    {
+        if (index == hovered)
+            return;
+        hovered = index;
+        setTooltip (juce::isPositiveAndBelow (index, (int) itemTips.size()) ? itemTips[(size_t) index] : juce::String());
+        repaint();
+    }
+
+    juce::StringArray items;
+    std::vector<juce::String> itemTips;
+    juce::Colour colour = IlanaTheme::accent();
+    bool equal = false;
+    int hovered = -1;
+};
+
+// A wrapping row of small pills, one chosen (the Physical card's exciters; review 23):
+// the chosen pill filled in the family colour, the rest a quiet field.
+class PillWrap : public juce::Component,
+                 public juce::SettableTooltipClient
+{
+public:
+    std::function<int()> getChosen;
+    std::function<void (int)> onChoose;
+
+    static constexpr int pillH = 13, hGap = 3, vGap = 3;
+
+    void setItems (juce::StringArray names) { items = std::move (names); repaint(); }
+    void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
+    void refresh() { repaint(); }
+
+    static juce::Font pillFont() { return IlanaTheme::font (6.2f, true); }
+    static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (pillFont().withHeight (6.8f), text) + 9; }
+
+    // The rectangles the pills take in a row of `width`, wrapped.
+    std::vector<juce::Rectangle<int>> flow (int width) const
+    {
+        std::vector<juce::Rectangle<int>> rects;
+        auto x = 0, y = 0;
+        for (const auto& name : items)
+        {
+            const auto w = juce::jmin (width, measure (name));
+            if (x > 0 && x + w > width)
+            {
+                x = 0;
+                y += pillH + vGap;
+            }
+            rects.push_back ({ x, y, w, pillH });
+            x += w + hGap;
+        }
+        return rects;
+    }
+
+    int heightFor (int width) const
+    {
+        const auto rects = flow (width);
+        return rects.empty() ? 0 : rects.back().getBottom();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto chosen = getChosen != nullptr ? getChosen() : -1;
+        const auto rects = flow (getWidth());
+        const auto on = isEnabled() ? 1.0f : 0.5f;
+        for (size_t i = 0; i < rects.size(); ++i)
+        {
+            const auto r = rects[i].toFloat().reduced (0.5f);
+            const auto isChosen = (int) i == chosen;
+            if (isChosen)
+            {
+                g.setColour (colour.withMultipliedAlpha (on));
+                g.fillRoundedRectangle (r, 4.0f);
+            }
+            else
+            {
+                g.setColour ((juce::Component::isMouseOver() && (int) i == hovered ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised).withMultipliedAlpha (on));
+                g.fillRoundedRectangle (r, 4.0f);
+                g.setColour (IlanaTheme::Ui::line);
+                g.drawRoundedRectangle (r, 4.0f, 1.0f);
+            }
+            g.setColour ((isChosen ? juce::Colour (0xff14110a) : IlanaTheme::Ui::text3).withMultipliedAlpha (on));
+            g.setFont (pillFont());
+            IlanaTheme::drawFitted (g, items[(int) i], rects[i], juce::Justification::centred, 1);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override { setHovered (pillAt (event.getPosition())); }
+    void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (const auto index = pillAt (event.getPosition()); isEnabled() && index >= 0 && onChoose != nullptr)
+        {
+            onChoose (index);
+            repaint();
+        }
+    }
+
+private:
+    int pillAt (juce::Point<int> point) const
+    {
+        const auto rects = flow (getWidth());
+        for (size_t i = 0; i < rects.size(); ++i)
+            if (rects[i].expanded (1, 1).contains (point))
+                return (int) i;
+        return -1;
+    }
+    void setHovered (int index)
+    {
+        if (index != hovered)
+        {
+            hovered = index;
+            repaint();
+        }
+    }
+
+    juce::StringArray items;
+    juce::Colour colour = IlanaTheme::accent();
+    int hovered = -1;
 };
 
 class ToggleControl : public juce::Component,
@@ -2840,6 +3229,19 @@ public:
         repaint();
     }
 
+    // The packed panels' switch (review 23): a 28 x 15 switch with its name under it, to its
+    // left (small, dim) or to its right (plain text).
+    enum class NamePlace { none, below, left, right };
+    void setPackedName (NamePlace place)
+    {
+        if (packedPlace == place)
+            return;
+        packedPlace = place;
+        resized();
+        repaint();
+    }
+    NamePlace getPackedName() const { return packedPlace; }
+
     // Just the pill, filling the area (a card header's power switch).
     void setBareSwitch (bool shouldBeBare)
     {
@@ -2884,6 +3286,31 @@ public:
         if (groupStyle)
             return; // (the switch draws its own dot and name: IlanaLookAndFeel)
 
+        if (packedPlace != NamePlace::none && isSwitch())
+        {
+            const auto on = isEnabled() ? 1.0f : 0.5f;
+            const auto b = button.getBounds();
+            if (packedPlace == NamePlace::below)
+            {
+                g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
+                g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
+            }
+            else if (packedPlace == NamePlace::left)
+            {
+                g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
+                g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, juce::Justification::centredRight, 1);
+            }
+            else
+            {
+                g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
+                g.setFont (IlanaTheme::font (7.3f));
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { b.getRight() + 5, b.getY(), juce::jmax (0, getWidth() - b.getRight() - 5), b.getHeight() }, juce::Justification::centredLeft, 1);
+            }
+            return;
+        }
+
         if (inlineLabel && isSwitch())
         {
             g.setColour (IlanaTheme::Ui::text3);
@@ -2923,6 +3350,15 @@ public:
             return;
         }
 
+        if (packedPlace != NamePlace::none)
+        {
+            const auto w = 28, h = 15;
+            button.setBounds (packedPlace == NamePlace::below ? juce::Rectangle<int> (w, h).withPosition (area.getCentreX() - w / 2, area.getY())
+                              : packedPlace == NamePlace::left ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
+                                                               : juce::Rectangle<int> (w, h).withPosition (area.getX(), area.getCentreY() - h / 2));
+            return;
+        }
+
         if (inlineLabel)
         {
             // (The switch centres on the dial column of the knobs beside it, its name on their names' line.)
@@ -2949,6 +3385,7 @@ public:
 private:
     int switchDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
+    NamePlace packedPlace = NamePlace::none;
     juce::Colour groupColour;
     juce::String groupText;
     static constexpr int inlineSwitchWidth = 34;

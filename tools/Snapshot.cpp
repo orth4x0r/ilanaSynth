@@ -626,6 +626,15 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                 if (! visibleInTree (button) || button->getWidth() <= 0 || button->getButtonText().trim().isEmpty()
                     || button->getProperties().contains ("switch"))
                     continue;
+                // (The OSC cards' packed header buttons keep the 10 px screen floor instead: review 23.)
+                if (button->getProperties().contains ("packedButton"))
+                {
+                    const auto device = button->getLookAndFeel().getTextButtonFont (*button, button->getHeight()).getHeight() * IlanaTheme::uiScaleRef();
+                    ++checked;
+                    if (device < IlanaTheme::TextSize::screenFloorPx - 0.6f)
+                        small.add (page + ": [" + button->getButtonText() + "] packed " + juce::String (device, 1) + " px");
+                    continue;
+                }
                 const auto height = button->getProperties().contains ("pill")
                                         ? juce::Font (IlanaTheme::pillFont()).getHeight()
                                         : button->getLookAndFeel().getTextButtonFont (*button, button->getHeight()).getHeight();
@@ -8495,6 +8504,12 @@ int main (int argc, char** argv)
         const auto byName = processor.getFactoryPresetNames().indexOf (preset);
         processor.loadFactoryPreset (byName >= 0 ? byName : preset.getIntValue());
     }
+
+    // ILANA_SNAPSHOT_SET="osc1_mode=1,osc1_excite=9": parameters set (in their own units) after the preset loads.
+    for (const auto& assignment : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SET", ""), ",", ""))
+        if (const auto id = assignment.upToFirstOccurrenceOf ("=", false, false).trim(); id.isNotEmpty())
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (assignment.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
 
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))

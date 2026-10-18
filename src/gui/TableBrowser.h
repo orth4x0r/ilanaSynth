@@ -82,6 +82,35 @@ public:
         };
         addChildComponent (loadButton);
 
+        // LIBRARY: every table of Documents/ilanaSynth Wavetables in folders
+        // (packs, families), one pick loads it into a free User slot.
+        libraryButton.setButtonText ("LIBRARY");
+        libraryButton.setTooltip ("Your wavetable library (Documents/ilanaSynth Wavetables), in folders: pick one to load it into a free User slot");
+        libraryButton.onClick = [this]
+        {
+            auto pick = onLibraryPick;
+            const auto anchorArea = anchor;
+            if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
+                callOut->dismiss();
+            if (pick == nullptr)
+                return;
+            juce::MessageManager::callAsync ([pick, anchorArea]
+            {
+                auto files = std::make_shared<std::vector<juce::File>>();
+                juce::PopupMenu menu;
+                buildLibraryMenu (WavetableDoc::getLibraryFolder(), menu, *files);
+                if (files->empty())
+                    menu.addItem (-1, "The library is empty: run tools/import_surge_wavetables.py or save tables from the editor", false);
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (anchorArea),
+                                    [pick, files] (int result)
+                {
+                    if (result >= libraryItemBase && (size_t) (result - libraryItemBase) < files->size())
+                        pick ((*files)[(size_t) (result - libraryItemBase)]);
+                });
+            });
+        };
+        addChildComponent (libraryButton);
+
         content.owner = this;
         viewport.setViewedComponent (&content, false);
         viewport.setScrollBarsShown (true, false);
@@ -91,13 +120,24 @@ public:
         setSize (740, 520);
     }
 
+    // The LOAD... and LIBRARY buttons show when their callbacks are given.
+    void setLoaders (std::function<void()> onLoadIn, std::function<void (const juce::File&)> onLibraryPickIn)
+    {
+        onLoad = std::move (onLoadIn);
+        onLibraryPick = std::move (onLibraryPickIn);
+        loadButton.setVisible (onLoad != nullptr);
+        libraryButton.setVisible (onLibraryPick != nullptr);
+        resized();
+    }
+
     // Opens the browser in a call-out next to the given component.
     static void show (IlanaSynthAudioProcessor& processor, const juce::String& parameterId, juce::Colour colour,
-                      juce::Component& target, std::function<void()> onLoadIn = {})
+                      juce::Component& target, std::function<void()> onLoadIn = {},
+                      std::function<void (const juce::File&)> onLibraryPickIn = {})
     {
         auto browser = std::make_unique<TableBrowser> (processor, parameterId, colour);
-        browser->onLoad = std::move (onLoadIn);
-        browser->loadButton.setVisible (browser->onLoad != nullptr);
+        browser->setLoaders (std::move (onLoadIn), std::move (onLibraryPickIn));
+        browser->anchor = target.getScreenBounds();
         auto* parent = target.getTopLevelComponent();
         // The call-out is not guaranteed to sit in the editor's tree, so the
         // browser takes the editor's look itself (HEAR and the scroll bar
@@ -126,6 +166,11 @@ public:
         if (loadButton.isVisible())
         {
             loadButton.setBounds (searchRow.removeFromRight (80));
+            searchRow.removeFromRight (6);
+        }
+        if (libraryButton.isVisible())
+        {
+            libraryButton.setBounds (searchRow.removeFromRight (80));
             searchRow.removeFromRight (6);
         }
         search.setBounds (searchRow);
@@ -302,8 +347,10 @@ private:
             }
             else if (category == "User")
             {
+                // Only the slots holding a table (or playing on an oscillator):
+                // the other 200+ are empty names.
                 for (int slot = 0; slot < IlanaSynthAudioProcessor::numUserSlots; ++slot)
-                    if (matches ("User " + juce::String (slot + 1), category))
+                    if ((processorRef.isUserSlotEdited (slot) || slot < 4) && matches ("User " + juce::String (slot + 1), category))
                         group.push_back ({ names.size() + slot, "User " + juce::String (slot + 1), {} });
             }
             else
@@ -603,8 +650,36 @@ private:
     std::vector<Heading> headings;
     int hovered = -1, hoveredStar = -1, previewed = -1, originalChoice = 0;
     bool audition = false, hasOriginal = false;
-    juce::TextButton hearButton, loadButton;
+    // The library as nested menus, folders first; every file gets the next id
+    // from libraryItemBase, in the order of files.
+    static constexpr int libraryItemBase = 1000;
+
+    static void buildLibraryMenu (const juce::File& folder, juce::PopupMenu& menu, std::vector<juce::File>& files)
+    {
+        juce::Array<juce::File> folders (folder.findChildFiles (juce::File::findDirectories, false));
+        folders.sort();
+        for (const auto& sub : folders)
+        {
+            juce::PopupMenu inner;
+            const auto before = files.size();
+            buildLibraryMenu (sub, inner, files);
+            if (files.size() > before)
+                menu.addSubMenu (sub.getFileName(), inner);
+        }
+
+        juce::Array<juce::File> tables (folder.findChildFiles (juce::File::findFiles, false, "*.wav"));
+        tables.sort();
+        for (const auto& file : tables)
+        {
+            menu.addItem (libraryItemBase + (int) files.size(), file.getFileNameWithoutExtension());
+            files.push_back (file);
+        }
+    }
+
+    juce::TextButton hearButton, loadButton, libraryButton;
     std::function<void()> onLoad;
+    std::function<void (const juce::File&)> onLibraryPick;
+    juce::Rectangle<int> anchor;
     std::vector<Chip> chips;
     juce::Rectangle<int> chipRow;
     float scale = 1.0f;

@@ -6,7 +6,7 @@
 #include "../dsp/WavetableDoc.h"
 #include "IlanaLookAndFeel.h"
 
-// M7.4: the wavetable editor. It edits one of the patch's 16 tables: a frame
+// M7.4: the wavetable editor. It edits one of the patch's tables: a frame
 // list (add, duplicate, delete, reorder), three ways to shape the selected
 // frame (DRAW with the mouse, SPECTRUM bars for each harmonic's level and
 // phase, a FORMULA), generators (shapes, morphs between frames) and import,

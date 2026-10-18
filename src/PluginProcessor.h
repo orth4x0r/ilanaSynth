@@ -62,7 +62,7 @@ class IlanaSynthAudioProcessor : public juce::AudioProcessor,
 
 public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
-    static constexpr int numUserSlots = 16;
+    static constexpr int numUserSlots = 256; // patch tables; the editor lists only the ones in use
     static constexpr int numFxSlots = 10;
     // Tests: keep the effects running through silence (no rack sleep).
     inline static bool disableFxSleep = false;

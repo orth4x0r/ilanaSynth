@@ -9336,6 +9336,26 @@ int main (int argc, char** argv)
         view->mouseDoubleClick (PatchCableUi::mouse (*view, nodeCentre (*view, lfoNode), false));
         shot ("windows");
 
+        // The LFO window with a drawn shape (a ramp up, a drop, a bump), SMOOTH
+        // and RETRIG; then the same points as Steps.
+        {
+            auto drawn = slow;
+            drawn.shape = 9;
+            drawn.smooth = 0.06f;
+            drawn.retrig = true;
+            for (int i = 0; i < FxLfo::drawSteps; ++i)
+            {
+                const auto t = (float) i / (float) FxLfo::drawSteps;
+                drawn.drawn[(size_t) i] = t < 0.5f ? -1.0f + 3.2f * t : t < 0.6f ? -0.4f - 6.0f * (t - 0.5f) : 0.6f * std::sin ((t - 0.6f) * 15.7f);
+            }
+            processor.setFxLfoSettings (first, drawn);
+            shot ("drawn-window");
+            drawn.shape = 10;
+            drawn.smooth = 0.0f;
+            processor.setFxLfoSettings (first, drawn);
+            shot ("steps-window");
+        }
+
         // A knob's right-click menu in Delay 2's window: assigned (TIME, its
         // amount submenu beside it) and not yet (DAMPING).
         auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();

@@ -70,6 +70,11 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
     const auto ppqNow = ppq + (double) fxLfoSamplesSincePpq / sampleRate * bpm / 60.0;
     fxLfoSamplesSincePpq += numSamples;
 
+    // RETRIG: notes since the last chunk.
+    const auto notes = noteOnCount.load (std::memory_order_relaxed);
+    const auto newNote = notes != fxLfoLastNoteCount;
+    fxLfoLastNoteCount = notes;
+
     std::array<float, FxLfo::maxLfos> outputs {};
     for (int l = 0; l < FxLfo::maxLfos; ++l)
     {
@@ -77,10 +82,6 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
             continue;
         const auto& settings = program.settings[(size_t) l];
         auto& state = fxLfoStates[(size_t) l];
-        const auto shapeValue = state.shapeValue (FxLfo::shapeOf (settings.shape));
-        outputs[(size_t) l] = FxLfo::output (settings, shapeValue);
-        fxLfoShownValue[(size_t) l].store (shapeValue, std::memory_order_relaxed);
-        fxLfoShownPhase[(size_t) l].store ((float) std::fmod (state.phase + settings.phase, 1.0), std::memory_order_relaxed);
 
         double cyclesPerSample = settings.rateHz / sampleRate;
         double synced = -1.0;
@@ -94,6 +95,16 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
                 synced = atEnd - std::floor (atEnd);
             }
         }
+
+        // (The bar decides a synced LFO while the transport plays.)
+        if (settings.retrig && newNote && synced < 0.0)
+            state.retrigger (settings);
+
+        const auto shapeValue = state.smooth (settings, state.shapeValue (settings), cyclesPerSample, numSamples, sampleRate);
+        outputs[(size_t) l] = FxLfo::output (settings, shapeValue);
+        fxLfoShownValue[(size_t) l].store (shapeValue, std::memory_order_relaxed);
+        fxLfoShownPhase[(size_t) l].store ((float) std::fmod (state.phase + settings.phase, 1.0), std::memory_order_relaxed);
+
         state.advance (settings, cyclesPerSample, numSamples, synced);
     }
 
@@ -125,6 +136,7 @@ void IlanaSynthAudioProcessor::resetFxLfos()
         fxLfoStates[(size_t) l].reset (l + 1);
     fxLfoLastPpq = -1.0;
     fxLfoSamplesSincePpq = 0;
+    fxLfoLastNoteCount = noteOnCount.load (std::memory_order_relaxed);
 }
 
 float IlanaSynthAudioProcessor::getFxLfoValue (int id) const

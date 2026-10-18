@@ -36,16 +36,45 @@ inline constexpr int chunk = 128;
 inline constexpr float minRateHz = 0.02f;
 inline constexpr float maxRateHz = 20.0f;
 
-// The shapes offered, by their index in the synth's LFO shape list (the ones
-// that need no table of their own: Draw, Steps and Curve are a patch's LFO
-// tables, the physics shapes need note kicks).
-inline constexpr std::array<int, 9> shapes { LfoShapes::Sine, LfoShapes::Triangle, LfoShapes::SawUp, LfoShapes::SawDown,
-                                             LfoShapes::Square, LfoShapes::SampleHold, LfoShapes::SmoothRandom,
-                                             LfoShapes::Drunk, LfoShapes::Chaos };
+// The shapes offered, by their index in the synth's LFO shape list. The
+// physics shapes need note kicks and Curve needs the synth's curve editor, so
+// they are not here. Drawn and Steps read the box's own drawn table
+// (Settings::drawn); they come after the older shapes, so a saved choice
+// keeps its meaning.
+inline constexpr std::array<int, 11> shapes { LfoShapes::Sine, LfoShapes::Triangle, LfoShapes::SawUp, LfoShapes::SawDown,
+                                              LfoShapes::Square, LfoShapes::SampleHold, LfoShapes::SmoothRandom,
+                                              LfoShapes::Drunk, LfoShapes::Chaos, LfoShapes::Draw, LfoShapes::Steps };
 
 inline juce::StringArray shapeNames()
 {
-    return { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Sample & Hold", "Smooth Random", "Drunk", "Chaos" };
+    return { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Sample & Hold", "Smooth Random", "Drunk", "Chaos", "Drawn", "Steps" };
+}
+
+inline bool isDrawnShape (int shape) { return shape == LfoShapes::Draw || shape == LfoShapes::Steps; }
+
+// The drawn table: this many points over one cycle, -1..1 (drawn on the box's
+// picture). Drawn joins them with straight lines, Steps holds each.
+inline constexpr int drawSteps = 32;
+using DrawnTable = std::array<float, (size_t) drawSteps>;
+
+inline DrawnTable defaultDrawn()
+{
+    DrawnTable table {};
+    for (int i = 0; i < drawSteps; ++i)
+        table[(size_t) i] = (float) std::sin (juce::MathConstants<double>::twoPi * (double) i / (double) drawSteps);
+    return table;
+}
+
+inline float drawnValue (const DrawnTable& table, double phase, bool stepped)
+{
+    const auto wrapped = phase - std::floor (phase);
+    const auto position = wrapped * (double) drawSteps;
+    const auto index = juce::jlimit (0, drawSteps - 1, (int) position);
+    if (stepped)
+        return table[(size_t) index];
+    const auto next = (index + 1) % drawSteps;
+    const auto fraction = (float) (position - (double) index);
+    return table[(size_t) index] + fraction * (table[(size_t) next] - table[(size_t) index]);
 }
 
 inline int shapeOf (int choice) { return shapes[(size_t) juce::jlimit (0, (int) shapes.size() - 1, choice)]; }
@@ -75,11 +104,14 @@ struct Settings
     float depth = 1.0f;      // 0..1, scales every cable from it
     bool bipolar = true;     // -1..1 around the knob; off: 0..1, up from it
     float phase = 0.0f;      // 0..1, where the cycle starts (with SYNC, against the bar)
+    float smooth = 0.0f;     // 0..1, glide on the output as a fraction of a cycle (as the synth's LFO SMOOTH)
+    bool retrig = false;     // every note restarts the cycle (not with SYNC while the transport plays: the bar decides)
+    DrawnTable drawn = defaultDrawn(); // Drawn and Steps
 
     bool operator== (const Settings& o) const
     {
         return shape == o.shape && sync == o.sync && rateHz == o.rateHz && division == o.division && depth == o.depth
-               && bipolar == o.bipolar && phase == o.phase;
+               && bipolar == o.bipolar && phase == o.phase && smooth == o.smooth && retrig == o.retrig && drawn == o.drawn;
     }
     bool operator!= (const Settings& o) const { return ! (*this == o); }
 
@@ -93,6 +125,9 @@ struct Settings
         s.division = juce::jlimit (0, numDivisions - 1, division);
         s.depth = juce::jlimit (0.0f, 1.0f, finite (depth, 1.0f));
         s.phase = juce::jlimit (0.0f, 1.0f, finite (phase, 0.0f));
+        s.smooth = juce::jlimit (0.0f, 1.0f, finite (smooth, 0.0f));
+        for (auto& point : s.drawn)
+            point = juce::jlimit (-1.0f, 1.0f, finite (point, 0.0f));
         return s;
     }
 };
@@ -113,6 +148,8 @@ struct State
     LfoChaos chaos;
     float hold = 0.0f;       // Sample & Hold's value for this cycle
     int lastShape = -1;
+    float smoothed = 0.0f;   // SMOOTH's glide, on the shape's value
+    bool smoothPrimed = false;
     juce::Random random;
 
     void reset (int number)
@@ -122,6 +159,14 @@ struct State
         hold = random.nextFloat() * 2.0f - 1.0f;
         phase = 0.0;
         lastShape = -1;
+        smoothPrimed = false;
+    }
+
+    // RETRIG: a note starts the cycle again (a random shape picks a new value).
+    void retrigger (const Settings& settings)
+    {
+        phase = 0.0;
+        onCycle (shapeOf (settings.shape));
     }
 
     // A new cycle began: the random shapes pick their next value.
@@ -133,17 +178,43 @@ struct State
             chaos.onCycle (shape, random);
     }
 
-    // The shape's value now, -1..1.
-    float shapeValue (int shape) const
+    // The shape's value now, -1..1, PHASE applied (the cycle starts that far in).
+    float shapeValue (const Settings& settings) const
     {
+        const auto shape = shapeOf (settings.shape);
+        const auto at = phase + (double) settings.phase;
         float v = 0.0f;
         if (shape == LfoShapes::SampleHold)
             v = hold;
         else if (LfoShapes::isStateful (shape))
-            v = chaos.value (shape, phase);
+            v = chaos.value (shape, phase); // (the random shapes glide between a cycle's own values: PHASE does not shift them)
+        else if (isDrawnShape (shape))
+            v = drawnValue (settings.drawn, at, shape == LfoShapes::Steps);
         else
-            v = lfoShapeValue (shape, phase);
+            v = lfoShapeValue (shape, at);
         return std::isfinite (v) ? juce::jlimit (-1.0f, 1.0f, v) : 0.0f;
+    }
+
+    // SMOOTH: the shape's value, glided toward over `numSamples` (the synth's
+    // LFO SMOOTH: the glide is a fraction of a cycle, so a faster LFO glides
+    // faster and the picture keeps its form). Off (0) passes it through.
+    float smooth (const Settings& settings, float value, double cyclesPerSample, int numSamples, double sampleRate)
+    {
+        if (settings.smooth <= 0.0f)
+        {
+            smoothPrimed = false;
+            return value;
+        }
+        if (! smoothPrimed)
+        {
+            smoothed = value;
+            smoothPrimed = true;
+        }
+        const auto perSample = (double) LfoSmoother::coefficientFor (settings.smooth, cyclesPerSample * sampleRate, sampleRate);
+        const auto perBlock = 1.0 - std::pow (1.0 - perSample, (double) numSamples);
+        smoothed += (value - smoothed) * (float) perBlock;
+        smoothed = std::isfinite (smoothed) ? juce::jlimit (-1.0f, 1.0f, smoothed) : 0.0f;
+        return smoothed;
     }
 
     // Moves on by `samples`. `cyclesPerSample` from the rate (free) or the

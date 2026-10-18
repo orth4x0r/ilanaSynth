@@ -110,6 +110,10 @@ constexpr float driveRange = 9.0f;       // drive multiplier
 constexpr float envAmountRange = 5.0f;   // octaves
 constexpr float timeOctaves = 5.0f;      // envelope times scale by 2^(mod * 5)
 constexpr float lfoRateOctaves = 4.0f;
+
+// How much of the cabled audio a material body takes in besides its own
+// excitation, so audio patched into BODY rings the body.
+constexpr float bodyAudioShare = 0.3f;
 } // namespace
 
 Voice::Voice()
@@ -484,7 +488,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     // new strike on a still-lit cell starts from where it is).
     westStrikeRemaining = params.west.on ? juce::jmax (1, (int) (WestCoastTuning::get().strikeSeconds * sampleRate)) : 0;
     bodyStrikePending = true;
-    bodyTailSamplesRemaining = params.resonatorOn && params.bodyType != 0
+    bodyTailSamplesRemaining = legacyMaterialBody()
                                    ? (int) (sampleRate * juce::jmin (10.0,
                                        1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)))
                                    : 0;
@@ -741,7 +745,7 @@ void Voice::releaseEnvelopes()
 {
     oneShotHold = false;
     {
-        if (params.resonatorOn && params.bodyType != 0)
+        if (legacyMaterialBody())
             bodyTailSamplesRemaining = (int) (sampleRate * juce::jmin (10.0,
                 1.5 * (0.08 + 7.92 * (double) params.resonatorDecay * (double) params.resonatorDecay)));
         if (dx7Playing)
@@ -1624,7 +1628,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // else rings it): render the body alone. Not with per-oscillator
     // envelopes or the Operator EG (their sources may still drive it) or a
     // live input ringing it.
-    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0
+    if (legacyMaterialBody() && bodyTailSamplesRemaining > 0
         && ! alternateAmpRouting && ! operatorEgOwnsVoice() && ! envelopesActive()
         && (params.liveInput == nullptr || params.inputToBody == 0.0f))
     {
@@ -1653,6 +1657,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // or with the ROUTING cables on the bus of its cables (one per distinct
     // set of destinations, VoiceRouting.h).
     const auto& routing = params.routing;
+    const auto bodyInChain = bodyIsInChain();
     const auto numBuses = routing.on ? routing.numBuses : (int) FilterRoute::Count;
     int routes[VoiceParams::numOscillators] {};
     bool active[VoiceParams::numOscillators] {};
@@ -1955,7 +1960,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 else
                     processFilterPairBlock (filter2L, filter2R, filter2Linked, inL, inR, stageL, stageR, n);
             }
-            else
+            else if (stage == VoiceRouting::west)
             {
                 for (int s = 0; s < n; ++s)
                 {
@@ -1965,9 +1970,45 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         westProcess (stageL[s], stageR[s], chunkWest[s]);
                 }
             }
+            else
+            {
+                // BODY: the Classic resonator rings on what comes in; a material
+                // body is struck as ever and also rung by it (a share of the
+                // audio), then mixed with the dry as BODY AMOUNT says. Off, it
+                // passes the signal on.
+                for (int s = 0; s < n; ++s)
+                {
+                    auto l = nodeL[stage][s];
+                    auto r = nodeR[stage][s];
+                    if (params.resonatorOn && resonatorAmount > 0.001f)
+                    {
+                        if (params.bodyType == 0)
+                        {
+                            const auto excite = chunkLive[s] * params.inputToBody;
+                            l = resonatorL.process (l, excite);
+                            r = resonatorR.process (r, excite);
+                        }
+                        else
+                        {
+                            const auto exciteEnvelope = alternateAmpRouting ? 1.0f : chunkAmp[s];
+                            const auto wetL = materialBodyL.process (chunkBodyL[s] * exciteEnvelope + l * bodyAudioShare);
+                            const auto wetR = materialBodyR.process (chunkBodyR[s] * exciteEnvelope + r * bodyAudioShare);
+                            if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
+                                for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+                                    if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
+                                        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                                            stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (wetL + wetR));
+                            l = l * (1.0f - resonatorAmount) + wetL * resonatorAmount;
+                            r = r * (1.0f - resonatorAmount) + wetR * resonatorAmount;
+                        }
+                    }
+                    stageL[s] = l;
+                    stageR[s] = r;
+                }
+            }
 
             const auto destinations = routing.stageOut[(size_t) stage];
-            const auto paired = stage == VoiceRouting::west ? 0 : routing.filterPairInto;
+            const auto paired = stage == VoiceRouting::f1 || stage == VoiceRouting::f2 ? routing.filterPairInto : 0;
             for (int node = 0; node < numNodes; ++node)
             {
                 if ((destinations & VoiceRouting::bitOf (node)) == 0)
@@ -2121,7 +2162,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             }
 
             float bodyWetL = 0.0f, bodyWetR = 0.0f;
-            if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
+            if (bodyInChain)
+            {
+                // (The BODY stage ran above, among the cables.)
+            }
+            else if (params.resonatorOn && resonatorAmount > 0.001f && params.bodyType == 0)
             {
                 // M7.5: the live input rings the Classic body too.
                 const auto excite = chunkLive[s] * params.inputToBody;
@@ -2153,7 +2198,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 ampGain *= ampGainFade;
             }
 
-            if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f)
+            if (params.resonatorOn && params.bodyType != 0 && resonatorAmount > 0.001f && ! bodyInChain)
             {
                 const auto wetGain = resonatorAmount * ampVelScale
                                      * juce::jlimit (0.0f, 2.0f, 1.0f + ampLevelMod) * ampGainFade;
@@ -2903,7 +2948,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // Watch a released note for silence (not one the modal body, the
     // Operator EG or a live input can still sound through).
     watchReleaseSilence = ! disableReleaseSilence && ! noteHeld && ! monoPending && ! dx7Playing && params.liveInput == nullptr
-                          && ! (params.resonatorOn && params.bodyType != 0);
+                          && ! legacyMaterialBody();
     if (! watchReleaseSilence)
         releaseSilentSamples = 0;
 
@@ -3505,7 +3550,7 @@ bool Voice::hasActiveAmpEnvelope() const
     // tail is over, and the voice ends with the envelopes. A body that never
     // rang (BODY AMOUNT at 0) holds no voice at all.
     constexpr auto bodySilence = 3.0e-6f;
-    if (params.resonatorOn && params.bodyType != 0 && bodyTailSamplesRemaining > 0
+    if (legacyMaterialBody() && bodyTailSamplesRemaining > 0
         && (materialBodyL.level() > bodySilence || materialBodyR.level() > bodySilence))
         return true;
     return envelopesActive();
@@ -3707,6 +3752,19 @@ double Voice::advanceGlideAndDrift (float driftMod)
     }
 
     return currentFrequency * driftFactor;
+}
+
+// The physical body as a stage among the routing cables (VoiceRouting::body).
+bool Voice::bodyIsInChain() const
+{
+    return params.routing.on && params.routing.used[(size_t) VoiceRouting::body];
+}
+
+// A material body outside the chain: struck by the strings, ringing beside
+// the filters and after the amp, as in every older patch.
+bool Voice::legacyMaterialBody() const
+{
+    return params.resonatorOn && params.bodyType != 0 && ! bodyIsInChain();
 }
 
 void Voice::tuneBody (double driftedFrequency)

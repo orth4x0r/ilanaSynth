@@ -1067,7 +1067,7 @@ inline const HelpRow helpRows[] {
     { is ("route_cables"), "ROUTING cables (FILTER tab): each oscillator goes where its cables go (Filter 1, Filter 2, WEST, "
       "straight out, or several at once), and the cables between the filters and WEST set their order. "
       "Off: the fixed chain (each oscillator's route, SERIAL / PARALLEL, WEST's position)." },
-    { starts ("cable_"), "Where this oscillator, filter or WEST sends its signal, as the PATCH tab draws it. "
+    { starts ("cable_"), "Where this oscillator, filter, WEST or the physical BODY sends its signal, as the PATCH tab draws it. "
       "Heard only while the ROUTING cables are on." },
     { ends ("_bypass"), "Bypasses this rack slot without losing its settings." },
     { ends ("_solo"), "Solo (wet only): hear just this slot's output." },

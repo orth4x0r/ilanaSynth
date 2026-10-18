@@ -644,6 +644,10 @@ private:
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues);
     double advanceGlideAndDrift (float driftMod);
     void tuneBody (double driftedFrequency);
+    /** True when the voice cable graph routes audio through the physical body. */
+    bool bodyIsInChain() const;
+    /** True when a material body runs in the legacy way: excited by the physical bus, not cabled. */
+    bool legacyMaterialBody() const;
     void renderBodyTail (float* left, float* right, int startSample, int numSamples, float wetGain);
     bool envelopesActive() const;
     double oscFrequencyFactor (const VoiceParams::OscParams& settings) const;

@@ -38,6 +38,9 @@ class WaveDisplay : public juce::Component,
 {
 public:
     // The FRAME knob beside the picture says which frame: the card's picture needs no readout of its own.
+    // The 2D / 3D flip a click makes (the snapshot tool and the UI tests set it directly).
+    void setStack3d (bool shouldBe3d) { if (stack3d != shouldBe3d) { stack3d = shouldBe3d; updateViewButtons(); repaint(); } }
+    bool isStack3d() const { return stack3d; }
     void setFrameReadout (bool shouldShow) { if (frameReadout != shouldShow) { frameReadout = shouldShow; repaint(); } }
     WaveDisplay (IlanaSynthAudioProcessor& processor,
                  juce::String tableIdIn,

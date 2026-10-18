@@ -165,7 +165,9 @@ public:
         const auto place = [this] (juce::Component& button, juce::Rectangle<int> at)
         {
             button.setTransform (juce::AffineTransform::scale (scale));
-            button.setBounds (at.getX(), at.getY(), juce::roundToInt ((float) at.getWidth() / scale), juce::roundToInt ((float) at.getHeight() / scale));
+            // (The transform scales the position too, so the bounds are given in the scaled units.)
+            button.setBounds (juce::roundToInt ((float) at.getX() / scale), juce::roundToInt ((float) at.getY() / scale),
+                              juce::roundToInt ((float) at.getWidth() / scale), juce::roundToInt ((float) at.getHeight() / scale));
         };
 
         auto area = getLocalBounds();

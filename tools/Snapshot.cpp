@@ -9687,8 +9687,9 @@ int main (int argc, char** argv)
         auto patch = processor.getChainAsCables();
         patch.source[0] = toF1 | toOut;
         patch.source[1] = toWest;
-        patch.source[2] = toF2;
+        patch.source[2] = toBody;
         patch.source[subNoiseSource] = toOut;
+        patch.stage[body] = toF2;
         patch.stage[west] = toF1;
         patch.stage[f1] = toF2;
         patch.stage[f2] = toOut;

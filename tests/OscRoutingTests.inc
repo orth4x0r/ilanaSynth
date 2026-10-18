@@ -249,7 +249,9 @@ void runOscRoutingTests (bool everyPreset)
                 finite = finite && std::isfinite (v);
             check (finite && peakOf (through) < 8.0f, "BODY type " + juce::String (type) + " cabled in stays finite and bounded (peak "
                                                          + juce::String (peakOf (through), 2) + ")");
-            check (worstOf (through, around) > 1.0e-4f, "BODY type " + juce::String (type) + " cabled in changes the sound");
+            // (The Classic body rings the whole mix after the amp when it is not cabled, so only a material body differs.)
+            if (type != 0)
+                check (worstOf (through, around) > 1.0e-4f, "BODY type " + juce::String (type) + " cabled in changes the sound");
         }
         const auto unpatched = renderCables (only (toOut, toOut, toOut, toOut), bodyPatch (1), 48);
         const auto bodyOff = renderCables (only (toOut, toOut, toOut, toOut), [] (IlanaSynthAudioProcessor& p) { setPlain (p, "res_on", 0.0f); }, 48);
@@ -279,6 +281,7 @@ void runOscRoutingTests (bool everyPreset)
                     const auto parallel = read ("filters_parallel") > 0.5f;
                     corner = read ("west_on") > 0.5f && juce::roundToInt (read ("west_pos")) == 1 && read ("f2_drive") > 1.0f;
                     corner = corner || (parallel && read ("f1_drive") > 1.0f);
+                    corner = corner || read ("route_cables") > 0.5f; // (already cabled: its own cables are not the chain)
                     for (int osc = 0; osc < OscillatorIds::count; ++osc)
                         corner = corner || juce::roundToInt (read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_route")) == 4;
                     corner = corner || juce::roundToInt (read ("subosc_route")) == 4;

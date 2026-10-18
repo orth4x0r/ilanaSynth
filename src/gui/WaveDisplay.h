@@ -37,6 +37,10 @@ class WaveDisplay : public juce::Component,
                     private IlanaAnim::FrameTimer
 {
 public:
+    // The FRAME knob beside the picture says which frame: the card's picture needs no readout of its own.
+    // The wavetable card's picture as the review 23 mockup draws it: the frames as brighter ribbons, the back ones shifted right.
+    void setRibbonLook (bool shouldBeRibbons) { if (ribbonLook != shouldBeRibbons) { ribbonLook = shouldBeRibbons; repaint(); } }
+    void setFrameReadout (bool shouldShow) { if (frameReadout != shouldShow) { frameReadout = shouldShow; repaint(); } }
     WaveDisplay (IlanaSynthAudioProcessor& processor,
                  juce::String tableIdIn,
                  juce::String frameIdIn,
@@ -374,27 +378,32 @@ public:
     void drawFlatStack (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const
     {
         const auto frameCount = table->getNumFrames();
-        const auto lines = juce::jmin (9, frameCount);
-        const auto amplitude = plot.getHeight() * 0.1f;
-        const auto top = plot.getY() + 1.5f * amplitude, span = plot.getHeight() - 3.0f * amplitude;
+        const auto lines = juce::jmin (ribbonLook ? 11 : 9, frameCount);
+        const auto amplitude = plot.getHeight() * (ribbonLook ? 0.19f : 0.1f);
+        const auto top = plot.getY() + (ribbonLook ? 1.0f : 1.5f) * amplitude, span = plot.getHeight() - (ribbonLook ? 2.0f : 3.0f) * amplitude;
         const auto yFor = [&] (float position) { return top + span * position; };
+        // (Ribbons: each frame behind the front one sits further right, so the stack reads as depth.)
+        const auto skew = ribbonLook ? plot.getWidth() * 0.07f : 0.0f;
+        const auto plotFor = [&] (float position) { return plot.withTrimmedLeft (skew * (1.0f - position)); };
 
         for (int i = 0; i < lines; ++i)
         {
             const auto position = lines > 1 ? (float) i / (float) (lines - 1) : 0.0f;
             const auto index = juce::jlimit (0, frameCount - 1, juce::roundToInt (position * (float) (frameCount - 1)));
-            drawFrame (g, table, index, plot, yFor (position), amplitude, juce::Colours::white.withAlpha (0.2f), 1.0f);
+            drawFrame (g, table, index, plotFor (position), yFor (position), amplitude,
+                       juce::Colours::white.withAlpha (ribbonLook ? 0.3f + 0.3f * position : 0.2f), 1.0f);
         }
 
         const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
         const auto centre = yFor (juce::jlimit (0.0f, 1.0f, frame));
+        const auto tracePlot = plotFor (juce::jlimit (0.0f, 1.0f, frame));
         if (hasWarp())
         {
-            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
-            drawWarpedFrame (g, table, frameIndex, plot, centre, amplitude);
+            drawFrame (g, table, frameIndex, tracePlot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
+            drawWarpedFrame (g, table, frameIndex, tracePlot, centre, amplitude);
         }
         else
-            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour, 2.0f);
+            drawFrame (g, table, frameIndex, tracePlot, centre, amplitude, traceColour, 2.0f);
     }
 
     // Where the slim line's view chip and arrows sit, for the UI tests.
@@ -454,7 +463,7 @@ public:
         paintPickerIcon (g);
 
         // The frame the cycle comes from, at the picture's foot.
-        if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
+        if (frameReadout && table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (font);
@@ -1151,6 +1160,7 @@ public:
     }
 
 private:
+    bool frameReadout = true, ribbonLook = false;
     // A table whose frames are all the same cycle (a sine operator's): 3D
     // and a frame readout say nothing about it (UI review 7, V7-31).
     bool isStaticTable (const Wavetable* table) const

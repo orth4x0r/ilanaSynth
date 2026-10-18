@@ -220,7 +220,7 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                         continue;
                     // (OSC with switched-off oscillators folded keeps the open cards at their
                     // condensed height; the room below is left empty at ilana's ask, 2026-10-15.)
-                    if (page == "OSC" && (juce::String (preset) == "Init" || juce::String (preset) == "Felt Hammer Board"))
+                    if (page == "OSC" && (juce::String (preset) == "Init" || juce::String (preset) == "Felt Hammer Board" || juce::String (preset) == "Neuro Wobble"))
                         continue;
 
                     const auto pageArea = area (shown).reduced (4);

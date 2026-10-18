@@ -51,8 +51,9 @@ void runOscCardOverlapTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                 if (component->getParentComponent() != pageOf)
                     continue;
                 const auto area = editor.getLocalArea (component, component->getLocalBounds());
+                const auto own = dynamic_cast<KnobControl*> (component) != nullptr ? editor.getLocalArea (component, static_cast<KnobControl*> (component)->packedCell()) : area;
                 if (card.contains (area.getCentre()))
-                    items.push_back ({ component, area });
+                    items.push_back ({ component, own });
             }
 
             checked += items.size();

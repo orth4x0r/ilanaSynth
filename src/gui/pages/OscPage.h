@@ -812,7 +812,7 @@ public:
         {
             // The packed MIX panel's row: OUT, the bar, the level in dB.
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (6.0f, true).withKerningFactor (0.09f));
+            g.setFont (IlanaTheme::font (6.7f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
             const auto valueW = 34.0f;
@@ -822,7 +822,7 @@ public:
             g.setColour (colour.withAlpha (0.95f));
             g.fillRoundedRectangle (track.withWidth (juce::jmax (5.0f, track.getWidth() * level)), 2.5f);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (6.0f, false, true));
+            g.setFont (IlanaTheme::font (6.7f, false, true));
             IlanaTheme::drawFitted (g, db, area.withLeft (area.getRight() - valueW).toNearestInt(), juce::Justification::centredRight, 1);
             return;
         }
@@ -914,7 +914,7 @@ public:
     }
 
 private:
-    static juce::Font chipFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.08f); }
+    static juce::Font chipFont() { return IlanaTheme::font (7.0f, true).withKerningFactor (0.08f); }
     juce::String text;
     bool solid = false;
 };
@@ -2994,7 +2994,7 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         for (const auto& label : card.labels)
         {
-            g.setFont (label.hint ? IlanaTheme::font (6.6f) : IlanaTheme::font (6.0f, true).withKerningFactor (0.09f));
+            g.setFont (label.hint ? IlanaTheme::font (7.0f) : IlanaTheme::font (6.7f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, label.text, label.area, label.hint ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
         }
     }
@@ -3019,7 +3019,7 @@ private:
             g.setColour (panel.colour);
             g.fillRect (panel.area.withHeight (2).reduced (5, 0));
 
-            const auto titleFont = IlanaTheme::font (6.0f, true).withKerningFactor (0.13f);
+            const auto titleFont = IlanaTheme::font (6.8f, true).withKerningFactor (0.13f);
             const auto titleArea = juce::Rectangle<int> (panel.area.getX() + 6, panel.area.getY() + panelTop, panel.area.getWidth() - 12, panelTitleH - 1);
             g.setColour (panel.colour);
             g.setFont (titleFont);
@@ -3028,7 +3028,7 @@ private:
             if (panel.note.isNotEmpty())
             {
                 g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (6.0f));
+                g.setFont (IlanaTheme::font (6.7f));
                 IlanaTheme::drawFitted (g, panel.note, titleArea.withTrimmedLeft (titleWidth), juce::Justification::centredLeft, 1);
             }
         }
@@ -3088,7 +3088,7 @@ private:
     // A group that is its own switch: the dot and name stand where a panel's title does.
     void placeStripSwitch (ToggleControl& toggle, juce::Rectangle<int> panel, const juce::String& name) const
     {
-        const auto width = 9 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (6.0f, true).withKerningFactor (0.13f)), name) + 8;
+        const auto width = 9 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (6.8f, true).withKerningFactor (0.13f)), name) + 8;
         toggle.setBounds ({ panel.getX() + 6, panel.getY() + panelTop, width, panelTitleH - 1 });
     }
 

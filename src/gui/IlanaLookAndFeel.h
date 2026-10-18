@@ -137,7 +137,7 @@ namespace TextSize
     // out (a hint) rather than shrunk. 12 units at 75 % is 9 px, so
     // the smallest sizes grow to 10 px there (UI review 9, V9-26).
     // The packed OSC panels' button and segment text (review 23's 9.5 px at 1.5x); font() holds the screen floor.
-    inline constexpr float packedTextHeight = 6.3f;
+    inline constexpr float packedTextHeight = 7.0f;
 
     inline constexpr float smallestZoom  = 0.75f;
     inline constexpr float screenFloorPx = 10.0f;
@@ -878,7 +878,7 @@ public:
     // A select's text (the sheet's 11.5 px).
     static constexpr float selectText = 15.5f;
     // The packed OSC panels' text (review 23 mockups, drawn at 1.5x: 11.5, 9 and 8.5 px), in units; font() holds the 10 px floor.
-    static constexpr float packedMenuText = 7.7f, packedNameText = 6.0f;
+    static constexpr float packedMenuText = 8.2f, packedNameText = 6.7f;
 
     // A button's corners: 8 px at 30 px high, 6 px at 24 (the sheet's .btn and .btn.sm).
     static float buttonRadius (float height) { return juce::jlimit (3.0f, 8.0f, height * 0.26f); }
@@ -1413,7 +1413,7 @@ public:
                 const auto packed = button.getProperties().contains ("packedGroup");
                 IlanaTheme::paintOnDot (g, { area.getX() + (packed ? 3.0f : 4.0f), area.getCentreY() }, groupColour, on);
                 g.setColour (groupColour.withAlpha (0.55f + 0.35f * on));
-                g.setFont (packed ? IlanaTheme::font (6.0f, true).withKerningFactor (0.13f) : IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                g.setFont (packed ? IlanaTheme::font (6.8f, true).withKerningFactor (0.13f) : IlanaTheme::font (IlanaTheme::TextSize::label, true));
                 IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (packed ? 9 : 13),
                                         juce::Justification::centredLeft, 1);
                 return;

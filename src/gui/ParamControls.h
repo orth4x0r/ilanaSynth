@@ -1457,7 +1457,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
-            const auto nameFont = IlanaTheme::font (5.67f, true);
+            const auto nameFont = IlanaTheme::font (6.5f, true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
         }
@@ -2987,7 +2987,7 @@ public:
     // The segments' widths: each its text and a little air (or, with `equal`, the same).
     void setEqual (bool equalWidths) { equal = equalWidths; repaint(); }
 
-    static juce::Font segmentFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.03f); }
+    static juce::Font segmentFont() { return IlanaTheme::font (7.0f, true).withKerningFactor (0.03f); }
     // Widths measured at a fixed size (the 10 px floor at the design zoom), so the layout
     // does not move with the zoom the page was laid out at.
     static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (segmentFont(), text); }
@@ -3100,7 +3100,7 @@ public:
     void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
     void refresh() { repaint(); }
 
-    static juce::Font pillFont() { return IlanaTheme::font (6.2f, true); }
+    static juce::Font pillFont() { return IlanaTheme::font (6.9f, true); }
     static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (pillFont(), text) + 9; }
 
     // The rectangles the pills take in a row of `width`, wrapped.
@@ -3316,13 +3316,13 @@ public:
             if (packedPlace == NamePlace::below)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (5.67f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, juce::Justification::centredRight, 1);
             }
             else

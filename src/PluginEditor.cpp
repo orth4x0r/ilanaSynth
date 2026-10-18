@@ -1685,6 +1685,7 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     content.setBounds (0, 0, designWidth, totalDesignHeight());
     content.setTransform (juce::AffineTransform::scale (scale));
+    IlanaTheme::notifyUiScaleListeners();
 
     auto area = content.getLocalBounds();
 

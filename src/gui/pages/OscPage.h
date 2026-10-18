@@ -920,6 +920,7 @@ private:
 };
 
 class OscPage : public juce::Component,
+                private IlanaTheme::UiScaleListener,
                 private juce::AudioProcessorValueTreeState::Listener,
                 private juce::AsyncUpdater,
                 private juce::Timer
@@ -1610,10 +1611,24 @@ public:
         updateModeVisibility();
         updateEnabled();
         startTimerHz (5);
+        IlanaTheme::uiScaleListeners().push_back (this);
+    }
+
+    // The zoom changed: text is laid out by its drawn width, so the cards lay out again.
+    void uiScaleChanged() override
+    {
+        if (getWidth() > 0 && ! juce::approximatelyEqual (laidOutScale, IlanaTheme::uiScaleRef()))
+        {
+            laidOutScale = IlanaTheme::uiScaleRef();
+            layoutPage();
+            repaint();
+        }
     }
 
     ~OscPage() override
     {
+        auto& listeners = IlanaTheme::uiScaleListeners();
+        listeners.erase (std::remove (listeners.begin(), listeners.end(), static_cast<IlanaTheme::UiScaleListener*> (this)), listeners.end());
         for (const auto* prefix : OscillatorIds::prefixes)
             for (const auto* suffix : listenedSuffixes)
                 processorRef.apvts.removeParameterListener (juce::String (prefix) + suffix, this);
@@ -1706,6 +1721,7 @@ public:
 
     void resized() override
     {
+        laidOutScale = IlanaTheme::uiScaleRef();
         layoutPage();
     }
 
@@ -1867,7 +1883,8 @@ private:
             case Kind::wavetable:
             {
                 // (Panels, review 23: the cells below are only the list of what shows;
-                // layoutWavetablePanels places them.)
+                // layoutWavetablePanels places them; the table's menu is the header's.)
+                add (osc.table, 0, 0);
                 add (osc.frame, 0, 0);
                 add (osc.warp, 0, 0);
                 add (osc.warpAmt, 0, 0);
@@ -4065,6 +4082,7 @@ private:
     int lastRevealVersion = -1;
     int selected = 0;
     bool stripOpen = false;
+    float laidOutScale = 0.0f;
 
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
     std::array<std::unique_ptr<CardAux>, OscillatorIds::count> aux;

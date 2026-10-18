@@ -190,6 +190,27 @@ inline float& uiScaleRef()
     return scale;
 }
 
+// A page that lays text out by its drawn width (the packed cards' buttons, pills and segments)
+// hears when the zoom changes: the floor under the text makes the same words wider at a small zoom.
+struct UiScaleListener
+{
+    virtual ~UiScaleListener() = default;
+    virtual void uiScaleChanged() = 0;
+};
+
+inline std::vector<UiScaleListener*>& uiScaleListeners()
+{
+    static std::vector<UiScaleListener*> listeners;
+    return listeners;
+}
+
+inline void notifyUiScaleListeners()
+{
+    const auto copy = uiScaleListeners();
+    for (auto* listener : copy)
+        listener->uiScaleChanged();
+}
+
 // All UI text should be created through this: a Font constructed from plain
 // FontOptions resolves its typeface through the process default LookAndFeel,
 // not the one set on our editor, which is why it fell back to Segoe UI.

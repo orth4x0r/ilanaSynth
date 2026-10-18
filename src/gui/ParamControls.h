@@ -339,16 +339,29 @@ public:
     static constexpr int dotPitch = 16;
     static constexpr int stripWidth = 18;
 
+    // The packed cards' knobs carry small badges (9 px discs): the full size sat over the dial's rings (ilana, review 23).
+    void setMini (bool shouldBeMini)
+    {
+        if (mini != shouldBeMini)
+        {
+            mini = shouldBeMini;
+            repaint();
+        }
+    }
+    int diameter() const { return mini ? 11 : dotSize; }
+    int pitchPx() const { return mini ? 13 : dotPitch; }
+    int widthPx() const { return mini ? 18 : stripWidth; }
+
     // How many badges the strip has room for; past that, "+N".
     void setMaxVisible (int count)
     {
-        maxVisible = juce::jmax (1, count);
+        maxVisible = juce::jmax (mini ? 0 : 1, count);
         repaint();
     }
 
     int getNumShown() const { return numShown(); }
     bool hasOverflow() const { return (int) dots.size() > maxVisible; }
-    int getPreferredHeight() const { return juce::jmax (1, numShown() + (hasOverflow() ? 1 : 0)) * dotPitch; }
+    int getPreferredHeight() const { return juce::jmax (1, numShown() + (hasOverflow() ? 1 : 0)) * pitchPx(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -374,7 +387,7 @@ public:
 
             // A macro's number, white with a dark outline so it reads on
             // its colour.
-            if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0)
+            if (const auto macro = Mod::macroIndexFor ((Mod::Source) dot.source); macro >= 0 && ! mini)
                 paintOutlinedText (g, juce::String (macro + 1), area, IlanaTheme::TextSize::tiny);
         }
 
@@ -383,7 +396,7 @@ public:
             const auto area = dotBounds (numShown());
             const auto active = IlanaTheme::fade (*this, 1000, hoverIndex == overflowIndex ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
             // A pill, a little wider than a badge, so "+N" has air inside its outline.
-            const auto pill = area.expanded (2.0f, 0.0f);
+            const auto pill = area.expanded (mini ? 3.0f : 2.0f, 0.0f);
             g.setColour (IlanaTheme::Ui::raised.interpolatedWith (juce::Colours::white, 0.15f * active));
             g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
             g.setColour (IlanaTheme::Ui::text2);
@@ -538,8 +551,8 @@ private:
 
     juce::Rectangle<float> dotBounds (int index) const
     {
-        return juce::Rectangle<float> ((float) dotSize, (float) dotSize)
-            .withCentre ({ (float) getWidth() * 0.5f, (float) (index * dotPitch) + (float) dotPitch * 0.5f });
+        return juce::Rectangle<float> ((float) diameter(), (float) diameter())
+            .withCentre ({ (float) getWidth() * 0.5f, (float) (index * pitchPx()) + (float) pitchPx() * 0.5f });
     }
 
     // A badge, overflowIndex for "+N", or -1. Each takes a 20 px target
@@ -547,7 +560,7 @@ private:
     int indexAt (juce::Point<float> position) const
     {
         const auto rows = numShown() + (hasOverflow() ? 1 : 0);
-        const auto row = (int) std::floor (position.y / (float) dotPitch);
+        const auto row = (int) std::floor (position.y / (float) pitchPx());
 
         if (! juce::isPositiveAndBelow (row, rows) || std::abs (position.x - (float) getWidth() * 0.5f) > 10.0f)
             return -1;
@@ -581,6 +594,7 @@ private:
     int dragIndex = -1;
     int hoverIndex = -1;
     int maxVisible = 3;
+    bool mini = false;
     float dragStartDepth = 0.0f;
 };
 
@@ -2085,7 +2099,8 @@ private:
     {
         const auto centre = dialCentre();
         const auto dial = dialRadius();
-        const auto stripW = ModDotStrip::stripWidth, pitch = ModDotStrip::dotPitch;
+        dotStrip.setMini (packedD > 0.0f);
+        const auto stripW = dotStrip.widthPx(), pitch = dotStrip.pitchPx();
         auto x = (int) std::ceil (centre.x + outerRingRadius() + 1.0f);
 
         // An inline knob's name and value stand right of its rings: the
@@ -2119,7 +2134,8 @@ private:
             const auto extra = (int) routings.size() > shownRings ? std::vector<ModDotStrip::Dot> (routings.begin() + shownRings, routings.end())
                                                                    : std::vector<ModDotStrip::Dot>();
             dotStrip.setDots (extra);
-            dotStrip.setMaxVisible (1);
+            // (A packed knob's extra routings show as one quiet "+N", not a coloured disc over the rings.)
+            dotStrip.setMaxVisible (packedD > 0.0f ? 0 : 1);
             auto y = (int) (centre.y - dial) - pitch + 1;
 
             if (label.isVisible() && label.getText().isNotEmpty())
@@ -2129,7 +2145,7 @@ private:
                     y = juce::jmax (y, label.getBottom() - 1);
             }
 
-            bounds = { getWidth() - stripW, y, stripW, pitch };
+            bounds = { getWidth() - stripW, packedD > 0.0f ? 0 : y, stripW, pitch };
         }
 
         dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));

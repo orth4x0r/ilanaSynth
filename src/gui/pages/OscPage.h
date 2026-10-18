@@ -3578,6 +3578,8 @@ private:
         for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode })
             menu->setPackedMenu (panels);
         osc.table.setPackedMenu (kind == Kind::wavetable);
+        waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
+        waveDisplay (index).setRibbonLook (kind == Kind::wavetable);
 
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
         const auto string = kind == Kind::physical;

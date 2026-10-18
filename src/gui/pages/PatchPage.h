@@ -452,6 +452,26 @@ public:
         };
         addAndMakeVisible (view);
 
+        // The row of effects under the canvas: a click adds one, a drag picks
+        // it up onto the canvas (the box is added under the pointer and the
+        // canvas takes the drag from there).
+        carousel.isFull = [this] { return rackFull(); };
+        carousel.onPick = [this] (const FxCarousel::Tile& tile) { addFromCarousel (tile, std::nullopt); };
+        carousel.onGrab = [this] (const FxCarousel::Tile& tile, juce::Point<float> at)
+        {
+            const auto where = view.graphPointAt (view.getLocalPoint (&carousel, at)) - juce::Point<float> (PatchCableView::nodeWidth, PatchCableView::nodeHeight) * 0.5f;
+            return addFromCarousel (tile, where);
+        };
+        carousel.onGrabDrag = [this] (const juce::MouseEvent& e) { view.mouseDrag (e.getEventRelativeTo (&view)); };
+        carousel.onGrabEnd = [this] (const juce::MouseEvent& e)
+        {
+            view.mouseUp (e.getEventRelativeTo (&view));
+            carouselDrag = false;
+            if (autoFit && ! view.contentFits())
+                fit (true);
+        };
+        addAndMakeVisible (carousel);
+
         // The selected loop's own row: LEVEL and DELAY, and remove.
         loopKnobs = std::make_unique<LoopKnobs> (shortestLoopMs());
         loopKnobs->onGesture = [this] (bool starting) { loopGesture (starting, "Loop settings"); };
@@ -577,6 +597,9 @@ public:
         hint = toolbar.withTrimmedRight (10);
         area.removeFromTop (10);
         inspector = area.removeFromBottom (inspectorHeight);
+        area.removeFromBottom (10);
+        // The row of effects under the canvas.
+        carousel.setBounds (area.removeFromBottom (FxCarousel::stripHeight));
         area.removeFromBottom (10);
         view.setBounds (area);
         if (autoFit)
@@ -1716,6 +1739,34 @@ private:
             }
     }
 
+    // A tile of the carousel: the effect added (before OUT; under the pointer
+    // when it is dragged), and with a drag the new box is picked up on the
+    // canvas. True when it was added.
+    bool addFromCarousel (const FxCarousel::Tile& tile, std::optional<juce::Point<float>> at)
+    {
+        if (rackFull())
+            return false;
+        // (A box placed by hand: the view stays where the user has it until it is dropped.)
+        if (at.has_value())
+            carouselDrag = true;
+        auto added = -1;
+        processorRef.performEdit ("Add " + tile.name, [this, &tile, at, &added]
+        {
+            playRackAsCables();
+            added = processorRef.addFxEffect (tile.type);
+            if (added >= 0 && at.has_value())
+                placeNodeNow (added, *at);
+        });
+        if (added < 0)
+            return false;
+        refresh (true);
+        if (at.has_value())
+            for (const auto& node : shown.nodes())
+                if (node.ref == added + 1 && ! node.isFixed() && ! isVoice (node))
+                    return view.beginNodeDrag (node.id);
+        return true;
+    }
+
     //==========================================================================
     // The merged graph: the voice's boxes in columns at the left (sources,
     // then each stage one column right of the furthest stage feeding it),
@@ -1814,7 +1865,7 @@ private:
         // the user has moved the view (then only a new patch that is off
         // screen is, as after loading a preset).
         const auto countChanged = (int) shown.nodes().size() != shownNodes;
-        if (autoFit ? (countChanged || ! view.contentFits()) : (countChanged && ! view.contentFits()))
+        if (! carouselDrag && (autoFit ? (countChanged || ! view.contentFits()) : (countChanged && ! view.contentFits())))
         {
             autoFit = true;
             fit();
@@ -2312,6 +2363,7 @@ private:
     FxPage& rack;
     PatchGraph::Graph shown, fxShown;
     PatchCableView view;
+    FxCarousel carousel;
     const bool hasVoice;
     VoiceRouting::Table table;
     VoiceRouting::Patch voiceShown;
@@ -2321,6 +2373,7 @@ private:
     juce::TextButton addButton { "+ ADD EFFECT" }, resetButton { "RESET" }, fitButton { "FIT" };
     juce::TextButton zoomOutButton { juce::String::fromUTF8 ("\xe2\x88\x92") }, zoomInButton { "+" }, zoomLabel { "100%" };
     juce::Rectangle<int> zoomWell, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
+    bool carouselDrag = false; // a carousel tile is being dragged onto the canvas: no refit under the pointer
     bool autoFit = true; // false once the user moves the view (FIT gives it back)
 
     int inspectedVoice = -1, inspectedSlot = -1;

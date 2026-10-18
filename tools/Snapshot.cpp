@@ -49,6 +49,7 @@
 #include "Dx7Banks.h"
 #include "gui/LfoSimView.h"
 #include "gui/LogoComponent.h"
+#include "gui/FxCarousel.h"
 #include "gui/PatchCableView.h"
 #include "gui/FxLibrary.h"
 #include "processor/PatchGraphState.h"
@@ -146,6 +147,7 @@ void expect (bool condition, const juce::String& message)
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
 #include "FxLfoUiTests.h"
+#include "FxCarouselUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
@@ -1023,6 +1025,15 @@ int runUiTests()
     if (only == "OR")
     {
         runOscRoutingUiTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "FC")
+    {
+        runFxCarouselUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7467,6 +7478,7 @@ int runUiTests()
     runOscRoutingUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.
     runFxLfoUiTests (processor, *pages);
+    runFxCarouselUiTests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);
@@ -9563,6 +9575,57 @@ int main (int argc, char** argv)
             view->repaint();
             shot ("drop-hover");
             view->mouseUp (PatchCableUi::mouse (*view, toScreen (target), false));
+            view->setMotion (true);
+            shot ("dropped");
+        }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_CAROUSEL: the PATCH tab's row of effects under the canvas
+    // (2026-10-18): idle, scrolled, one tile dragged over a cable (lit up) and
+    // dropped there; then stop. Best with Neuro Wobble.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_CAROUSEL", "").isNotEmpty())
+    {
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (400);
+            save (*editor, outDir.getChildFile ("carousel-" + name + ".png"));
+        };
+        pages->showPage ("PATCH");
+        shot ("idle");
+        auto* view = findChild<PatchCableView> (*editor);
+        auto* carousel = findChild<FxCarousel> (*editor);
+        if (view == nullptr || carousel == nullptr)
+        {
+            std::printf ("carousel snapshot: view %p carousel %p\n", (void*) view, (void*) carousel);
+            return 1;
+        }
+        std::printf ("carousel bounds %s showing %d tiles %d\n", carousel->getBounds().toString().toRawUTF8(), (int) carousel->isShowing(), carousel->numTiles());
+        carousel->scrollTo (carousel->getScroll() + 400.0f);
+        shot ("scrolled");
+        carousel->scrollTo (0.0f);
+        const auto& graph = view->getGraph();
+        std::vector<const PatchGraph::Node*> effects;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+                effects.push_back (&node);
+        std::sort (effects.begin(), effects.end(), [] (const auto* a, const auto* b) { return a->x < b->x; });
+        auto tile = 0;
+        for (int i = 0; i < carousel->numTiles(); ++i)
+            if (carousel->tileAt (i).name == "Dimension")
+                tile = i;
+        const auto from = carousel->tileBounds (tile).toFloat().getCentre();
+        if (effects.size() >= 2)
+        {
+            const auto target = (view->portPosition ({ effects[0]->id, 0 }, false) + view->portPosition ({ effects[1]->id, 0 }, true)) * 0.5f;
+            const auto to = carousel->getLocalPoint (view, target * view->getZoom());
+            carousel->mouseDown (PatchCableUi::mouse (*carousel, from, true));
+            for (int step = 1; step <= 10; ++step)
+                carousel->mouseDrag (PatchCableUi::mouse (*carousel, from + (to - from) * ((float) step / 10.0f), true, false, from));
+            view->setMotion (false);
+            view->repaint();
+            shot ("drag-over-cable");
+            carousel->mouseUp (PatchCableUi::mouse (*carousel, to, false, false, from));
             view->setMotion (true);
             shot ("dropped");
         }

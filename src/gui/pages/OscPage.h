@@ -1878,24 +1878,6 @@ private:
         const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
         std::vector<Slot> slots;
         const auto add = [&slots] (juce::Component& item, int row, int col, int span = 1) { slots.push_back ({ &item, row, col, span }); };
-        const auto unisonRow = [&] (int row, bool blend, bool spreads = false)
-        {
-            add (osc.uniMode, row, 0);
-            add (osc.unison, row, 1);
-            add (osc.detune, row, 2);
-            if (blend)
-            {
-                add (osc.uniBlend, row, 3);
-                add (osc.spread, row, 4);
-                if (spreads)
-                {
-                    add (osc.uniFrame, row, 6);
-                    add (osc.uniWarp, row, 7);
-                }
-            }
-            add (osc.chord, row, 5);
-        };
-
         switch (kind)
         {
             case Kind::wavetable:
@@ -2012,28 +1994,35 @@ private:
             }
             case Kind::grain:
             {
-                // GRAINS: where the cloud sits and moves, then its shape.
+                // Panels (review 23): the list of what shows; layoutGranularPanels places it.
                 add (osc.grainPosition, 0, 0);
-                add (osc.grainScan, 0, 1);
-                add (osc.grainFreeze, 0, 2);
-                add (osc.grainSize, 0, 3);
-                add (osc.grainDensity, 0, 4);
-                add (osc.grainSpray, 0, 5);
-                // (PITCH RND is the longest name: it takes two cells.)
-                add (osc.grainPitch, 0, 6, 2);
-                add (osc.grainSpread, 0, 8);
-                add (osc.level, 1, 0);
-                add (osc.pan, 1, 1);
-                add (osc.sampleTuned, 1, 2);
-                add (osc.semi, 1, 3);
-                add (osc.fine, 1, 4);
-                add (osc.ampEnv, 1, 5);
-                add (osc.sampleReverse, 1, 6);
+                add (osc.grainScan, 0, 0);
+                add (osc.grainFreeze, 0, 0);
+                add (osc.grainSize, 0, 0);
+                add (osc.grainDensity, 0, 0);
+                add (osc.grainSpray, 0, 0);
+                add (osc.grainPitch, 0, 0);
                 if (IlanaSynthAudioProcessor::isEffectBuild)
-                    add (osc.grainLive, 1, 7);
-                // BLEND and SPREAD keep their columns, dimmed with a dash:
-                // grains have no unison blend or spread (controls dim in place).
-                unisonRow (2, true);
+                    add (osc.grainLive, 0, 0);
+                add (osc.semi, 1, 0);
+                add (osc.fine, 1, 0);
+                add (osc.sampleTuned, 1, 0);
+                add (osc.sampleReverse, 1, 0);
+                add (osc.scale, 1, 0);
+                if (readChoice (prefix + "_scale") != 0)
+                    add (osc.scaleRoot, 1, 0);
+                add (osc.chord, 1, 0);
+                add (osc.level, 2, 0);
+                add (osc.pan, 2, 0);
+                add (osc.ampEnv, 2, 0);
+                // BLEND and SPREAD keep their places, dimmed with a dash: grains have no
+                // unison blend or spread (controls dim in place); STEREO is the grains' own.
+                add (osc.uniMode, 3, 0);
+                add (osc.unison, 3, 0);
+                add (osc.detune, 3, 0);
+                add (osc.uniBlend, 3, 0);
+                add (osc.spread, 3, 0);
+                add (osc.grainSpread, 3, 0);
                 break;
             }
             case Kind::live:
@@ -2206,7 +2195,7 @@ private:
     bool isFolded (int osc) const { return isOff (osc); }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
-    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm || kind == Kind::sample; }
+    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain; }
 
     // WARP and SPECTRAL always; WARP 2 and WARP ENV once added (+ WARP) or in use.
     int effectiveExtraWarps (int osc) const
@@ -2235,7 +2224,7 @@ private:
             return 1 + cardHeaderHeight + sampleTopH + panelGap + physBottomH + cardPad + 1;
 
         // (A live or FM / DX7 card is the wavetable card's height with two warp rows.)
-        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
+        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
         const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
@@ -3084,6 +3073,112 @@ private:
         }
     }
 
+    // A granular card (review 23 language): CLOUD (the picture with FREEZE on it, the six
+    // grain knobs), PITCH, MIX and UNISON on the page's four columns.
+    void layoutGranularPanels (CardGeometry& card)
+    {
+        const auto index = card.osc;
+        auto& osc = *controls[(size_t) index];
+        auto& pieces = *aux[(size_t) index];
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+        const auto tint = oscColour (index);
+        const auto inner = card.bounds.reduced (1);
+        const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
+        const auto panelRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], rowArea.getY(), cols.w[column], rowArea.getHeight()); };
+        const auto addPanel = [&] (int column, const juce::String& title) { card.panels.push_back ({ panelRect (column), title, {}, tint }); return panelContent (panelRect (column)); };
+        const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
+        const auto cellH = mainDial + nameLine;
+
+        card.rows = 0;
+        card.well = {};
+
+        // CLOUD: the picture takes what the six knobs leave; FREEZE (and LIVE) sit on its foot.
+        {
+            const auto c = addPanel (0, "CLOUD");
+            // (Six knobs in two rows of three: the column is narrow, and the picture keeps its room.)
+            const auto cell = 44;
+            const auto knobsW = 3 * cell;
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmax (60, c.getWidth() - knobsW - 6), c.getHeight());
+            waveDisplay (index).setBounds (picture);
+            for (auto& item : scrubbers)
+                item.setBounds ({});
+            const auto gridTop = middle (c, 2 * cellH) - 3;
+            KnobControl* grains[] { &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch };
+            for (int i = 0; i < 6; ++i)
+                placeKnob (*grains[i], c.getRight() - knobsW + (i % 3) * cell, gridTop + (i / 3) * cellH, cell, mainDial);
+            auto toggleX = picture.getX() + 4;
+            const auto toggleY = picture.getBottom() - 21;
+            osc.grainFreeze.setBounds ({ toggleX, toggleY, 66, 16 });
+            osc.grainFreeze.toFront (false);
+            if (IlanaSynthAudioProcessor::isEffectBuild)
+            {
+                osc.grainLive.setBounds ({ toggleX, toggleY - 19, 54, 16 });
+                osc.grainLive.toFront (false);
+            }
+        }
+
+        // PITCH: SEMI and FINE, TUNED over REVERSE; SCALE and CHORD under them.
+        {
+            const auto c = addPanel (1, "PITCH");
+            const auto top = middle (c, cellH + 3 + menuH);
+            placeKnob (osc.semi, c.getX(), top, knobCell, mainDial);
+            placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
+            const auto toggleX = c.getX() + 2 * knobCell + 8;
+            const auto toggleW = c.getRight() - toggleX;
+            osc.sampleTuned.setBounds ({ toggleX, top + 3, toggleW, 16 });
+            osc.sampleReverse.setBounds ({ toggleX, top + 3 + 16 + 5, toggleW, 16 });
+            const auto lower = top + cellH + 3;
+            if (readChoice (prefix + "_scale") != 0)
+            {
+                const auto rootW = 36, free = c.getWidth() - rootW - 8;
+                osc.scale.setBounds ({ c.getX(), lower, free / 2, menuH });
+                osc.scaleRoot.setBounds ({ c.getX() + free / 2 + 4, lower, rootW, menuH });
+                osc.chord.setBounds ({ c.getX() + free / 2 + 4 + rootW + 4, lower, c.getRight() - (c.getX() + free / 2 + 4 + rootW + 4), menuH });
+            }
+            else
+            {
+                const auto half = (c.getWidth() - 4) / 2;
+                osc.scale.setBounds ({ c.getX(), lower, half, menuH });
+                osc.chord.setBounds ({ c.getX() + half + 4, lower, c.getWidth() - half - 4, menuH });
+            }
+        }
+
+        // MIX: LEVEL, PAN, ENV, FILTER and OUT.
+        {
+            const auto c = addPanel (2, "MIX");
+            const auto top = middle (c, cellH + 3 + filterH + 3 + outH);
+            placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
+            placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
+            const auto envX = c.getX() + 2 * knobCell + 3;
+            osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
+            const auto filterY = top + cellH + 3;
+            const auto labelW = 28;
+            card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
+            pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
+            pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
+        }
+
+        // UNISON: the mode, VOICES, DETUNE, BLEND, SPREAD and the grains' STEREO; the spread picture under them.
+        {
+            const auto c = addPanel (3, "UNISON");
+            const auto top = middle (c, cellH + 4 + spreadH);
+            osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
+            auto x = c.getX() + 55 + 3;
+            for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.grainSpread })
+            {
+                placeKnob (*knob, x, top, 38, mainDial);
+                x += 38;
+            }
+            const auto spreadY = top + cellH + 4;
+            const auto labelW = 36;
+            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
+            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
+        }
+
+        pieces.status.setBounds (card.statusArea);
+    }
+
     // A live card as two panels (review 23 language): INPUT, the meter, over the
     // WAVE and PITCH columns; MIX over MIX and UNISON, LEVEL, PAN, ENV and FILTER on one
     // line and OUT under them.
@@ -3155,6 +3250,8 @@ private:
                 layoutFmPanels (card);
             else if (card.kind == Kind::sample)
                 layoutSamplePanels (card);
+            else if (card.kind == Kind::grain)
+                layoutGranularPanels (card);
             else
                 layoutWavetablePanels (card);
             return;
@@ -3910,7 +4007,8 @@ private:
 
         for (auto* knob : { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.ratio, &osc.fixedHz, &osc.unison, &osc.detune, &osc.spread,
                             &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.egOut, &osc.sampleStart, &osc.sampleEnd,
-                            &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom })
+                            &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
+                            &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
         osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
@@ -3933,8 +4031,9 @@ private:
             knob->setPackedDial (string ? (float) mainDial : 0.0f);
         phys.slap.setPackedName (string ? ToggleControl::NamePlace::below : ToggleControl::NamePlace::none);
         // The sample card's switches: the pill with its name to the right, as the packed menus read.
-        for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe })
-            toggle->setPackedName (kind == Kind::sample ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
+        for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe,
+                              &osc.grainFreeze, &osc.grainLive })
+            toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
         osc.sampleStartRandom.setLabelText (kind == Kind::sample ? "RANDOM" : "RANDOM START");
         osc.samplePlayback.setLabelText (kind == Kind::sample ? "MODE" : "PLAYBACK");
         phys.resBoard.setPackedMenu (string);
@@ -3991,13 +4090,13 @@ private:
             const auto wavetableCard = usesPanels (kind) && kind == Kind::wavetable;
             pieces.prevTable.setVisible (wavetableCard);
             pieces.nextTable.setVisible (wavetableCard);
-            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample);
-            pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample);
+            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
+            pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
             pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 2);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
-            if (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample)
+            if (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain)
                 pieces.routeBar.refresh();
             // An FM / DX7 oscillator plays a plain cycle: no table tools
             // (UI review 8, I8-15, S8-9, V8-16); on the Operator EG no

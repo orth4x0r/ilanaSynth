@@ -202,7 +202,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     const auto core = [&] (juce::Component* control)
                     {
                         auto* knob = static_cast<KnobControl*> (control);
-                        return knob->isPacked() ? editor.getLocalArea (knob, knob->packedCell()) : area (control).reduced (2, 6);
+                        return knob->isPacked() ? editor.getLocalArea (knob, knob->packedCell()).reduced (1) : area (control).reduced (2, 6);
                     };
                     for (size_t a = 0; a < shown.size(); ++a)
                         for (size_t b = a + 1; b < shown.size(); ++b)

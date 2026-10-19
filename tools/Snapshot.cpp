@@ -4588,7 +4588,7 @@ int runUiTests()
                     if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
                     {
                         shown = true;
-                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (0, 3)));
+                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (1, 3)));
                     }
                 if (! shown)
                     missing.add (id);
@@ -10233,6 +10233,16 @@ int main (int argc, char** argv)
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
+    // ILANA_SNAPSHOT_BROWSER: the wavetable browser, sized as it opens over the editor.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_BROWSER", "").isNotEmpty())
+    {
+        TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setLookAndFeel (&editor->getLookAndFeel());
+        browser.setSize (juce::jmax (740, juce::roundToInt ((float) editor->getWidth() * 0.86f)), juce::jmax (520, juce::roundToInt ((float) editor->getHeight() * 0.8f)));
+        settle (200);
+        save (browser, outDir.getChildFile ("table-browser.png"));
+    }
+
     // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
     filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
 
@@ -10261,6 +10271,15 @@ int main (int argc, char** argv)
 
         pages->showPage (pageIds[i]);
         settle (450);
+        // ILANA_SNAPSHOT_3D: the wavetable pictures flipped to their 3D stack.
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_3D", "").isNotEmpty())
+        {
+            std::vector<WaveDisplay*> pictures;
+            findAll<WaveDisplay> (*editor, pictures);
+            for (auto* picture : pictures)
+                picture->setStack3d (true);
+            settle (300);
+        }
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
 

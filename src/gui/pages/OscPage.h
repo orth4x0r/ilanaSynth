@@ -1830,7 +1830,7 @@ private:
     static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
-    static constexpr int pitchW = 160, mixW = 164, unisonW = 250;
+    static constexpr int pitchW = 160, mixW = 164, unisonW = 270;
     static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
@@ -2597,8 +2597,8 @@ private:
             const auto cell = 33;
             const auto cellH = mainDial + nameLine;
             const auto top = middle (c, cellH + 4 + spreadH);
-            osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
-            auto x = c.getX() + 55 + 3;
+            osc.uniMode.setBounds ({ c.getX(), top + 4, 52, menuH });
+            auto x = c.getX() + 52 + 3;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {
                 placeKnob (*knob, x, top, cell, mainDial);

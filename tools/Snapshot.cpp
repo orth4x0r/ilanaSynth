@@ -364,21 +364,21 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
-                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
+                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) == nullptr,
                 "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread ("
                     + juce::String ((int) graph) + juce::String ((int) (knobFor ("osc1_eg_out", "OUTPUT") != nullptr)) + juce::String ((int) (knobFor ("osc1_level", "VOICE LEVEL") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_warp_amt") == nullptr)) + juce::String ((int) (knobFor ("osc1_spectral_amt") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_detune") == nullptr)) + juce::String ((int) (knobFor ("osc1_frame") == nullptr))
-                    + juce::String ((int) (buttonNamed (editOpEnv) != nullptr)) + ")");
+                    + juce::String ((int) (buttonNamed (editOpEnv) == nullptr)) + ")");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
         // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
         expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
                 "OSC: an Operator Env operator has the envelope and one WAVE menu, no sine picture (V11-7)");
 
-        // EDIT OP ENV whatever the mode (I7-20).
+        // (The mock has no EDIT OP ENV button on the card: a click on the envelope picture opens the editor.)
         setParam ("osc1_mode", 1.0f);
         settle (400);
-        expect (buttonNamed (editOpEnv) != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
+        expect (buttonNamed (editOpEnv) == nullptr, "OSC: an operator's card has no EDIT OP ENV button (its picture opens the editor)");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }

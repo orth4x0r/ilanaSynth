@@ -2207,7 +2207,8 @@ private:
     // 190 px cards hid the VOICE strip and the sampler rows below them, and
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
-    bool isFolded (int osc) const { return isOff (osc); }
+    // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
+    bool isFolded (int osc) const { return ! embedded && isOff (osc); }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
     static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live; }

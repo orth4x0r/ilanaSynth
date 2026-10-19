@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 
+#include "dsp/BodyTuning.h"
 #include "dsp/Modulation.h"
 #include "dsp/TableFactory.h"
 #include "gui/EnvelopeDisplay.h"

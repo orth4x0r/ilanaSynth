@@ -196,7 +196,7 @@ public:
             }
         }
 
-        if (voiceOff)
+        if (voiceOff && onlyFilter < 0)
             drawVoiceOff (g, bounds);
 
         IlanaTheme::paintGlassOverlay (g, bounds, 6.0f);

@@ -408,6 +408,9 @@ private:
             return;
 
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
+        // (The envelope's last dial ends as far from the card as its graph starts.)
+        if (kind == Kind::envelope)
+            body.setRight (body.getRight() + 4);
         const auto cell = 36;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
         const auto lfoColumn = 86;
@@ -441,14 +444,18 @@ private:
             place (*knob, x);
             x += cell;
         }
-        auto column = body.withTrimmedLeft (x - body.getX() + 4);
+        // (Clear of the header's line above and the card's edge at the right.)
+        auto column = body.withTrimmedLeft (x - body.getX() + 4).reduced (0, 2);
         auto rowH = juce::jmax (12, column.getHeight() / 2);
         rowH = juce::jmax (11, (column.getHeight() - 6) / 3);
         auto switches = column.removeFromTop (rowH);
         column.removeFromTop (3);
         const auto each = switches.getWidth() / juce::jmax (1, (int) toggles.size());
-        for (auto& toggle : toggles)
-            toggle->setBounds (switches.removeFromLeft (each));
+        // (Each pill draws 1 px inside its bounds: the row reaches 1 px past the column so the three span the pills' width.)
+        auto pills = switches.expanded (1, 0);
+        for (size_t i = 0; i < toggles.size(); ++i)
+            toggles[i]->setBounds (i + 1 == toggles.size() ? pills : pills.removeFromLeft (pills.getWidth() / (int) (toggles.size() - i)));
+        (void) each;
         shape->setBounds (column.removeFromTop (rowH));
         column.removeFromTop (3);
         chipBounds = column.removeFromTop (rowH);
@@ -560,6 +567,180 @@ private:
 // cards on top, the voice's modules in two bands under them: FILTER 1, FILTER 2
 // and WEST COAST; then ENVELOPE, LFO, BODY and SUB + NOISE. One knob size and
 // pitch in every card, the menus in the headers.
+// A small live picture of a few parameters (BODY's resonance, SUB's wave, NOISE's colour): it
+// repaints when one of them moves, in the same well and trace as the other pictures.
+class ParamPicture : public juce::Component,
+                     public juce::SettableTooltipClient,
+                     private juce::Timer
+{
+public:
+    ParamPicture (IlanaSynthAudioProcessor& p, std::vector<juce::String> idsIn, const juce::String& tip)
+        : processorRef (p), ids (std::move (idsIn))
+    {
+        setInterceptsMouseClicks (false, false);
+        setTooltip (tip);
+        startTimerHz (10);
+    }
+
+protected:
+    float read (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+
+private:
+    void timerCallback() override
+    {
+        auto signature = 0.0;
+        auto weight = 1.0;
+        for (const auto& id : ids)
+        {
+            signature += (double) read (id.toRawUTF8()) * weight;
+            weight *= 1.7;
+        }
+        if (signature != lastSignature)
+        {
+            lastSignature = signature;
+            repaint();
+        }
+    }
+
+    std::vector<juce::String> ids;
+    double lastSignature = -1.0e9;
+};
+
+// BODY: where its modes sit and how long they ring, from TYPE, MATERIAL and SIZE (the engine's own tuning tables).
+class BodyDisplay : public ParamPicture
+{
+public:
+    explicit BodyDisplay (IlanaSynthAudioProcessor& p)
+        : ParamPicture (p, { "body_type", "body_material", "body_size", "res_on" },
+                        "The body's resonance: its modes across the pitch range. TYPE picks their spacing, MATERIAL how long they ring, SIZE slides them.") {}
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 4.0f);
+        const auto plot = bounds.reduced (4.0f, 2.0f);
+        const auto type = juce::jlimit (0, 4, juce::roundToInt (read ("body_type")));
+        const auto material = juce::jlimit (0.0f, 1.0f, read ("body_material"));
+        const auto size = juce::jlimit (0.0f, 1.0f, read ("body_size"));
+        const auto on = read ("res_on") > 0.5f ? 1.0f : 0.45f;
+        const auto metal = juce::jlimit (0.0f, 1.0f, (material - 0.15f) / 0.55f);
+        const auto glass = juce::jlimit (0.0f, 1.0f, (material - 0.8f) / 0.2f);
+        const auto lifeScale = 0.9f + 0.6f * metal - 0.75f * glass;
+
+        // The first mode sits at 160 Hz at the middle SIZE, an octave per half turn; the axis is 40 Hz to 8 kHz.
+        const auto root = 160.0 * std::pow (2.0, (0.5 - (double) size) * 2.0);
+        constexpr auto lowHz = 40.0, highHz = 8000.0;
+        std::array<double, BodyTuning::modes> hz {}, height {}, width {};
+        for (int mode = 0; mode < BodyTuning::modes; ++mode)
+        {
+            const auto m = (size_t) mode;
+            const auto ratio = type == 0 ? (double) (mode + 1) : (double) BodyTuning::shapes[type - 1].ratio[m];
+            const auto gain = type == 0 ? 1.0 / (double) (mode + 1) : (double) BodyTuning::shapes[type - 1].gain[m];
+            const auto life = type == 0 ? 1.0 / (double) (mode + 1) : (double) BodyTuning::shapes[type - 1].lifetime[m];
+            hz[m] = root * ratio;
+            height[m] = gain * (1.0 - 0.5 * (1.0 - (double) material) * mode / 7.0);
+            width[m] = hz[m] * (0.012 + 0.07 / (1.0 + 5.0 * life * (double) lifeScale));
+        }
+
+        juce::Path path;
+        const auto steps = juce::jmax (16, (int) plot.getWidth() * 2);
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto f = lowHz * std::pow (highHz / lowHz, (double) i / (double) steps);
+            auto level = 0.0;
+            for (size_t m = 0; m < hz.size(); ++m)
+            {
+                const auto d = (f - hz[m]) / width[m];
+                level += height[m] / (1.0 + d * d);
+            }
+            const auto point = juce::Point<float> (plot.getX() + (float) i / (float) steps * plot.getWidth(),
+                                                   plot.getBottom() - (float) juce::jlimit (0.0, 1.0, std::sqrt (level)) * plot.getHeight());
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setOpacity (on);
+        IlanaTrace::paintArea (g, path, juce::Colour (0xffff6a2a), plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+    }
+};
+
+// SUB: one wave shape, two cycles at -1 octave and one at -2.
+class SubWaveDisplay : public ParamPicture
+{
+public:
+    explicit SubWaveDisplay (IlanaSynthAudioProcessor& p)
+        : ParamPicture (p, { "sub_shape", "sub_octave", "subosc_on" }, "The sub oscillator's wave: sine, square or saw, an octave or two below the note.") {}
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 4.0f);
+        const auto plot = bounds.reduced (4.0f, 2.0f);
+        const auto shape = juce::roundToInt (read ("sub_shape"));
+        const auto cycles = juce::roundToInt (read ("sub_octave")) == 1 ? 1.0 : 2.0;
+        juce::Path path;
+        const auto steps = juce::jmax (16, (int) plot.getWidth() * 2);
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto phase = std::fmod ((double) i / (double) steps * cycles, 1.0);
+            const auto v = shape == 1 ? (phase < 0.5 ? 1.0 : -1.0)
+                           : shape == 2 ? 1.0 - 2.0 * phase
+                                        : std::sin (juce::MathConstants<double>::twoPi * phase);
+            const auto point = juce::Point<float> (plot.getX() + (float) i / (float) steps * plot.getWidth(), plot.getCentreY() - (float) v * plot.getHeight() * 0.5f);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setOpacity (read ("subosc_on") > 0.5f ? 1.0f : 0.45f);
+        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+    }
+};
+
+// NOISE: its spectrum's slope, low pitches on the left: white is flat, pink falls 3 dB an octave, brown 6,
+// blue and violet rise, grey dips in the middle like the ear's own curve.
+class NoiseColourDisplay : public ParamPicture
+{
+public:
+    explicit NoiseColourDisplay (IlanaSynthAudioProcessor& p)
+        : ParamPicture (p, { "noise_type", "noise_on" }, "The noise colour's spectrum: low pitches left, high right.") {}
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 4.0f);
+        const auto plot = bounds.reduced (4.0f, 2.0f);
+        const auto type = juce::jlimit (0, 5, juce::roundToInt (read ("noise_type")));
+        const std::array<double, 6> slope { 0.0, -3.0, -6.0, 3.0, 6.0, 0.0 };
+        juce::Path path;
+        const auto steps = juce::jmax (16, (int) plot.getWidth());
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto x = (double) i / (double) steps; // 0..1 across ten octaves
+            auto db = slope[(size_t) type] * (x - 0.5) * 10.0;
+            if (type == 5)
+                db = 9.0 * (std::cos (juce::MathConstants<double>::twoPi * x * 0.9 + 0.2) * 0.5 - 0.1);
+            const auto y = plot.getCentreY() - (float) juce::jlimit (-1.0, 1.0, db / 15.0) * plot.getHeight() * 0.5f;
+            const auto point = juce::Point<float> (plot.getX() + (float) x * plot.getWidth(), y);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setOpacity (read ("noise_on") > 0.5f ? 1.0f : 0.45f);
+        IlanaTrace::paintArea (g, path, juce::Colour (0xffff6a2a), plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+    }
+};
+
 class PlayPage : public juce::Component,
                  private juce::Timer
 {
@@ -612,8 +793,15 @@ public:
             addAndMakeVisible (*card.slope);
             effectRules.add (*card.slope, [this, f] { return filterHasSlope (f); }, "this filter type has no slope");
             for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" }, { "_drive", "DRIVE" },
-                                      { "_env", "ENV AMT" }, { "_keytrack", "KEY TRK" }, { "_fm", "AUDIO FM" } })
+                                      { "_env", "ENV AMOUNT" }, { "_keytrack", "KEY TRACK" }, { "_fm", "AUDIO FM" } })
+            {
                 card.knobs.push_back (knob (prefix + spec.first, spec.second, colour));
+                card.knobs.back()->setPackedNameWrap (true);
+                // A DX7 voice has no filter until CUTOFF comes down: the rest dims (I14-3).
+                if (juce::String (spec.first) != "_cutoff")
+                    effectRules.add (*card.knobs.back(), [this] { return ! operatorFilterOff; },
+                                     "a DX7 voice has no filter: turn CUTOFF down to bring one in");
+            }
         }
 
         // WEST COAST: its switch, PLACE and GATE menus in the header, seven knobs.
@@ -679,6 +867,17 @@ public:
         subLevel = knob ("subosc_level", "LEVEL", subColour());
         noiseLevel = knob ("noise_level", "LEVEL", subColour());
         noiseColour = knob ("sub_colour", "COLOUR", subColour());
+        bodyDisplay = std::make_unique<BodyDisplay> (p);
+        addAndMakeVisible (*bodyDisplay);
+        subWave = std::make_unique<SubWaveDisplay> (p);
+        addAndMakeVisible (*subWave);
+        noiseBand = std::make_unique<NoiseColourDisplay> (p);
+        addAndMakeVisible (*noiseBand);
+        // Each half dims with its own switch; the cards keep their place.
+        for (auto* part : std::initializer_list<juce::Component*> { subShape.get(), subOctave.get(), subLevel.get(), noiseColour.get() })
+            effectRules.add (*part, [this] { return readInt ("subosc_on") != 0; }, "SUB is off: switch it on");
+        for (auto* part : std::initializer_list<juce::Component*> { noiseType.get(), noiseLevel.get() })
+            effectRules.add (*part, [this] { return readInt ("noise_on") != 0; }, "NOISE is off: switch it on");
 
         envelopeCard.onOpenInMod = [this] (int source)
         {
@@ -733,6 +932,18 @@ public:
         auto band2 = juce::Rectangle<int> (area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight);
         layoutBand1 (band1);
         layoutBand2 (band2);
+
+        // The cards' rectangles, for the layout tests' margin scan (x, y, width, height; name).
+        juce::String cards;
+        const auto note = [&cards] (const char* name, juce::Rectangle<int> r) { cards << name << "," << r.getX() << "," << r.getY() << "," << r.getWidth() << "," << r.getHeight() << ";"; };
+        note ("FILTER 1", filterCardBounds[0]);
+        note ("FILTER 2", filterCardBounds[1]);
+        note ("WEST", westBounds);
+        note ("ENVELOPE", envelopeCard.getBounds());
+        note ("LFO", lfoCard.getBounds());
+        note ("BODY", bodyBounds);
+        note ("SUB NOISE", subNoiseBounds);
+        getProperties().set ("playCards", cards);
     }
 
 private:
@@ -744,7 +955,7 @@ private:
         std::vector<std::unique_ptr<KnobControl>> knobs;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 36, westCell = 33;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 33, westCell = 31;
     static constexpr int minBand = 62, maxBand = 96;
     static constexpr float dialSize = 28.0f;
 
@@ -755,8 +966,13 @@ private:
 
     void timerCallback() override
     {
+        operatorFilterOff = operatorVoiceFilterOff (processorRef);
+        for (auto& card : filters)
+            card.display->setVoiceOff (operatorFilterOff);
         effectRules.apply();
     }
+
+    bool operatorFilterOff = false;
 
     int readInt (const juce::String& id) const
     {
@@ -795,13 +1011,13 @@ private:
     }
 
     // Knobs in one row at the 35 unit pitch, centred in `area`.
-    static void placeKnobRow (juce::Rectangle<int> area, const std::vector<KnobControl*>& row, int pitch = cell)
+    static void placeKnobRow (juce::Rectangle<int> area, const std::vector<KnobControl*>& row, int pitch = cell, int extraBelow = 0)
     {
         const auto width = (int) row.size() * pitch;
         auto x = area.getX() + (area.getWidth() - width) / 2;
         for (auto* knob : row)
         {
-            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10) / 2, pitch, (int) dialSize + 10 }));
+            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10 - extraBelow) / 2, pitch, (int) dialSize + 10 + extraBelow }));
             x += pitch;
         }
     }
@@ -828,7 +1044,7 @@ private:
     void layoutBand1 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 2 * hGap;
-        const auto filterWidth = juce::roundToInt ((float) total * 0.3641f);
+        const auto filterWidth = juce::roundToInt ((float) total * 0.351f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
@@ -847,24 +1063,25 @@ private:
             x += 92 + 6;
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
 
-            auto body = card.withTrimmedTop (headerHeight).reduced (5, 3);
+            // (The graph's edge is 5 from the card on the left; the last dial's ring is 5 from it on the right.)
+            auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
             const auto knobsWidth = (int) parts.knobs.size() * filterCell;
-            parts.display->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 4));
-            placeKnobRow (body, pointers (parts.knobs), filterCell);
+            parts.display->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 2));
+            placeKnobRow (body, pointers (parts.knobs), filterCell, 9);
         }
 
         {
             const auto centre = westBounds.getY() + headerHeight / 2;
             westOn->setBounds (switchIn (westBounds));
             auto x = westBounds.getX() + 23 + titleWidth ("WEST COAST") + 6;
-            westMode->setBounds ({ x, centre - 8, 56, 16 });
-            x += 56 + 3;
-            westPosition->setBounds ({ x, centre - 8, juce::jmax (40, westBounds.getRight() - 6 - 30 - 4 - x), 16 });
+            westMode->setBounds ({ x, centre - 8, 52, 16 });
+            x += 52 + 2;
+            westPosition->setBounds ({ x, centre - 8, juce::jmax (40, westBounds.getRight() - 6 - 30 - 2 - x), 16 });
             // The picture at the left, the seven knobs at a 33 pitch to its right.
-            auto body = westBounds.withTrimmedTop (headerHeight).reduced (5, 3);
+            auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
             const auto knobsWidth = (int) westKnobs.size() * westCell;
-            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 4));
-            placeKnobRow (body, pointers (westKnobs), westCell);
+            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 2));
+            placeKnobRow (body, pointers (westKnobs), westCell, 9);
         }
     }
 
@@ -886,35 +1103,53 @@ private:
         {
             const auto centre = bodyBounds.getY() + headerHeight / 2;
             const auto menuX = bodyBounds.getX() + 23 + titleWidth ("BODY") + 4;
-            bodyType->setBounds ({ menuX, centre - 8, juce::jmax (36, bodyBounds.getRight() - 7 - menuX), 16 });
-            placeKnobRow (bodyOf (bodyBounds).translated (3, 0), pointers (bodyKnobs));
+            // (The menu is as wide as its longest word needs, like the other header menus, not stretched to the card's edge.)
+            bodyType->setBounds ({ menuX, centre - 8, juce::jmin (juce::jmax (36, bodyBounds.getRight() - 7 - menuX), 66), 16 });
+            const auto body = bodyOf (bodyBounds).translated (3, 0);
+            placeKnobRow (body, pointers (bodyKnobs));
+            // The resonance picture takes the strip above the dials, the dials staying level with their neighbours'.
+            const auto dialTop = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
+            const auto top = bodyBounds.getY() + headerHeight + 3;
+            bodyDisplay->setBounds (juce::Rectangle<int> (bodyOf (bodyBounds).getX(), top, bodyOf (bodyBounds).getWidth(), juce::jmax (8, dialTop - 3 - top)));
         }
 
         {
             auto body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (8, 3);
             const auto centre = subNoiseBounds.getY() + headerHeight / 2;
-            noiseOn->setBounds (juce::Rectangle<int> (60, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 30, centre }));
-            subOn->setBounds (juce::Rectangle<int> (48, 17).withCentre ({ noiseOn->getX() - 4 - 24, centre }));
+            noiseOn->setBounds (juce::Rectangle<int> (66, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 33, centre }));
+            subOn->setBounds (juce::Rectangle<int> (54, 17).withCentre ({ noiseOn->getX() - 4 - 27, centre }));
             const auto menuHeight = 16;
             const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
-            // SUB: the wave menu over the octave pills, then LEVEL; NOISE: its colour menu, LEVEL and COLOUR.
-            // The menus line up with the dials (the dial's middle), the free width goes into the gaps.
-            const auto menuWidth = 58;
-            const auto used = menuWidth + cell + menuWidth + 2 * cell;
-            const auto between = juce::jlimit (1, 14, (body.getWidth() - used) / 3);
-            auto x = body.getX();
-            auto stack = juce::Rectangle<int> (x, knobY - 1, menuWidth, menuHeight * 2 + 3);
+            // One row at one gap: SUB's wave menu over its octave pills, LEVEL, COLOUR, then NOISE's colour menu and LEVEL.
+            // Both menus are the same size and sit on the dials' middle; the gaps are measured between what is drawn
+            // (a menu's edges, a dial's ring, COLOUR's name), the same between every pair and at both ends.
+            const auto menuWidth = 50, ringWidth = (int) dialSize, colourInk = 30;
+            body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (8, 3);
+            const auto ink = 2 * menuWidth + 2 * ringWidth + colourInk;
+            const auto gapInk = juce::jmax (2, (body.getWidth() - ink) / 6);
+            auto x = body.getX() + gapInk;
+            const auto subLeft = x;
+            auto stack = juce::Rectangle<int> (x, knobY + (int) dialSize / 2 - (menuHeight * 2 + 3) / 2, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));
             stack.removeFromTop (3);
             subOctave->setBounds (stack);
-            x += menuWidth + between;
-            knobAt (*subLevel, x);
-            x += cell + between;
+            x += menuWidth + gapInk;
+            knobAt (*subLevel, x - (cell - ringWidth) / 2);
+            x += ringWidth + gapInk;
+            knobAt (*noiseColour, x - (cell - colourInk) / 2);
+            const auto subRight = x + colourInk;
+            x += colourInk + gapInk;
+            const auto noiseLeft = x;
             noiseType->setBounds ({ x, knobY + (int) dialSize / 2 - menuHeight / 2, menuWidth, menuHeight });
-            x += menuWidth + between;
-            knobAt (*noiseLevel, x);
-            knobAt (*noiseColour, x + cell);
+            x += menuWidth + gapInk;
+            knobAt (*noiseLevel, x - (cell - ringWidth) / 2);
+            const auto right = x + ringWidth;
+            // The live strips over their halves, as BODY's over its dials.
+            const auto top = subNoiseBounds.getY() + headerHeight + 3;
+            const auto stripH = juce::jmax (8, knobY - 3 - top);
+            subWave->setBounds ({ subLeft, top, subRight - subLeft, stripH });
+            noiseBand->setBounds ({ noiseLeft, top, right - noiseLeft, stripH });
         }
     }
 
@@ -983,6 +1218,9 @@ private:
     juce::Rectangle<int> westBounds, bodyBounds, subNoiseBounds;
     std::unique_ptr<ToggleControl> westOn, subOn, noiseOn;
     std::unique_ptr<WestDisplay> westDisplay;
+    std::unique_ptr<BodyDisplay> bodyDisplay;
+    std::unique_ptr<SubWaveDisplay> subWave;
+    std::unique_ptr<NoiseColourDisplay> noiseBand;
     std::unique_ptr<ComboControl> westMode, westPosition, bodyType, subShape, noiseType;
     std::unique_ptr<PillChoice> subOctave;
     std::vector<std::unique_ptr<KnobControl>> westKnobs, bodyKnobs;

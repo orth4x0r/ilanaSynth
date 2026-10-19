@@ -1,0 +1,105 @@
+// The approved PLAY page (UI review 24): its cards' ink margins, the filter graphs' width and the
+// two-line knob names. Included by Snapshot.cpp after OscTypeUiTests.h; runPlayPageTests runs from
+// runUiTests, and alone with ILANA_UITEST_ONLY=PLAY.
+#pragma once
+
+// Where a card's content starts and ends, left and right, in pixels: the first and last column under the header
+// that differs from the card's own fill (the most common colour inside it).
+struct InkMargins { int left = -1, right = -1; };
+
+inline InkMargins scanInkMargins (const juce::Image& image, juce::Rectangle<int> card, int header)
+{
+    const auto body = card.withTrimmedTop (header + 2).withTrimmedBottom (4).reduced (4, 0).getIntersection (image.getBounds());
+    std::map<juce::uint32, int> counts;
+    for (int y = body.getY(); y < body.getBottom(); y += 2)
+        for (int x = body.getX(); x < body.getRight(); x += 2)
+            ++counts[image.getPixelAt (x, y).getARGB()];
+    juce::uint32 fill = 0;
+    auto best = 0;
+    for (const auto& [colour, count] : counts)
+        if (count > best)
+        {
+            best = count;
+            fill = colour;
+        }
+    const juce::Colour background (fill);
+    const auto differs = [&] (int x)
+    {
+        for (int y = body.getY(); y < body.getBottom(); ++y)
+        {
+            const auto c = image.getPixelAt (x, y);
+            if (std::abs ((int) c.getRed() - (int) background.getRed()) + std::abs ((int) c.getGreen() - (int) background.getGreen())
+                    + std::abs ((int) c.getBlue() - (int) background.getBlue()) > 36)
+                return true;
+        }
+        return false;
+    };
+    InkMargins margins;
+    for (int x = body.getX(); x < body.getRight(); ++x)
+        if (differs (x))
+        {
+            margins.left = x - card.getX();
+            break;
+        }
+    for (int x = body.getRight() - 1; x >= body.getX(); --x)
+        if (differs (x))
+        {
+            margins.right = card.getRight() - 1 - x;
+            break;
+        }
+    return margins;
+}
+
+void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
+{
+    processor.loadFactoryPreset (0);
+    settle (400);
+    editor.setSize (1060, 720);
+    editor.showPage ("MAIN");
+    settle (500);
+
+    std::vector<KnobControl*> knobs;
+    findAll<KnobControl> (editor, knobs);
+    KnobControl* anchor = nullptr;
+    for (auto* knob : knobs)
+        if (knob->getParameterId() == "west_fold")
+            anchor = knob;
+    expect (anchor != nullptr && anchor->getParentComponent() != nullptr, "PLAY: the page is found by WEST's FOLD knob");
+    if (anchor == nullptr || anchor->getParentComponent() == nullptr)
+        return;
+
+    auto* page = anchor->getParentComponent();
+    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+    juce::String report, uneven;
+    for (const auto& entry : juce::StringArray::fromTokens (page->getProperties()["playCards"].toString(), ";", ""))
+    {
+        const auto parts = juce::StringArray::fromTokens (entry, ",", "");
+        if (parts.size() != 5)
+            continue;
+        auto card = juce::Rectangle<int> (parts[1].getIntValue(), parts[2].getIntValue(), parts[3].getIntValue(), parts[4].getIntValue());
+        card = editor.getLocalArea (page, card);
+        const auto margins = scanInkMargins (image, card, 20);
+        report << parts[0] << " " << margins.left << "/" << margins.right << "  ";
+        if (margins.left < 0 || margins.right < 0 || std::abs (margins.left - margins.right) > 2)
+            uneven << parts[0] << " " << margins.left << "/" << margins.right << ", ";
+    }
+    std::cout << "  (PLAY ink margins left/right: " << report << ")" << std::endl;
+    // Where the first filter's graph and dial block sit, for the vertical centring check.
+    {
+        std::vector<FilterDisplay*> graphs;
+        findAll<FilterDisplay> (editor, graphs);
+        KnobControl* cutoff = nullptr;
+        for (auto* knob : knobs)
+            if (knob->getParameterId() == "f1_cutoff")
+                cutoff = knob;
+        for (auto* graph : graphs)
+            if (cutoff != nullptr && visibleInTree (graph))
+            {
+                const auto g = editor.getLocalArea (graph->getParentComponent(), graph->getBounds());
+                const auto d = editor.getLocalArea (cutoff, cutoff->packedCell());
+                std::cout << "  (PLAY F1 graph y " << g.getY() << ".." << g.getBottom() << ", cutoff cell y " << d.getY() << ".." << d.getBottom() << ")" << std::endl;
+                break;
+            }
+    }
+    expect (uneven.isEmpty(), "PLAY: every card's ink has equal left and right margins, within 2 px (" + uneven + ")");
+}

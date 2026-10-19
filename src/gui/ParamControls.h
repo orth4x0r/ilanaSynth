@@ -1161,6 +1161,13 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    // A packed name too wide for its cell breaks at its first space onto a second line ("KEY" over "TRACK"),
+    // in full words; the cell the page gives the knob must leave the room (about 9 px under the name).
+    void setPackedNameWrap (bool wrap)
+    {
+        packedNameWrap = wrap;
+        repaint();
+    }
     // Pixels a packed value may run past the dial's width before its unit is dropped ("1.20 kHz").
     void setPackedValueRoom (int pixels)
     {
@@ -1450,20 +1457,28 @@ public:
         const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
-        // PLAY's dials (setPackedValueRoom): every value one size, four characters at most so it
-        // keeps clear of the ring: "20k", "300", "+1.5", "x1.0", "100%". The name under the dial says what it is.
+        // PLAY's dials (setPackedValueRoom): the number on top in one size, its unit under it in one smaller
+        // size ("300" over "ms"); a value with no unit stays on one line, four characters at most so it keeps
+        // clear of the ring: "100%", "x1.0", "+1.5". The name under the dial says what it is.
+        auto unit = juce::String();
         if (packedValueRoom > 0)
         {
-            if (value.endsWith (" kHz"))
+            if (value.containsChar (' '))
             {
-                const auto khz = value.upToFirstOccurrenceOf (" ", false, false).getDoubleValue();
-                value = (khz >= 9.95 ? juce::String (juce::roundToInt (khz)) : juce::String (khz, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".")) + "k";
-            }
-            if (value.length() > 4 && value.containsChar (' '))
+                unit = value.fromLastOccurrenceOf (" ", false, false);
                 value = value.upToLastOccurrenceOf (" ", false, false);
+                // ("20.0" kHz is "20": a whole number needs no decimal; a long unit word, "stages", is the name's job.)
+                if (unit == "kHz" && value.endsWith (".0"))
+                    value = value.dropLastCharacters (2);
+                if (unit.length() > 3)
+                    unit = {};
+            }
             if (value.length() > 4 && value.containsChar ('.') && ! value.endsWithChar ('%'))
-                value = value.dropLastCharacters (value.length() - 4);
-            if (value.length() > 4 && value.endsWithChar ('%'))
+                value = value.dropLastCharacters (value.length() - 4).trimCharactersAtEnd (".");
+            if (unit.isEmpty() && value.length() > 4 && value.endsWithChar ('%'))
+                value = value.dropLastCharacters (1);
+            // (At a small zoom the type holds its screen floor: "100%" then loses its sign, never its size.)
+            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (6.9f, true, true)), value) > inner.getWidth() + 0.5f)
                 value = value.dropLastCharacters (1);
         }
         else
@@ -1482,7 +1497,20 @@ public:
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         auto drawn = packedValueRoom > 0 ? IlanaTheme::font (6.9f, true, true) : valueFont (value);
         g.setFont (drawn);
-        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
+        if (unit.isNotEmpty())
+        {
+            const auto numberH = drawn.getHeight();
+            const auto unitFont = drawn.withHeight (numberH * 0.78f);
+            const auto total = numberH + unitFont.getHeight() - 1.0f;
+            const auto top = inner.getCentreY() - total * 0.5f;
+            const auto box = inner.toNearestInt().expanded (1, 0);
+            IlanaTheme::drawFitted (g, value, juce::Rectangle<float> (box.getX(), top, box.getWidth(), numberH).toNearestInt(), juce::Justification::centred, 1);
+            g.setFont (unitFont);
+            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (on));
+            IlanaTheme::drawFitted (g, unit, juce::Rectangle<float> (box.getX(), top + numberH - 1.0f, box.getWidth(), unitFont.getHeight()).toNearestInt(), juce::Justification::centred, 1);
+        }
+        else
+            IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
 
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
@@ -1491,7 +1519,16 @@ public:
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
             const auto nameFont = IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
-            IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
+            const auto lineHeight = (int) std::ceil (nameFont.getHeight()) + 1;
+            if (packedNameWrap && name.containsChar (' ')
+                && juce::GlyphArrangement::getStringWidth (juce::Font (nameFont), name) > (float) (packedNameArea.getWidth() - 2 * packedPadX - 8) - 2.0f)
+            {
+                auto area = packedNameArea;
+                IlanaTheme::drawFitted (g, name.upToFirstOccurrenceOf (" ", false, false), area.removeFromTop (lineHeight), juce::Justification::centredTop, 1);
+                IlanaTheme::drawFitted (g, name.fromFirstOccurrenceOf (" ", false, false), area.removeFromTop (lineHeight), juce::Justification::centredTop, 1);
+            }
+            else
+                IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
         }
     }
 
@@ -2701,6 +2738,7 @@ private:
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
     int packedValueRoom = 0;
+    bool packedNameWrap = false;
     juce::Rectangle<int> packedNameArea;
     std::unique_ptr<juce::TextEditor> valueEditor;
     juce::Rectangle<int> inlineValueArea;

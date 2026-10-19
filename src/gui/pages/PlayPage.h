@@ -407,12 +407,12 @@ private:
         if (graph == nullptr)
             return;
 
-        auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 4);
+        auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
         const auto cell = kind == Kind::envelope ? 36 : 35;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
-        const auto lfoColumn = 94;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 8)
-                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 10);
+        const auto lfoColumn = 86;
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 6)
+                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 12);
         graph->setBounds (body.removeFromLeft (graphWidth));
         body.removeFromLeft (6);
         const auto place = [&] (KnobControl& knob, int x)
@@ -649,7 +649,7 @@ public:
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
 
         // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
-        const auto band1Height = juce::jlimit (minBand, 76, bandsHeight - gap - 90);
+        const auto band1Height = juce::jlimit (minBand, 84, bandsHeight - gap - 90);
         const auto bandHeight = bandsHeight - gap - band1Height;
         auto band1 = juce::Rectangle<int> (area.getX(), bandsTop, area.getWidth(), band1Height);
         auto band2 = juce::Rectangle<int> (area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight);
@@ -667,7 +667,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35;
-    static constexpr int minBand = 62, maxBand = 88;
+    static constexpr int minBand = 62, maxBand = 96;
     static constexpr float dialSize = 25.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }

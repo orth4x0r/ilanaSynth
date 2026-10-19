@@ -2310,7 +2310,7 @@ private:
     int stripHeight() const { return stripHeightFor (stripBonus); }
 
     // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
-    int topNow() const { return embedded ? 4 : topMargin; }
+    int topNow() const { return embedded ? 2 : topMargin; }
     int gapNow() const { return embedded ? 0 : gap; }
     int bottomNow() const { return embedded ? 0 : bottomMargin; }
 

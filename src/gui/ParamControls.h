@@ -1451,8 +1451,12 @@ public:
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
         // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
-        if (packedValueRoom > 0 && value.endsWith (".00 kHz"))
-            value = value.replace (".00 kHz", " kHz");
+        // (and every kHz value is "20k" / "1.2k": one size that fits inside the ring.)
+        if (packedValueRoom > 0 && value.endsWith (" kHz"))
+        {
+            const auto khz = value.upToFirstOccurrenceOf (" ", false, false).getDoubleValue();
+            value = (khz >= 9.95 ? juce::String (juce::roundToInt (khz)) : juce::String (khz, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".")) + "k";
+        }
         const auto room = (float) packedValueRoom;
         // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
         const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;

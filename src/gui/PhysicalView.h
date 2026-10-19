@@ -433,7 +433,7 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     exciter.push_back ({ "_string_excite_pos", "POSITION" });
 
     if (plucked)
-        exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
+        exciter.push_back ({ "_string_pick_hardness", "HARDNESS" }); // (PICK POS merged into POSITION)
 
     if (excite == 5 || piano)
         exciter.push_back ({ "_hammer_hard", "HAMMER" });

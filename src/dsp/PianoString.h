@@ -454,7 +454,7 @@ private:
         // Hammer: heavier, softer felt in the bass; HAMMER voices the felt.
         hammerMass = logLerp ((double) t.massBass, (double) t.massTreble) * 0.001;
         hammerExponent = lerp ((double) t.exponentBass, (double) t.exponentTreble);
-        hammerStiffness = logLerp ((double) t.feltBass, (double) t.feltTreble) * std::pow (4.0, ((double) hardness - 0.5) * 2.0 * (double) t.hardnessRange);
+        hammerStiffness = logLerp ((double) t.feltBass, (double) t.feltTreble) * std::pow (4.0, ((double) hardness - 0.5) * 3.2 * (double) t.hardnessRange);
         hammerHysteresis = (double) t.hysteresis * 1.0e-4;
         // String impedance sqrt(T mu): heavy wound strings in the bass.
         impedance = octavesFromC4 < 0.0 ? (double) t.impedanceC4 * std::pow ((double) t.impedanceBass / (double) t.impedanceC4, juce::jmin (1.0, -octavesFromC4 / 3.25))
@@ -465,7 +465,7 @@ private:
 
         // Inharmonicity: B rises towards the treble (short, thick strings);
         // STIFF sets the C4 value.
-        inharmonicity = (double) t.inharmonicityC4 * std::pow (10.0, ((double) stiffness - 0.5) * 2.0)
+        inharmonicity = (double) t.inharmonicityC4 * std::pow (10.0, ((double) stiffness - 0.5) * 3.2)
                         * std::pow (2.0, octavesFromC4 * (octavesFromC4 > 0.0 ? (double) t.inharmonicityTreble : -(double) t.inharmonicityBass));
         stages = eco ? maxStages / 2 : maxStages;
 

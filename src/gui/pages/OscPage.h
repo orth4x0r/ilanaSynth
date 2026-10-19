@@ -2250,7 +2250,11 @@ private:
             return 1 + cardHeaderHeight + sampleTopH + panelGap + physBottomH + cardPad + 1;
 
         // (A live or FM / DX7 card is the wavetable card's height with two warp rows.)
-        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
+        // A granular card is one row of panels, as tall as its tallest panel (MIX) needs.
+        if (kindOf (osc) == Kind::grain)
+            return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 10) + panelTail + 1 + cardPad + 1;
+
+        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
         const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
@@ -3058,10 +3062,11 @@ private:
             const auto top = middle (c, cellH + 4 + spreadH);
             osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
             auto x = c.getX() + 55 + 3;
+            const auto uniCell = (c.getRight() - x) / 4;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread })
             {
-                placeKnob (*knob, x, top, 40, mainDial);
-                x += 40;
+                placeKnob (*knob, x, top, uniCell, mainDial);
+                x += uniCell;
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
@@ -3075,26 +3080,27 @@ private:
         // TEMPO: SYNC and TIME one over the other, BPM beside them.
         {
             const auto c = addPanel (lowRect (2), "TEMPO");
-            const auto bpmCell = 36;
-            const auto menuW = c.getWidth() - bpmCell - 4;
+            const auto bpmCell = 40, menuW = 104;
+            const auto gap = (c.getWidth() - bpmCell - menuW) / 3; // equal margins and gap
             const auto top = middle (c, 2 * menuH + 4);
-            osc.sampleSync.setBounds ({ c.getX(), top, menuW, menuH });
-            osc.sampleStretch.setBounds ({ c.getX(), top + menuH + 4, menuW, menuH });
-            placeKnob (osc.sampleBpm, c.getRight() - bpmCell, middle (c, cellH), bpmCell, mainDial);
+            osc.sampleSync.setBounds ({ c.getX() + gap, top, menuW, menuH });
+            osc.sampleStretch.setBounds ({ c.getX() + gap, top + menuH + 4, menuW, menuH });
+            placeKnob (osc.sampleBpm, c.getX() + 2 * gap + menuW, middle (c, cellH), bpmCell, mainDial);
         }
 
         // PLAYBACK: MODE and QUALITY, PING-PONG and TRANSIENT SAFE, RANDOM.
         {
             const auto c = addPanel (lowRect (3), "PLAYBACK");
-            const auto randomCell = 40, gapW = 6, menuW = 96;
-            const auto toggleW = c.getWidth() - randomCell - 2 * gapW - menuW;
+            // One even row: menus, toggles hugging their names, RANDOM; equal gaps and margins.
+            const auto randomCell = 40, menuW = 88, toggleW = 96;
+            const auto gapW = (c.getWidth() - randomCell - menuW - toggleW) / 4;
             const auto top = middle (c, 2 * menuH + 4);
-            osc.samplePlayback.setBounds ({ c.getX(), top, menuW, menuH });
-            osc.sampleQuality.setBounds ({ c.getX(), top + menuH + 4, menuW, menuH });
-            const auto toggleX = c.getX() + menuW + gapW;
+            osc.samplePlayback.setBounds ({ c.getX() + gapW, top, menuW, menuH });
+            osc.sampleQuality.setBounds ({ c.getX() + gapW, top + menuH + 4, menuW, menuH });
+            const auto toggleX = c.getX() + 2 * gapW + menuW;
             osc.samplePingPong.setBounds ({ toggleX, top, toggleW, 16 });
             osc.sampleStartSafe.setBounds ({ toggleX, top + menuH + 4, toggleW, 16 });
-            placeKnob (osc.sampleStartRandom, c.getRight() - randomCell, middle (c, cellH), randomCell, mainDial);
+            placeKnob (osc.sampleStartRandom, c.getX() + 3 * gapW + menuW + toggleW, middle (c, cellH), randomCell, mainDial);
         }
 
         pieces.status.setBounds (card.statusArea);
@@ -3125,7 +3131,7 @@ private:
             const auto c = addPanel (0, "CLOUD");
             // The six grain knobs in one row, as the mock; the picture keeps the rest, wide rather than
             // tall, with FREEZE (and LIVE) as chips on its foot.
-            const auto cell = 36;
+            const auto cell = 37;
             const auto knobsW = 6 * cell;
             const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
             const auto pictureH = juce::jmin (c.getHeight(), left * 3 / 4);
@@ -3137,7 +3143,7 @@ private:
             for (int i = 0; i < 6; ++i)
                 placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
             const auto toggleY = picture.getBottom() - 20;
-            osc.grainFreeze.setBounds ({ picture.getX() + 4, toggleY + 3, juce::jmin (54, picture.getWidth() - 8), 14 });
+            osc.grainFreeze.setBounds ({ picture.getX() + 4, toggleY + 5, juce::jmin (48, picture.getWidth() - 8), 12 });
             osc.grainFreeze.toFront (false);
             if (IlanaSynthAudioProcessor::isEffectBuild)
             {
@@ -3193,10 +3199,11 @@ private:
             const auto top = middle (c, cellH + 4 + spreadH);
             osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
             auto x = c.getX() + 55 + 3;
+            const auto uniCell = (c.getRight() - x) / 5;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.grainSpread })
             {
-                placeKnob (*knob, x, top, 36, mainDial);
-                x += 36;
+                placeKnob (*knob, x, top, uniCell, mainDial);
+                x += uniCell;
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;

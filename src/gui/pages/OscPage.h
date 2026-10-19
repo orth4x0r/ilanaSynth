@@ -2846,16 +2846,17 @@ private:
         {
             const auto c = addPanel (1, "PITCH");
             const auto top = middle (c, cellH + 3 + menuH);
+            const auto pitchCell = 33; // (the TUNING menu keeps room for "Ratio")
             const auto tuning = OscRole::tuning (processorRef, index);
             auto x = c.getX();
-            placeKnob (osc.semi, x, top, knobCell, mainDial);
-            x += knobCell;
-            placeKnob (osc.fine, x, top, knobCell, mainDial);
-            x += knobCell;
+            placeKnob (osc.semi, x, top, pitchCell, mainDial);
+            x += pitchCell;
+            placeKnob (osc.fine, x, top, pitchCell, mainDial);
+            x += pitchCell;
             if (tuning != OscTuning::Semitones)
             {
-                placeKnob (tuning == OscTuning::Ratio ? osc.ratio : osc.fixedHz, x, top, knobCell, mainDial);
-                x += knobCell;
+                placeKnob (tuning == OscTuning::Ratio ? osc.ratio : osc.fixedHz, x, top, pitchCell, mainDial);
+                x += pitchCell;
             }
             osc.tune.setBounds ({ x + 3, top + 4, c.getRight() - x - 3, menuH });
             const auto lower = top + cellH + 3;

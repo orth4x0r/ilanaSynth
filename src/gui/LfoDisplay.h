@@ -318,6 +318,7 @@ public:
 
         // The value scale last, on small plates just inside the graph's left edge: a node
         // or a trace at the edge never covers it.
+        if (! minimal)
         {
             const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
             g.setFont (tiny);
@@ -334,7 +335,7 @@ public:
 
         // The snap grid's own control, on the graph wherever a drag makes
         // (or will make) a curve.
-        if (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape))
+        if (! minimal && (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)))
         {
             // A menu, not a label: the pill ends in a chevron (V10-20).
             const auto chip = gridChipBounds();
@@ -491,6 +492,9 @@ public:
     int getGridDivisions() const { return gridDivisions; }
     void setGridDivisions (int divisions) { gridDivisions = divisions; repaint(); }
 
+    // A small picture (PLAY's LFO card): no value scale, no GRID chip.
+    void setMinimal (bool shouldBeMinimal) { minimal = shouldBeMinimal; repaint(); }
+
 private:
     void mouseDown (const juce::MouseEvent& event) override
     {
@@ -506,7 +510,7 @@ private:
             return;
         }
 
-        if ((shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
+        if (! minimal && (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
         {
             showGridMenu();
             return;
@@ -609,7 +613,7 @@ private:
         {
             curve = processorRef.getLfoCurve (index);
 
-            if (gridChipBounds().contains (event.position) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
+            if ((! minimal && gridChipBounds().contains (event.position)) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
                 cursor = juce::MouseCursor::PointingHandCursor;
         }
 
@@ -1320,6 +1324,7 @@ private:
     int dragTension = -1;
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
+    bool minimal = false;
     bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
     int pendingOutputDrag = -1;        // a press on a simulated shape's output tag (0 A, 1 B)
     int draggedStep = -1;              // the step being set, for its readout

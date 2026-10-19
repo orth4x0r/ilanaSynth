@@ -57,6 +57,13 @@ public:
     }
     bool isVoiceOff() const { return voiceOff; }
 
+    // A card of one filter (PLAY's): -1 shows both, 0 or 1 only that one's curve and marker.
+    void setOnlyFilter (int index)
+    {
+        onlyFilter = index;
+        repaint();
+    }
+
     void paint (juce::Graphics& g) override
     {
         IlanaAnim::countPaint ("filter");
@@ -89,6 +96,11 @@ public:
                 g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withX (plot.getX() + (float) frequencyToX (frequency) * plot.getWidth()).withY (plot.getY()));
         }
 
+        // A card that shows one filter (PLAY's) is the curve and its marker only: no grid, axis or spectrum.
+        const auto bare = onlyFilter >= 0;
+
+        if (! bare)
+        {
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         for (const auto frequency : { 100.0, 1000.0, 10000.0 })
@@ -124,34 +136,39 @@ public:
 
         drawSpectrum (g, plot);
         drawSweepBands (g, plot);
+        }
 
         // The modulated response, faint, under the set one (UI review 4,
         // V23 and S4): the curve and markers you drag stay where the knobs
         // are, and modulation shows as a moving shadow.
-        if (isModulated (0) || isModulated (1))
+        if ((shows (0) && isModulated (0)) || (shows (1) && isModulated (1)))
         {
-            drawCurve (g, plot, 1, filterColour (1), true);
-            drawCurve (g, plot, 0, filterColour (0), true);
+            if (shows (1))
+                drawCurve (g, plot, 1, filterColour (1), true);
+            if (shows (0))
+                drawCurve (g, plot, 0, filterColour (0), true);
         }
 
-        if (! filter2Replaced())
+        if (shows (1) && ! filter2Replaced())
             drawCurve (g, plot, 1, filterColour (1), false);
-        drawCurve (g, plot, 0, filterColour (0), false);
+        if (shows (0))
+            drawCurve (g, plot, 0, filterColour (0), false);
 
         // WEST's low-pass gate, dashed, where it is open now (or fully
-        // struck while nothing plays): UI review 6, I6-16.
-        if (readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_mode")) != 2)
+        // struck while nothing plays): UI review 6, I6-16. (Not in a card that shows one filter.)
+        if (onlyFilter < 0 && readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_mode")) != 2)
             drawWestCurve (g, plot);
 
         const auto markers = markerCentres (plot);
 
         for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
-            if (isModulated (filterIndex) && ! (filterIndex == 1 && filter2Replaced()))
+            if (shows (filterIndex) && isModulated (filterIndex) && ! (filterIndex == 1 && filter2Replaced()))
                 drawModMarker (g, plot, filterIndex, markers[(size_t) filterIndex], filterColour (filterIndex));
 
-        if (! filter2Replaced())
+        if (shows (1) && ! filter2Replaced())
             drawMarker (g, plot, markers[1], 1, filterColour (1));
-        drawMarker (g, plot, markers[0], 0, filterColour (0));
+        if (shows (0))
+            drawMarker (g, plot, markers[0], 0, filterColour (0));
 
         readoutBoxDrawn = {};
         if (big)
@@ -191,6 +208,9 @@ public:
     // nearest cutoff across, so a click anywhere picks a filter.
     int filterAt (juce::Point<float> position) const
     {
+        if (onlyFilter >= 0)
+            return onlyFilter;
+
         const auto markers = getMarkerCentres();
         auto best = -1;
         auto bestDistance = 1.0e9f;
@@ -886,6 +906,8 @@ private:
     double sweepLo[2] { 0.0, 0.0 }, sweepHi[2] { 0.0, 0.0 };
     bool sweepSeen[2] { false, false };
     bool voiceOff = false;
+    int onlyFilter = -1;
+    bool shows (int filterIndex) const { return onlyFilter < 0 || onlyFilter == filterIndex; }
 
     static constexpr int fftSize = 2048;
     juce::dsp::FFT fft { 11 };

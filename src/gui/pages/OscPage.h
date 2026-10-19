@@ -1698,7 +1698,8 @@ public:
         for (const auto& card : cards)
             paintOscCard (g, card);
 
-        paintStrip (g);
+        if (! embedded)
+            paintStrip (g);
     }
 
     // A right-click on a card's header: switch it off or remove it (the old
@@ -1745,6 +1746,16 @@ public:
     }
 
     int getSelectedOscillator() const { return selected; }
+
+    // PLAY hosts the cards alone: no VOICE / NOISE / SUB / STRINGS strip below them.
+    void setEmbedded (bool shouldEmbed)
+    {
+        if (embedded == shouldEmbed)
+            return;
+
+        embedded = shouldEmbed;
+        updateModeVisibility();
+    }
 
     // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
     // unless it had a type), or as that type. The add row and the UI tests.
@@ -2282,7 +2293,10 @@ private:
         return heights;
     }
 
-    bool canAdd() const { return numShown() < OscillatorIds::count; }
+    // (Embedded on PLAY the row shows only while a card or two leave room: three oscillators and the
+    // two module rows fill the page, and the OSC tab adds more.)
+    bool canAdd() const { return numShown() < (embedded ? embeddedAddRowBelow : OscillatorIds::count); }
+    static constexpr int embeddedAddRowBelow = 3;
 
     // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
     int stripPanelHeight() const { return stripPanelBase + stripBonus; }
@@ -2290,13 +2304,18 @@ private:
     int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (stripOpen ? 2 * (panel + panelGap) : 0); }
     int stripHeight() const { return stripHeightFor (stripBonus); }
 
+    // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
+    int topNow() const { return embedded ? 4 : topMargin; }
+    int gapNow() const { return embedded ? 5 : gap; }
+    int bottomNow() const { return embedded ? 0 : bottomMargin; }
+
     int contentHeight (const std::vector<int>& heights) const
     {
-        auto total = topMargin + stripHeightFor (0) + bottomMargin;
+        auto total = topNow() + (embedded ? 0 : stripHeightFor (0)) + bottomNow();
         for (const auto height : heights)
-            total += height + gap;
+            total += height + gapNow();
         if (canAdd())
-            total += addRowHeight + gap;
+            total += addRowHeight + gapNow();
         return total;
     }
 
@@ -2332,6 +2351,7 @@ private:
         }
 
         // What the cards left over goes to the strip's panels: bigger dials where the window has room.
+        if (! embedded)
         {
             auto used = contentHeight (heights);
             const auto rows = stripOpen ? 4 : 2;
@@ -2344,7 +2364,7 @@ private:
         }
 
         const auto width = getWidth() - sideMargin * 2;
-        auto y = topMargin;
+        auto y = topNow();
 
         for (size_t i = 0; i < shown.size(); ++i)
         {
@@ -2354,7 +2374,7 @@ private:
             card.bounds = { sideMargin, y, width, heights[i] };
             layoutCard (card);
             cards.push_back (card);
-            y += heights[i] + gap;
+            y += heights[i] + gapNow();
         }
 
         addArea = {};
@@ -2376,7 +2396,15 @@ private:
             addFmButton.setBounds (row.removeFromRight (addFmWidth));
             row.removeFromRight (gap);
             addButton.setBounds (row);
-            y += addRowHeight + gap;
+            y += addRowHeight + gapNow();
+        }
+
+        // (Embedded on PLAY: the cards alone, no strip below them.)
+        if (embedded)
+        {
+            stripArea = {};
+            stripPanels.clear();
+            return;
         }
 
         const auto stripY = juce::jmax (y, getHeight() - bottomMargin - stripHeight());
@@ -3784,13 +3812,13 @@ private:
                                                                     voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
                                                                     subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount, &symCount,
                                                                     &symDecay, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix, &moreButton })
-            item->setVisible (true);
+            item->setVisible (! embedded);
 
         for (auto* item : std::initializer_list<juce::Component*> { &symManual, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            item->setVisible (stripOpen);
+            item->setVisible (stripOpen && ! embedded);
 
         for (auto& note : symNotes)
-            note->setVisible (stripOpen && readBool ("sym_manual"));
+            note->setVisible (stripOpen && ! embedded && readBool ("sym_manual"));
 
         moreButton.setButtonText (stripOpen ? juce::String ("LESS ") + juce::String::fromUTF8 ("\xe2\x96\xb4")
                                             : juce::String ("MORE ") + juce::String::fromUTF8 ("\xe2\x96\xbe"));
@@ -4180,6 +4208,7 @@ private:
     int selected = 0;
     int stripBonus = 0;
     bool stripOpen = false;
+    bool embedded = false; // on PLAY: the oscillator cards without the voice strip
     float laidOutScale = 0.0f;
 
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
@@ -4241,6 +4270,8 @@ public:
     // labels and dials read like the other tabs'. Where it would have to
     // scroll, it stays at 1.
     static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
+    // PLAY's copy keeps its cards at their drawn size (the bands under them are not scaled).
+    void setMaximumScale (float scale) { maxScale = scale; }
 
     void resized() override
     {
@@ -4248,7 +4279,7 @@ public:
         if (auto* page = getPage())
         {
             const auto width = (float) getWidth(), height = (float) getHeight();
-            const auto widest = juce::jlimit (1.0f, maximumContentScale, width / minimumVirtualWidth);
+            const auto widest = juce::jlimit (1.0f, maxScale, width / minimumVirtualWidth);
 
             auto chosen = 1.0f;
             for (auto scale = widest; scale > 1.005f; scale -= 0.02f)
@@ -4275,5 +4306,8 @@ public:
                            juce::jmax (getHeight(), needed));
         }
     }
+
+private:
+    float maxScale = maximumContentScale;
 };
 } // namespace

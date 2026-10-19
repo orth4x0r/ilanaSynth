@@ -174,6 +174,13 @@ INSTRUMENTS["cello"] = {
               "osc1_string_stiffness": 0.3, "osc1_string_excite_pos": 0.2, "osc1_string_pickup": 0.0},
 }
 
+# the fitted guitar plus the Guitar body (phase 3): only the body's knobs are searched
+INSTRUMENTS["guitar_body"] = {**INSTRUMENTS["guitar"],
+    "base": {"osc1_excite": 0, "osc1_unison": 1, "subosc_on": 0, "res_on": 1, "body_type": 5},
+    "params": [("res_amount", 0.0, 1.0, 0.3), ("res_decay", 0.0, 1.0, 0.3),
+               ("body_material", 0.0, 1.0, 0.3), ("body_size", 0.0, 1.0, 0.3)],
+    "start": {**{"osc1_string_decay": 0.9085, "osc1_string_damp": 0.425, "osc1_string_stiffness": 0.505, "osc1_string_excite_pos": 0.525, "osc1_string_pick_hardness": 0.0037, "osc1_string_pickup": 0.785}, "res_amount": 0.3, "res_decay": 0.3, "body_material": 0.2, "body_size": 0.5}}
+
 for _e in (1, 2, 3, 5):                      # the same recording fitted from another exciter: guitar_2 etc.
     INSTRUMENTS[f"guitar_{_e}"] = {**INSTRUMENTS["guitar"], "base": {"osc1_excite": _e, "osc1_unison": 1, "subosc_on": 0}}
 

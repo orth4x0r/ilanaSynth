@@ -1031,7 +1031,7 @@ inline const HelpRow helpRows[] {
     { is ("arp_gate"), "Note length within each step." },
     // BODY
     { is ("res_on"), "Turns the BODY section on. Classic keeps the original three-comb resonator." },
-    { is ("body_type"), "Classic, bar, plate, bell or shell. Material bodies use the oscillator mix as their exciter." },
+    { is ("body_type"), "Classic, bar, plate, bell, shell or guitar. Material bodies use the oscillator mix as their exciter." },
     { is ("body_material"), "Morph from wood through metal to glass: brightness, modal tuning and ring time." },
     { is ("body_size"), "Larger bodies ring at lower modal frequencies." },
     { is ("body_coupling_mode"), "Direction of energy transfer. String to body, body to string, or between strings." },

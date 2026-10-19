@@ -291,7 +291,7 @@ private:
 
     juce::String bodyName() const
     {
-        const juce::StringArray bodies { "CLASSIC BODY", "BAR", "PLATE", "BELL", "SHELL" };
+        const juce::StringArray bodies { "CLASSIC BODY", "BAR", "PLATE", "BELL", "SHELL", "GUITAR BODY" };
         const auto type = (int) readGlobal ("body_type");
         if (readGlobal ("sb_on") > 0.5f)
             return readGlobal ("sb_model") > 0.5f ? "SOUNDBOARD (DENSE)" : "SOUNDBOARD";

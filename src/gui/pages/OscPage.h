@@ -812,7 +812,7 @@ public:
         {
             // The packed MIX panel's row: OUT, the bar, the level in dB.
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (6.0f, true).withKerningFactor (0.09f));
+            g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
             const auto valueW = 34.0f;
@@ -822,7 +822,7 @@ public:
             g.setColour (colour.withAlpha (0.95f));
             g.fillRoundedRectangle (track.withWidth (juce::jmax (5.0f, track.getWidth() * level)), 2.5f);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (6.0f, false, true));
+            g.setFont (IlanaTheme::font (7.5f, false, true));
             IlanaTheme::drawFitted (g, db, area.withLeft (area.getRight() - valueW).toNearestInt(), juce::Justification::centredRight, 1);
             return;
         }
@@ -914,7 +914,7 @@ public:
     }
 
 private:
-    static juce::Font chipFont() { return IlanaTheme::font (6.3f, true).withKerningFactor (0.08f); }
+    static juce::Font chipFont() { return IlanaTheme::font (7.8f, true).withKerningFactor (0.08f); }
     juce::String text;
     bool solid = false;
 };
@@ -1824,9 +1824,9 @@ private:
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 175, mixW = 164, unisonW = 275;
-    static constexpr int mainDial = 25, ampDial = 20, frameDial = 40, nameLine = 8, knobCell = 35, ampCell = 27, menuH = 16;
-    static constexpr int ampRowH = 27, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 18, stripDial = 22, stripPanelH = 52, stripBaseHeight = 2 * stripPanelH + panelGap, stripRowsExtra = 2 * (stripPanelH + panelGap);
+    static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
+    static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
+    static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2140,7 +2140,7 @@ private:
             "Another oscillator drives the string.",
             "A struck tine and its pickup.",
             "A struck reed and its pickup.",
-            "A felt strike: HAMMER sets its brightness, POSITION where it lands.",
+            "A felt strike; HAMMER sets brightness.",
             "The amp pushes sound back at the string." };
         return hints[juce::jlimit (0, 10, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
     }
@@ -2282,11 +2282,15 @@ private:
 
     bool canAdd() const { return numShown() < OscillatorIds::count; }
 
-    int stripHeight() const { return stripBaseHeight + (stripOpen ? stripRowsExtra : 0); }
+    // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
+    int stripPanelHeight() const { return stripPanelBase + stripBonus; }
+    int stripDialSize() const { return stripDialBase + stripBonus; }
+    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (stripOpen ? 2 * (panel + panelGap) : 0); }
+    int stripHeight() const { return stripHeightFor (stripBonus); }
 
     int contentHeight (const std::vector<int>& heights) const
     {
-        auto total = topMargin + stripHeight() + bottomMargin;
+        auto total = topMargin + stripHeightFor (0) + bottomMargin;
         for (const auto height : heights)
             total += height + gap;
         if (canAdd())
@@ -2323,6 +2327,18 @@ private:
             else if (! compacts.empty())
                 for (const auto i : compacts)
                     heights[i] = juce::jmin (maximumCardHeight (shown[i]), heights[i] + slack / (int) compacts.size());
+        }
+
+        // What the cards left over goes to the strip's panels: bigger dials where the window has room.
+        {
+            auto used = contentHeight (heights);
+            const auto rows = stripOpen ? 4 : 2;
+            const auto bonus = juce::jlimit (0, stripMaxBonus, (getHeight() - used) / rows);
+            if (bonus != stripBonus)
+            {
+                stripBonus = bonus;
+                applyStripStyle();
+            }
         }
 
         const auto width = getWidth() - sideMargin * 2;
@@ -2994,7 +3010,7 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         for (const auto& label : card.labels)
         {
-            g.setFont (label.hint ? IlanaTheme::font (6.6f) : IlanaTheme::font (6.0f, true).withKerningFactor (0.09f));
+            g.setFont (label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, label.text, label.area, label.hint ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
         }
     }
@@ -3019,7 +3035,7 @@ private:
             g.setColour (panel.colour);
             g.fillRect (panel.area.withHeight (2).reduced (5, 0));
 
-            const auto titleFont = IlanaTheme::font (6.0f, true).withKerningFactor (0.13f);
+            const auto titleFont = IlanaTheme::font (7.6f, true).withKerningFactor (0.13f);
             const auto titleArea = juce::Rectangle<int> (panel.area.getX() + 6, panel.area.getY() + panelTop, panel.area.getWidth() - 12, panelTitleH - 1);
             g.setColour (panel.colour);
             g.setFont (titleFont);
@@ -3028,7 +3044,7 @@ private:
             if (panel.note.isNotEmpty())
             {
                 g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (6.0f));
+                g.setFont (IlanaTheme::font (7.5f));
                 IlanaTheme::drawFitted (g, panel.note, titleArea.withTrimmedLeft (titleWidth), juce::Justification::centredLeft, 1);
             }
         }
@@ -3071,12 +3087,12 @@ private:
             used += entry.width;
         const auto each = (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size());
         auto x = (float) c.getX() + each * 0.5f;
-        const auto cellH = stripDial + nameLine;
+        const auto cellH = stripDialSize() + nameLine;
         for (const auto& entry : entries)
         {
             const auto left = juce::roundToInt (x);
             if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
-                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDial);
+                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDialSize());
             else if (auto* toggle = dynamic_cast<ToggleControl*> (entry.item))
                 toggle->setBounds ({ left, c.getY() + (c.getHeight() - 15) / 2 - 1, entry.width, 15 });
             else
@@ -3088,7 +3104,7 @@ private:
     // A group that is its own switch: the dot and name stand where a panel's title does.
     void placeStripSwitch (ToggleControl& toggle, juce::Rectangle<int> panel, const juce::String& name) const
     {
-        const auto width = 9 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (6.0f, true).withKerningFactor (0.13f)), name) + 8;
+        const auto width = 9 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (7.6f, true).withKerningFactor (0.13f)), name) + 8;
         toggle.setBounds ({ panel.getX() + 6, panel.getY() + panelTop, width, panelTitleH - 1 });
     }
 
@@ -3098,10 +3114,10 @@ private:
         const auto cols = columnsFor (stripArea.getX(), stripArea.getWidth());
         const auto accent = IlanaTheme::accent();
         const auto grey = stripGrey();
-        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelH + panelGap;
+        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + panelGap;
         const auto panelAt = [&] (int from, int to, int y, const juce::String& title, juce::Colour colour)
         {
-            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelH);
+            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight());
             stripPanels.push_back ({ area, title, {}, colour });
             return area;
         };
@@ -3128,10 +3144,10 @@ private:
         // Under MORE: the strings' manual tuning, then the keys' extras.
         if (stripOpen)
         {
-            const auto tuning = panelAt (0, 3, rowBY + stripPanelH + panelGap, "STRING TUNING", grey);
+            const auto tuning = panelAt (0, 3, rowBY + stripPanelHeight() + panelGap, "STRING TUNING", grey);
             placeStripRow (tuning, { { &symManual, 66 }, { symNotes[0].get(), knobCell }, { symNotes[1].get(), knobCell }, { symNotes[2].get(), knobCell },
                                      { symNotes[3].get(), knobCell }, { symNotes[4].get(), knobCell }, { symNotes[5].get(), knobCell } });
-            const auto keys = panelAt (0, 3, rowBY + 2 * (stripPanelH + panelGap), "KEYS", accent);
+            const auto keys = panelAt (0, 3, rowBY + 2 * (stripPanelHeight() + panelGap), "KEYS", accent);
             placeStripRow (keys, { { &stretch, knobCell }, { &pedalRes, knobCell }, { &mechKey, knobCell }, { &mechDamper, knobCell }, { &mechPedal, knobCell } });
         }
     }
@@ -3144,9 +3160,9 @@ private:
         for (auto* knob : { voiceCount.get(), bendRange.get(), glideTime.get(), voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(),
                             noiseColourStrip.get(), subOscLevel.get(), &symAmount, &symCount, &symDecay, &sbSize, &sbTone, &sbMix,
                             &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            knob->setPackedDial ((float) stripDial);
+            knob->setPackedDial ((float) stripDialSize());
         for (auto& note : symNotes)
-            note->setPackedDial ((float) stripDial);
+            note->setPackedDial ((float) stripDialSize());
         for (auto* menu : { voiceMode.get(), &subShape, &subOctave, &sbModel })
             menu->setPackedMenu (true);
         glideLegato->setPackedName (ToggleControl::NamePlace::left);
@@ -3585,7 +3601,6 @@ private:
             menu->setPackedMenu (panels);
         osc.table.setPackedMenu (kind == Kind::wavetable);
         waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
-        waveDisplay (index).setRibbonLook (kind == Kind::wavetable);
 
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
         const auto string = kind == Kind::physical;
@@ -4109,6 +4124,7 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> scrubberAttachments;
     int lastRevealVersion = -1;
     int selected = 0;
+    int stripBonus = 0;
     bool stripOpen = false;
     float laidOutScale = 0.0f;
 
@@ -4165,11 +4181,40 @@ public:
 
     OscPage* getPage() const { return dynamic_cast<OscPage*> (getViewedComponent()); }
 
+    // The page is laid out for 1060 design units of width, and its cards pack
+    // a lot in; where the window is wider than the packing needs, the whole
+    // page is drawn this much larger (the wave column takes the rest), so the
+    // labels and dials read like the other tabs'. Where it would have to
+    // scroll, it stays at 1.
+    static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
+
     void resized() override
     {
         juce::Viewport::resized();
         if (auto* page = getPage())
         {
+            const auto width = (float) getWidth(), height = (float) getHeight();
+            const auto widest = juce::jlimit (1.0f, maximumContentScale, width / minimumVirtualWidth);
+
+            auto chosen = 1.0f;
+            for (auto scale = widest; scale > 1.005f; scale -= 0.02f)
+            {
+                page->setSize (juce::jmax (1, juce::roundToInt (width / scale)), juce::jmax (1, juce::roundToInt (height / scale)));
+                if (page->getMinimumHeight() <= juce::roundToInt (height / scale))
+                {
+                    chosen = scale;
+                    break;
+                }
+            }
+
+            page->setTransform (juce::AffineTransform::scale (chosen));
+
+            if (chosen > 1.0f)
+            {
+                page->setSize (juce::roundToInt (width / chosen), juce::roundToInt (height / chosen));
+                return;
+            }
+
             const auto needed = page->getMinimumHeight();
             const auto scrolls = needed > getHeight();
             page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)),

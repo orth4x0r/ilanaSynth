@@ -127,13 +127,13 @@ public:
                 };
                 const auto sustain = optional ("_string_sustain", "SUSTAIN"), feedback = optional ("_string_sustain", "FEEDBACK");
                 const auto stiff = optional ("_string_stiffness", "STIFF"), position = optional ("_string_excite_pos", "POSITION");
-                const auto hardness = optional ("_string_pick_hardness", "HARDNESS"), pickPos = optional ("_string_pick_pos", "PICK POS");
+                const auto hardness = optional ("_string_pick_hardness", "HARDNESS"); // (PICK POS is merged into POSITION)
                 const auto slap = optional ("_string_slap", "SLAP"), pickup = optional ("_string_pickup", "PICKUP");
                 const auto hammer = optional ("_hammer_hard", "HAMMER"), buzz = optional ("_bridge_buzz", "BUZZ");
                 const auto distance = optional ("_fb_distance", "DISTANCE");
                 // (exciters: 0-3 pluck, rub, saw, pulse; 4 bow; 5 hammer; 6 oscillator; 7 tine; 8 reed; 9 piano; 10 feedback)
                 for (int e = 0; e <= 3; ++e)
-                    strip->stringRows[(size_t) e] = line ({ sustain, stiff, position, hardness, pickPos, slap });
+                    strip->stringRows[(size_t) e] = line ({ sustain, stiff, position, hardness, slap, pickup });
                 strip->stringRows[4] = line ({ sustain, stiff, position, optional ("_bow_pressure", "GRIP"), optional ("_bow_speed", "SPEED"), pickup });
                 strip->stringRows[5] = line ({ sustain, stiff, position, hammer, slap, pickup });
                 strip->stringRows[6] = line ({ sustain, stiff, position, slap, pickup, buzz });

@@ -162,6 +162,18 @@ def reference(name):
     return data
 
 
+INSTRUMENTS["cello"] = {
+    "runs": [("Cello.arco.mf.sulC.C2Ab2.aiff", 36, 9, 90), ("Cello.arco.mf.sulD.D3B3.aiff", 50, 10, 90),
+             ("Cello.arco.mf.sulA.C4C5.aiff", 60, 12, 90)],
+    "pick": {"D2": 38, "Ab2": 44, "D3": 50, "A3": 57, "E4": 64, "A4": 69},
+    "base": {"osc1_excite": 4, "osc1_unison": 1, "subosc_on": 0},
+    "params": [("osc1_bow_pressure", 0.0, 1.0, 0.3), ("osc1_bow_speed", 0.0, 1.0, 0.3), ("osc1_string_decay", 0.0, 1.0, 0.3),
+               ("osc1_string_damp", 0.0, 1.0, 0.3), ("osc1_string_stiffness", 0.0, 1.0, 0.3),
+               ("osc1_string_excite_pos", 0.0, 1.0, 0.3), ("osc1_string_pickup", 0.0, 1.0, 0.3)],
+    "start": {"osc1_bow_pressure": 0.5, "osc1_bow_speed": 0.5, "osc1_string_decay": 0.8, "osc1_string_damp": 0.35,
+              "osc1_string_stiffness": 0.3, "osc1_string_excite_pos": 0.2, "osc1_string_pickup": 0.0},
+}
+
 for _e in (1, 2, 3, 5):                      # the same recording fitted from another exciter: guitar_2 etc.
     INSTRUMENTS[f"guitar_{_e}"] = {**INSTRUMENTS["guitar"], "base": {"osc1_excite": _e, "osc1_unison": 1, "subosc_on": 0}}
 
@@ -206,14 +218,15 @@ def fit(name, iterations):
     folder = os.path.join(OUT, name)
     os.makedirs(folder, exist_ok=True)
     best_path = os.path.join(folder, "best.json")
-    current = json.load(open(best_path)) if os.path.exists(best_path) else dict(START)
+    params = INSTRUMENTS[name].get("params", PARAMETERS)
+    current = json.load(open(best_path)) if os.path.exists(best_path) else dict(INSTRUMENTS[name].get("start", START))
     score = evaluate(name, ref, [current], os.path.join(folder, "r"))[0]
     log = open(os.path.join(folder, "log.txt"), "a")
     print(f"start {score}", file=log, flush=True)
     width = 1.0
     for it in range(iterations):
         improved = False
-        for p, lo, hi, _ in PARAMETERS:
+        for p, lo, hi, _ in params:
             cands = []
             for v in np.linspace(max(lo, current[p] - width / 2), min(hi, current[p] + width / 2), 9):
                 v = round(float(v), 4)

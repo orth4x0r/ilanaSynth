@@ -1243,7 +1243,10 @@ inline std::vector<FactoryPreset> build()
              .fx ({ FxLimiter, FxReverb }).limiter (-3.0f).reverb (Hall, 0.6f, 0.2f));
 
     add (B ("Nylon String", "Pluck")
-             .string (1, 0.85f, 0, 0.7f, 0.45f)
+             .string (1, 0.85f, 0, 0.9085f, 0.425f)
+             // Fitted to the University of Iowa nylon guitar (tools/fit_string.py, phase 2 of the physical overhaul).
+             .set ("osc1_string_stiffness", 0.505f).set ("osc1_string_excite_pos", 0.525f)
+             .set ("osc1_string_pick_hardness", 0.004f).set ("osc1_string_pickup", 0.785f).set ("subosc_on", 0)
              .filter1 (LP, 7000.0f, 0.0f, 0.0f, 1.0f, 0.3f)
              .amp (0.001f, 2.0f, 0.0f, 0.5f)
              .velocity (0.6f).master (-2.0f)

@@ -377,12 +377,9 @@ inline juce::String noteName (const juce::String&, float value)
 // A ratio as the FM page's diagram and headers write it (review 7, I7-33).
 inline juce::String ratio (const juce::String&, float value)
 {
-    // (From 10 up a whole number when it is one, else one decimal: "x14" fits the packed knob's ring at every zoom.)
+    // (From 10 up a whole number: "x14" fits the packed knob's ring at every zoom.)
     const auto rounded = std::round (value * 100.0f) / 100.0f;
-    if (rounded < 10.0f)
-        return times() + juce::String (rounded, 2);
-    const auto tenths = std::round (value * 10.0f) / 10.0f;
-    return times() + (std::abs (tenths - std::round (tenths)) < 0.05f ? juce::String ((int) std::round (tenths)) : juce::String (tenths, 1));
+    return times() + (rounded < 10.0f ? juce::String (rounded, 2) : juce::String ((int) std::round (value)));
 }
 
 inline juce::String fixedHertz (const juce::String&, float value)

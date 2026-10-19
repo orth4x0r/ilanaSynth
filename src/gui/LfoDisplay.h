@@ -705,15 +705,19 @@ private:
     juce::Rectangle<float> wellArea() const
     {
         const auto bounds = getLocalBounds().toFloat();
+        if (minimal)
+            return bounds;
         return LfoSimShapes::isSim ((int) readParam ("_shape")) ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
     }
 
-    juce::Rectangle<float> plotArea() const { return wellArea().reduced (10.0f, 14.0f); }
+    juce::Rectangle<float> plotArea() const { return minimal ? wellArea().reduced (8.0f, 7.0f) : wellArea().reduced (10.0f, 14.0f); }
 
     // One cycle's ruler under the graph: its time at RATE in Hz, or note
     // values while SYNC is on, at the quarters.
     void paintTimeRuler (juce::Graphics& g, juce::Rectangle<float> plot) const
     {
+        if (minimal)
+            return;
         const auto rulerY = (float) getHeight() - rulerHeight;
         const auto synced = readParam ("_sync") > 0.5f;
         juce::StringArray labels;

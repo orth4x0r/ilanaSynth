@@ -3017,7 +3017,7 @@ private:
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 14.0f, (float) centre }, tint);
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (embedded ? 13.0f : 10.0f, true));
         IlanaTheme::drawFitted (g, "OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 23, centre - 9, 38, 18), juce::Justification::centredLeft, 1);
 
         if (isFolded (index))

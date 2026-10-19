@@ -294,6 +294,12 @@ private:
         });
     }
 
+    static juce::String destinationShortName (int destination)
+    {
+        const auto parts = ModNames::destinationParts (destination);
+        return parts.control.isEmpty() ? parts.module : parts.control;
+    }
+
     void refreshSources()
     {
         auto wanted = wantedSources();
@@ -322,7 +328,7 @@ private:
         {
             const auto slots = modSlotsDrivenBy (processorRef, selected);
             auto text = slots.empty() ? juce::String ("Drives nothing")
-                                      : juce::String (ModNames::destination (processorRef.readModSlot (slots.front()).destination)).fromLastOccurrenceOf (" > ", false, false)
+                                      : destinationShortName (processorRef.readModSlot (slots.front()).destination)
                                             + (slots.size() > 1 ? " +" + juce::String ((int) slots.size() - 1) : juce::String());
             if (text != chipText)
             {
@@ -349,6 +355,7 @@ private:
         {
             auto knob = std::make_unique<KnobControl> (state, id, label, colour, false);
             knob->setPackedDial (dialSize);
+            knob->setPackedValueRoom (10);
             addAndMakeVisible (*knob);
             knobs.push_back (std::move (knob));
         };
@@ -374,6 +381,7 @@ private:
             rate = std::make_unique<LfoRateControl> (processorRef, lfo, colour, false);
             rate->addTo (*this);
             rate->getRateKnob().setPackedDial (dialSize);
+            rate->getRateKnob().setPackedValueRoom (10);
             rate->getDivisionKnob().setPackedDial (dialSize);
             rate->setShown (true);
             dial (prefix + "_smooth", "SMOOTH");
@@ -489,6 +497,7 @@ public:
         {
             auto control = std::make_unique<KnobControl> (state, id, label, colour, false);
             control->setPackedDial (dialSize);
+            control->setPackedValueRoom (10);
             addAndMakeVisible (*control);
             return control;
         };

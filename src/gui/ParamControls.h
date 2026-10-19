@@ -1161,6 +1161,12 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    // Pixels a packed value may run past the dial's width before its unit is dropped ("1.20 kHz").
+    void setPackedValueRoom (int pixels)
+    {
+        packedValueRoom = pixels;
+        repaint();
+    }
     // The whole cell a packed knob takes for a dial (the page sizes it with this).
     // The cell a packed knob stands in, without the room round it for the rings (a layout test's measure).
     juce::Rectangle<int> packedCell() const { return isPacked() ? getLocalBounds().reduced (packedPadX, 0).withTrimmedTop (packedPadTop) : getLocalBounds(); }
@@ -1444,7 +1450,10 @@ public:
         const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
-        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 0.5f && value.containsChar (' '))
+        const auto room = (float) packedValueRoom;
+        // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
+        const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;
+        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + (longUnit ? 0.0f : room) + 0.5f && value.containsChar (' '))
             value = value.upToLastOccurrenceOf (" ", false, false);
         // (Under the floor at a small zoom even "100%" is wider than the dial: the number alone.)
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 2.5f && value.endsWithChar ('%'))
@@ -1452,7 +1461,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         g.setFont (valueFont (value));
-        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
+        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1 + packedValueRoom / 2, 0), juce::Justification::centred, 1);
 
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
@@ -2670,6 +2679,7 @@ private:
     bool hover = false;
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
+    int packedValueRoom = 0;
     juce::Rectangle<int> packedNameArea;
     std::unique_ptr<juce::TextEditor> valueEditor;
     juce::Rectangle<int> inlineValueArea;

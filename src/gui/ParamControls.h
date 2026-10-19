@@ -3578,23 +3578,20 @@ public:
         g.setColour (IlanaTheme::Ui::line);
         g.drawRoundedRectangle (box, 4.0f, 1.0f);
 
-        // The name on the left; while the pointer is on the bar (or dragging) the value takes its place.
-        const auto inner = getLocalBounds().reduced (3, 0);
-        if (isMouseOverOrDragging())
-        {
-            g.setFont (IlanaTheme::font (7.3f));
-            g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
-            g.drawText (juce::String (juce::roundToInt (getValue() * 100.0)) + "%", inner, juce::Justification::centredLeft, false);
-        }
-        else
-        {
-            g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-            g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f).withMultipliedAlpha (alpha));
-            g.drawText (name, inner, juce::Justification::centredLeft, false);
-        }
+        // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
+        // by its ink: the caps' middle on the bar's middle.
+        const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
+        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (7.3f) : IlanaTheme::font (6.5f, true).withKerningFactor (0.08f);
+        g.setFont (font);
+        g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
+        const juce::Font f (font);
+        const auto capMiddle = f.getAscent() - f.getHeight() * 0.35f; // (the caps' middle below the box top)
+        const auto top = (float) getHeight() * 0.5f - capMiddle + inkNudge;
+        g.drawText (text, juce::Rectangle<float> (0.4f, top, (float) getWidth(), f.getHeight()), juce::Justification::centred, false);
     }
 
 private:
+    static constexpr float inkNudge = -0.75f; // (the font box sits the caps a little low)
     void mouseEnter (const juce::MouseEvent& e) override { KeyboardSlider::mouseEnter (e); repaint(); }
     void mouseExit (const juce::MouseEvent& e) override { KeyboardSlider::mouseExit (e); repaint(); }
 

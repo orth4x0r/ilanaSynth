@@ -262,7 +262,7 @@ public:
     }
 
     // For the tests: the search, the tables shown, and picking a built-in table.
-    void pickBuiltInTable (int index) { pickBuiltIn (index); }
+    void pickBuiltInTable (int index) { pick (builtInBase() + index); }
 
     void setSearchText (const juce::String& text) { search.setText (text, true); }
 
@@ -686,16 +686,10 @@ private:
         }
 
         previewed = choice;
-        auto value = choice;
+        const auto value = choice;
 
-        // A built-in table is heard from a User slot, given back on leaving.
         if (choice >= builtInBase())
-        {
-            const auto slot = placeBuiltIn (choice - builtInBase(), true);
-            if (slot < 0)
-                return;
-            value = TableFactory::getNumFactoryTables() + slot;
-        }
+            BuiltInTables::build (choice - builtInBase()); // ready before the note
 
         parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
         processorRef.triggerPreviewNote (60, true, 0.7f);
@@ -714,45 +708,6 @@ private:
 
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) originalChoice));
-
-        if (previewSlot >= 0)
-        {
-            processorRef.clearUserTable (previewSlot);
-            previewSlot = -1;
-        }
-    }
-
-    // Copies built-in table index into a User slot and returns it (-1: none
-    // free). A slot already holding that table is reused. For a listen the
-    // slot is remembered in previewSlot, so leaving without a pick frees it.
-    int placeBuiltIn (int index, bool forListen)
-    {
-        WavetableDoc doc;
-        if (! BuiltInTables::load (index, doc))
-            return -1;
-
-        for (int slot = 0; slot < IlanaSynthAudioProcessor::numUserSlots; ++slot)
-            if (slot != previewSlot)
-                if (const auto held = processorRef.getUserTableDocPtr (slot);
-                    held != nullptr && held->name == doc.name && held->frames == doc.frames)
-                {
-                    if (previewSlot >= 0)
-                    {
-                        processorRef.clearUserTable (previewSlot);
-                        previewSlot = -1;
-                    }
-                    return slot;
-                }
-
-        auto slot = forListen && previewSlot >= 0 ? previewSlot : processorRef.findFreeUserSlot();
-
-        if (slot < 0 || ! processorRef.setUserTable (slot, doc))
-            return -1;
-
-        if (forListen)
-            previewSlot = slot;
-
-        return slot;
     }
 
     void pickAt (juce::Point<int> position)
@@ -783,10 +738,7 @@ private:
         restoreOriginal();
 
         if (choice >= builtInBase())
-        {
-            pickBuiltIn (choice - builtInBase());
-            return;
-        }
+            BuiltInTables::build (choice - builtInBase()); // ready before the first note
 
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
         {
@@ -797,28 +749,6 @@ private:
                 parameter->endChangeGesture();
             });
         }
-
-        if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
-            callOut->dismiss();
-    }
-
-    // The table and the choice in one undo step, as LOAD... does.
-    void pickBuiltIn (int index)
-    {
-        processorRef.beginEdit ("Load wavetable");
-        const auto slot = placeBuiltIn (index, false);
-
-        if (slot >= 0)
-        {
-            if (auto* parameter = processorRef.apvts.getParameter (parameterId))
-                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (TableFactory::getNumFactoryTables() + slot)));
-        }
-
-        processorRef.endEdit();
-
-        if (slot < 0)
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable",
-                                                    "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to replace it.");
 
         if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
             callOut->dismiss();
@@ -872,5 +802,4 @@ private:
     juce::Rectangle<int> chipRow;
     float scale = 1.0f;
     juce::String lastPack;
-    int previewSlot = -1; // a User slot holding a built-in table only for a HEAR listen
 };

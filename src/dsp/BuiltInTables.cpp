@@ -3,7 +3,9 @@
 #include <WavetableData.h>
 
 #include <cmath>
+#include <atomic>
 #include <cstring>
+#include <mutex>
 
 namespace
 {
@@ -136,6 +138,85 @@ bool BuiltInTables::load (int index, WavetableDoc& doc)
 
     doc = WavetableDoc::fromFrames (name (index), std::move (frames));
     return true;
+}
+
+namespace
+{
+struct Built
+{
+    std::vector<std::atomic<const Wavetable*>> tables;
+    std::vector<std::atomic<bool>> wanted;
+    std::atomic<bool> anyWanted { false };
+    std::mutex lock;
+
+    explicit Built (size_t count) : tables (count), wanted (count)
+    {
+        for (auto& table : tables)
+            table.store (nullptr);
+        for (auto& flag : wanted)
+            flag.store (false);
+    }
+};
+
+Built& built()
+{
+    static Built instance (entries().size());
+    return instance;
+}
+} // namespace
+
+const Wavetable* BuiltInTables::table (int index)
+{
+    return index >= 0 && index < count() ? built().tables[(size_t) index].load (std::memory_order_acquire) : nullptr;
+}
+
+const Wavetable* BuiltInTables::build (int index)
+{
+    if (index < 0 || index >= count())
+        return nullptr;
+
+    auto& state = built();
+    if (const auto* ready = state.tables[(size_t) index].load (std::memory_order_acquire))
+        return ready;
+
+    const std::lock_guard<std::mutex> guard (state.lock);
+    if (const auto* ready = state.tables[(size_t) index].load (std::memory_order_acquire))
+        return ready;
+
+    WavetableDoc doc;
+    if (! load (index, doc) || doc.frames.empty())
+        return nullptr;
+
+    auto* wavetable = new Wavetable(); // lives for the whole program, like the factory tables
+    wavetable->setName (name (index));
+    wavetable->buildFromFrames (doc.frames);
+    state.tables[(size_t) index].store (wavetable, std::memory_order_release);
+    return wavetable;
+}
+
+void BuiltInTables::want (int index)
+{
+    if (index < 0 || index >= count())
+        return;
+
+    auto& state = built();
+    state.wanted[(size_t) index].store (true, std::memory_order_relaxed);
+    state.anyWanted.store (true, std::memory_order_release);
+}
+
+bool BuiltInTables::anyWanted()
+{
+    return built().anyWanted.load (std::memory_order_acquire);
+}
+
+void BuiltInTables::buildWanted()
+{
+    auto& state = built();
+    state.anyWanted.store (false, std::memory_order_release);
+
+    for (int i = 0; i < count(); ++i)
+        if (state.wanted[(size_t) i].exchange (false, std::memory_order_relaxed))
+            build (i);
 }
 
 const BuiltInTables::Preview& BuiltInTables::preview (int index)

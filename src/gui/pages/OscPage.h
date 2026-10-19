@@ -3503,7 +3503,7 @@ private:
         // A User table selected is replaced; with a factory table
         // selected the file goes to a free User slot (never over
         // another oscillator's table).
-        auto slot = domain >= factoryCount
+        auto slot = domain >= factoryCount && domain < factoryCount + IlanaSynthAudioProcessor::numUserSlots
                         ? juce::jlimit (0, IlanaSynthAudioProcessor::numUserSlots - 1, domain - factoryCount)
                         : processorRef.findFreeUserSlot();
 
@@ -4055,15 +4055,19 @@ public:
     {
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processorRef.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table")))
         {
-            // Stepping skips the empty User slots (there are hundreds).
+            // Stepping skips the empty User slots (there are hundreds); the built-in tables follow them.
             const auto factoryCount = TableFactory::getNumFactoryTables();
+            const auto builtInBase = factoryCount + IlanaSynthAudioProcessor::numUserSlots;
+            const auto usable = [&] (int i) { return i < factoryCount || i >= builtInBase || processorRef.isUserSlotEdited (i - factoryCount); };
             auto next = choice->getIndex();
             do
                 next += step;
-            while (next >= factoryCount && next < choice->choices.size() && ! processorRef.isUserSlotEdited (next - factoryCount));
+            while (next >= 0 && next < choice->choices.size() && ! usable (next));
             next = juce::jlimit (0, choice->choices.size() - 1, next);
-            if (next >= factoryCount && ! processorRef.isUserSlotEdited (next - factoryCount))
+            if (! usable (next))
                 next = choice->getIndex();
+            if (next >= builtInBase)
+                BuiltInTables::build (next - builtInBase); // ready before the first note
             if (next != choice->getIndex())
                 processorRef.performEdit ("OSC " + juce::String (index + 1) + " table", [choice, next]
                 {
@@ -4079,7 +4083,8 @@ public:
         const auto id = juce::String (OscillatorIds::prefixes[(size_t) index]) + "_table";
         const auto factoryCount = TableFactory::getNumFactoryTables();
         const auto choice = readTableChoiceIndex (id);
-        auto slot = choice - factoryCount;
+        const auto builtInBase = factoryCount + IlanaSynthAudioProcessor::numUserSlots;
+        auto slot = choice < builtInBase ? choice - factoryCount : -1;
 
         if (slot < 0)
         {
@@ -4090,7 +4095,11 @@ public:
                                                         "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to edit it.");
                 return;
             }
-            auto doc = WavetableDoc::fromFactory (choice);
+            auto doc = WavetableDoc::fromFactory (0);
+            if (choice < factoryCount)
+                doc = WavetableDoc::fromFactory (choice);
+            else
+                BuiltInTables::load (choice - builtInBase, doc);
             doc.name << " edit";
             // The copy and the switch to it are one undo step.
             processorRef.beginEdit ("Edit a copy of the table");

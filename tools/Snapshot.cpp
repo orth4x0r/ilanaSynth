@@ -6125,7 +6125,7 @@ int runUiTests()
                         "the table search filters (" + saws.joinIntoString (", ") + ")");
 
                 // The built-in packs: listed after the factory tables, found by the search,
-                // and a pick copies the table into a free User slot and selects it.
+                // and a pick selects it like a factory table.
                 expect (BuiltInTables::count() > 300, "the synth carries its built-in wavetables");
                 const auto builtIn = BuiltInTables::count() / 2;
                 expect (all.contains (BuiltInTables::name (builtIn)), "the browser lists the built-in tables");
@@ -6136,14 +6136,14 @@ int runUiTests()
                 const auto slotBefore = processor.findFreeUserSlot();
                 browser.pickBuiltInTable (builtIn);
                 const auto table = juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load());
-                const auto slot = table - TableFactory::getNumFactoryTables();
-                expect (slot == slotBefore && processor.isUserSlotEdited (slot)
-                            && processor.getUserTableDoc (slot).name == BuiltInTables::name (builtIn)
-                            && processor.getUserTableDoc (slot).getNumFrames() >= 1,
-                        "picking a built-in table loads it into a free User slot and selects it");
-                browser.pickBuiltInTable (builtIn);
-                expect (juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load()) == table,
-                        "picking it again reuses the slot");
+                expect (table == TableFactory::getNumFactoryTables() + IlanaSynthAudioProcessor::numUserSlots + builtIn
+                            && processor.findFreeUserSlot() == slotBefore && BuiltInTables::table (builtIn) != nullptr
+                            && processor.getWavetable (table) == BuiltInTables::table (builtIn),
+                        "picking a built-in table selects it as a factory table (no User slot used) and it is ready to play");
+                expect (processor.getWavetable (table)->getName() == BuiltInTables::name (builtIn)
+                            && processor.apvts.getParameter ("osc1_table") != nullptr
+                            && dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"))->getCurrentChoiceName() == BuiltInTables::name (builtIn),
+                        "the choice reads as the table's name");
                 expect (all.contains ("Hard Sync") && ! all.contains ("DriveSaw") && ! all.contains ("Basic"),
                         "table names show as spaced Title Case, ANALOG's Basic as Analog Saw");
             }

@@ -2440,14 +2440,14 @@ private:
     // what PITCH, MIX and UNISON leave (the strip below uses the same ones).
     struct Columns { int x[4]; int w[4]; };
 
-    static Columns columnsFor (int left, int width)
+    static Columns columnsFor (int left, int width, int pitch = pitchW, int unison = unisonW)
     {
         Columns c;
         const auto total = width - 2 - 2 * cardPad;
-        c.w[1] = pitchW;
+        c.w[1] = pitch;
         c.w[2] = mixW;
-        c.w[3] = unisonW;
-        c.w[0] = total - pitchW - mixW - unisonW - 3 * panelGap;
+        c.w[3] = unison;
+        c.w[0] = total - pitch - mixW - unison - 3 * panelGap;
         auto x = left + 1 + cardPad;
         for (int i = 0; i < 4; ++i)
         {
@@ -2996,7 +2996,7 @@ private:
             const auto toggleW = 66, toggleH = 16, toggleGap = 6, firstW = 74; // wide enough for REVERSE and LOOP PTS in full
             const auto secondX = c.getRight() - toggleW;
             const auto firstX = secondX - 6 - firstW;
-            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 8 - c.getX()), c.getHeight() });
+            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 6 - c.getX()), c.getHeight() });
             for (auto& item : scrubbers)
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
@@ -3011,7 +3011,7 @@ private:
             row = 0;
             for (auto* toggle : { &osc.sampleLoopOwn, &osc.sampleSnap })
                 toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
-            placeKnob (osc.sampleLoopXfade, secondX + (toggleW - 42) / 2, y0 + 2 * pitch - 2, 42, ampDial); // centred under the second column
+            placeKnob (osc.sampleLoopXfade, secondX + toggleW - 40, y0 + 2 * pitch - 2, 40, ampDial); // centred under the second column of switches
         }
 
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
@@ -3092,7 +3092,7 @@ private:
         {
             const auto c = addPanel (lowRect (3), "PLAYBACK");
             // One even row: menus, toggles hugging their names, RANDOM; equal gaps and margins.
-            const auto randomCell = 40, menuW = 88, toggleW = 96;
+            const auto randomCell = 40, menuW = 88, toggleW = 88;
             const auto gapW = (c.getWidth() - randomCell - menuW - toggleW) / 4;
             const auto top = middle (c, 2 * menuH + 4);
             osc.samplePlayback.setBounds ({ c.getX() + gapW, top, menuW, menuH });
@@ -3117,7 +3117,7 @@ private:
         const auto tint = oscColour (index);
         const auto inner = card.bounds.reduced (1);
         const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
-        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth(), 156, 246);
         const auto panelRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], rowArea.getY(), cols.w[column], rowArea.getHeight()); };
         const auto addPanel = [&] (int column, const juce::String& title) { card.panels.push_back ({ panelRect (column), title, {}, tint }); return panelContent (panelRect (column)); };
         const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
@@ -3131,22 +3131,21 @@ private:
             const auto c = addPanel (0, "CLOUD");
             // The six grain knobs in one row, as the mock; the picture keeps the rest, wide rather than
             // tall, with FREEZE (and LIVE) as chips on its foot.
-            const auto cell = 37;
+            const auto cell = 36;
             const auto knobsW = 6 * cell;
             const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
-            const auto chipH = 12, chipGap = 3;
-            const auto pictureH = juce::jmin (c.getHeight() - chipH - chipGap, left * 3 / 4);
-            const auto blockTop = middle (c, pictureH + chipGap + chipH);
-            const juce::Rectangle<int> picture (c.getX(), blockTop, left, pictureH);
+            const auto chipH = 12;
+            const auto pictureH = juce::jmin (c.getHeight(), left * 11 / 20); // wide, as the mock's
+            const juce::Rectangle<int> picture (c.getX(), middle (c, pictureH), left, pictureH);
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
             KnobControl* grains[] { &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch };
             for (int i = 0; i < 6; ++i)
                 placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
-            // FREEZE is a small chip under the picture, so the cloud shows whole.
-            const auto toggleY = picture.getBottom() + chipGap;
-            osc.grainFreeze.setBounds ({ picture.getX() + (picture.getWidth() - juce::jmin (48, picture.getWidth())) / 2, toggleY, juce::jmin (48, picture.getWidth()), chipH });
+            // FREEZE is a small chip on the picture's foot, at its left, as the mock's.
+            const auto toggleY = picture.getBottom() - chipH - 3;
+            osc.grainFreeze.setBounds ({ picture.getX() + 3, toggleY, juce::jmin (48, picture.getWidth() - 6), chipH });
             osc.grainFreeze.toFront (false);
             if (IlanaSynthAudioProcessor::isEffectBuild)
             {

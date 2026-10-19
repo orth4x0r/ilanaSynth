@@ -1044,7 +1044,7 @@ private:
     void layoutBand1 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 2 * hGap;
-        const auto filterWidth = juce::roundToInt ((float) total * 0.351f);
+        const auto filterWidth = juce::roundToInt ((float) total * 0.358f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {

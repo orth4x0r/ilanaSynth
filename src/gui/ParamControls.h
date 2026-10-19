@@ -1143,6 +1143,7 @@ public:
     // font(), so it holds the 10 px screen floor at every zoom; the name Label
     // and the slider's text box stay empty and hidden.
     static constexpr int packedPadX = 3, packedPadTop = 6;
+    static constexpr float kPackedValueSize = 6.1f;
 
     void setPackedDial (float dial)
     {
@@ -1478,7 +1479,7 @@ public:
             if (unit.isEmpty() && value.length() > 4 && value.endsWithChar ('%'))
                 value = value.dropLastCharacters (1);
             // (At a small zoom the type holds its screen floor: "100%" then loses its sign, never its size.)
-            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (6.9f, true, true)), value) > inner.getWidth() + 0.5f)
+            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (kPackedValueSize, true, true)), value) > inner.getWidth() + 0.5f)
                 value = value.dropLastCharacters (1);
         }
         else
@@ -1495,7 +1496,7 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (6.9f, true, true) : valueFont (value);
+        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, true) : valueFont (value);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {

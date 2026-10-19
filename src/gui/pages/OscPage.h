@@ -2224,7 +2224,7 @@ private:
     // (Embedded on PLAY the warp rows are a little closer, so the three cards leave the module bands their room.)
     int warpRowH() const { return embedded ? 28 : ampRowH; }
     int warpChipH() const { return embedded ? 12 : chipH; }
-    int warpDial() const { return embedded ? 18 : ampDial; }
+    int warpDial() const { return embedded ? 17 : ampDial; }
 
     int waveContentHeight (int osc) const
     {
@@ -2559,7 +2559,8 @@ private:
             for (int r = 0; r < rows; ++r)
             {
                 menus[r]->setBounds ({ columnX, y + (warpRowH() - menuH) / 2, comboW, menuH });
-                placeKnob (*amounts[r], columnX + comboW + 3, y, ampCell, warpDial());
+                // (The ring and its name sit 1 px low: their block, name included, centres on the menu beside them.)
+                placeKnob (*amounts[r], columnX + comboW + 3, y + 1, ampCell, warpDial());
                 y += warpRowH() + 1;
             }
             pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
@@ -3671,7 +3672,6 @@ private:
         for (auto* knob : { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.ratio, &osc.fixedHz, &osc.unison, &osc.detune, &osc.spread,
                             &osc.uniBlend, &osc.uniFrame, &osc.uniWarp })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        osc.unison.setPackedDial (panels ? 25.0f : 0.0f);
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);

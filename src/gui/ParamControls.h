@@ -1479,7 +1479,7 @@ public:
             if (unit.isEmpty() && value.length() > 4 && value.endsWithChar ('%'))
                 value = value.dropLastCharacters (1);
             // (At a small zoom the type holds its screen floor: "100%" then loses its sign, never its size.)
-            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (kPackedValueSize, true, true)), value) > inner.getWidth() + 0.5f)
+            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (kPackedValueSize, true, false).withKerningFactor (-0.08f)), value) > inner.getWidth() + 0.5f)
                 value = value.dropLastCharacters (1);
         }
         else
@@ -1496,7 +1496,7 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, true) : valueFont (value);
+        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, false).withKerningFactor (-0.08f) : valueFont (value);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {

@@ -1820,7 +1820,7 @@ private:
     // (Review 23: one margin all round and one gap, as the mockup's 10 px at 1.5x; the
     // header is 23 high.)
     static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 7;
-    static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130, liveCardHeight = 77;
+    static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 175, mixW = 164, unisonW = 275;
@@ -2199,7 +2199,7 @@ private:
     bool isFolded (int osc) const { return isOff (osc); }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
-    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical; }
+    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live; }
 
     // WARP and SPECTRAL always; WARP 2 and WARP ENV once added (+ WARP) or in use.
     int effectiveExtraWarps (int osc) const
@@ -2222,7 +2222,10 @@ private:
         if (kindOf (osc) == Kind::physical)
             return 1 + cardHeaderHeight + physTopH + panelGap + physBottomH + cardPad + 1;
 
-        return 1 + cardHeaderHeight + panelTop + panelTitleH + waveContentHeight (osc) + panelTail + 1 + cardPad + 1;
+        // (A live card is the wavetable card's height with two warp rows: INPUT and MIX fill it.)
+        const auto rows = kindOf (osc) == Kind::live ? 2 : 2 + effectiveExtraWarps (osc);
+        const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
+        return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
     // What a card needs at least, by what it holds.
@@ -2236,7 +2239,6 @@ private:
 
         switch (kindOf (osc))
         {
-            case Kind::live: return liveCardHeight;
             case Kind::sample:
             {
                 const auto rows = numRows (Kind::sample, readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_unison") > 1.5f);
@@ -2786,6 +2788,47 @@ private:
         pieces.status.setBounds (card.statusArea);
     }
 
+    // A live card as two panels (review 23 language): INPUT, the meter, over the
+    // WAVE and PITCH columns; MIX over MIX and UNISON, LEVEL, PAN, ENV and FILTER on one
+    // line and OUT under them.
+    void layoutLivePanels (CardGeometry& card)
+    {
+        const auto index = card.osc;
+        auto& osc = *controls[(size_t) index];
+        auto& pieces = *aux[(size_t) index];
+        const auto tint = oscColour (index);
+        const auto inner = card.bounds.reduced (1);
+        const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
+        const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
+        const juce::Rectangle<int> inputPanel (cols.x[0], rowArea.getY(), cols.x[1] + cols.w[1] - cols.x[0], rowArea.getHeight());
+        const juce::Rectangle<int> mixPanel (cols.x[2], rowArea.getY(), cols.x[3] + cols.w[3] - cols.x[2], rowArea.getHeight());
+
+        card.rows = 0;
+        card.well = {};
+        card.panels.push_back ({ inputPanel, "INPUT", {}, tint });
+        card.panels.push_back ({ mixPanel, "MIX", {}, tint });
+
+        waveDisplay (index).setBounds (panelContent (inputPanel));
+        for (auto& item : scrubbers)
+            item.setBounds ({});
+
+        const auto c = panelContent (mixPanel);
+        const auto cellH = mainDial + nameLine;
+        const auto top = middle (c, cellH + 3 + outH);
+        placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
+        placeKnob (osc.pan, c.getX() + knobCell + 8, top, knobCell, mainDial);
+        const auto envX = c.getX() + 2 * knobCell + 8 + 8;
+        const auto envW = 100;
+        osc.ampEnv.setBounds ({ envX, top + 4, envW, menuH });
+        const auto labelW = 28;
+        const auto filterX = envX + envW + 10;
+        card.labels.push_back ({ { filterX, top + 4, labelW, filterH }, "FILTER" });
+        pieces.routeBar.setBounds ({ filterX + labelW - 2, top + 4, c.getRight() - (filterX + labelW - 2) + 5, filterH });
+        pieces.outBar.setBounds ({ c.getX(), top + cellH + 3, c.getWidth(), outH });
+        pieces.status.setBounds (card.statusArea);
+    }
+
     void layoutCard (CardGeometry& card)
     {
         const auto index = card.osc;
@@ -2810,6 +2853,8 @@ private:
         {
             if (card.kind == Kind::physical)
                 layoutPhysicalPanels (card);
+            else if (card.kind == Kind::live)
+                layoutLivePanels (card);
             else
                 layoutWavetablePanels (card);
             return;
@@ -3665,13 +3710,13 @@ private:
             const auto wavetableCard = usesPanels (kind) && kind == Kind::wavetable;
             pieces.prevTable.setVisible (wavetableCard);
             pieces.nextTable.setVisible (wavetableCard);
-            pieces.routeBar.setVisible (wavetableCard);
-            pieces.outBar.setVisible (wavetableCard);
+            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live);
+            pieces.outBar.setVisible (wavetableCard || kind == Kind::live);
             pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 2);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
-            if (wavetableCard)
+            if (wavetableCard || kind == Kind::live)
                 pieces.routeBar.refresh();
             // An FM / DX7 oscillator plays a plain cycle: no table tools
             // (UI review 8, I8-15, S8-9, V8-16); on the Operator EG no

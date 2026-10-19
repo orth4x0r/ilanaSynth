@@ -760,6 +760,33 @@ private:
 // The right-hand cells of an oscillator's PITCH row: an oscillator in an FM
 // route says so in a chip in its source's colour (a link to the FM page), one
 // in none shows its output level as a bar.
+// The sample's name in the card header: a packed menu box ("SAMPLE  Rhodes C3.wav") whose click
+// opens the load menu instead of a list.
+class SampleNameBox : public juce::ComboBox
+{
+public:
+    SampleNameBox()
+    {
+        setInterceptsMouseClicks (true, false);
+        getProperties().set ("packedMenu", true);
+    }
+
+    std::function<void()> onPopup;
+    void showPopup() override { if (onPopup != nullptr) onPopup(); }
+
+    void setCaptionAndName (const juce::String& caption, const juce::String& name)
+    {
+        getProperties().set ("textPrefix", caption);
+        if (getText() != name)
+        {
+            clear (juce::dontSendNotification);
+            addItem (name, 1);
+            setSelectedId (1, juce::dontSendNotification);
+        }
+        repaint();
+    }
+};
+
 class OscStatusView : public juce::Component,
                       public juce::SettableTooltipClient
 {
@@ -1414,8 +1441,7 @@ public:
 
             // The sample's name in the header, a menu button as the table's is (a click is LOAD's menu).
             card.sampleNameButton.setTooltip ("The sample this oscillator plays. Click to load another or pick a factory sample");
-            card.sampleNameButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
-            styleHeaderButton (card.sampleNameButton);
+            card.sampleNameButton.onPopup = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
             addChildComponent (card.sampleNameButton);
 
             // Roadmap step 44: the sample (a resampled sound too) out as a WAV.
@@ -3059,8 +3085,8 @@ private:
         // PLAYBACK: MODE and QUALITY, PING-PONG and TRANSIENT SAFE, RANDOM.
         {
             const auto c = addPanel (lowRect (3), "PLAYBACK");
-            const auto randomCell = 44, gapW = 8;
-            const auto menuW = (c.getWidth() - randomCell - 2 * gapW) / 2 - 4, toggleW = c.getWidth() - randomCell - 2 * gapW - menuW - gapW + 8;
+            const auto randomCell = 40, gapW = 6, menuW = 96;
+            const auto toggleW = c.getWidth() - randomCell - 2 * gapW - menuW;
             const auto top = middle (c, 2 * menuH + 4);
             osc.samplePlayback.setBounds ({ c.getX(), top, menuW, menuH });
             osc.sampleQuality.setBounds ({ c.getX(), top + menuH + 4, menuW, menuH });
@@ -3094,17 +3120,16 @@ private:
         // CLOUD: the picture takes what the six knobs leave; FREEZE (and LIVE) sit on its foot.
         {
             const auto c = addPanel (0, "CLOUD");
-            // (Six knobs in two rows of three: the column is narrow, and the picture keeps its room.)
-            const auto cell = 44;
-            const auto knobsW = 3 * cell;
+            // The six grain knobs in one row, as the mock; the picture keeps the rest.
+            const auto cell = 36;
+            const auto knobsW = 6 * cell;
             const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmax (60, c.getWidth() - knobsW - 6), c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
-            const auto gridTop = middle (c, 2 * cellH) - 3;
             KnobControl* grains[] { &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch };
             for (int i = 0; i < 6; ++i)
-                placeKnob (*grains[i], c.getRight() - knobsW + (i % 3) * cell, gridTop + (i / 3) * cellH, cell, mainDial);
+                placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
             auto toggleX = picture.getX() + 4;
             const auto toggleY = picture.getBottom() - 21;
             osc.grainFreeze.setBounds ({ toggleX, toggleY, 66, 16 });
@@ -3165,8 +3190,8 @@ private:
             auto x = c.getX() + 55 + 3;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.grainSpread })
             {
-                placeKnob (*knob, x, top, 38, mainDial);
-                x += 38;
+                placeKnob (*knob, x, top, 36, mainDial);
+                x += 36;
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
@@ -3640,7 +3665,8 @@ private:
         PackedChip addWarp;
         PillWrap exciterPills;
         int extraWarps = 0; // 0..2 of WARP 2 and WARP ENV shown beyond WARP and SPECTRAL
-        juce::TextButton opEnvButton, stringButton, sampleNameButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
+        SampleNameBox sampleNameButton;
+        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -3787,10 +3813,8 @@ private:
             updateStatus (index);
 
             const auto* sample = processorRef.getSampleForOsc (index);
-            const auto text = juce::String (kindOf (index) == Kind::grain ? "SOURCE  " : "SAMPLE  ")
-                            + (sample != nullptr && sample->getNumSamples() >= 2 ? (sample->name.isNotEmpty() ? sample->name : juce::String ("Loaded sample")) : juce::String ("None"));
-            if (aux[(size_t) index]->sampleNameButton.getButtonText() != text)
-                aux[(size_t) index]->sampleNameButton.setButtonText (text);
+            aux[(size_t) index]->sampleNameButton.setCaptionAndName (kindOf (index) == Kind::grain ? "SOURCE" : "SAMPLE",
+                                                                     sample != nullptr && sample->getNumSamples() >= 2 ? (sample->name.isNotEmpty() ? sample->name : juce::String ("Loaded sample")) : juce::String ("None"));
         }
 
         getProperties().set ("caption", OscRole::describeLong (processorRef, selected)); // for the UI test

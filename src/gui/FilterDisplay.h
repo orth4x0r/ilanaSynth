@@ -61,6 +61,7 @@ public:
     void setOnlyFilter (int index)
     {
         onlyFilter = index;
+        setRepaintsOnMouseActivity (index >= 0);
         repaint();
     }
 
@@ -160,14 +161,16 @@ public:
             drawWestCurve (g, plot);
 
         const auto markers = markerCentres (plot);
+        // (A card of one filter, PLAY's, shows its markers only under the pointer.)
+        const auto showMarkers = onlyFilter < 0 || isMouseOver() || isMouseButtonDown();
 
         for (int filterIndex = 1; filterIndex >= 0; --filterIndex)
-            if (shows (filterIndex) && isModulated (filterIndex) && ! (filterIndex == 1 && filter2Replaced()))
+            if (showMarkers && shows (filterIndex) && isModulated (filterIndex) && ! (filterIndex == 1 && filter2Replaced()))
                 drawModMarker (g, plot, filterIndex, markers[(size_t) filterIndex], filterColour (filterIndex));
 
-        if (shows (1) && ! filter2Replaced())
+        if (showMarkers && shows (1) && ! filter2Replaced())
             drawMarker (g, plot, markers[1], 1, filterColour (1));
-        if (shows (0))
+        if (showMarkers && shows (0))
             drawMarker (g, plot, markers[0], 0, filterColour (0));
 
         readoutBoxDrawn = {};

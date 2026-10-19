@@ -366,6 +366,7 @@ private:
             const auto prefix = SourceEditor::envelopePrefix (juce::jmax (0, env));
             auto display = std::make_unique<EnvelopeDisplay> (processorRef, prefix, colour, false);
             display->setSlim (true);
+            display->setHandlesOnHover (true);
             graph = std::move (display);
             for (const auto& [suffix, label] : { std::pair<const char*, const char*> { "_delay", "DELAY" }, { "_attack", "ATTACK" }, { "_hold", "HOLD" },
                                                  { "_decay", "DECAY" }, { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" }, { "_curve", "CURVE" } })
@@ -407,10 +408,12 @@ private:
             return;
 
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 4);
-        const auto cell = kind == Kind::envelope ? 37 : 35;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, juce::jmin (78, body.getWidth() - 7 * cell - 8)) : juce::jmax (50, juce::jmin (61, body.getWidth() / 5));
-        // (Mockup fit8: the graphs are 78 x 42 and 61 x 43 design px, centred in the card.)
-        graph->setBounds (body.removeFromLeft (graphWidth).withSizeKeepingCentre (graphWidth, juce::jmin (body.getHeight(), kind == Kind::envelope ? 42 : 43)));
+        const auto cell = kind == Kind::envelope ? 36 : 35;
+        // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
+        const auto lfoColumn = 94;
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 8)
+                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 10);
+        graph->setBounds (body.removeFromLeft (graphWidth));
         body.removeFromLeft (6);
         const auto place = [&] (KnobControl& knob, int x)
         {

@@ -271,8 +271,11 @@ public:
         const auto dotX = plot.getX() + (float) phase * plot.getWidth() / (float) cycles;
         const auto dotY = centreY - value * halfHeight;
 
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
+        if (! minimal || isMouseOver())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
+        }
 
         // The value scale and the live reading (N16-4: one line in a big well):
         // +1 / 0 / -1 against the centre line, and where the dot is now.
@@ -493,7 +496,7 @@ public:
     void setGridDivisions (int divisions) { gridDivisions = divisions; repaint(); }
 
     // A small picture (PLAY's LFO card): no value scale, no GRID chip.
-    void setMinimal (bool shouldBeMinimal) { minimal = shouldBeMinimal; repaint(); }
+    void setMinimal (bool shouldBeMinimal) { minimal = shouldBeMinimal; setRepaintsOnMouseActivity (shouldBeMinimal); repaint(); }
 
 private:
     void mouseDown (const juce::MouseEvent& event) override

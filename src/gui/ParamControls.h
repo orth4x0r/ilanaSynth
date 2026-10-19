@@ -1441,7 +1441,7 @@ public:
         auto value = mutableSlider.getTextFromValue (mutableSlider.getValue());
         const auto inner = knobBounds.toFloat().reduced (packedD * 0.1f);
         // (A bigger dial carries a bigger number.)
-        const auto valueHeight = juce::jlimit (5.67f, 8.0f, packedD * 0.27f);
+        const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 0.5f && value.containsChar (' '))
@@ -1459,7 +1459,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
-            const auto nameFont = IlanaTheme::font (juce::jlimit (6.5f, 7.6f, 6.5f * packedD / 26.0f), true);
+            const auto nameFont = IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
         }
@@ -2989,7 +2989,7 @@ public:
     // The segments' widths: each its text and a little air (or, with `equal`, the same).
     void setEqual (bool equalWidths) { equal = equalWidths; repaint(); }
 
-    static juce::Font segmentFont() { return IlanaTheme::font (7.0f, true).withKerningFactor (0.03f); }
+    static juce::Font segmentFont() { return IlanaTheme::font (7.8f, true).withKerningFactor (0.03f); }
     // Widths measured at a fixed size (the 10 px floor at the design zoom), so the layout
     // does not move with the zoom the page was laid out at.
     static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (segmentFont(), text); }
@@ -3102,7 +3102,7 @@ public:
     void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
     void refresh() { repaint(); }
 
-    static juce::Font pillFont() { return IlanaTheme::font (6.9f, true); }
+    static juce::Font pillFont() { return IlanaTheme::font (7.7f, true); }
     static int measure (const juce::String& text) { return juce::GlyphArrangement::getStringWidthInt (pillFont(), text) + 9; }
 
     // The rectangles the pills take in a row of `width`, wrapped.

@@ -834,14 +834,14 @@ public:
 
         if (chipText.isNotEmpty() && part != Part::barOnly)
         {
-            const auto font = IlanaTheme::font (7.5f, true).withKerningFactor (0.06f);
-            const auto width = juce::jmin (area.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), chipText) + 26.0f);
-            const auto chip = juce::Rectangle<float> (width, 14.0f).withCentre ({ area.getX() + width * 0.5f, area.getCentreY() });
+            const auto font = IlanaTheme::font (6.8f, true).withKerningFactor (0.06f);
+            const auto width = juce::jmin (area.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), chipText) + 24.0f);
+            const auto chip = juce::Rectangle<float> (width, 12.0f).withCentre ({ area.getX() + width * 0.5f, area.getCentreY() });
             g.setColour (chipColour.withAlpha (0.2f));
-            g.fillRoundedRectangle (chip, 7.0f);
+            g.fillRoundedRectangle (chip, 6.0f);
             g.setColour (chipColour.withAlpha (0.75f));
-            g.drawRoundedRectangle (chip.reduced (0.5f), 7.0f, 1.0f);
-            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ chip.getX() + 8.0f, chip.getCentreY() }));
+            g.drawRoundedRectangle (chip.reduced (0.5f), 6.0f, 1.0f);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ chip.getX() + 7.5f, chip.getCentreY() }));
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (font);
             IlanaTheme::drawFitted (g, chipText, chip.withTrimmedLeft (17.0f).withTrimmedRight (7.0f), juce::Justification::centredLeft, 1);
@@ -2906,7 +2906,7 @@ private:
                 const auto raised = readFloat (prefix + "_unison") > 1.5f;
                 const auto knobX = c.getRight() - (raised ? knobCell + 7 : 0);
                 const auto room = knobX - c.getX() - (raised ? 7 : 0);
-                const auto graphW = juce::jmax (40, room * 60 / 100), graphH = juce::jmin (c.getHeight(), 52);
+                const auto graphW = juce::jmax (40, room * 60 / 100), graphH = c.getHeight();
                 const auto hintX = c.getX() + graphW + 8, hintW = knobX - hintX - (raised ? 7 : 0);
                 pieces.opEnvGraph.setBounds ({ c.getX(), middle (c, graphH), graphW, graphH });
                 card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true });
@@ -3552,7 +3552,7 @@ private:
         juce::String chip;
         const auto room = juce::jmax (40, view.getWidth() - 26);
         for (const auto& candidate : candidates)
-            if (candidate.isNotEmpty() && juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (7.5f, true).withKerningFactor (0.06f)), candidate) <= room)
+            if (candidate.isNotEmpty() && juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (6.8f, true).withKerningFactor (0.06f)), candidate) <= room)
             {
                 chip = candidate;
                 break;

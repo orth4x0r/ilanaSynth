@@ -2220,10 +2220,15 @@ private:
         return juce::jmax (needed, aux[(size_t) osc]->extraWarps);
     }
 
+    // (Embedded on PLAY the warp rows are a little closer, so the three cards leave the module bands their room.)
+    int warpRowH() const { return embedded ? 28 : ampRowH; }
+    int warpChipH() const { return embedded ? 12 : chipH; }
+    int warpDial() const { return embedded ? 18 : ampDial; }
+
     int waveContentHeight (int osc) const
     {
         const auto rows = 2 + effectiveExtraWarps (osc);
-        return rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
+        return rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
     }
 
     static constexpr int physTopH = 100, physBottomH = 64;
@@ -2235,7 +2240,7 @@ private:
 
         // (A live card is the wavetable card's height with two warp rows: INPUT and MIX fill it.)
         const auto rows = kindOf (osc) == Kind::live ? 2 : 2 + effectiveExtraWarps (osc);
-        const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
+        const auto content = rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
@@ -2306,7 +2311,7 @@ private:
 
     // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
     int topNow() const { return embedded ? 4 : topMargin; }
-    int gapNow() const { return embedded ? 5 : gap; }
+    int gapNow() const { return embedded ? 0 : gap; }
     int bottomNow() const { return embedded ? 0 : bottomMargin; }
 
     int contentHeight (const std::vector<int>& heights) const
@@ -2552,11 +2557,11 @@ private:
             auto y = middle (c, waveContentHeight (index));
             for (int r = 0; r < rows; ++r)
             {
-                menus[r]->setBounds ({ columnX, y + (ampRowH - menuH) / 2, comboW, menuH });
-                placeKnob (*amounts[r], columnX + comboW + 3, y, ampCell, ampDial);
-                y += ampRowH + 1;
+                menus[r]->setBounds ({ columnX, y + (warpRowH() - menuH) / 2, comboW, menuH });
+                placeKnob (*amounts[r], columnX + comboW + 3, y, ampCell, warpDial());
+                y += warpRowH() + 1;
             }
-            pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), chipH) : juce::Rectangle<int>());
+            pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
         }
 
         // PITCH

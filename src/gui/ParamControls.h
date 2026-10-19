@@ -1462,8 +1462,8 @@ public:
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         auto drawn = valueFont (value);
         // (A value that runs past its room, "300 ms", is set smaller, not cut.)
-        if (const auto wide = juce::GlyphArrangement::getStringWidth (juce::Font (drawn), value); packedValueRoom > 0 && wide > inner.getWidth() + room)
-            drawn = drawn.withHeight (juce::jmax (5.6f, drawn.getHeight() * (inner.getWidth() + room) / wide));
+        if (const auto wide = juce::GlyphArrangement::getStringWidth (juce::Font (drawn), value); packedValueRoom > 0 && wide > inner.getWidth() + 3.0f)
+            drawn = drawn.withHeight (juce::jmax (5.6f, drawn.getHeight() * (inner.getWidth() + 3.0f) / wide));
         g.setFont (drawn);
         IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1 + packedValueRoom / 2, 0), juce::Justification::centred, 1);
 

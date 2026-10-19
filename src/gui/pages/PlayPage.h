@@ -407,9 +407,10 @@ private:
             return;
 
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 4);
-        const auto cell = kind == Kind::envelope ? 38 : 35;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 8) : juce::jmax (50, juce::jmin (66, body.getWidth() / 5));
-        graph->setBounds (body.removeFromLeft (graphWidth));
+        const auto cell = kind == Kind::envelope ? 37 : 35;
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, juce::jmin (78, body.getWidth() - 7 * cell - 8)) : juce::jmax (50, juce::jmin (61, body.getWidth() / 5));
+        // (Mockup fit8: the graphs are 78 x 42 and 61 x 43 design px, centred in the card.)
+        graph->setBounds (body.removeFromLeft (graphWidth).withSizeKeepingCentre (graphWidth, juce::jmin (body.getHeight(), kind == Kind::envelope ? 42 : 43)));
         body.removeFromLeft (6);
         const auto place = [&] (KnobControl& knob, int x)
         {
@@ -639,7 +640,9 @@ public:
         // the two module bands sit under them at one height.
         const auto bottom = area.getBottom() - bottomMargin;
         const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
-        const auto bandsTop = bottom - bandsHeight;
+        // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
+        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getMinimumHeight() : 0;
+        const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
 
         const auto bandHeight = (bandsHeight - gap) / 2;
@@ -658,8 +661,8 @@ private:
         std::vector<std::unique_ptr<KnobControl>> knobs;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 5, headerHeight = 20, cardPad = 7, cell = 35;
-    static constexpr int minBand = 62, maxBand = 79;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35;
+    static constexpr int minBand = 62, maxBand = 84;
     static constexpr float dialSize = 25.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -741,13 +744,13 @@ private:
 
     void layoutBand1 (juce::Rectangle<int> band)
     {
-        const auto total = band.getWidth() - 2 * gap;
+        const auto total = band.getWidth() - 2 * hGap;
         const auto filterWidth = juce::roundToInt ((float) total * 0.3756f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
             filterCardBounds[(size_t) f] = row.removeFromLeft (filterWidth);
-            row.removeFromLeft (gap);
+            row.removeFromLeft (hGap);
         }
         westBounds = row;
 
@@ -780,17 +783,17 @@ private:
 
     void layoutBand2 (juce::Rectangle<int> band)
     {
-        const auto total = band.getWidth() - 3 * gap;
-        const auto envWidth = juce::roundToInt ((float) total * 0.3544f);
+        const auto total = band.getWidth() - 3 * hGap;
+        const auto envWidth = juce::roundToInt ((float) total * 0.3502f);
         const auto lfoWidth = juce::roundToInt ((float) total * 0.2895f);
-        const auto bodyWidth = juce::roundToInt ((float) total * 0.1230f);
+        const auto bodyWidth = juce::roundToInt ((float) total * 0.1272f);
         auto row = band;
         envelopeCard.setBounds (row.removeFromLeft (envWidth));
-        row.removeFromLeft (gap);
+        row.removeFromLeft (hGap);
         lfoCard.setBounds (row.removeFromLeft (lfoWidth));
-        row.removeFromLeft (gap);
+        row.removeFromLeft (hGap);
         bodyBounds = row.removeFromLeft (bodyWidth);
-        row.removeFromLeft (gap);
+        row.removeFromLeft (hGap);
         subNoiseBounds = row;
 
         {
@@ -808,17 +811,20 @@ private:
             const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
             // SUB: the wave menu over the octave pills, then LEVEL; NOISE: its colour menu, LEVEL and COLOUR.
+            // The menus line up with the dials (the dial's middle), the free width goes into the gaps.
             const auto menuWidth = 54;
+            const auto used = menuWidth + cell + menuWidth + 2 * cell;
+            const auto between = juce::jlimit (3, 14, (body.getWidth() - used) / 3);
             auto x = body.getX();
-            auto stack = juce::Rectangle<int> (x, body.getY() + (body.getHeight() - (menuHeight * 2 + 3)) / 2, menuWidth, menuHeight * 2 + 3);
+            auto stack = juce::Rectangle<int> (x, knobY - 1, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));
             stack.removeFromTop (3);
             subOctave->setBounds (stack);
-            x += menuWidth + 3;
+            x += menuWidth + between;
             knobAt (*subLevel, x);
-            x += cell + 3;
-            noiseType->setBounds ({ x, body.getY() + (body.getHeight() - menuHeight) / 2, menuWidth, menuHeight });
-            x += menuWidth + 3;
+            x += cell + between;
+            noiseType->setBounds ({ x, knobY + (int) dialSize / 2 - menuHeight / 2, menuWidth, menuHeight });
+            x += menuWidth + between;
             knobAt (*noiseLevel, x);
             knobAt (*noiseColour, x + cell);
         }

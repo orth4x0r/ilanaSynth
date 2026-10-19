@@ -159,23 +159,36 @@ public:
 
     void resized() override
     {
+        // The top bar scales with the tiles (the call-out is not scaled with the editor's content).
+        scale = juce::jlimit (1.0f, 2.5f, (float) getWidth() / 728.0f);
+        const auto scaled = [this] (int units) { return juce::roundToInt ((float) units * scale); };
+        const auto place = [this] (juce::Component& button, juce::Rectangle<int> at)
+        {
+            button.setTransform (juce::AffineTransform::scale (scale));
+            // (The transform scales the position too, so the bounds are given in the scaled units.)
+            button.setBounds (juce::roundToInt ((float) at.getX() / scale), juce::roundToInt ((float) at.getY() / scale),
+                              juce::roundToInt ((float) at.getWidth() / scale), juce::roundToInt ((float) at.getHeight() / scale));
+        };
+
         auto area = getLocalBounds();
-        auto searchRow = area.removeFromTop (34).reduced (6, 4);
-        hearButton.setBounds (searchRow.removeFromRight (70));
-        searchRow.removeFromRight (6);
+        auto searchRow = area.removeFromTop (scaled (34)).reduced (scaled (6), scaled (4));
+        place (hearButton, searchRow.removeFromRight (scaled (70)));
+        searchRow.removeFromRight (scaled (6));
         if (loadButton.isVisible())
         {
-            loadButton.setBounds (searchRow.removeFromRight (80));
-            searchRow.removeFromRight (6);
+            place (loadButton, searchRow.removeFromRight (scaled (80)));
+            searchRow.removeFromRight (scaled (6));
         }
         if (libraryButton.isVisible())
         {
-            libraryButton.setBounds (searchRow.removeFromRight (80));
-            searchRow.removeFromRight (6);
+            place (libraryButton, searchRow.removeFromRight (scaled (80)));
+            searchRow.removeFromRight (scaled (6));
         }
+        search.setFont (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body * scale)));
+        search.setIndents (scaled (8), scaled (5));
         search.setBounds (searchRow);
         // The category chips stay put above the scrolling tiles.
-        chipRow = area.removeFromTop (28).reduced (6, 2);
+        chipRow = area.removeFromTop (scaled (28)).reduced (scaled (6), scaled (2));
         viewport.setBounds (area);
         buildLayout();
     }
@@ -192,7 +205,7 @@ public:
             g.setColour (IlanaTheme::Ui::line);
             g.drawRoundedRectangle (box.reduced (0.5f), box.getHeight() * 0.5f, 1.0f);
             g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::pillFont());
+            g.setFont (IlanaTheme::pillFont().withHeight (IlanaTheme::pillFont().getHeight() * scale));
             g.drawText (chip.text, box, juce::Justification::centred);
         }
     }
@@ -388,11 +401,11 @@ private:
         auto chipX = chipRow.getX();
         for (const auto& heading : headings)
         {
-            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), heading.text) + 20;
+            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont().withHeight (IlanaTheme::pillFont().getHeight() * scale)), heading.text) + juce::roundToInt (20.0f * scale);
             if (chipX + chipWidth > chipRow.getRight())
                 break;
             chips.push_back ({ heading.text, { chipX, chipRow.getY(), chipWidth, chipRow.getHeight() }, heading.bounds.getY() });
-            chipX += chipWidth + 5;
+            chipX += chipWidth + juce::roundToInt (5.0f * scale);
         }
         repaint (chipRow.expanded (4));
     }

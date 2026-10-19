@@ -3553,6 +3553,7 @@ public:
             setDescription (description);
             setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
         }
+
     }
 
     void setAccent (juce::Colour c) { accent = c; repaint(); }
@@ -3577,16 +3578,26 @@ public:
         g.setColour (IlanaTheme::Ui::line);
         g.drawRoundedRectangle (box, 4.0f, 1.0f);
 
-        g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-        g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (alpha));
+        // The name on the left; while the pointer is on the bar (or dragging) the value takes its place.
         const auto inner = getLocalBounds().reduced (5, 0);
-        g.drawText (name, inner, juce::Justification::centredLeft, false);
-        g.setFont (IlanaTheme::font (7.3f));
-        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
-        g.drawText (juce::String (juce::roundToInt (getValue() * 100.0)) + "%", inner, juce::Justification::centredRight, false);
+        if (isMouseOverOrDragging())
+        {
+            g.setFont (IlanaTheme::font (7.3f));
+            g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
+            g.drawText (juce::String (juce::roundToInt (getValue() * 100.0)) + "%", inner, juce::Justification::centredLeft, false);
+        }
+        else
+        {
+            g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+            g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f).withMultipliedAlpha (alpha));
+            g.drawText (name, inner, juce::Justification::centredLeft, false);
+        }
     }
 
 private:
+    void mouseEnter (const juce::MouseEvent& e) override { KeyboardSlider::mouseEnter (e); repaint(); }
+    void mouseExit (const juce::MouseEvent& e) override { KeyboardSlider::mouseExit (e); repaint(); }
+
     juce::String name;
     juce::Colour accent { juce::Colours::orange };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;

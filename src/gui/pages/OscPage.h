@@ -2994,7 +2994,7 @@ private:
         {
             const juce::Rectangle<int> area (cols.x[0], topY, cols.w[0], sampleTopH + panelGap + physBottomH);
             const auto c = addPanel (area, "WAVE");
-            const auto toggleW = 84, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
+            const auto toggleW = 64, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
             const auto secondX = c.getRight() - toggleW;
             const auto firstX = secondX - 6 - firstW;
             waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 6 - c.getX()), c.getHeight() });

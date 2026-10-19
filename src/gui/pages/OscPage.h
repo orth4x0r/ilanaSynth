@@ -2512,7 +2512,7 @@ private:
 
         if (card.kind == Kind::sample || card.kind == Kind::grain)
         {
-            const auto width = juce::jlimit (0, 170, right.getRight() - x - 4);
+            const auto width = juce::jlimit (0, 124, right.getRight() - x - 4);
             pieces.sampleNameButton.setBounds ({ x, centre - 8, width, 16 });
             x += width + 4;
         }
@@ -3096,6 +3096,8 @@ private:
             osc.sampleStartSafe.setBounds ({ toggleX, top + menuH + 4, toggleW, 16 });
             placeKnob (osc.sampleStartRandom, c.getRight() - randomCell, middle (c, cellH), randomCell, mainDial);
         }
+
+        pieces.status.setBounds (card.statusArea);
     }
 
     // A granular card (review 23 language): CLOUD (the picture with FREEZE on it, the six
@@ -4185,7 +4187,7 @@ private:
             pieces.opEnvGraph.setVisible (opEnv);
             pieces.opEnvGraph.setSource (prefix, oscColour (index));
             pieces.partials.setVisible (kind == Kind::physical && ! electric);
-            pieces.status.setVisible (kind != Kind::sample);
+            pieces.status.setVisible (true);
             pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && kind != Kind::fm);
 
             // A folded card shows its header only.

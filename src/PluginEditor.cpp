@@ -1739,7 +1739,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     // (PLAY, review 24: the macros and + MACRO at one even pitch across the row.)
     const auto hasPlus = shownMacros < (int) macroKnobs.size();
     const auto plusWidth = hasPlus ? macroPlusButton.getIdealWidth() + 4 : 0;
-    const auto macroWidth = juce::jlimit (84, 190, strip.getWidth() / juce::jmax (1, shownMacros + (hasPlus ? 1 : 0)));
+    const auto macroWidth = juce::jlimit (84, 190, (strip.getWidth() + 10) / juce::jmax (1, shownMacros + (hasPlus ? 1 : 0)));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());

@@ -407,8 +407,8 @@ private:
             return;
 
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 4);
-        const auto cell = 35;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 8) : juce::jmax (50, juce::jmin (80, body.getWidth() / 4));
+        const auto cell = kind == Kind::envelope ? 38 : 35;
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 8) : juce::jmax (50, juce::jmin (66, body.getWidth() / 5));
         graph->setBounds (body.removeFromLeft (graphWidth));
         body.removeFromLeft (6);
         const auto place = [&] (KnobControl& knob, int x)
@@ -439,14 +439,14 @@ private:
         }
         auto column = body.withTrimmedLeft (x - body.getX() + 4);
         auto rowH = juce::jmax (12, column.getHeight() / 2);
-        rowH = juce::jmax (11, (column.getHeight() - 4) / 3);
+        rowH = juce::jmax (11, (column.getHeight() - 6) / 3);
         auto switches = column.removeFromTop (rowH);
-        column.removeFromTop (2);
+        column.removeFromTop (3);
         const auto each = switches.getWidth() / juce::jmax (1, (int) toggles.size());
         for (auto& toggle : toggles)
             toggle->setBounds (switches.removeFromLeft (each));
         shape->setBounds (column.removeFromTop (rowH));
-        column.removeFromTop (2);
+        column.removeFromTop (3);
         chipBounds = column.removeFromTop (rowH);
     }
 
@@ -781,9 +781,9 @@ private:
     void layoutBand2 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 3 * gap;
-        const auto envWidth = juce::roundToInt ((float) total * 0.3284f);
+        const auto envWidth = juce::roundToInt ((float) total * 0.3544f);
         const auto lfoWidth = juce::roundToInt ((float) total * 0.2895f);
-        const auto bodyWidth = juce::roundToInt ((float) total * 0.1490f);
+        const auto bodyWidth = juce::roundToInt ((float) total * 0.1230f);
         auto row = band;
         envelopeCard.setBounds (row.removeFromLeft (envWidth));
         row.removeFromLeft (gap);
@@ -808,7 +808,7 @@ private:
             const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
             // SUB: the wave menu over the octave pills, then LEVEL; NOISE: its colour menu, LEVEL and COLOUR.
-            const auto menuWidth = 58;
+            const auto menuWidth = 54;
             auto x = body.getX();
             auto stack = juce::Rectangle<int> (x, body.getY() + (body.getHeight() - (menuHeight * 2 + 3)) / 2, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));

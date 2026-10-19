@@ -1460,7 +1460,11 @@ public:
             value = value.dropLastCharacters (1);
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        g.setFont (valueFont (value));
+        auto drawn = valueFont (value);
+        // (A value that runs past its room, "300 ms", is set smaller, not cut.)
+        if (const auto wide = juce::GlyphArrangement::getStringWidth (juce::Font (drawn), value); packedValueRoom > 0 && wide > inner.getWidth() + room)
+            drawn = drawn.withHeight (juce::jmax (5.6f, drawn.getHeight() * (inner.getWidth() + room) / wide));
+        g.setFont (drawn);
         IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1 + packedValueRoom / 2, 0), juce::Justification::centred, 1);
 
         const auto name = label.getText();

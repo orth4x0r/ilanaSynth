@@ -601,6 +601,8 @@ public:
     // M7.4 patch tables (message thread). setUserTable builds the table from
     // the doc and swaps it in; the doc is saved with the patch.
     bool setUserTable (int slot, const WavetableDoc& doc);
+    // Gives a slot its default table back (what a listen in the table browser leaves behind).
+    void clearUserTable (int slot) { resetUserTableToDefault (slot); }
     // The slot's doc; a slot never edited gives its default (factory) table.
     WavetableDoc getUserTableDoc (int slot) const;
     // The same doc by identity (null: default), for the wavetable editor to

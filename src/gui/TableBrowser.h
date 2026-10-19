@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../PluginProcessor.h"
+#include "../dsp/BuiltInTables.h"
 #include "../dsp/TableFactory.h"
 #include "IlanaLookAndFeel.h"
 
@@ -17,7 +18,9 @@ inline juce::PropertiesFile*& tableBrowserSettings()
 // Every wavetable at a glance, grouped by category, each drawn from its
 // first and middle frames. Click one to load it into the oscillator; the
 // star keeps it under FAVOURITES at the top, and HEAR plays the table under
-// the pointer (restored when you leave without picking). The search field
+// the pointer (restored when you leave without picking). After the User
+// tables come the built-in packs (BuiltInTables); picking one copies it into
+// a free User slot. The search field
 // above narrows it to the tables whose name or group match.
 class TableBrowser : public juce::Component,
                      private juce::Timer
@@ -245,7 +248,9 @@ public:
         return words.joinIntoString (" ");
     }
 
-    // For the tests: the search, and the tables shown.
+    // For the tests: the search, the tables shown, and picking a built-in table.
+    void pickBuiltInTable (int index) { pickBuiltIn (index); }
+
     void setSearchText (const juce::String& text) { search.setText (text, true); }
 
     juce::StringArray getShownNames() const
@@ -270,6 +275,7 @@ private:
     {
         juce::String text;
         juce::Rectangle<int> bounds;
+        juce::String chip; // the jump chip's label; empty: none (a built-in pack's folders share its chip)
     };
 
     struct Chip
@@ -293,10 +299,32 @@ private:
         void mouseUp (const juce::MouseEvent& event) override { owner->pickAt (event.getPosition()); }
     };
 
+    // One heading and its tiles, laid out from y down.
+    void addGroup (std::vector<Item>& group, const juce::String& heading, const juce::String& chip, int& y, int width,
+                   int columns, int cellWidth, int cellHeight, int headingHeight)
+    {
+        headings.push_back ({ heading, { 8, y, width, headingHeight }, chip });
+        y += headingHeight + 2;
+
+        for (size_t i = 0; i < group.size(); ++i)
+        {
+            const auto column = (int) i % columns;
+
+            if (column == 0 && i > 0)
+                y += cellHeight + 6;
+
+            group[i].bounds = { 4 + column * cellWidth, y, cellWidth - 6, cellHeight };
+            items.push_back (group[i]);
+        }
+
+        y += cellHeight + juce::roundToInt (14.0f * scale);
+    }
+
     void buildLayout()
     {
         items.clear();
         headings.clear();
+        lastPack = {};
 
         const auto names = TableFactory::getFactoryTableNames();
         const auto categories = TableFactory::getFactoryTableCategories();
@@ -363,21 +391,43 @@ private:
             if (group.empty())
                 continue;
 
-            headings.push_back ({ category.toUpperCase(), { 8, y, width, headingHeight } });
-            y += headingHeight + 2;
+            addGroup (group, category.toUpperCase(), category.toUpperCase(), y, width, columns, cellWidth, cellHeight, headingHeight);
+        }
 
-            for (size_t i = 0; i < group.size(); ++i)
+        // The built-in packs, a heading per folder, one chip per pack.
+        if (BuiltInTables::count() > 0)
+        {
+            const auto builtInBase = names.size() + IlanaSynthAudioProcessor::numUserSlots;
+            std::vector<Item> group;
+            juce::String groupName;
+
+            const auto flush = [&]
             {
-                const auto column = (int) i % columns;
+                if (group.empty())
+                    return;
 
-                if (column == 0 && i > 0)
-                    y += cellHeight + 6;
+                const auto pack = groupName.upToFirstOccurrenceOf (" / ", false, false);
+                addGroup (group, groupName.toUpperCase(), lastPack == pack ? juce::String() : pack.toUpperCase(),
+                          y, width, columns, cellWidth, cellHeight, headingHeight);
+                lastPack = pack;
+                group.clear();
+            };
 
-                group[i].bounds = { 4 + column * cellWidth, y, cellWidth - 6, cellHeight };
-                items.push_back (group[i]);
+            for (int k = 0; k < BuiltInTables::count(); ++k)
+            {
+                if (! matches (BuiltInTables::name (k) + " " + BuiltInTables::group (k), "built-in"))
+                    continue;
+
+                if (BuiltInTables::group (k) != groupName)
+                {
+                    flush();
+                    groupName = BuiltInTables::group (k);
+                }
+
+                group.push_back ({ builtInBase + k, BuiltInTables::name (k), {} });
             }
 
-            y += cellHeight + juce::roundToInt (14.0f * scale);
+            flush();
         }
 
         content.setSize (width, juce::jmax (y, viewport.getHeight()));
@@ -388,10 +438,13 @@ private:
         auto chipX = chipRow.getX();
         for (const auto& heading : headings)
         {
-            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), heading.text) + 20;
+            if (heading.chip.isEmpty())
+                continue;
+
+            const auto chipWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), heading.chip) + 20;
             if (chipX + chipWidth > chipRow.getRight())
                 break;
-            chips.push_back ({ heading.text, { chipX, chipRow.getY(), chipWidth, chipRow.getHeight() }, heading.bounds.getY() });
+            chips.push_back ({ heading.chip, { chipX, chipRow.getY(), chipWidth, chipRow.getHeight() }, heading.bounds.getY() });
             chipX += chipWidth + 5;
         }
         repaint (chipRow.expanded (4));
@@ -425,8 +478,13 @@ private:
             g.drawText (heading.text, heading.bounds, juce::Justification::centredLeft);
         }
 
+        const auto visible = g.getClipBounds();
+
         for (const auto& item : items)
         {
+            if (! item.bounds.expanded (2).intersects (visible))
+                continue;
+
             const auto bounds = item.bounds.toFloat();
             const auto isSelected = item.choice == selected;
             const auto isHovered = item.choice == hovered;
@@ -464,8 +522,43 @@ private:
         }
     }
 
+    int builtInBase() const { return TableFactory::getFactoryTableNames().size() + IlanaSynthAudioProcessor::numUserSlots; }
+
+    void paintBuiltInWave (juce::Graphics& g, int index, juce::Rectangle<float> area, bool bright)
+    {
+        const auto& preview = BuiltInTables::preview (index);
+        const std::vector<float>* layers[] { &preview.middle, &preview.first };
+
+        for (int layer = 0; layer < 2; ++layer)
+        {
+            const auto& points = *layers[layer];
+            if (points.size() < 2)
+                continue;
+
+            juce::Path path;
+            for (size_t i = 0; i < points.size(); ++i)
+            {
+                const auto x = area.getX() + area.getWidth() * (float) i / (float) (points.size() - 1);
+                const auto y = area.getCentreY() - juce::jlimit (-1.0f, 1.0f, points[i]) * area.getHeight() * 0.45f;
+                if (i == 0)
+                    path.startNewSubPath (x, y);
+                else
+                    path.lineTo (x, y);
+            }
+
+            g.setColour (layer == 0 ? colour.withAlpha (0.3f) : colour.withAlpha (bright ? 1.0f : 0.75f));
+            g.strokePath (path, juce::PathStrokeType ((layer == 0 ? 1.0f : 1.6f) * scale));
+        }
+    }
+
     void paintWave (juce::Graphics& g, int choice, juce::Rectangle<float> area, bool bright)
     {
+        if (choice >= builtInBase())
+        {
+            paintBuiltInWave (g, choice - builtInBase(), area, bright);
+            return;
+        }
+
         const auto* table = processorRef.getWavetable (choice);
 
         if (table == nullptr || table->getNumFrames() == 0)
@@ -580,7 +673,18 @@ private:
         }
 
         previewed = choice;
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) choice));
+        auto value = choice;
+
+        // A built-in table is heard from a User slot, given back on leaving.
+        if (choice >= builtInBase())
+        {
+            const auto slot = placeBuiltIn (choice - builtInBase(), true);
+            if (slot < 0)
+                return;
+            value = TableFactory::getNumFactoryTables() + slot;
+        }
+
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
         processorRef.triggerPreviewNote (60, true, 0.7f);
         juce::Timer::callAfterDelay (700, [&processor = processorRef] { processor.triggerPreviewNote (60, false); });
         content.repaint();
@@ -597,6 +701,45 @@ private:
 
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) originalChoice));
+
+        if (previewSlot >= 0)
+        {
+            processorRef.clearUserTable (previewSlot);
+            previewSlot = -1;
+        }
+    }
+
+    // Copies built-in table index into a User slot and returns it (-1: none
+    // free). A slot already holding that table is reused. For a listen the
+    // slot is remembered in previewSlot, so leaving without a pick frees it.
+    int placeBuiltIn (int index, bool forListen)
+    {
+        WavetableDoc doc;
+        if (! BuiltInTables::load (index, doc))
+            return -1;
+
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numUserSlots; ++slot)
+            if (slot != previewSlot)
+                if (const auto held = processorRef.getUserTableDocPtr (slot);
+                    held != nullptr && held->name == doc.name && held->frames == doc.frames)
+                {
+                    if (previewSlot >= 0)
+                    {
+                        processorRef.clearUserTable (previewSlot);
+                        previewSlot = -1;
+                    }
+                    return slot;
+                }
+
+        auto slot = forListen && previewSlot >= 0 ? previewSlot : processorRef.findFreeUserSlot();
+
+        if (slot < 0 || ! processorRef.setUserTable (slot, doc))
+            return -1;
+
+        if (forListen)
+            previewSlot = slot;
+
+        return slot;
     }
 
     void pickAt (juce::Point<int> position)
@@ -626,6 +769,12 @@ private:
         // step records old to new, not the table already being heard.
         restoreOriginal();
 
+        if (choice >= builtInBase())
+        {
+            pickBuiltIn (choice - builtInBase());
+            return;
+        }
+
         if (auto* parameter = processorRef.apvts.getParameter (parameterId))
         {
             processorRef.performEdit (parameter->getName (64), [parameter, choice]
@@ -635,6 +784,28 @@ private:
                 parameter->endChangeGesture();
             });
         }
+
+        if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
+            callOut->dismiss();
+    }
+
+    // The table and the choice in one undo step, as LOAD... does.
+    void pickBuiltIn (int index)
+    {
+        processorRef.beginEdit ("Load wavetable");
+        const auto slot = placeBuiltIn (index, false);
+
+        if (slot >= 0)
+        {
+            if (auto* parameter = processorRef.apvts.getParameter (parameterId))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) (TableFactory::getNumFactoryTables() + slot)));
+        }
+
+        processorRef.endEdit();
+
+        if (slot < 0)
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable",
+                                                    "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to replace it.");
 
         if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
             callOut->dismiss();
@@ -660,6 +831,10 @@ private:
         folders.sort();
         for (const auto& sub : folders)
         {
+            // The synth carries these itself now (the built-in packs).
+            if (sub.getFileName() == "Surge Packs" && BuiltInTables::count() > 0)
+                continue;
+
             juce::PopupMenu inner;
             const auto before = files.size();
             buildLibraryMenu (sub, inner, files);
@@ -683,4 +858,6 @@ private:
     std::vector<Chip> chips;
     juce::Rectangle<int> chipRow;
     float scale = 1.0f;
+    juce::String lastPack;
+    int previewSlot = -1; // a User slot holding a built-in table only for a HEAR listen
 };

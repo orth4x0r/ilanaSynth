@@ -130,11 +130,22 @@ juce_add_binary_data(ilanaFonts SOURCES
     resources/fonts/Manrope-700-Bold.ttf
 )
 
+# The human-made wavetables the editor carries (tools/build_builtin_wavetables.py;
+# src/dsp/BuiltInTables.cpp reads them). Linked through ilanaFonts, so every
+# target with the editor has them and the engine-only tools do not.
+juce_add_binary_data(ilanaWavetables
+    HEADER_NAME WavetableData.h
+    NAMESPACE WavetableData
+    SOURCES content/wavetables/builtin-wavetables.bin
+)
+target_link_libraries(ilanaFonts PUBLIC ilanaWavetables)
+
 target_sources(ilanaSynth PRIVATE
     src/PluginProcessor.cpp
     ${ILANA_PROCESSOR_SOURCES}
     src/MtsEsp.cpp
     src/PluginEditor.cpp
+    src/dsp/BuiltInTables.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -183,6 +194,7 @@ target_sources(ilanaSynthFX PRIVATE
     ${ILANA_PROCESSOR_SOURCES}
     src/MtsEsp.cpp
     src/PluginEditor.cpp
+    src/dsp/BuiltInTables.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -287,6 +299,7 @@ target_sources(ilanaSnapshot PRIVATE
     ${ILANA_PROCESSOR_SOURCES}
     src/MtsEsp.cpp
     src/PluginEditor.cpp
+    src/dsp/BuiltInTables.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -563,6 +576,7 @@ target_sources(ilanaFxTest PRIVATE
     ${ILANA_PROCESSOR_SOURCES}
     src/MtsEsp.cpp
     src/PluginEditor.cpp
+    src/dsp/BuiltInTables.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
@@ -606,6 +620,7 @@ target_sources(ilanaFxCpuBench PRIVATE
     ${ILANA_PROCESSOR_SOURCES}
     src/MtsEsp.cpp
     src/PluginEditor.cpp
+    src/dsp/BuiltInTables.cpp
     src/dsp/Wavetable.cpp
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp

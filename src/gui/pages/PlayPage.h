@@ -1076,7 +1076,8 @@ private:
             auto x = westBounds.getX() + 23 + titleWidth ("WEST COAST") + 6;
             westMode->setBounds ({ x, centre - 8, 52, 16 });
             x += 52 + 2;
-            westPosition->setBounds ({ x, centre - 8, juce::jmax (40, westBounds.getRight() - 6 - 30 - 2 - x), 16 });
+            // (As wide as "After Filters" needs, not stretched to the switch.)
+            westPosition->setBounds ({ x, centre - 8, juce::jmin (84, juce::jmax (40, westBounds.getRight() - 6 - 30 - 2 - x)), 16 });
             // The picture at the left, the seven knobs at a 33 pitch to its right.
             auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
             const auto knobsWidth = (int) westKnobs.size() * westCell;

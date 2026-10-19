@@ -630,7 +630,7 @@ public:
             paintCardWithHeader (g, filterCardBounds[(size_t) f], "FILTER " + juce::String (f + 1), filterColour (f));
         paintCardWithHeader (g, westBounds, "WEST COAST", westColour());
         paintCardWithHeader (g, bodyBounds, "BODY", bodyColour());
-        paintCardWithHeader (g, subNoiseBounds, "SUB + NOISE", subColour());
+        paintCardWithHeader (g, subNoiseBounds, juce::String::fromUTF8 ("SUB \xc2\xb7 NOISE"), subColour());
 
         // SUB and NOISE name their rows at the left, in the card's colour.
         g.setColour (subColour().withAlpha (0.0f));
@@ -648,9 +648,11 @@ public:
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
 
-        const auto bandHeight = (bandsHeight - gap) / 2;
-        auto band1 = juce::Rectangle<int> (area.getX(), bandsTop, area.getWidth(), bandHeight);
-        auto band2 = band1.withY (bandsTop + bandHeight + gap);
+        // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
+        const auto band1Height = juce::jlimit (minBand, 76, bandsHeight - gap - 90);
+        const auto bandHeight = bandsHeight - gap - band1Height;
+        auto band1 = juce::Rectangle<int> (area.getX(), bandsTop, area.getWidth(), band1Height);
+        auto band2 = juce::Rectangle<int> (area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight);
         layoutBand1 (band1);
         layoutBand2 (band2);
     }
@@ -665,7 +667,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35;
-    static constexpr int minBand = 62, maxBand = 84;
+    static constexpr int minBand = 62, maxBand = 88;
     static constexpr float dialSize = 25.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -787,9 +789,9 @@ private:
     void layoutBand2 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 3 * hGap;
-        const auto envWidth = juce::roundToInt ((float) total * 0.3502f);
+        const auto envWidth = juce::roundToInt ((float) total * 0.3594f);
         const auto lfoWidth = juce::roundToInt ((float) total * 0.2895f);
-        const auto bodyWidth = juce::roundToInt ((float) total * 0.1272f);
+        const auto bodyWidth = juce::roundToInt ((float) total * 0.1180f);
         auto row = band;
         envelopeCard.setBounds (row.removeFromLeft (envWidth));
         row.removeFromLeft (hGap);
@@ -806,7 +808,7 @@ private:
         }
 
         {
-            auto body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (4, 3);
+            auto body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (8, 3);
             const auto centre = subNoiseBounds.getY() + headerHeight / 2;
             noiseOn->setBounds (juce::Rectangle<int> (60, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 30, centre }));
             subOn->setBounds (juce::Rectangle<int> (48, 17).withCentre ({ noiseOn->getX() - 4 - 24, centre }));
@@ -815,7 +817,7 @@ private:
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
             // SUB: the wave menu over the octave pills, then LEVEL; NOISE: its colour menu, LEVEL and COLOUR.
             // The menus line up with the dials (the dial's middle), the free width goes into the gaps.
-            const auto menuWidth = 60;
+            const auto menuWidth = 58;
             const auto used = menuWidth + cell + menuWidth + 2 * cell;
             const auto between = juce::jlimit (1, 14, (body.getWidth() - used) / 3);
             auto x = body.getX();

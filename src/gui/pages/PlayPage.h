@@ -803,7 +803,7 @@ private:
         }
 
         {
-            auto body = bodyOf (subNoiseBounds);
+            auto body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (4, 3);
             const auto centre = subNoiseBounds.getY() + headerHeight / 2;
             noiseOn->setBounds (juce::Rectangle<int> (60, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 30, centre }));
             subOn->setBounds (juce::Rectangle<int> (48, 17).withCentre ({ noiseOn->getX() - 4 - 24, centre }));
@@ -812,9 +812,9 @@ private:
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
             // SUB: the wave menu over the octave pills, then LEVEL; NOISE: its colour menu, LEVEL and COLOUR.
             // The menus line up with the dials (the dial's middle), the free width goes into the gaps.
-            const auto menuWidth = 54;
+            const auto menuWidth = 60;
             const auto used = menuWidth + cell + menuWidth + 2 * cell;
-            const auto between = juce::jlimit (3, 14, (body.getWidth() - used) / 3);
+            const auto between = juce::jlimit (1, 14, (body.getWidth() - used) / 3);
             auto x = body.getX();
             auto stack = juce::Rectangle<int> (x, knobY - 1, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));

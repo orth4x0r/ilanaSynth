@@ -1450,6 +1450,9 @@ public:
         const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
+        // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
+        if (packedValueRoom > 0 && value.endsWith (".00 kHz"))
+            value = value.replace (".00 kHz", " kHz");
         const auto room = (float) packedValueRoom;
         // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
         const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;

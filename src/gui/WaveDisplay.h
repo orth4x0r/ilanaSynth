@@ -79,6 +79,7 @@ public:
         loopOwnId = samplePrefix + "_sample_loop_own";
         loopFromId = samplePrefix + "_sample_loop_start";
         loopToId = samplePrefix + "_sample_loop_end";
+        xfadeId = samplePrefix + "_sample_loop_xfade";
         snapId = samplePrefix + "_sample_snap";
 
         displayedFrame = readValue (frameId);
@@ -2008,6 +2009,23 @@ private:
                 g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
         }
 
+        // The crossfade at the loop seam: a ramp up to the loop end (its width is what the voice
+        // blends, a half of CROSSFADE of the loop), lit stronger toward the seam.
+        if (loop && ! compact)
+        {
+            const auto share = juce::jlimit (0.0f, 1.0f, readPlain (xfadeId));
+            const auto from = ownLoop ? loopFromX : startX, to = ownLoop ? loopToX : endX;
+            const auto width = share * 0.5f * (to - from);
+            if (width > 1.0f)
+            {
+                const auto zone = reverse ? juce::Rectangle<float> (from, plot.getY(), width, plot.getHeight())
+                                          : juce::Rectangle<float> (to - width, plot.getY(), width, plot.getHeight());
+                g.setGradientFill (juce::ColourGradient (traceColour.withAlpha (reverse ? 0.55f : 0.0f), zone.getX(), 0.0f,
+                                                         traceColour.withAlpha (reverse ? 0.0f : 0.55f), zone.getRight(), 0.0f, false));
+                g.fillRect (zone);
+            }
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.55f));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ startX, centreY }));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ endX, centreY }));
@@ -2946,7 +2964,7 @@ private:
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
     int oscIndex = 0;
-    juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
+    juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, xfadeId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     int markerDrag = 0; // step 32: 1.. the slice marker being dragged
     float markerDragFraction = 0.0f;

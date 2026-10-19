@@ -1443,6 +1443,7 @@ public:
             card.sampleNameButton.setTooltip ("The sample this oscillator plays. Click to load another or pick a factory sample");
             card.sampleNameButton.onPopup = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
             addChildComponent (card.sampleNameButton);
+            addChildComponent (card.xfadeBar);
 
             // Roadmap step 44: the sample (a resampled sound too) out as a WAV.
             card.sampleSliceButton.setButtonText ("SLICE");
@@ -2993,7 +2994,7 @@ private:
         {
             const juce::Rectangle<int> area (cols.x[0], topY, cols.w[0], sampleTopH + panelGap + physBottomH);
             const auto c = addPanel (area, "WAVE");
-            const auto toggleW = 62, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
+            const auto toggleW = 84, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
             const auto secondX = c.getRight() - toggleW;
             const auto firstX = secondX - 6 - firstW;
             waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 6 - c.getX()), c.getHeight() });
@@ -3001,9 +3002,8 @@ private:
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
             // its name line level with REVERSE.
-            const auto xfadeH = mainDial + nameLine; // a regular dial: its ring centred on the third row
-            const auto pitch = 25; // (rows 25 apart: the small CROSSFADE ring is the third row of the second column)
-            const auto blockH = 2 * pitch + toggleH / 2 + xfadeH - mainDial / 2;
+                        const auto pitch = 25; // (rows 25 apart: the small CROSSFADE ring is the third row of the second column)
+            const auto blockH = 2 * pitch + toggleH;
             const auto y0 = middle (c, blockH);
             int row = 0;
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse })
@@ -3011,7 +3011,10 @@ private:
             row = 0;
             for (auto* toggle : { &osc.sampleLoopOwn, &osc.sampleSnap })
                 toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
-            placeKnob (osc.sampleLoopXfade, secondX + toggleW - 44, y0 + 2 * pitch + toggleH / 2 - mainDial / 2, 44, mainDial); // the regular dial under the switches
+            // CROSSFADE is the third row of the second column: a bar slider, name on the same edge as LOOP PTS and SNAP.
+            osc.sampleLoopXfade.setBounds ({});
+            pieces.xfadeBar.setBounds ({ secondX, y0 + 2 * pitch, toggleW, toggleH });
+            pieces.xfadeBar.setAccent (tint);
         }
 
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
@@ -3667,7 +3670,8 @@ private:
     {
         CardAux (IlanaSynthAudioProcessor& p, int index)
             : stringView (p, juce::String (OscillatorIds::prefixes[(size_t) index])), opEnvGraph (p),
-              spreadView (p, index), partials (p, index), status (p, index), outBar (p, index) {}
+              spreadView (p, index), partials (p, index), status (p, index), outBar (p, index),
+              xfadeBar (p.apvts, juce::String (OscillatorIds::prefixes[(size_t) index]) + "_sample_loop_xfade", "CROSSFADE") {}
 
         PhysicalView stringView;
         OperatorEnvDisplay opEnvGraph;
@@ -3683,6 +3687,7 @@ private:
         PillWrap exciterPills;
         int extraWarps = 0; // 0..2 of WARP 2 and WARP ENV shown beyond WARP and SPECTRAL
         SampleNameBox sampleNameButton;
+        BarSliderControl xfadeBar; // the sample's CROSSFADE, a row of the toggle list
         juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
     };
 
@@ -4201,6 +4206,8 @@ private:
             pieces.opEnvGraph.setSource (prefix, oscColour (index));
             pieces.partials.setVisible (kind == Kind::physical && ! electric);
             pieces.status.setVisible (true);
+            pieces.xfadeBar.setVisible (kind == Kind::sample && ! isFolded (index));
+            pieces.xfadeBar.setAlpha (readFloat (prefix + "_sample_loop") > 0.5f ? 1.0f : 0.45f);
             pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && kind != Kind::fm);
 
             // A folded card shows its header only.
@@ -4213,6 +4220,7 @@ private:
                 pieces.opEnvGraph.setVisible (false);
                 pieces.partials.setVisible (false);
                 pieces.status.setVisible (false);
+                pieces.xfadeBar.setVisible (false);
                 pieces.spreadView.setVisible (false);
                 pieces.routeBar.setVisible (false);
                 pieces.outBar.setVisible (false);

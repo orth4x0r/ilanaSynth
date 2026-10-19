@@ -3531,6 +3531,67 @@ private:
     bool lastOn = false, ticked = false;
 };
 
+
+// A compact bar-slider row for a card's list of switches (the sample's CROSSFADE): a rounded
+// box 16 units high, the share filled in the card's colour, the name on its left edge and the
+// value on its right, one drag or a double-click for the default.
+class BarSliderControl : public KeyboardSlider
+{
+public:
+    BarSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText)
+        : name (nameText)
+    {
+        setSliderStyle (juce::Slider::LinearBar);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, *this);
+
+        if (auto* parameter = state.getParameter (parameterID))
+        {
+            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            const auto description = describeParameter (parameterID);
+            setTitle (parameter->getName (64));
+            setDescription (description);
+            setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
+        }
+    }
+
+    void setAccent (juce::Colour c) { accent = c; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        const auto share = (float) juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()));
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (box, 4.0f);
+
+        if (share > 0.001f)
+        {
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
+            g.setColour (accent.withAlpha (0.38f * alpha));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.restoreState();
+        }
+
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+
+        g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+        g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (alpha));
+        const auto inner = getLocalBounds().reduced (5, 0);
+        g.drawText (name, inner, juce::Justification::centredLeft, false);
+        g.setFont (IlanaTheme::font (7.3f));
+        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
+        g.drawText (juce::String (juce::roundToInt (getValue() * 100.0)) + "%", inner, juce::Justification::centredRight, false);
+    }
+
+private:
+    juce::String name;
+    juce::Colour accent { juce::Colours::orange };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+};
+
 class ValueSliderControl : public juce::Component
 {
 public:

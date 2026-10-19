@@ -22,7 +22,6 @@ CLIPS = [
     ('06-rattle-hammer-C4', [('hammer', 'C4', 'rattle')]),
     ('07-slap-hammer-C4-off-then-on', [('hammer', 'C4', 'slap')]),
     ('08-position-burst-C4', [('burst', 'C4', 'position')]),
-    ('09-pick-pos-burst-C4', [('burst', 'C4', 'pickpos')]),
     ('10-pickup-burst-C4', [('burst', 'C4', 'pickup')]),
     ('11-hardness-burst-C4', [('burst', 'C4', 'hardness')]),
     ('12-hammer-piano-C4', [('piano', 'C4', 'hammer')]),

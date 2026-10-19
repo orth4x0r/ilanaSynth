@@ -2252,7 +2252,7 @@ private:
         // (A live or FM / DX7 card is the wavetable card's height with two warp rows.)
         // A granular card is one row of panels, as tall as its tallest panel (MIX) needs.
         if (kindOf (osc) == Kind::grain)
-            return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 10) + panelTail + 1 + cardPad + 1;
+            return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 4) + panelTail + 1 + cardPad + 1;
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
         const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
@@ -3080,7 +3080,7 @@ private:
         // TEMPO: SYNC and TIME one over the other, BPM beside them.
         {
             const auto c = addPanel (lowRect (2), "TEMPO");
-            const auto bpmCell = 40, menuW = 104;
+            const auto bpmCell = 40, menuW = 100;
             const auto gap = (c.getWidth() - bpmCell - menuW) / 3; // equal margins and gap
             const auto top = middle (c, 2 * menuH + 4);
             osc.sampleSync.setBounds ({ c.getX() + gap, top, menuW, menuH });
@@ -3135,7 +3135,7 @@ private:
             const auto knobsW = 6 * cell;
             const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
             const auto chipH = 12;
-            const auto pictureH = juce::jmin (c.getHeight(), left * 2 / 5); // wide, as the mock's
+            const auto pictureH = c.getHeight(); // the cloud takes the panel's whole height
             const juce::Rectangle<int> picture (c.getX(), middle (c, pictureH), left, pictureH);
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)

@@ -1929,40 +1929,42 @@ private:
             }
             case Kind::fm:
             {
-                // The operator's own order (RATIO, SEMI, FINE, OUTPUT; review 8, V8-5),
-                // its wave and envelope menu under it, then the unison row as every card has it.
+                // Panels (review 23): the list of what shows; layoutFmPanels places it.
                 // OUTPUT is the Operator EG's level; on another envelope the
-                // oscillator's LEVEL stands there.
+                // oscillator's LEVEL stands there. An operator has no unison spread
+                // (review 8, I8-15); a table's shapers show only while one is in use.
                 const auto tuning = OscRole::tuning (processorRef, index);
-                add (osc.tune, 0, 0);
+                add (osc.table, 0, 0);
+                add (osc.feedback, 0, 0);
+                add (osc.feedbackType, 0, 0);
+                add (osc.semi, 1, 0);
+                add (osc.fine, 1, 0);
                 if (tuning == OscTuning::Ratio)
-                    add (osc.ratio, 0, 1);
+                    add (osc.ratio, 1, 0);
                 if (tuning == OscTuning::Fixed)
-                    add (osc.fixedHz, 0, 1);
-                add (osc.semi, 0, 2);
-                add (osc.fine, 0, 3);
-                add (OscRole::usesOperatorEg (processorRef, index) ? (juce::Component&) osc.egOut : (juce::Component&) osc.level, 0, 4);
-                add (osc.pan, 0, 5);
-                add (osc.table, 1, 0, 2);
-                add (osc.ampEnv, 1, 2, 2);
-                add (osc.feedback, 1, 4, 2);
-                add (osc.feedbackType, 1, 6, 2);
-                // An operator has no unison spread (review 8, I8-15): its UNISON
-                // shows only once it is raised, on the third row; so do a
-                // table's shapers, only while one is in use (no factory
-                // operator uses them; an old patch's still shows what plays).
+                    add (osc.fixedHz, 1, 0);
+                add (osc.tune, 1, 0);
+                add (osc.scale, 1, 0);
+                if (readChoice (prefix + "_scale") != 0)
+                    add (osc.scaleRoot, 1, 0);
+                add (osc.chord, 1, 0);
+                add (OscRole::usesOperatorEg (processorRef, index) ? (juce::Component&) osc.egOut : (juce::Component&) osc.level, 2, 0);
+                add (osc.pan, 2, 0);
+                add (osc.ampEnv, 2, 0);
+                // An operator has no unison (review 8, I8-15): on the Operator EG its VOICES knob
+                // shows only once raised; on another envelope it stands in the last panel.
+                if (! OscRole::usesOperatorEg (processorRef, index) || readFloat (prefix + "_unison") > 1.5f)
+                    add (osc.unison, 3, 0);
+                if (! OscRole::usesOperatorEg (processorRef, index))
                 {
-                    auto col = 0;
-                    if (readFloat (prefix + "_unison") > 1.5f)
-                        add (osc.unison, 2, col++);
                     const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
                                                                             { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
                     for (const auto& [menu, amount] : shapers)
-                        if (col <= 4 && readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2"
-                                                                            : menu == &osc.spectral ? "_spectral" : "_pd_env")) != 0)
+                        if (readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2"
+                                                                : menu == &osc.spectral ? "_spectral" : "_pd_env")) != 0)
                         {
-                            add (*menu, 2, col++);
-                            add (*amount, 2, col++);
+                            add (*menu, 3, 0);
+                            add (*amount, 3, 0);
                         }
                 }
                 break;
@@ -2199,7 +2201,7 @@ private:
     bool isFolded (int osc) const { return isOff (osc); }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
-    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live; }
+    static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm; }
 
     // WARP and SPECTRAL always; WARP 2 and WARP ENV once added (+ WARP) or in use.
     int effectiveExtraWarps (int osc) const
@@ -2222,8 +2224,8 @@ private:
         if (kindOf (osc) == Kind::physical)
             return 1 + cardHeaderHeight + physTopH + panelGap + physBottomH + cardPad + 1;
 
-        // (A live card is the wavetable card's height with two warp rows: INPUT and MIX fill it.)
-        const auto rows = kindOf (osc) == Kind::live ? 2 : 2 + effectiveExtraWarps (osc);
+        // (A live or FM / DX7 card is the wavetable card's height with two warp rows.)
+        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
         const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
@@ -2788,6 +2790,132 @@ private:
         pieces.status.setBounds (card.statusArea);
     }
 
+    // An FM / DX7 card as four panels (review 23 language): WAVE (the cycle, FEEDBACK, the
+    // WAVE and FB TYPE menus), PITCH, MIX and, on the Operator EG, ENVELOPE (its graph and
+    // UNISON); on another envelope, UNISON (and the table's shapers while one is in use).
+    void layoutFmPanels (CardGeometry& card)
+    {
+        const auto index = card.osc;
+        auto& osc = *controls[(size_t) index];
+        auto& pieces = *aux[(size_t) index];
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
+        const auto tint = oscColour (index);
+        const auto opEnv = OscRole::usesOperatorEg (processorRef, index);
+        const auto inner = card.bounds.reduced (1);
+        const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
+        const auto panelRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], rowArea.getY(), cols.w[column], rowArea.getHeight()); };
+        const auto addPanel = [&] (int column, const juce::String& title) { card.panels.push_back ({ panelRect (column), title, {}, tint }); return panelContent (panelRect (column)); };
+        const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
+        const auto cellH = mainDial + nameLine;
+
+        card.rows = 0;
+        card.well = {};
+
+        // WAVE: the picture, FEEDBACK, then the two menus one over the other.
+        {
+            const auto c = addPanel (0, "WAVE");
+            const auto menuW = 100;
+            const auto menuX = c.getRight() - menuW;
+            const auto feedbackX = menuX - 7 - 49;
+            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (40, feedbackX - 7 - c.getX()), c.getHeight() });
+            for (auto& item : scrubbers)
+                item.setBounds ({});
+            placeKnob (osc.feedback, feedbackX, middle (c, cellH), 49, mainDial);
+            const auto stackH = 2 * menuH + 8;
+            const auto top = middle (c, stackH);
+            osc.table.setBounds ({ menuX, top, menuW, menuH });
+            osc.feedbackType.setBounds ({ menuX, top + menuH + 8, menuW, menuH });
+        }
+
+        // PITCH: SEMI, FINE and RATIO or FIXED HZ, the TUNING menu; SCALE and CHORD under them.
+        {
+            const auto c = addPanel (1, "PITCH");
+            const auto top = middle (c, cellH + 3 + menuH);
+            const auto tuning = OscRole::tuning (processorRef, index);
+            auto x = c.getX();
+            placeKnob (osc.semi, x, top, knobCell, mainDial);
+            x += knobCell;
+            placeKnob (osc.fine, x, top, knobCell, mainDial);
+            x += knobCell;
+            if (tuning != OscTuning::Semitones)
+            {
+                placeKnob (tuning == OscTuning::Ratio ? osc.ratio : osc.fixedHz, x, top, knobCell, mainDial);
+                x += knobCell;
+            }
+            osc.tune.setBounds ({ x + 3, top + 4, c.getRight() - x - 3, menuH });
+            const auto lower = top + cellH + 3;
+            if (readChoice (prefix + "_scale") != 0)
+            {
+                const auto rootW = 36, free = c.getWidth() - rootW - 8;
+                osc.scale.setBounds ({ c.getX(), lower, free / 2, menuH });
+                osc.scaleRoot.setBounds ({ c.getX() + free / 2 + 4, lower, rootW, menuH });
+                osc.chord.setBounds ({ c.getX() + free / 2 + 4 + rootW + 4, lower, c.getRight() - (c.getX() + free / 2 + 4 + rootW + 4), menuH });
+            }
+            else
+            {
+                const auto half = (c.getWidth() - 4) / 2;
+                osc.scale.setBounds ({ c.getX(), lower, half, menuH });
+                osc.chord.setBounds ({ c.getX() + half + 4, lower, c.getWidth() - half - 4, menuH });
+            }
+        }
+
+        // MIX: OUTPUT (or LEVEL), PAN, ENV, FILTER and OUT.
+        {
+            const auto c = addPanel (2, "MIX");
+            auto& level = opEnv ? osc.egOut : osc.level;
+            const auto top = middle (c, cellH + 3 + filterH + 3 + outH);
+            placeKnob (level, c.getX(), top, knobCell, mainDial);
+            placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
+            const auto envX = c.getX() + 2 * knobCell + 3;
+            osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
+            const auto filterY = top + cellH + 3;
+            const auto labelW = 28;
+            card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
+            pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
+            pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
+        }
+
+        // ENVELOPE (the Operator EG's graph, what it does and UNISON) or UNISON (and shapers in use).
+        {
+            const auto c = addPanel (3, opEnv ? "ENVELOPE" : "UNISON");
+            pieces.opEnvGraph.setBounds ({});
+            pieces.spreadView.setBounds ({});
+            if (opEnv)
+            {
+                const auto raised = readFloat (prefix + "_unison") > 1.5f;
+                const auto knobX = c.getRight() - (raised ? knobCell + 7 : 0);
+                const auto hintW = 86;
+                const auto hintX = knobX - 7 - hintW;
+                pieces.opEnvGraph.setBounds ({ c.getX(), c.getY() - 2, juce::jmax (40, hintX - 7 - c.getX()), c.getHeight() + 3 });
+                card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true });
+                if (raised)
+                    placeKnob (osc.unison, c.getRight() - knobCell, middle (c, cellH), knobCell, mainDial);
+            }
+            else
+            {
+                placeKnob (osc.unison, c.getX(), middle (c, cellH), knobCell, mainDial);
+                const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
+                                                                        { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
+                const juce::StringArray stages { "_warp", "_warp2", "_spectral", "_pd_env" };
+                auto used = 0;
+                for (int i = 0; i < 4; ++i)
+                    if (readChoice (prefix + stages[i]) != 0)
+                    {
+                        const auto areaX = c.getX() + knobCell + 7;
+                        const auto columnW = (c.getRight() - areaX - 7) / 2;
+                        const auto x = areaX + (used % 2) * (columnW + 7);
+                        const auto y = c.getY() + (used / 2) * (ampRowH + 1);
+                        shapers[i].first->setBounds ({ x, y + (ampRowH - menuH) / 2, juce::jmax (40, columnW - ampCell - 3), menuH });
+                        placeKnob (*shapers[i].second, x + juce::jmax (40, columnW - ampCell - 3) + 3, y, ampCell, ampDial);
+                        ++used;
+                    }
+            }
+        }
+
+        pieces.status.setBounds (card.statusArea);
+    }
+
     // A live card as two panels (review 23 language): INPUT, the meter, over the
     // WAVE and PITCH columns; MIX over MIX and UNISON, LEVEL, PAN, ENV and FILTER on one
     // line and OUT under them.
@@ -2855,6 +2983,8 @@ private:
                 layoutPhysicalPanels (card);
             else if (card.kind == Kind::live)
                 layoutLivePanels (card);
+            else if (card.kind == Kind::fm)
+                layoutFmPanels (card);
             else
                 layoutWavetablePanels (card);
             return;
@@ -3635,16 +3765,17 @@ private:
         auto& osc = *controls[(size_t) index];
 
         for (auto* knob : { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.ratio, &osc.fixedHz, &osc.unison, &osc.detune, &osc.spread,
-                            &osc.uniBlend, &osc.uniFrame, &osc.uniWarp })
+                            &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.egOut })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        osc.unison.setPackedDial (panels ? 25.0f : 0.0f);
+        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample ? (float) mainDial : 25.0f) : 0.0f);
+        osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);
 
-        for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode })
+        for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode, &osc.feedbackType })
             menu->setPackedMenu (panels);
-        osc.table.setPackedMenu (kind == Kind::wavetable);
+        osc.table.setPackedMenu (kind == Kind::wavetable || kind == Kind::fm);
         waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
 
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
@@ -3710,13 +3841,13 @@ private:
             const auto wavetableCard = usesPanels (kind) && kind == Kind::wavetable;
             pieces.prevTable.setVisible (wavetableCard);
             pieces.nextTable.setVisible (wavetableCard);
-            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live);
-            pieces.outBar.setVisible (wavetableCard || kind == Kind::live);
+            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm);
+            pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm);
             pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 2);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
-            if (wavetableCard || kind == Kind::live)
+            if (wavetableCard || kind == Kind::live || kind == Kind::fm)
                 pieces.routeBar.refresh();
             // An FM / DX7 oscillator plays a plain cycle: no table tools
             // (UI review 8, I8-15, S8-9, V8-16); on the Operator EG no
@@ -3747,7 +3878,7 @@ private:
             // envelope, the sample, the live meter.
             const auto electric = kind == Kind::physical && isElectric (index);
             auto& wave = waveDisplay (index);
-            wave.setVisible (! opEnv && (kind != Kind::physical || electric));
+            wave.setVisible (kind != Kind::physical || electric);
             if (wave.isCompact() != (kind != Kind::sample))
                 wave.setCompact (kind != Kind::sample);
             wave.setSlim (kind == Kind::wavetable);
@@ -3756,7 +3887,7 @@ private:
             pieces.opEnvGraph.setSource (prefix, oscColour (index));
             pieces.partials.setVisible (kind == Kind::physical && ! electric);
             pieces.status.setVisible (kind != Kind::sample);
-            pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && ((kind != Kind::sample && kind != Kind::fm) || readFloat (prefix + "_unison") > 1.5f));
+            pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && kind != Kind::fm && (kind != Kind::sample || readFloat (prefix + "_unison") > 1.5f));
 
             // A folded card shows its header only.
             if (isFolded (index))

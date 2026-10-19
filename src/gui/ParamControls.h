@@ -2751,6 +2751,17 @@ public:
     // choice must go through more than its parameter (the oscillator type).
     void setNudgeOverride (std::function<void (int)> override) { combo.nudgeOverride = std::move (override); }
 
+    // Called with the new item's index when the person picks from the list
+    // (not when a preset load, undo or automation moves the choice).
+    void setOnPick (std::function<void (int)> onPick)
+    {
+        combo.onChange = [this, onPick = std::move (onPick)]
+        {
+            if (combo.pickedFromList() && ! IlanaAnim::presetJustLoaded())
+                onPick (combo.getSelectedItemIndex());
+        };
+    }
+
     juce::String getLabelText() const { return label.getText(); }
     void setLabelText (const juce::String& text)
     {
@@ -2859,7 +2870,11 @@ public:
     {
         std::function<void()> popupOverride;
         double lastOverrideOpen = 0.0;
+        double lastPopupOpen = -1.0e9; // (when the person last opened this list)
         std::function<void (int)> nudgeOverride;
+
+        // True when a change comes within a moment of the person's pick from the list.
+        bool pickedFromList() const { return juce::Time::getMillisecondCounterHiRes() - lastPopupOpen < 20000.0; }
 
         void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
         {
@@ -2932,6 +2947,7 @@ public:
         {
             if (popupOverride == nullptr)
             {
+                lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
                 juce::ComboBox::showPopup();
                 return;
             }

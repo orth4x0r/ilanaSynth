@@ -89,6 +89,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
 #include "GranularTests.inc"
+#include "BuiltInTableTests.inc"
 #include "ParamInfoTests.inc"
 #include "DemoRender.inc"
 
@@ -296,6 +297,13 @@ int main()
     {
         runAirwindowsFilterTests();
         std::cout << (failures == 0 ? "AWFILTER TESTS PASSED" : "AWFILTER TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_BUILTIN_TEST", "").isNotEmpty())
+    {
+        runBuiltInTableTests();
+        std::cout << (failures == 0 ? "BUILTIN TESTS PASSED" : "BUILTIN TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -791,6 +799,7 @@ int main()
     timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
     timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
+    timedRun ("runBuiltInTableTests", [] { runBuiltInTableTests(); });
     timedRun ("runGranularControlTests", [] { runGranularControlTests(); });
     timedRun ("runParamInfoTests", [] { runParamInfoTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });

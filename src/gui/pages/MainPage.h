@@ -51,6 +51,25 @@ public:
             });
             strip->warp = std::make_unique<ComboControl> (p.apvts, prefix + "_warp", "");
             strip->warp->getComboBox().getProperties().set ("textPrefix", "WARP"); // the menu says what it is
+            // (The menu is too narrow for a name before the value: its Off says "Warp off".)
+            {
+                auto& box = strip->warp->getComboBox();
+                const auto shown = box.getSelectedId();
+                box.changeItemText (Warp::Off + 1, "Warp off");
+                box.setSelectedId (0, juce::dontSendNotification); // (so the shown text is read again)
+                box.setSelectedId (shown, juce::dontSendNotification);
+            }
+            // A warp picked while its amount sits at 0 would change nothing
+            // you can hear: start it at half, so the first pick is heard.
+            strip->warp->setOnPick ([&p, prefix] (int choice)
+            {
+                if (auto* amount = p.apvts.getParameter (prefix + "_warp_amt"); amount != nullptr && choice > 0 && amount->getValue() < 0.001f)
+                {
+                    amount->beginChangeGesture();
+                    amount->setValueNotifyingHost (0.5f);
+                    amount->endChangeGesture();
+                }
+            });
             // An operator's envelope menu, in the warp menu's place (the OSC
             // tab's ENVELOPE).
             strip->ampEnv = std::make_unique<ComboControl> (p.apvts, prefix + "_amp_env", "");

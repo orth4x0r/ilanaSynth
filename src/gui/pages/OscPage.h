@@ -2969,21 +2969,18 @@ private:
             waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 8 - c.getX()), c.getHeight() });
             for (auto& item : scrubbers)
                 item.setBounds ({});
-            const auto firstH = 3 * toggleH + 2 * toggleGap;
-            const auto secondH = 2 * toggleH + toggleGap + 4 + cellH;
-            auto y = middle (c, juce::jmax (firstH, secondH));
+            // Three rows on one pitch: the crossfade knob takes the third row of the second column,
+            // its name line level with REVERSE.
+            const auto blockH = 2 * toggleH + toggleGap + cellH + 1; // (SNAP ends where the knob's ring starts)
+            const auto pitch = (blockH - toggleH) / 2;
+            const auto y0 = middle (c, blockH);
+            int row = 0;
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse })
-            {
-                toggle->setBounds ({ firstX, y, firstW, toggleH });
-                y += toggleH + toggleGap;
-            }
-            y = middle (c, juce::jmax (firstH, secondH));
+                toggle->setBounds ({ firstX, y0 + pitch * row++, firstW, toggleH });
+            row = 0;
             for (auto* toggle : { &osc.sampleLoopOwn, &osc.sampleSnap })
-            {
-                toggle->setBounds ({ secondX, y, toggleW, toggleH });
-                y += toggleH + toggleGap;
-            }
-            placeKnob (osc.sampleLoopXfade, secondX + (toggleW - knobCell) / 2, y - toggleGap + 4, knobCell, mainDial);
+                toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
+            placeKnob (osc.sampleLoopXfade, secondX, y0 + blockH - cellH, toggleW, mainDial);
         }
 
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
@@ -3051,8 +3048,8 @@ private:
         // TEMPO: SYNC and TIME one over the other, BPM beside them.
         {
             const auto c = addPanel (lowRect (2), "TEMPO");
-            const auto bpmCell = 44;
-            const auto menuW = c.getWidth() - bpmCell - 6;
+            const auto bpmCell = 36;
+            const auto menuW = c.getWidth() - bpmCell - 4;
             const auto top = middle (c, 2 * menuH + 4);
             osc.sampleSync.setBounds ({ c.getX(), top, menuW, menuH });
             osc.sampleStretch.setBounds ({ c.getX(), top + menuH + 4, menuW, menuH });
@@ -3062,14 +3059,15 @@ private:
         // PLAYBACK: MODE and QUALITY, PING-PONG and TRANSIENT SAFE, RANDOM.
         {
             const auto c = addPanel (lowRect (3), "PLAYBACK");
-            const auto menuW = 96, toggleW = 92, randomCell = 44, gapW = 6;
+            const auto randomCell = 44, gapW = 8;
+            const auto menuW = (c.getWidth() - randomCell - 2 * gapW) / 2 - 4, toggleW = c.getWidth() - randomCell - 2 * gapW - menuW - gapW + 8;
             const auto top = middle (c, 2 * menuH + 4);
             osc.samplePlayback.setBounds ({ c.getX(), top, menuW, menuH });
             osc.sampleQuality.setBounds ({ c.getX(), top + menuH + 4, menuW, menuH });
-            const auto toggleX = c.getX() + menuW + gapW + 4;
+            const auto toggleX = c.getX() + menuW + gapW;
             osc.samplePingPong.setBounds ({ toggleX, top, toggleW, 16 });
             osc.sampleStartSafe.setBounds ({ toggleX, top + menuH + 4, toggleW, 16 });
-            placeKnob (osc.sampleStartRandom, toggleX + toggleW + (c.getRight() - toggleX - toggleW - randomCell) / 2, middle (c, cellH), randomCell, mainDial);
+            placeKnob (osc.sampleStartRandom, c.getRight() - randomCell, middle (c, cellH), randomCell, mainDial);
         }
     }
 
@@ -4010,7 +4008,7 @@ private:
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample ? (float) mainDial : 25.0f) : 0.0f);
+        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })

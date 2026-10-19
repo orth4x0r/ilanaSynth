@@ -815,7 +815,7 @@ public:
             g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
-            const auto valueW = 34.0f;
+            const auto valueW = 28.0f;
             const auto track = juce::Rectangle<float> (area.getX() + 26.0f, area.getCentreY() - 2.5f, juce::jmax (0.0f, area.getWidth() - 26.0f - valueW - 4.0f), 5.0f);
             g.setColour (IlanaTheme::Ui::track);
             g.fillRoundedRectangle (track, 2.5f);
@@ -829,17 +829,17 @@ public:
 
         if (chipText.isNotEmpty() && part != Part::barOnly)
         {
-            const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny, true);
-            const auto width = juce::jmin (area.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), chipText) + 28.0f);
-            const auto chip = juce::Rectangle<float> (width, 20.0f).withCentre ({ area.getX() + width * 0.5f, area.getCentreY() });
+            const auto font = IlanaTheme::font (7.5f, true).withKerningFactor (0.06f);
+            const auto width = juce::jmin (area.getWidth(), (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (font), chipText) + 26.0f);
+            const auto chip = juce::Rectangle<float> (width, 14.0f).withCentre ({ area.getX() + width * 0.5f, area.getCentreY() });
             g.setColour (chipColour.withAlpha (0.2f));
-            g.fillRoundedRectangle (chip, 10.0f);
+            g.fillRoundedRectangle (chip, 7.0f);
             g.setColour (chipColour.withAlpha (0.75f));
-            g.drawRoundedRectangle (chip.reduced (0.5f), 10.0f, 1.0f);
-            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ chip.getX() + 11.0f, chip.getCentreY() }));
+            g.drawRoundedRectangle (chip.reduced (0.5f), 7.0f, 1.0f);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ chip.getX() + 8.0f, chip.getCentreY() }));
             g.setColour (IlanaTheme::Ui::text);
             g.setFont (font);
-            IlanaTheme::drawFitted (g, chipText, chip.withTrimmedLeft (20.0f).withTrimmedRight (8.0f), juce::Justification::centredLeft, 1);
+            IlanaTheme::drawFitted (g, chipText, chip.withTrimmedLeft (17.0f).withTrimmedRight (7.0f), juce::Justification::centredLeft, 1);
             return;
         }
 
@@ -1248,6 +1248,7 @@ public:
             card.stringView.setCompact (true);
             addChildComponent (card.opEnvGraph);
             card.opEnvGraph.setReadOnly (true);
+            card.opEnvGraph.setCompact (true);
             card.opEnvGraph.onOpen = [this, i]
             {
                 if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
@@ -1288,7 +1289,7 @@ public:
                 updateEnabled();
             };
             card.routeBar.setColour (family);
-            card.routeBar.setEqual (true);
+            card.routeBar.setEqual (false);
             card.routeBar.setItems ({ "AUTO", "F1", "F2", "BOTH", "NONE" },
                                     { "Follows the Serial / Parallel switch (into Filter 1 when serial, both when parallel)",
                                       "Through Filter 1 only", "Through Filter 2 only", "Through both filters", "Straight to the output, past the filters" });
@@ -1405,6 +1406,12 @@ public:
             card.sampleLoadButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleLoadButton); };
             styleHeaderButton (card.sampleLoadButton);
             addChildComponent (card.sampleLoadButton);
+
+            // The sample's name in the header, a menu button as the table's is (a click is LOAD's menu).
+            card.sampleNameButton.setTooltip ("The sample this oscillator plays. Click to load another or pick a factory sample");
+            card.sampleNameButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
+            styleHeaderButton (card.sampleNameButton);
+            addChildComponent (card.sampleNameButton);
 
             // Roadmap step 44: the sample (a resampled sound too) out as a WAV.
             card.sampleSliceButton.setButtonText ("SLICE");
@@ -1823,7 +1830,7 @@ private:
     static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
-    static constexpr int pitchW = 175, mixW = 164, unisonW = 275;
+    static constexpr int pitchW = 160, mixW = 164, unisonW = 250;
     static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
@@ -2484,8 +2491,15 @@ private:
             x += 58;
         }
 
+        if (card.kind == Kind::sample || card.kind == Kind::grain)
+        {
+            const auto width = juce::jlimit (0, 170, right.getRight() - x - 4);
+            pieces.sampleNameButton.setBounds ({ x, centre - 8, width, 16 });
+            x += width + 4;
+        }
+
         const auto statusWidth = juce::jlimit (0, 190, right.getRight() - x - 2);
-        card.statusArea = { x, centre - 11, statusWidth, 22 };
+        card.statusArea = { x, centre - 9, statusWidth, 18 };
     }
 
     // A wavetable card as four panels (review 23): WAVE (the picture, FRAME, the warp
@@ -2885,9 +2899,10 @@ private:
             {
                 const auto raised = readFloat (prefix + "_unison") > 1.5f;
                 const auto knobX = c.getRight() - (raised ? knobCell + 7 : 0);
-                const auto hintW = 86;
-                const auto hintX = knobX - 7 - hintW;
-                pieces.opEnvGraph.setBounds ({ c.getX(), c.getY() - 2, juce::jmax (40, hintX - 7 - c.getX()), c.getHeight() + 3 });
+                const auto room = knobX - c.getX() - (raised ? 7 : 0);
+                const auto graphW = juce::jmax (40, room * 57 / 100), graphH = juce::jmin (c.getHeight(), 52);
+                const auto hintX = c.getX() + graphW + 8, hintW = knobX - hintX - (raised ? 7 : 0);
+                pieces.opEnvGraph.setBounds ({ c.getX(), middle (c, graphH), graphW, graphH });
                 card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true });
                 if (raised)
                     placeKnob (osc.unison, c.getRight() - knobCell, middle (c, cellH), knobCell, mainDial);
@@ -3407,7 +3422,7 @@ private:
         PackedChip addWarp;
         PillWrap exciterPills;
         int extraWarps = 0; // 0..2 of WARP 2 and WARP ENV shown beyond WARP and SPECTRAL
-        juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
+        juce::TextButton opEnvButton, stringButton, sampleNameButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -3529,9 +3544,9 @@ private:
         }
 
         juce::String chip;
-        const auto room = juce::jmax (40, view.getWidth() - 28);
+        const auto room = juce::jmax (40, view.getWidth() - 26);
         for (const auto& candidate : candidates)
-            if (candidate.isNotEmpty() && textWidth (candidate, IlanaTheme::TextSize::tiny, true) <= room)
+            if (candidate.isNotEmpty() && juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (7.5f, true).withKerningFactor (0.06f)), candidate) <= room)
             {
                 chip = candidate;
                 break;
@@ -3552,6 +3567,12 @@ private:
             aux[(size_t) index]->spreadView.update();
             aux[(size_t) index]->partials.update();
             updateStatus (index);
+
+            const auto* sample = processorRef.getSampleForOsc (index);
+            const auto text = juce::String (kindOf (index) == Kind::grain ? "SOURCE  " : "SAMPLE  ")
+                            + (sample != nullptr && sample->getNumSamples() >= 2 ? (sample->name.isNotEmpty() ? sample->name : juce::String ("Loaded sample")) : juce::String ("None"));
+            if (aux[(size_t) index]->sampleNameButton.getButtonText() != text)
+                aux[(size_t) index]->sampleNameButton.setButtonText (text);
         }
 
         getProperties().set ("caption", OscRole::describeLong (processorRef, selected)); // for the UI test
@@ -3751,7 +3772,7 @@ private:
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
-                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton,
+                 &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton, &pieces.sampleNameButton,
                  &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.addWarp, &pieces.exciterPills,
                  &phys.resAmount, &phys.resOn, &phys.resBoard };
     }
@@ -3866,12 +3887,13 @@ private:
             // 7, I7-24).
             loadButton (index).setVisible (kind == Kind::wavetable);
             pieces.sampleLoadButton.setVisible (kind == Kind::sample || kind == Kind::grain);
+            pieces.sampleNameButton.setVisible (kind == Kind::sample || kind == Kind::grain);
             pieces.sampleSliceButton.setVisible (kind == Kind::sample);
             pieces.sampleExportButton.setVisible (kind == Kind::sample);
             pieces.sampleZonesButton.setVisible (kind == Kind::sample);
             pieces.sampleDetectButton.setVisible (kind == Kind::sample);
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
-            pieces.opEnvButton.setVisible (opEnv);
+            pieces.opEnvButton.setVisible (false); // (the envelope picture opens the editor on a click)
             pieces.stringButton.setVisible (kind == Kind::physical);
 
             // The well: the table (slim line), the string, the operator's
@@ -4049,6 +4071,7 @@ private:
             pieces.opEnvButton.setAlpha (alpha);
             pieces.stringButton.setAlpha (alpha);
             pieces.sampleLoadButton.setAlpha (alpha);
+            pieces.sampleNameButton.setAlpha (alpha);
             pieces.sampleSliceButton.setAlpha (alpha);
             pieces.sampleExportButton.setAlpha (alpha);
             pieces.sampleZonesButton.setAlpha (alpha);

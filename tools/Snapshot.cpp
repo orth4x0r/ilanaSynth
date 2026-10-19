@@ -2487,7 +2487,7 @@ int runUiTests()
                 laidOut += apart ? 1 : 0;
                 if (! apart && firstBad.isEmpty())
                 {
-                    firstBad = names[index] + " in " + diagram->getLocalBounds().toString() + ":";
+                    firstBad = names[index] + " in " + diagram->getLocalBounds().toString() + " (minimum height " + juce::String (diagram->getMinimumHeight()) + "):";
                     for (size_t i = 0; i < nodes.size(); ++i)
                         firstBad << " [" << nodes[i].toString() << " / " << captions[i].toString() << "]";
                 }

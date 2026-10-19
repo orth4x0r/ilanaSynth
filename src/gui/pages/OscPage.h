@@ -3002,7 +3002,7 @@ private:
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
             // its name line level with REVERSE.
             const auto xfadeH = ampDial + nameLine;
-            const auto pitch = 30; // (rows 30 apart: the small CROSSFADE ring is the third row of the second column)
+            const auto pitch = 25; // (rows 25 apart: the small CROSSFADE ring is the third row of the second column)
             const auto blockH = 2 * pitch + juce::jmax (toggleH, xfadeH);
             const auto y0 = middle (c, blockH);
             int row = 0;
@@ -4072,7 +4072,7 @@ private:
         for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe,
                               &osc.grainFreeze, &osc.grainLive })
         {
-            toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::left : ToggleControl::NamePlace::none);
+            toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::leftFlush : ToggleControl::NamePlace::none);
             toggle->setSwitchColour (oscColour (index)); // (the card's amber, not the app's orange)
         }
         // (FREEZE and LIVE are chips on the cloud picture: the pill first, its name after.)

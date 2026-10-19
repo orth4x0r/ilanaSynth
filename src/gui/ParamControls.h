@@ -3272,7 +3272,7 @@ public:
 
     // The packed panels' switch (review 23): a 28 x 15 switch with its name under it, to its
     // left (small, dim) or to its right (plain text).
-    enum class NamePlace { none, below, left, right };
+    enum class NamePlace { none, below, left, leftFlush, right }; // leftFlush: the name on the box's left edge, the switch on its right
     void setPackedName (NamePlace place)
     {
         if (packedPlace == place)
@@ -3337,11 +3337,11 @@ public:
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
             }
-            else if (packedPlace == NamePlace::left)
+            else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, juce::Justification::centredRight, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, packedPlace == NamePlace::leftFlush ? juce::Justification::centredLeft : juce::Justification::centredRight, 1);
             }
             else
             {
@@ -3395,7 +3395,7 @@ public:
         {
             const auto w = 28, h = 15;
             button.setBounds (packedPlace == NamePlace::below ? juce::Rectangle<int> (w, h).withPosition (area.getCentreX() - w / 2, area.getY())
-                              : packedPlace == NamePlace::left ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
+                              : packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
                                                                : juce::Rectangle<int> (w, h).withPosition (area.getX(), area.getCentreY() - h / 2));
             return;
         }

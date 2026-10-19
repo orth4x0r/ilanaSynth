@@ -355,7 +355,7 @@ private:
         {
             auto knob = std::make_unique<KnobControl> (state, id, label, colour, false);
             knob->setPackedDial (dialSize);
-            knob->setPackedValueRoom (10);
+            knob->setPackedValueRoom (12);
             addAndMakeVisible (*knob);
             knobs.push_back (std::move (knob));
         };
@@ -382,7 +382,7 @@ private:
             rate = std::make_unique<LfoRateControl> (processorRef, lfo, colour, false);
             rate->addTo (*this);
             rate->getRateKnob().setPackedDial (dialSize);
-            rate->getRateKnob().setPackedValueRoom (10);
+            rate->getRateKnob().setPackedValueRoom (12);
             rate->getDivisionKnob().setPackedDial (dialSize);
             rate->setShown (true);
             dial (prefix + "_smooth", "SMOOTH");
@@ -411,10 +411,10 @@ private:
         const auto cell = kind == Kind::envelope ? 36 : 35;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
         const auto lfoColumn = 86;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 6)
-                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 12);
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
+                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 9);
         graph->setBounds (body.removeFromLeft (graphWidth));
-        body.removeFromLeft (6);
+        body.removeFromLeft (3);
         const auto place = [&] (KnobControl& knob, int x)
         {
             knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
@@ -463,7 +463,7 @@ private:
         refreshSources();
     }
 
-    static constexpr float dialSize = 25.0f;
+    static constexpr float dialSize = 28.0f;
 
     IlanaSynthAudioProcessor& processorRef;
     Kind kind;
@@ -501,7 +501,7 @@ public:
         {
             auto control = std::make_unique<KnobControl> (state, id, label, colour, false);
             control->setPackedDial (dialSize);
-            control->setPackedValueRoom (10);
+            control->setPackedValueRoom (12);
             addAndMakeVisible (*control);
             return control;
         };
@@ -666,9 +666,9 @@ private:
         std::vector<std::unique_ptr<KnobControl>> knobs;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 38;
     static constexpr int minBand = 62, maxBand = 96;
-    static constexpr float dialSize = 25.0f;
+    static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
     static juce::Colour westColour() { return FilterColours::west(); }
@@ -717,14 +717,14 @@ private:
     }
 
     // Knobs in one row at the 35 unit pitch, centred in `area`.
-    static void placeKnobRow (juce::Rectangle<int> area, const std::vector<KnobControl*>& row)
+    static void placeKnobRow (juce::Rectangle<int> area, const std::vector<KnobControl*>& row, int pitch = cell)
     {
-        const auto width = (int) row.size() * cell;
+        const auto width = (int) row.size() * pitch;
         auto x = area.getX() + (area.getWidth() - width) / 2;
         for (auto* knob : row)
         {
-            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
-            x += cell;
+            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10) / 2, pitch, (int) dialSize + 10 }));
+            x += pitch;
         }
     }
 
@@ -770,9 +770,9 @@ private:
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
 
             auto body = bodyOf (card);
-            const auto knobsWidth = (int) parts.knobs.size() * cell;
+            const auto knobsWidth = (int) parts.knobs.size() * filterCell;
             parts.display->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 4));
-            placeKnobRow (body, pointers (parts.knobs));
+            placeKnobRow (body, pointers (parts.knobs), filterCell);
         }
 
         {

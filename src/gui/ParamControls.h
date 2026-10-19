@@ -3393,7 +3393,7 @@ public:
 
         if (packedPlace != NamePlace::none)
         {
-            const auto w = 28, h = 15;
+            const auto w = packedPlace == NamePlace::leftFlush ? 22 : 28, h = packedPlace == NamePlace::leftFlush ? 13 : 15; // (leftFlush: the mock's slimmer switch)
             button.setBounds (packedPlace == NamePlace::below ? juce::Rectangle<int> (w, h).withPosition (area.getCentreX() - w / 2, area.getY())
                               : packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
                                                                : juce::Rectangle<int> (w, h).withPosition (area.getX(), area.getCentreY() - h / 2));

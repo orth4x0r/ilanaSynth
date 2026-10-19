@@ -2997,7 +2997,7 @@ private:
             const auto toggleW = 64, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
             const auto secondX = c.getRight() - toggleW;
             const auto firstX = secondX - 6 - firstW;
-            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 6 - c.getX()), c.getHeight() });
+            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 6 - c.getX()), c.getHeight() - 2 }); // (the bottom margin the PITCH and RANGE panels' ink has)
             for (auto& item : scrubbers)
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
@@ -3013,7 +3013,7 @@ private:
                 toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
             // CROSSFADE is the third row of the second column: a bar slider, name on the same edge as LOOP PTS and SNAP.
             osc.sampleLoopXfade.setBounds ({});
-            pieces.xfadeBar.setBounds ({ secondX, y0 + 2 * pitch, toggleW, toggleH });
+            pieces.xfadeBar.setBounds ({ secondX - 3, y0 + 2 * pitch, toggleW + 3, toggleH }); // (its name on the edge LOOP PTS and SNAP start at, its right edge on theirs)
             pieces.xfadeBar.setAccent (tint);
         }
 

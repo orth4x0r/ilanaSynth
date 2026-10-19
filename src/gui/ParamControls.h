@@ -3579,7 +3579,7 @@ public:
         g.drawRoundedRectangle (box, 4.0f, 1.0f);
 
         // The name on the left; while the pointer is on the bar (or dragging) the value takes its place.
-        const auto inner = getLocalBounds().reduced (5, 0);
+        const auto inner = getLocalBounds().reduced (3, 0);
         if (isMouseOverOrDragging())
         {
             g.setFont (IlanaTheme::font (7.3f));

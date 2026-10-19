@@ -885,7 +885,8 @@ private:
 
         {
             const auto centre = bodyBounds.getY() + headerHeight / 2;
-            bodyType->setBounds ({ bodyBounds.getX() + 23 + titleWidth ("BODY") + 4, centre - 8, 70, 16 });
+            const auto menuX = bodyBounds.getX() + 23 + titleWidth ("BODY") + 4;
+            bodyType->setBounds ({ menuX, centre - 8, juce::jmax (36, bodyBounds.getRight() - 7 - menuX), 16 });
             placeKnobRow (bodyOf (bodyBounds).translated (3, 0), pointers (bodyKnobs));
         }
 

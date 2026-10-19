@@ -408,7 +408,7 @@ private:
             return;
 
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
-        const auto cell = kind == Kind::envelope ? 36 : 35;
+        const auto cell = 36;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
         const auto lfoColumn = 86;
         const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
@@ -480,6 +480,82 @@ private:
     std::unique_ptr<LfoRateControl> rate;
 };
 
+// WEST COAST's live picture: the folder's transfer curve (what one input level comes out as),
+// computed as WestCoast.h's Wavefolder does it, so FOLD, BIAS and STAGES redraw it.
+class WestDisplay : public juce::Component,
+                    public juce::SettableTooltipClient,
+                    private juce::Timer
+{
+public:
+    explicit WestDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
+    {
+        setInterceptsMouseClicks (false, false);
+        setTooltip ("The wavefolder's curve: input level across, output level up. FOLD bends it, BIAS tilts it, STAGES fold it again.");
+        startTimerHz (10);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 6.0f);
+        const auto plot = bounds.reduced (6.0f, 6.0f);
+        const auto colour = FilterColours::west();
+        const auto on = read ("west_on") > 0.5f ? 1.0f : 0.4f;
+
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withCentre (plot.getCentre()));
+        g.fillRect (juce::Rectangle<float> (1.0f, plot.getHeight()).withCentre (plot.getCentre()));
+
+        const auto fold = read ("west_fold"), symmetry = read ("west_sym");
+        const auto stages = juce::jlimit (1, 4, juce::roundToInt (read ("west_stages")));
+        const auto gain = 0.35 + 11.65 * (double) (fold * fold);
+        const auto bias = 0.5 * (double) symmetry;
+        const auto stretch = 1.0 + 0.35 * gain / (double) stages;
+
+        juce::Path path;
+        const auto steps = juce::jmax (8, (int) plot.getWidth() * 2);
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto input = -1.0 + 2.0 * (double) i / (double) steps;
+            auto v = input * gain + bias;
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                const auto y = std::sin (juce::MathConstants<double>::halfPi * v);
+                v = stage + 1 < stages ? y * stretch : y;
+            }
+            const auto point = juce::Point<float> (plot.getX() + (float) (i) / (float) steps * plot.getWidth(),
+                                                   plot.getCentreY() - (float) juce::jlimit (-1.0, 1.0, v) * plot.getHeight() * 0.5f);
+            if (i == 0)
+                path.startNewSubPath (point);
+            else
+                path.lineTo (point);
+        }
+        g.setOpacity (on);
+        IlanaTrace::paintTrace (g, path, colour);
+    }
+
+private:
+    float read (const char* id) const
+    {
+        const auto* value = processorRef.apvts.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    void timerCallback() override
+    {
+        if (! isShowing())
+            return;
+        const auto signature = read ("west_fold") * 7.0f + read ("west_sym") * 13.0f + read ("west_stages") * 31.0f + read ("west_on");
+        if (juce::approximatelyEqual (signature, lastSignature))
+            return;
+        lastSignature = signature;
+        repaint();
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    float lastSignature = -1.0e9f;
+};
+
 // PLAY (ilana, 2026-10-19, mockup "fit8"): the oscillators as the OSC page's own
 // cards on top, the voice's modules in two bands under them: FILTER 1, FILTER 2
 // and WEST COAST; then ENVELOPE, LFO, BODY and SUB + NOISE. One knob size and
@@ -541,6 +617,8 @@ public:
         }
 
         // WEST COAST: its switch, PLACE and GATE menus in the header, seven knobs.
+        westDisplay = std::make_unique<WestDisplay> (p);
+        addAndMakeVisible (*westDisplay);
         westOn = std::make_unique<ToggleControl> (state, "west_on", "ON");
         westOn->setBareSwitch (true);
         westOn->setSwitchColour (westColour());
@@ -666,7 +744,7 @@ private:
         std::vector<std::unique_ptr<KnobControl>> knobs;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 38;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 36, westCell = 33;
     static constexpr int minBand = 62, maxBand = 96;
     static constexpr float dialSize = 28.0f;
 
@@ -750,7 +828,7 @@ private:
     void layoutBand1 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 2 * hGap;
-        const auto filterWidth = juce::roundToInt ((float) total * 0.3756f);
+        const auto filterWidth = juce::roundToInt ((float) total * 0.3641f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
@@ -769,7 +847,7 @@ private:
             x += 92 + 6;
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
 
-            auto body = bodyOf (card);
+            auto body = card.withTrimmedTop (headerHeight).reduced (5, 3);
             const auto knobsWidth = (int) parts.knobs.size() * filterCell;
             parts.display->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 4));
             placeKnobRow (body, pointers (parts.knobs), filterCell);
@@ -782,7 +860,11 @@ private:
             westMode->setBounds ({ x, centre - 8, 56, 16 });
             x += 56 + 3;
             westPosition->setBounds ({ x, centre - 8, juce::jmax (40, westBounds.getRight() - 6 - 30 - 4 - x), 16 });
-            placeKnobRow (bodyOf (westBounds), pointers (westKnobs));
+            // The picture at the left, the seven knobs at a 33 pitch to its right.
+            auto body = westBounds.withTrimmedTop (headerHeight).reduced (5, 3);
+            const auto knobsWidth = (int) westKnobs.size() * westCell;
+            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 4));
+            placeKnobRow (body, pointers (westKnobs), westCell);
         }
     }
 
@@ -804,7 +886,7 @@ private:
         {
             const auto centre = bodyBounds.getY() + headerHeight / 2;
             bodyType->setBounds ({ bodyBounds.getX() + 23 + titleWidth ("BODY") + 4, centre - 8, 70, 16 });
-            placeKnobRow (bodyOf (bodyBounds), pointers (bodyKnobs));
+            placeKnobRow (bodyOf (bodyBounds).translated (3, 0), pointers (bodyKnobs));
         }
 
         {
@@ -899,6 +981,7 @@ private:
     std::array<juce::Rectangle<int>, 2> filterCardBounds;
     juce::Rectangle<int> westBounds, bodyBounds, subNoiseBounds;
     std::unique_ptr<ToggleControl> westOn, subOn, noiseOn;
+    std::unique_ptr<WestDisplay> westDisplay;
     std::unique_ptr<ComboControl> westMode, westPosition, bodyType, subShape, noiseType;
     std::unique_ptr<PillChoice> subOctave;
     std::vector<std::unique_ptr<KnobControl>> westKnobs, bodyKnobs;

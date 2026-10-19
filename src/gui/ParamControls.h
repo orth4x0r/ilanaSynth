@@ -1450,13 +1450,25 @@ public:
         const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
-        // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
-        // (and every kHz value is "20k" / "1.2k": one size that fits inside the ring.)
-        if (packedValueRoom > 0 && value.endsWith (" kHz"))
+        // PLAY's dials (setPackedValueRoom): every value one size, four characters at most so it
+        // keeps clear of the ring: "20k", "300", "+1.5", "x1.0", "100%". The name under the dial says what it is.
+        if (packedValueRoom > 0)
         {
-            const auto khz = value.upToFirstOccurrenceOf (" ", false, false).getDoubleValue();
-            value = (khz >= 9.95 ? juce::String (juce::roundToInt (khz)) : juce::String (khz, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".")) + "k";
+            if (value.endsWith (" kHz"))
+            {
+                const auto khz = value.upToFirstOccurrenceOf (" ", false, false).getDoubleValue();
+                value = (khz >= 9.95 ? juce::String (juce::roundToInt (khz)) : juce::String (khz, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".")) + "k";
+            }
+            if (value.length() > 4 && value.containsChar (' '))
+                value = value.upToLastOccurrenceOf (" ", false, false);
+            if (value.length() > 4 && value.containsChar ('.') && ! value.endsWithChar ('%'))
+                value = value.dropLastCharacters (value.length() - 4);
+            if (value.length() > 4 && value.endsWithChar ('%'))
+                value = value.dropLastCharacters (1);
         }
+        else
+        {
+        // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
         const auto room = (float) packedValueRoom;
         // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
         const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;
@@ -1465,11 +1477,12 @@ public:
         // (Under the floor at a small zoom even "100%" is wider than the dial: the number alone.)
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 2.5f && value.endsWithChar ('%'))
             value = value.dropLastCharacters (1);
+        }
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        auto drawn = valueFont (value);
+        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (6.9f, true, true) : valueFont (value);
         g.setFont (drawn);
-        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1 + packedValueRoom / 2, 0), juce::Justification::centred, 1);
+        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
 
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())

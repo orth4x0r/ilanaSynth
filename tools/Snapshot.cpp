@@ -10230,6 +10230,26 @@ int main (int argc, char** argv)
         if (auto* parameter = processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false)))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
 
+    // ILANA_SNAPSHOT_SAMPLE="1": oscillator 1 holds a decaying electric-piano-like sample (as the mockups do), so a
+    // Sample or Granular card shows its waveform instead of the drop zone.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SAMPLE", "").isNotEmpty())
+    {
+        auto piano = std::make_shared<SampleData>();
+        piano->sampleRate = 48000.0;
+        piano->name = "Rhodes C3.wav";
+        piano->buffer.setSize (2, 144000);
+        for (int i = 0; i < 144000; ++i)
+        {
+            const auto t = i / 48000.0;
+            const auto tone = std::sin (juce::MathConstants<double>::twoPi * 131.0 * t) + 0.5 * std::sin (juce::MathConstants<double>::twoPi * 262.0 * t + 0.4)
+                              + 0.25 * std::sin (juce::MathConstants<double>::twoPi * 393.0 * t);
+            const auto value = (float) (0.5 * std::exp (-1.1 * t) * (1.0 - std::exp (-t * 400.0)) * tone);
+            piano->buffer.setSample (0, i, value);
+            piano->buffer.setSample (1, i, value);
+        }
+        processor.setUserSample (0, piano, {});
+    }
+
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");

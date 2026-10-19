@@ -558,12 +558,17 @@ public:
         const auto half = area.getWidth() * 0.5f - 6.0f;
         const auto reach = half * (0.18f + 0.82f * juce::jlimit (0.0f, 1.0f, detuneNorm));
 
+        // (The track the voices stand on, as the mock draws it.)
+        const auto baseline = area.getBottom() - 1.5f;
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawHorizontalLine ((int) baseline, area.getX(), area.getRight());
+
         for (int i = 0; i < count; ++i)
         {
             const auto position = count == 1 ? 0.0f : ((float) i - (float) (count - 1) * 0.5f) / ((float) (count - 1) * 0.5f);
             const auto closeness = 1.0f - std::abs (position);
             const auto height = juce::jmin (area.getHeight() - 4.0f, 8.0f + 14.0f * closeness);
-            const auto bar = juce::Rectangle<float> (4.0f, height).withCentre ({ area.getCentreX() + position * reach, area.getCentreY() });
+            const auto bar = juce::Rectangle<float> (4.0f, height).withBottomY (baseline - 0.5f).withCentre ({ area.getCentreX() + position * reach, baseline - 0.5f - height * 0.5f });
             g.setColour (colour.withAlpha (0.45f + 0.5f * closeness));
             g.fillRoundedRectangle (bar, 2.0f);
         }
@@ -2829,13 +2834,13 @@ private:
         // WAVE: the picture, FEEDBACK, then the two menus one over the other.
         {
             const auto c = addPanel (0, "WAVE");
-            const auto menuW = 100;
+            const auto menuW = 108, feedbackCell = 38;
             const auto menuX = c.getRight() - menuW;
-            const auto feedbackX = menuX - 7 - 49;
-            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (40, feedbackX - 7 - c.getX()), c.getHeight() });
+            const auto feedbackX = menuX - 5 - feedbackCell;
+            waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (40, feedbackX - 5 - c.getX()), c.getHeight() });
             for (auto& item : scrubbers)
                 item.setBounds ({});
-            placeKnob (osc.feedback, feedbackX, middle (c, cellH), 49, mainDial);
+            placeKnob (osc.feedback, feedbackX, middle (c, cellH), feedbackCell, mainDial);
             const auto stackH = 2 * menuH + 8;
             const auto top = middle (c, stackH);
             osc.table.setBounds ({ menuX, top, menuW, menuH });
@@ -2901,7 +2906,7 @@ private:
                 const auto raised = readFloat (prefix + "_unison") > 1.5f;
                 const auto knobX = c.getRight() - (raised ? knobCell + 7 : 0);
                 const auto room = knobX - c.getX() - (raised ? 7 : 0);
-                const auto graphW = juce::jmax (40, room * 57 / 100), graphH = juce::jmin (c.getHeight(), 52);
+                const auto graphW = juce::jmax (40, room * 60 / 100), graphH = juce::jmin (c.getHeight(), 52);
                 const auto hintX = c.getX() + graphW + 8, hintW = knobX - hintX - (raised ? 7 : 0);
                 pieces.opEnvGraph.setBounds ({ c.getX(), middle (c, graphH), graphW, graphH });
                 card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true });

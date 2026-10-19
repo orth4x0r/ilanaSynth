@@ -2162,10 +2162,16 @@ private:
         const auto xOf = [&] (int key) { return area.getX() + (float) (key - low) * keyWidth; };
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (int key = low; key <= high; key += 12)
+        // A name every octave when they fit, else every second or fourth, so none runs into the next.
+        const auto nameWidth = (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), "C-2") + 6.0f;
+        const auto stride = juce::jmax (1, (int) std::ceil (nameWidth / juce::jmax (1.0f, 12.0f * keyWidth)));
+        auto octave = 0;
+        for (int key = low; key <= high; key += 12, ++octave)
         {
             g.setColour (juce::Colours::white.withAlpha (0.1f));
             g.fillRect (xOf (key), area.getY(), 1.0f, area.getHeight());
+            if (octave % stride != 0)
+                continue;
             g.setColour (IlanaTheme::Ui::text3);
             g.drawText (juce::MidiMessage::getMidiNoteName (key, true, true, 3), juce::Rectangle<float> (xOf (key) + 2.0f, labels.getY(), 40.0f, labels.getHeight()),
                         juce::Justification::centredLeft, false);
@@ -2677,7 +2683,8 @@ private:
 
         g.setColour (traceColour);
         g.setFont (titleFont);
-        if (warningTagArea.isEmpty())
+        // (A name that would be cut to a stub is left out: the card's header box names the sample.)
+        if (warningTagArea.isEmpty() && titleWidth <= header.getWidth())
             g.drawText (title, header, juce::Justification::centredLeft, true);
 
         if (caption.isNotEmpty() && titleWidth + captionWidth + 14.0f <= header.getWidth())

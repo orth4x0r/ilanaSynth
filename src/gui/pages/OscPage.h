@@ -2997,8 +2997,9 @@ private:
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
             // its name line level with REVERSE.
-            const auto blockH = 2 * toggleH + toggleGap + cellH + 8; // (a gap between SNAP and the knob's ring)
-            const auto pitch = (blockH - toggleH) / 2;
+            const auto xfadeH = ampDial + nameLine;
+            const auto pitch = 30; // (rows 30 apart: the small CROSSFADE ring is the third row of the second column)
+            const auto blockH = 2 * pitch + juce::jmax (toggleH, xfadeH);
             const auto y0 = middle (c, blockH);
             int row = 0;
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse })
@@ -3006,7 +3007,7 @@ private:
             row = 0;
             for (auto* toggle : { &osc.sampleLoopOwn, &osc.sampleSnap })
                 toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
-            placeKnob (osc.sampleLoopXfade, secondX, y0 + blockH - cellH, toggleW, mainDial);
+            placeKnob (osc.sampleLoopXfade, secondX, y0 + 2 * pitch - 2, toggleW, ampDial);
         }
 
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
@@ -3121,25 +3122,26 @@ private:
         {
             const auto c = addPanel (0, "CLOUD");
             // The six grain knobs in one row, as the mock; the picture keeps the rest, wide rather than
-            // tall, with FREEZE (and LIVE) under it.
-            const auto cell = 36;
+            // tall, with FREEZE (and LIVE) as chips on its foot.
+            const auto cell = 34;
             const auto knobsW = 6 * cell;
             const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
-            const auto toggleRows = IlanaSynthAudioProcessor::isEffectBuild ? 2 : 1;
-            const auto togglesH = toggleRows * 16 + (toggleRows - 1) * 3;
-            const auto pictureH = juce::jmin (c.getHeight() - togglesH - 4, left * 3 / 4);
-            const auto groupTop = middle (c, pictureH + 4 + togglesH);
-            const juce::Rectangle<int> picture (c.getX(), groupTop, left, pictureH);
+            const auto pictureH = juce::jmin (c.getHeight(), left * 3 / 4);
+            const juce::Rectangle<int> picture (c.getX(), middle (c, pictureH), left, pictureH);
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
             KnobControl* grains[] { &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch };
             for (int i = 0; i < 6; ++i)
                 placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
-            const auto toggleY = picture.getBottom() + 4;
-            osc.grainFreeze.setBounds ({ c.getX(), toggleY, 70, 16 });
+            const auto toggleY = picture.getBottom() - 20;
+            osc.grainFreeze.setBounds ({ picture.getX() + 3, toggleY, juce::jmin (70, picture.getWidth() - 6), 16 });
+            osc.grainFreeze.toFront (false);
             if (IlanaSynthAudioProcessor::isEffectBuild)
-                osc.grainLive.setBounds ({ c.getX(), toggleY + 19, 70, 16 });
+            {
+                osc.grainLive.setBounds ({ picture.getX() + 3, toggleY - 19, juce::jmin (70, picture.getWidth() - 6), 16 });
+                osc.grainLive.toFront (false);
+            }
         }
 
         // PITCH: SEMI and FINE, TUNED over REVERSE; SCALE and CHORD under them.
@@ -4035,6 +4037,7 @@ private:
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
         osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
+        osc.sampleLoopXfade.setPackedDial (panels ? (float) ampDial : 0.0f); // (the small ring in the toggle grid)
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);
@@ -4057,9 +4060,12 @@ private:
         for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe,
                               &osc.grainFreeze, &osc.grainLive })
         {
-            toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
+            toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::left : ToggleControl::NamePlace::none);
             toggle->setSwitchColour (oscColour (index)); // (the card's amber, not the app's orange)
         }
+        // (FREEZE and LIVE are chips on the cloud picture: the pill first, its name after.)
+        for (auto* toggle : { &osc.grainFreeze, &osc.grainLive })
+            toggle->setPackedName (kind == Kind::grain ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
         osc.sampleStartRandom.setLabelText (kind == Kind::sample ? "RANDOM" : "RANDOM START");
         osc.samplePlayback.setLabelText (kind == Kind::sample ? "MODE" : "PLAYBACK");
         phys.resBoard.setPackedMenu (string);

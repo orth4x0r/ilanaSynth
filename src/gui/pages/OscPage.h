@@ -202,7 +202,7 @@ inline juce::String depthList (const IlanaSynthAudioProcessor& p, int osc, const
 {
     juce::StringArray names;
     for (const auto other : others)
-        names.add ("OSC " + juce::String (other + 1) + " "
+        names.add ("OSC " + juce::String (other + 1) + juce::String::fromUTF8 (" \xc2\xb7 ")
                    + juce::String (juce::roundToInt (read (p, from ? FmDiagram::routeId (other, osc) : FmDiagram::routeId (osc, other)) * 100.0f)) + "%");
     return names.joinIntoString (", ");
 }
@@ -3123,7 +3123,7 @@ private:
             const auto c = addPanel (0, "CLOUD");
             // The six grain knobs in one row, as the mock; the picture keeps the rest, wide rather than
             // tall, with FREEZE (and LIVE) as chips on its foot.
-            const auto cell = 34;
+            const auto cell = 36;
             const auto knobsW = 6 * cell;
             const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
             const auto pictureH = juce::jmin (c.getHeight(), left * 3 / 4);
@@ -3135,11 +3135,11 @@ private:
             for (int i = 0; i < 6; ++i)
                 placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
             const auto toggleY = picture.getBottom() - 20;
-            osc.grainFreeze.setBounds ({ picture.getX() + 3, toggleY, juce::jmin (70, picture.getWidth() - 6), 16 });
+            osc.grainFreeze.setBounds ({ picture.getX() + 4, toggleY + 3, juce::jmin (54, picture.getWidth() - 8), 14 });
             osc.grainFreeze.toFront (false);
             if (IlanaSynthAudioProcessor::isEffectBuild)
             {
-                osc.grainLive.setBounds ({ picture.getX() + 3, toggleY - 19, juce::jmin (70, picture.getWidth() - 6), 16 });
+                osc.grainLive.setBounds ({ picture.getX() + 4, toggleY - 14, juce::jmin (54, picture.getWidth() - 8), 14 });
                 osc.grainLive.toFront (false);
             }
         }
@@ -4065,7 +4065,24 @@ private:
         }
         // (FREEZE and LIVE are chips on the cloud picture: the pill first, its name after.)
         for (auto* toggle : { &osc.grainFreeze, &osc.grainLive })
-            toggle->setPackedName (kind == Kind::grain ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
+        {
+            const auto chip = kind == Kind::grain;
+            auto& properties = toggle->getButton().getProperties();
+            if (chip)
+            {
+                properties.remove ("switch");
+                properties.set ("pill", true);
+            }
+            else
+            {
+                properties.set ("switch", true);
+                properties.remove ("pill");
+            }
+            toggle->getButton().setColour (juce::TextButton::buttonOnColourId, oscColour (index));
+            toggle->setPackedName (ToggleControl::NamePlace::none);
+            toggle->setBareSwitch (chip);
+            toggle->getButton().repaint();
+        }
         osc.sampleStartRandom.setLabelText (kind == Kind::sample ? "RANDOM" : "RANDOM START");
         osc.samplePlayback.setLabelText (kind == Kind::sample ? "MODE" : "PLAYBACK");
         phys.resBoard.setPackedMenu (string);

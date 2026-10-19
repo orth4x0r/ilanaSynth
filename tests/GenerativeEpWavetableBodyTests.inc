@@ -241,7 +241,7 @@ void runM74WavetableEditorTests()
     {
         IlanaSynthAudioProcessor processor;
         auto* table = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"));
-        check (table != nullptr && table->choices.size() == factoryCount + IlanaSynthAudioProcessor::numUserSlots
+        check (table != nullptr && table->choices.size() >= factoryCount + IlanaSynthAudioProcessor::numUserSlots
                    && table->choices[factoryCount] == "User 1" && table->choices[factoryCount + 3] == "User 4"
                    && table->choices[factoryCount + 255] == "User 256",
                "256 patch tables: User 5-256 are appended after User 1-4");

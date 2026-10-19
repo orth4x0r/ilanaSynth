@@ -15,6 +15,7 @@
 #include "../dsp/LfoShape.h"
 #include "../dsp/Modulation.h"
 #include "../dsp/SampleFactory.h"
+#include "../dsp/BuiltInTables.h"
 #include "../dsp/TableFactory.h"
 #include "../dsp/FmAlgorithms.h"
 #include "../dsp/Voice.h"
@@ -178,6 +179,10 @@ juce::StringArray getOscTableChoices()
 
     for (int i = 1; i <= IlanaSynthAudioProcessor::numUserSlots; ++i)
         choices.add ("User " + juce::String (i));
+
+    // The built-in wavetables follow the User slots, so no saved choice moves.
+    for (int i = 0; i < BuiltInTables::count(); ++i)
+        choices.add (BuiltInTables::name (i));
 
     return choices;
 }

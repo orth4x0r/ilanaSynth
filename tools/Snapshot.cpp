@@ -6123,6 +6123,27 @@ int runUiTests()
                     allSaws = allSaws && name.containsIgnoreCase ("saw");
                 expect (allSaws && saws.contains ("Drive Saw") && saws.contains ("Analog Saw"),
                         "the table search filters (" + saws.joinIntoString (", ") + ")");
+
+                // The built-in packs: listed after the factory tables, found by the search,
+                // and a pick selects it like a factory table.
+                expect (BuiltInTables::count() > 300, "the synth carries its built-in wavetables");
+                const auto builtIn = BuiltInTables::count() / 2;
+                expect (all.contains (BuiltInTables::name (builtIn)), "the browser lists the built-in tables");
+                browser.setSearchText (BuiltInTables::name (builtIn));
+                settle (100);
+                expect (browser.getShownNames().contains (BuiltInTables::name (builtIn)), "the search finds a built-in table");
+                browser.setSearchText ({});
+                const auto slotBefore = processor.findFreeUserSlot();
+                browser.pickBuiltInTable (builtIn);
+                const auto table = juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load());
+                expect (table == TableFactory::getNumFactoryTables() + IlanaSynthAudioProcessor::numUserSlots + builtIn
+                            && processor.findFreeUserSlot() == slotBefore && BuiltInTables::table (builtIn) != nullptr
+                            && processor.getWavetable (table) == BuiltInTables::table (builtIn),
+                        "picking a built-in table selects it as a factory table (no User slot used) and it is ready to play");
+                expect (processor.getWavetable (table)->getName() == BuiltInTables::name (builtIn)
+                            && processor.apvts.getParameter ("osc1_table") != nullptr
+                            && dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"))->getCurrentChoiceName() == BuiltInTables::name (builtIn),
+                        "the choice reads as the table's name");
                 expect (all.contains ("Hard Sync") && ! all.contains ("DriveSaw") && ! all.contains ("Basic"),
                         "table names show as spaced Title Case, ANALOG's Basic as Analog Saw");
             }
@@ -9968,6 +9989,9 @@ int main (int argc, char** argv)
             browser.setSearchText ("saw");
             settle (200);
             save (browser, outDir.getChildFile ("extra-table-search.png"));
+            browser.setSearchText ("emu vsco");
+            settle (400);
+            save (browser, outDir.getChildFile ("extra-table-builtin.png"));
         }
         return 0;
     }

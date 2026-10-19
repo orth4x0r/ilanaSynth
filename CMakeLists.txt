@@ -122,12 +122,22 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Bounce.cpp
     src/processor/SamplePortability.cpp
     src/processor/Dx7.cpp
+    src/dsp/BuiltInTables.cpp
 )
 
 juce_add_binary_data(ilanaFonts SOURCES
     resources/fonts/Manrope-400-Regular.ttf
     resources/fonts/Manrope-500-Medium.ttf
     resources/fonts/Manrope-700-Bold.ttf
+)
+
+# The human-made wavetables the editor carries (tools/build_builtin_wavetables.py;
+# src/dsp/BuiltInTables.cpp reads them). Every target built from the processor
+# links them (the foreach at the end).
+juce_add_binary_data(ilanaWavetables
+    HEADER_NAME WavetableData.h
+    NAMESPACE WavetableData
+    SOURCES content/wavetables/builtin-wavetables.bin
 )
 
 target_sources(ilanaSynth PRIVATE
@@ -651,5 +661,33 @@ foreach(target ilanaSynth ilanaSynthFX ilanaTableTest ilanaSnapshot ilanaFingerp
                ilanaPresetRender ilanaKnobAudit ilanaFxTest ilanaFxCpuBench)
     if (TARGET ${target})
         target_link_libraries(${target} PRIVATE ilanaStretch)
+    endif()
+endforeach()
+
+target_link_libraries(ilanaSynth PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaSynthFX PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaTableTest PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaSnapshot PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaFingerprint PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaStress PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaPolishRepro PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaPresetRender PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaKnobAudit PRIVATE ilanaWavetables)
+
+target_link_libraries(ilanaFxTest PRIVATE ilanaWavetables)
+
+# The built-in wavetables are factory tables, so the processor needs them too.
+foreach(target ilanaSynth ilanaSynthFX ilanaTableTest ilanaSnapshot ilanaFingerprint ilanaStress ilanaPolishRepro
+               ilanaPresetRender ilanaKnobAudit ilanaFxTest ilanaFxCpuBench)
+    if (TARGET ${target})
+        target_link_libraries(${target} PRIVATE ilanaWavetables)
     endif()
 endforeach()

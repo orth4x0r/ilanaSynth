@@ -331,6 +331,8 @@ bool IlanaSynthAudioProcessor::loadPresetByIndex (int index)
 
 void IlanaSynthAudioProcessor::handleAsyncUpdate()
 {
+    BuiltInTables::buildWanted(); // tables the audio thread asked for
+
     // Roadmap step 17: the FX patch follows the slots; the rack's plan
     // follows its routing, bypasses and solos (asked for by the audio thread).
     if (fxReconcileWanted.exchange (false))

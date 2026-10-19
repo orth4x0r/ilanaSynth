@@ -3001,9 +3001,9 @@ private:
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
             // its name line level with REVERSE.
-            const auto xfadeH = ampDial + nameLine;
+            const auto xfadeH = mainDial + nameLine; // a regular dial: its ring centred on the third row
             const auto pitch = 25; // (rows 25 apart: the small CROSSFADE ring is the third row of the second column)
-            const auto blockH = 2 * pitch + juce::jmax (toggleH, xfadeH);
+            const auto blockH = 2 * pitch + toggleH / 2 + xfadeH - mainDial / 2;
             const auto y0 = middle (c, blockH);
             int row = 0;
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse })
@@ -3011,7 +3011,7 @@ private:
             row = 0;
             for (auto* toggle : { &osc.sampleLoopOwn, &osc.sampleSnap })
                 toggle->setBounds ({ secondX, y0 + pitch * row++, toggleW, toggleH });
-            placeKnob (osc.sampleLoopXfade, secondX + toggleW - 40, y0 + 2 * pitch - 2, 40, ampDial); // centred under the second column of switches
+            placeKnob (osc.sampleLoopXfade, secondX + toggleW - 44, y0 + 2 * pitch + toggleH / 2 - mainDial / 2, 44, mainDial); // the regular dial under the switches
         }
 
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
@@ -4051,7 +4051,7 @@ private:
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
         osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
-        osc.sampleLoopXfade.setPackedDial (panels ? (float) ampDial : 0.0f); // (the small ring in the toggle grid)
+        osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);

@@ -2989,15 +2989,15 @@ private:
         {
             const juce::Rectangle<int> area (cols.x[0], topY, cols.w[0], sampleTopH + panelGap + physBottomH);
             const auto c = addPanel (area, "WAVE");
-            const auto toggleW = 76, toggleH = 16, toggleGap = 6, firstW = 70;
+            const auto toggleW = 68, toggleH = 16, toggleGap = 6, firstW = 62;
             const auto secondX = c.getRight() - toggleW;
-            const auto firstX = secondX - 8 - firstW;
+            const auto firstX = secondX - 6 - firstW;
             waveDisplay (index).setBounds ({ c.getX(), c.getY(), juce::jmax (60, firstX - 8 - c.getX()), c.getHeight() });
             for (auto& item : scrubbers)
                 item.setBounds ({});
             // Three rows on one pitch: the crossfade knob takes the third row of the second column,
             // its name line level with REVERSE.
-            const auto blockH = 2 * toggleH + toggleGap + cellH + 1; // (SNAP ends where the knob's ring starts)
+            const auto blockH = 2 * toggleH + toggleGap + cellH + 8; // (a gap between SNAP and the knob's ring)
             const auto pitch = (blockH - toggleH) / 2;
             const auto y0 = middle (c, blockH);
             int row = 0;
@@ -3120,25 +3120,26 @@ private:
         // CLOUD: the picture takes what the six knobs leave; FREEZE (and LIVE) sit on its foot.
         {
             const auto c = addPanel (0, "CLOUD");
-            // The six grain knobs in one row, as the mock; the picture keeps the rest.
+            // The six grain knobs in one row, as the mock; the picture keeps the rest, wide rather than
+            // tall, with FREEZE (and LIVE) under it.
             const auto cell = 36;
             const auto knobsW = 6 * cell;
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmax (60, c.getWidth() - knobsW - 6), c.getHeight());
+            const auto left = juce::jmax (60, c.getWidth() - knobsW - 6);
+            const auto toggleRows = IlanaSynthAudioProcessor::isEffectBuild ? 2 : 1;
+            const auto togglesH = toggleRows * 16 + (toggleRows - 1) * 3;
+            const auto pictureH = juce::jmin (c.getHeight() - togglesH - 4, left * 3 / 4);
+            const auto groupTop = middle (c, pictureH + 4 + togglesH);
+            const juce::Rectangle<int> picture (c.getX(), groupTop, left, pictureH);
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
             KnobControl* grains[] { &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch };
             for (int i = 0; i < 6; ++i)
                 placeKnob (*grains[i], c.getRight() - knobsW + i * cell, middle (c, cellH), cell, mainDial);
-            auto toggleX = picture.getX() + 4;
-            const auto toggleY = picture.getBottom() - 21;
-            osc.grainFreeze.setBounds ({ toggleX, toggleY, 66, 16 });
-            osc.grainFreeze.toFront (false);
+            const auto toggleY = picture.getBottom() + 4;
+            osc.grainFreeze.setBounds ({ c.getX(), toggleY, 70, 16 });
             if (IlanaSynthAudioProcessor::isEffectBuild)
-            {
-                osc.grainLive.setBounds ({ toggleX, toggleY - 19, 54, 16 });
-                osc.grainLive.toFront (false);
-            }
+                osc.grainLive.setBounds ({ c.getX(), toggleY + 19, 70, 16 });
         }
 
         // PITCH: SEMI and FINE, TUNED over REVERSE; SCALE and CHORD under them.
@@ -4055,7 +4056,10 @@ private:
         // The sample card's switches: the pill with its name to the right, as the packed menus read.
         for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe,
                               &osc.grainFreeze, &osc.grainLive })
+        {
             toggle->setPackedName (kind == Kind::sample || kind == Kind::grain ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
+            toggle->setSwitchColour (oscColour (index)); // (the card's amber, not the app's orange)
+        }
         osc.sampleStartRandom.setLabelText (kind == Kind::sample ? "RANDOM" : "RANDOM START");
         osc.samplePlayback.setLabelText (kind == Kind::sample ? "MODE" : "PLAYBACK");
         phys.resBoard.setPackedMenu (string);

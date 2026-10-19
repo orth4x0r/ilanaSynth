@@ -260,7 +260,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 278,"Double Pendulum Chaos",-22.7031,0.406618,3494.34,0.662613
 279,"Henon Glitch",-22.6799,0.357352,2184.07,0.132145
 280,"Rossler Tide",-22.9637,0.39518,4405.59,0.844916
-281,"Stick-Slip Growl",-16.1408,0.361188,1080.38,2.47534e-07
+281,"Stick-Slip Growl",-16.0929,0.361581,954.358,2.15297e-07
 282,"Bouncing Ball FX",-23.843,0.893662,657.652,0.1202
 284,"Bright Concert Grand",-21.978,0.859117,1132.27,0.644648
 286,"Detuned Saloon",-24.7689,0.900192,1309.89,0.369835
@@ -317,8 +317,8 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 344,"Comb Morph Pluck",-21.3296,0.497059,6866.85,0.104327
 345,"Phaser Notch Sweep",-20.0493,0.587617,841.36,0.471032
 346,"SEM Classic Lead",-16.1774,0.462626,3063.74,0.38982
-347,"Feedback Guitar Drone",-19.3256,0.618033,3220.49,0.395666
-348,"Screaming Feedback Lead",-20.8323,0.255116,1690.24,0
+347,"Feedback Guitar Drone",-17.5365,0.639918,2945.72,0.321791
+348,"Screaming Feedback Lead",-22.4409,0.220535,1903.49,0
 350,"Vector Corner Morph",-20.9385,0.525381,1385.05,0
 351,"Vector Path Drift",-20.0773,0.576836,2500.02,0.938807
 352,"Feedback Distance Growl",-15.1838,0.566734,331.14,0
@@ -337,7 +337,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 366,"Live Ring FM",-120,0,0,0
 367,"Live Granular Delay",-10.5775,0.975567,1427.71,0.658311
 368,"Live Formant Filter",-120,0,0,0
-369,"Live Feedback Strings",-22.9178,0.557585,2911.15,0.391086
+369,"Live Feedback Strings",-23.9919,0.595124,3039.96,0.427611
 370,"Live Twin Peak Wah",-120,0,0,0
 371,"BRASS 1 (ROM1A)",-15.5931,0.814661,1701.48,0
 372,"BRASS 2 (ROM1A)",-18.2474,0.856405,931.557,0
@@ -648,10 +648,10 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 682,"Drop Pluck",-20.4848,0.584377,2428.53,0.435831
 683,"Euclid Mallets",-22.4191,0.705619,3294.64,0.219389
 684,"Felt Upright",-21.0586,0.456677,486.851,0.239606
-685,"FM Walk",-19.2954,0.417572,3149.77,0.101103
+685,"FM Walk",-18.0038,0.525412,3384.2,0.10267
 687,"Frozen Hammers",-17.2438,0.58063,601.883,0.323142
 688,"Gate Stab Chords",-18.9668,0.735711,5325.02,0.69787
-689,"Gated Glass Pluck",-21.849,0.403307,1180.17,0.157227
+689,"Gated Glass Pluck",-21.6727,0.404159,1298.29,0.15645
 690,"Glass Harp Keys",-24.1495,0.544243,3315.93,0.621189
 691,"Holt Pad",-20.1802,0.478446,1700,0.633058
 693,"Koto Snap",-20.0816,0.209944,1456.64,0.715337
@@ -673,7 +673,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 709,"Upright Thump",-20.5515,0.652759,2495.06,0.181981
 712,"West Glow Pad",-19.9492,0.632603,1946.84,0.17507
 713,"West Marimba",-24.2239,1.00185,1815.01,0.437893
-714,"Z Ladder Bass",-16.7013,0.548379,1515.79,0.215614
+714,"Z Ladder Bass",-16.917,0.551822,1641.16,0.21672
 715,"Filter model: Low Pass",-13.5929,0.741587,1093.55,0
 716,"Filter model: Band Pass",-24.9279,0.491832,2809.65,0
 717,"Filter model: High Pass",-25.3759,0.577477,5846.97,0

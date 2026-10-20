@@ -1496,7 +1496,12 @@ public:
         }
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, false).withKerningFactor (-0.08f) : valueFont (value);
+        // ("100%" is the one value as wide as the ring's inside: proportional digits, a touch tighter, keep it clear of the ring
+        // on every card; every other value keeps the tabular digits and the normal spacing so a point never meets a digit.)
+        const auto widest = value.length() >= 4 && value.endsWithChar ('%') && value.initialSectionContainingOnly ("0123456789").length() == value.length() - 1;
+        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
+        if (widest)
+            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (-0.08f);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {

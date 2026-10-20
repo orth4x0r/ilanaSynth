@@ -1748,6 +1748,20 @@ public:
     // tab's menu).
     void mouseDown (const juce::MouseEvent& event) override
     {
+        // (Embedded, a click on a folded card's header opens it, the room coming from the others.)
+        if (embedded && ! event.mods.isPopupMenu())
+        {
+            for (const auto& card : cards)
+                if (card.header.contains (event.getPosition()) && isFolded (card.osc) && ! isOff (card.osc))
+                {
+                    focusOsc = card.osc;
+                    updateModeVisibility();
+                    layoutPage();
+                    repaint();
+                    return;
+                }
+        }
+
         if (! event.mods.isPopupMenu())
             return;
 
@@ -1771,6 +1785,15 @@ public:
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
     // card (a sample, a string) never squeezes the bands: an off oscillator folds to its header for the room, and
     // only when that is not enough does the area scroll.
+    // Where each card begins (PLAY's scroll steps by card).
+    std::vector<int> getCardTops() const
+    {
+        std::vector<int> tops;
+        for (const auto& card : cards)
+            tops.push_back (card.bounds.getY());
+        return tops;
+    }
+
     int getReferenceHeight() const
     {
         const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * warpRowH() + 1 + 3 + warpChipH()) + panelTail + 1 + cardPad + 1;
@@ -2262,27 +2285,55 @@ private:
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
     // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
-    bool isFolded (int osc) const { return isOff (osc) && (! embedded || foldsForRoom (osc)); }
+    bool isFolded (int osc) const { return embedded ? foldsForRoom (osc) : isOff (osc); }
 
-    // (Embedded on PLAY the cards share the room three wavetable cards take: where a taller one (a sample, a string)
-    // does not leave it, the off oscillators fold to their headers, the last first, only as many as it takes.)
+    // (Embedded on PLAY the cards share the room three wavetable cards take. Where a taller one (a sample, a string) does
+    // not leave it, the others fold to their headers: the one the user opened (a click on a folded header) first, then the
+    // oscillators that are on, then the off ones, each in order, opened while its card still fits.)
+    int focusOsc = -1;
+
     bool foldsForRoom (int osc) const
     {
-        const auto shown = shownList();
+        auto shown = shownList();
+        if (shown.size() > (size_t) embeddedAddRowBelow)
+            shown.resize ((size_t) embeddedAddRowBelow);
+        if (std::find (shown.begin(), shown.end(), osc) == shown.end())
+            return false;
+
         std::vector<int> heights;
         for (const auto each : shown)
             heights.push_back (panelCardHeight (each));
 
         const auto room = getReferenceHeight();
-        auto total = contentHeight (heights);
-        for (auto i = (int) shown.size() - 1; i >= 0 && total > room; --i)
-            if (isOff (shown[(size_t) i]))
+        if (contentHeight (heights) <= room)
+            return false;
+
+        std::vector<int> order;
+        if (std::find (shown.begin(), shown.end(), focusOsc) != shown.end())
+            order.push_back (focusOsc);
+        for (const auto each : shown)
+            if (each != focusOsc && ! isOff (each))
+                order.push_back (each);
+        for (const auto each : shown)
+            if (each != focusOsc && isOff (each))
+                order.push_back (each);
+
+        std::vector<int> folded (heights.size(), foldedCardHeight);
+        const auto indexOf = [&] (int each) { return (size_t) (std::find (shown.begin(), shown.end(), each) - shown.begin()); };
+        auto total = contentHeight (folded);
+        for (const auto each : order)
+        {
+            const auto i = indexOf (each);
+            const auto grown = total + heights[i] - foldedCardHeight;
+            if (grown <= room)
             {
-                total -= heights[(size_t) i] - foldedCardHeight;
-                if (shown[(size_t) i] == osc)
-                    return true;
+                total = grown;
+                folded[i] = heights[i];
+                if (each == osc)
+                    return false;
             }
-        return false;
+        }
+        return true;
     }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
@@ -2453,10 +2504,17 @@ private:
             }
         }
 
-        // (Embedded, what a folded or short row leaves is shared as air between the cards, a few units each, never as a dead strip.)
-        const auto extraGap = embedded && ! shown.empty() ? juce::jlimit (0, 8, slack / ((int) shown.size() + 1)) : 0;
+        // (Embedded, what the folds leave goes into the tall card as real content: a bigger wave or string picture.)
+        if (embedded && slack > 0)
+            for (size_t i = 0; i < shown.size(); ++i)
+                if (! isFolded (shown[i]) && (kindOf (shown[i]) == Kind::sample || kindOf (shown[i]) == Kind::physical))
+                {
+                    heights[i] += juce::jmin (slack, 40);
+                    break;
+                }
+
         const auto width = getWidth() - sideMargin * 2;
-        auto y = topNow() + extraGap;
+        auto y = topNow();
 
         for (size_t i = 0; i < shown.size(); ++i)
         {
@@ -2466,7 +2524,7 @@ private:
             card.bounds = { sideMargin, y, width, heights[i] };
             layoutCard (card);
             cards.push_back (card);
-            y += heights[i] + gapNow() + extraGap;
+            y += heights[i] + gapNow();
         }
 
         addArea = {};
@@ -2631,7 +2689,15 @@ private:
             x += width + 4;
         }
 
-        const auto statusWidth = juce::jlimit (0, isFolded (index) && embedded ? 230 : 190, right.getRight() - x - 2);
+        if (embedded && isFolded (index))
+        {
+            // (A folded card's note starts a little after the type bar.)
+            const auto noteX = pieces.typeBar.getRight() + 20;
+            card.statusArea = { noteX, centre - 9, juce::jlimit (0, 260, right.getRight() - noteX - 2), 18 };
+            return;
+        }
+
+        const auto statusWidth = juce::jlimit (0, 190, right.getRight() - x - 2);
         card.statusArea = { x, centre - 9, statusWidth, 18 };
     }
 
@@ -2771,11 +2837,12 @@ private:
         card.rows = 0;
         card.well = {};
 
+        const auto topH = physTopH + juce::jmax (0, card.bounds.getHeight() - panelCardHeight (index));
         const auto left = rowArea.getX(), top = rowArea.getY();
-        const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), physTopH + panelGap + physBottomH);
+        const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), topH + panelGap + physBottomH);
         const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
-        // (On PLAY the top row's seams stand on the page's columns: EXCITER ends where MIX's column begins, TONE is that column, RESONANCE
-        // and MIX share UNISON's.)
+        // (On PLAY the top row's first seam stands on the page's columns, EXCITER ending where MIX's column begins; TONE, RESONANCE
+        // and MIX share the rest, the dials of EXCITER and TONE at one pitch.)
         const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
         const auto toneW = 195, resW = 175, smallW = 85;
         auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
@@ -2783,18 +2850,18 @@ private:
         if (embedded)
         {
             exciterW = cols.x[2] - panelGap - rightX;
-            tonePanelW = cols.w[2];
-            resPanelW = 165;
+            tonePanelW = 195;
+            resPanelW = 150;
             toneX = cols.x[2];
-            resX = cols.x[3];
+            resX = toneX + tonePanelW + panelGap;
             mixX = resX + resPanelW + panelGap;
             mixW = rowArea.getRight() - mixX;
         }
-        const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, physTopH);
-        const auto tonePanel = embedded ? juce::Rectangle<int> (toneX, top, tonePanelW, physTopH) : juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, physTopH);
-        const auto resPanel = embedded ? juce::Rectangle<int> (resX, top, resPanelW, physTopH) : juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, physTopH);
-        const auto mixPanel = embedded ? juce::Rectangle<int> (mixX, top, mixW, physTopH) : juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, physTopH);
-        const auto lowY = top + physTopH + panelGap;
+        const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, topH);
+        const auto tonePanel = embedded ? juce::Rectangle<int> (toneX, top, tonePanelW, topH) : juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, topH);
+        const auto resPanel = embedded ? juce::Rectangle<int> (resX, top, resPanelW, topH) : juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, topH);
+        const auto mixPanel = embedded ? juce::Rectangle<int> (mixX, top, mixW, topH) : juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, topH);
+        const auto lowY = top + topH + panelGap;
         // (On PLAY UNISON and MORE hold their dials at one pitch, 64: the unison panel is as wide as menu and four rings need, MORE's as six rings need.)
         const auto lowUnisonW = embedded ? 292 : unisonColumn(), lowMoreW = embedded ? 361 : 0;
         const auto lowPitchW = embedded ? rightW - lowUnisonW - lowMoreW - 2 * panelGap : pitchColumn();
@@ -2846,17 +2913,19 @@ private:
         {
             const auto c = panelContent (exciterPanel);
             // (On PLAY the cells are wide enough for POSITION and HARDNESS to keep 6 px apart; the SLAP switch is as wide as its own ink.)
-            const auto cell = embedded ? 40 : 35;
+            const auto cell = embedded ? 46 : 35;
             const auto slapW = embedded ? 24 : cell;
             const auto count = (int) exciterKnobs.size();
             const auto blockW = count * cell + (slap != nullptr ? slapW : 0);
             const auto pillsW = juce::jmax (60, c.getWidth() - blockW - 7);
             const auto pillsH = pieces.exciterPills.heightFor (pillsW);
-            const auto hintH = embedded ? 30 : 15;
+            // (On PLAY the hint is set big; one line where it fits, else two.)
+            const auto hintOneLine = embedded && juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (12.0f)), physicalHint (index)) <= pillsW;
+            const auto hintH = embedded ? (hintOneLine ? 16 : 32) : 15;
             const auto total = pillsH + 3 + hintH;
             const auto y = c.getY() + juce::jmax (0, (c.getHeight() - total) / 2);
             pieces.exciterPills.setBounds ({ c.getX(), y, pillsW, pillsH });
-            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), 2, true, embedded ? 11.0f : 0.0f });
+            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), hintOneLine ? 1 : 2, true, embedded ? 12.0f : 0.0f });
             auto x = c.getRight() - blockW;
             const auto knobY = middle (c, cellH);
             for (auto* knob : exciterKnobs)
@@ -2865,13 +2934,17 @@ private:
                 x += cell;
             }
             if (slap != nullptr)
-                slap->setBounds ({ x, knobY + 2, slapW, cellH - 2 });
+            {
+                // (On PLAY the switch sits level with the rings and its name on the knobs' names' line.)
+                slap->setNameDrop (embedded ? 5 : 0);
+                slap->setBounds (embedded ? juce::Rectangle<int> (x, knobY + 7, slapW, 32) : juce::Rectangle<int> (x, knobY + 2, slapW, cellH - 2));
+            }
         }
 
         // TONE: RING TIME, DARKEN, STIFF and the partials.
         {
             const auto c = panelContent (tonePanel);
-            const auto cell = embedded ? 36 : 37;
+            const auto cell = embedded ? 46 : 37;
             const auto y = middle (c, cellH);
             auto x = c.getX();
             for (auto* knob : toneKnobs)
@@ -2884,8 +2957,8 @@ private:
             {
                 // (The caption sits on the knob names' line: the picture ends where their row starts.)
                 const auto knobTop = middle (c, cellH);
-                const auto partialsH = embedded ? 31 : 34;
-                const auto py = embedded ? knobTop - 2 : middle (c, partialsH + 10);
+                const auto partialsH = embedded ? 40 : 34;
+                const auto py = embedded ? knobTop - 11 : middle (c, partialsH + 10);
                 pieces.partials.setCompact (true);
                 pieces.partials.setBounds ({ partialsX, py, c.getRight() - partialsX, partialsH });
                 card.labels.push_back ({ { partialsX, embedded ? knobTop + mainDial : py + partialsH + 1, c.getRight() - partialsX, embedded ? 10 : 9 }, "PARTIALS" });
@@ -3139,8 +3212,9 @@ private:
         const auto inner = card.bounds.reduced (1);
         const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
         const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
-        const auto topY = rowArea.getY(), lowY = topY + sampleTopH + panelGap;
-        const auto topRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], topY, cols.w[column], sampleTopH); };
+        const auto topH = sampleTopH + juce::jmax (0, card.bounds.getHeight() - panelCardHeight (index));
+        const auto topY = rowArea.getY(), lowY = topY + topH + panelGap;
+        const auto topRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], topY, cols.w[column], topH); };
         const auto lowRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], lowY, cols.w[column], physBottomH); };
         const auto addPanel = [&] (juce::Rectangle<int> area, const juce::String& title) { card.panels.push_back ({ area, title, {}, tint }); return panelContent (area); };
         const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
@@ -3162,7 +3236,7 @@ private:
 
         // WAVE: the picture, then two columns of toggles (the crossfade knob under the second).
         {
-            const juce::Rectangle<int> area (cols.x[0], topY, cols.w[0], sampleTopH + panelGap + physBottomH);
+            const juce::Rectangle<int> area (cols.x[0], topY, cols.w[0], topH + panelGap + physBottomH);
             const auto c = addPanel (area, "WAVE");
             const auto toggleW = 64, toggleH = 16, toggleGap = 6, firstW = 66; // wide enough for REVERSE and LOOP PTS in full
             const auto secondX = c.getRight() - toggleW;
@@ -3570,12 +3644,13 @@ private:
                 const auto area = card.statusArea.toFloat();
                 juce::Path arrow;
                 arrow.addTriangle (area.getX(), area.getCentreY() - 3.5f, area.getX(), area.getCentreY() + 3.5f, area.getX() + 5.0f, area.getCentreY());
-                g.setColour (IlanaTheme::Ui::text2);
+                g.setColour (IlanaTheme::Ui::text);
                 g.fillPath (arrow);
                 g.setFont (IlanaTheme::font (9.5f));
-                IlanaTheme::drawFitted (g, "Folded for room: switch on to open", card.statusArea.withTrimmedLeft (10), juce::Justification::centredLeft, 1);
+                IlanaTheme::drawFitted (g, off ? "Folded for room: switch on to open" : "Folded for room: click here to open", card.statusArea.withTrimmedLeft (10), juce::Justification::centredLeft, 1);
             }
-            g.endTransparencyLayer();
+            if (off)
+                g.endTransparencyLayer();
             return;
         }
 
@@ -4923,6 +4998,64 @@ public:
 
     std::function<void()> onViewMoved;
 
+    // PLAY's wheel moves the cards one at a time (a card's top to the view's top), never through one.
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
+    {
+        auto* page = getPage();
+        if (! overlayScroll || page == nullptr)
+        {
+            juce::Viewport::mouseWheelMove (event, wheel);
+            return;
+        }
+
+        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
+        const auto now = juce::Time::getMillisecondCounter();
+        if (maxY == 0 || wheel.deltaY == 0.0f || now - lastWheel < 140)
+            return;
+        lastWheel = now;
+
+        const auto here = getViewPositionY();
+        const auto tops = page->getCardTops();
+        auto target = here;
+        if (wheel.deltaY < 0.0f)
+        {
+            for (const auto top : tops)
+                if (top > here + 1)
+                {
+                    target = juce::jmin (top, maxY);
+                    break;
+                }
+        }
+        else
+        {
+            for (auto it = tops.rbegin(); it != tops.rend(); ++it)
+                if (*it < here - 1)
+                {
+                    target = *it;
+                    break;
+                }
+        }
+        setViewPosition (0, target);
+    }
+
+    // The nearest card top a drag of the bar lands on.
+    int snapToCard (int position) const
+    {
+        auto* page = getPage();
+        if (page == nullptr)
+            return position;
+        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
+        auto best = juce::jmin (position, maxY);
+        auto distance = 1 << 30;
+        for (const auto top : page->getCardTops())
+            if (const auto candidate = juce::jmin (top, maxY); std::abs (candidate - position) < distance)
+            {
+                distance = std::abs (candidate - position);
+                best = candidate;
+            }
+        return best;
+    }
+
     void visibleAreaChanged (const juce::Rectangle<int>& area) override
     {
         juce::Viewport::visibleAreaChanged (area);
@@ -4933,5 +5066,6 @@ public:
 private:
     float maxScale = maximumContentScale;
     bool overlayScroll = false;
+    juce::uint32 lastWheel = 0;
 };
 } // namespace

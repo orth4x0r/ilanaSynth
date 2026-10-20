@@ -3411,7 +3411,7 @@ public:
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
@@ -3487,6 +3487,9 @@ public:
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
 
+    // The packed switch's name lower under it, level with a knob row's names.
+    void setNameDrop (int pixels) { nameDrop = pixels; repaint(); }
+
     // Lowers the switch under its name, to sit level with the dials of the
     // knobs in its row (S13-1); 0 is the usual place.
     void setSwitchDrop (int pixels)
@@ -3500,7 +3503,7 @@ public:
 
 
 private:
-    int switchDrop = 0;
+    int switchDrop = 0, nameDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
     NamePlace packedPlace = NamePlace::none;
     juce::Colour groupColour;

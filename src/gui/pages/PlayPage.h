@@ -767,6 +767,28 @@ public:
     }
 };
 
+// The OSC area's thin scroll bar: a track and a thumb that read on the dark page.
+class OscScrollBar : public juce::ScrollBar
+{
+public:
+    using juce::ScrollBar::ScrollBar;
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour (IlanaTheme::Ui::line.withAlpha (0.9f));
+        g.fillRoundedRectangle (bounds, 2.5f);
+
+        const auto total = getMaximumRangeLimit() - getMinimumRangeLimit();
+        if (total <= 0.0)
+            return;
+        const auto top = (float) ((getCurrentRangeStart() - getMinimumRangeLimit()) / total) * bounds.getHeight();
+        const auto height = juce::jmax (16.0f, (float) (getCurrentRangeSize() / total) * bounds.getHeight());
+        g.setColour (IlanaTheme::Ui::text2);
+        g.fillRoundedRectangle (bounds.getX(), bounds.getY() + top, bounds.getWidth(), juce::jmin (height, bounds.getHeight() - top), 2.5f);
+    }
+};
+
 class PlayPage : public juce::Component,
                  private juce::ScrollBar::Listener,
                  private juce::Timer
@@ -1021,7 +1043,7 @@ private:
 
     void scrollBarMoved (juce::ScrollBar*, double newStart) override
     {
-        oscView.setViewPosition (0, juce::roundToInt (newStart));
+        oscView.setViewPosition (0, oscView.snapToCard (juce::roundToInt (newStart)));
     }
 
     int readInt (const juce::String& id) const
@@ -1263,7 +1285,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
     OscPageViewport oscView;
-    juce::ScrollBar oscBar { true };
+    OscScrollBar oscBar { true };
     SourceCarouselCard envelopeCard, lfoCard;
     std::array<FilterCard, 2> filters;
     std::array<juce::Rectangle<int>, 2> filterCardBounds;

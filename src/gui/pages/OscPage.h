@@ -2724,18 +2724,14 @@ private:
         {
             const auto c = addPanel (0, "WAVE");
             // (On PLAY the picture's own frame slider sets FRAME, so the dial is gone and the picture takes its place, ilana 2026-10-20.)
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 0), c.getHeight());
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + 56, c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
 
-            const auto frameCell = juce::Rectangle<int> (picture.getRight() + 7, 0, 49, frameDial + nameLine).withY (middle (c, frameDial + nameLine));
-            if (embedded)
-                osc.frame.setBounds ({});
-            else
-                placeKnob (osc.frame, frameCell.getX(), frameCell.getY(), frameCell.getWidth(), frameDial);
+            osc.frame.setBounds ({});
 
-            const auto columnX = embedded ? picture.getRight() + 7 : frameCell.getRight() + 7;
+            const auto columnX = picture.getRight() + 7;
             const auto columnW = juce::jmax (0, c.getRight() - columnX);
             const auto rows = 2 + effectiveExtraWarps (index);
             const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
@@ -2762,7 +2758,7 @@ private:
             placeKnob (first, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
-            osc.tune.setBounds ({ tuneX, top + 4, c.getRight() - tuneX, menuH });
+            osc.tune.setBounds ({ tuneX, top + (mainDial - menuH) / 2 + 4, c.getRight() - tuneX, menuH });
             const auto lower = top + cellH + 3;
             if (readChoice (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_scale") != 0)
             {
@@ -2804,23 +2800,25 @@ private:
             }
             else
             {
-                // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
+                // (The OSC tab's header has no room to spare, the card has: FILTER stays under the dials. The five segments take 5 px
+                // more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
                 card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
                 pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
                 filterY += filterH + 3;
             }
-            pieces.outBar.setBounds ({ c.getX(), embedded ? filterY : filterY, c.getWidth(), outH });
+            pieces.outBar.setBounds ({ c.getX(), filterY, c.getWidth(), outH });
         }
 
         // UNISON
         {
             const auto c = addPanel (3, "UNISON");
-            const auto cell = 33;
             const auto cellH = mainDial + nameLine;
             const auto top = middle (c, cellH + 4 + spreadH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 55 : 52;
-            osc.uniMode.setBounds ({ c.getX(), top + 4, menuW, menuH });
+            // (The six dials share what the menu leaves, at most 37 each: the names keep 20 px apart.)
+            const auto cell = juce::jlimit (33, 37, (c.getWidth() - menuW - 3) / 6);
+            osc.uniMode.setBounds ({ c.getX(), top + (mainDial - menuH) / 2 + 4, menuW, menuH });
             auto x = c.getX() + menuW + 3;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {

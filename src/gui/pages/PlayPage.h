@@ -4,80 +4,6 @@
 
 namespace
 {
-// A horizontal slider in Vital's filter style: the name at the left of the bar, the value at its right in the big
-// readable size, the fill in the card's colour (ilana 2026-10-20).
-class ValueBar : public KeyboardSlider
-{
-public:
-    ValueBar (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText, juce::Colour colourIn)
-        : name (nameText), colour (colourIn)
-    {
-        setSliderStyle (juce::Slider::LinearBar);
-        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
-        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, *this);
-        if (auto* parameter = state.getParameter (parameterID))
-        {
-            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
-            const auto description = describeParameter (parameterID);
-            setTitle (parameter->getName (64));
-            setDescription (description);
-            setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
-        }
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        const auto box = getLocalBounds().toFloat().reduced (0.5f);
-        const auto alpha = isEnabled() ? 1.0f : 0.5f;
-        const auto share = (float) juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()));
-        g.setColour (IlanaTheme::Ui::raised);
-        g.fillRoundedRectangle (box, 4.0f);
-        if (share > 0.001f)
-        {
-            const juce::Graphics::ScopedSaveState state (g);
-            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
-            g.setColour (colour.withAlpha (0.42f * alpha));
-            g.fillRoundedRectangle (box, 4.0f);
-        }
-        g.setColour (IlanaTheme::Ui::line);
-        g.drawRoundedRectangle (box, 4.0f, 1.0f);
-
-        auto text = getTextFromValue (getValue());
-        auto unit = juce::String();
-        if (text.containsChar (' '))
-        {
-            unit = text.fromLastOccurrenceOf (" ", false, false);
-            text = text.upToLastOccurrenceOf (" ", false, false);
-            if (unit == "kHz" && text.endsWith (".00"))
-                text = text.dropLastCharacters (3);
-        }
-        const auto inner = getLocalBounds().toFloat().reduced (5.0f, 0.0f);
-        const auto numberFont = IlanaTheme::font (KnobControl::kBelowNumberSize, true, true);
-        const auto unitFont = IlanaTheme::font (KnobControl::kBelowUnitSize, true);
-        const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit) + 1.5f;
-        const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), text);
-        auto right = inner.getRight();
-        if (unit.isNotEmpty())
-        {
-            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (alpha));
-            g.setFont (unitFont);
-            g.drawText (unit, juce::Rectangle<float> (right - unitW, inner.getY() + 0.5f, unitW, inner.getHeight()), juce::Justification::centredRight, false);
-            right -= unitW;
-        }
-        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
-        g.setFont (numberFont);
-        g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, inner.getY(), numberW + 1.0f, inner.getHeight()), juce::Justification::centredRight, false);
-        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.5f).withMultipliedAlpha (alpha));
-        g.setFont (IlanaTheme::font (7.6f, true));
-        g.drawText (name, juce::Rectangle<float> (inner.getX(), inner.getY(), juce::jmax (0.0f, right - numberW - 4.0f - inner.getX()), inner.getHeight()), juce::Justification::centredLeft, true);
-    }
-
-private:
-    juce::String name;
-    juce::Colour colour;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-};
-
 // A small selector of two or three solid-fill pills (the slope, SUB's octave).
 class PillChoice : public ParamBoundComponent
 {
@@ -924,13 +850,19 @@ public:
             for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESONANCE" }, { "_drive", "DRIVE" },
                                       { "_env", "ENV AMOUNT" }, { "_keytrack", "KEY TRACK" }, { "_fm", "AUDIO FM" } })
             {
-                card.bars.push_back (std::make_unique<ValueBar> (state, prefix + spec.first, spec.second, colour));
+                card.bars.push_back (std::make_unique<KnobControl> (state, prefix + spec.first, spec.second, colour, false));
+                card.bars.back()->setBarMode (true);
                 addAndMakeVisible (*card.bars.back());
                 // A DX7 voice has no filter until CUTOFF comes down: the rest dims (I14-3).
                 if (juce::String (spec.first) != "_cutoff")
                     effectRules.add (*card.bars.back(), [this] { return ! operatorFilterOff; },
                                      "a DX7 voice has no filter: turn CUTOFF down to bring one in");
             }
+            // MORPH, as Vital's blend: in the header's free stretch, dimmed for the models that have none.
+            card.morph = std::make_unique<KnobControl> (state, prefix + "_morph", "MORPH", colour, false);
+            card.morph->setBarMode (true);
+            addAndMakeVisible (*card.morph);
+            effectRules.add (*card.morph, [this, f] { return filterHasMorph (f); }, "this filter type has no MORPH");
         }
 
         // WEST COAST: its switch, PLACE and GATE menus in the header, seven knobs.
@@ -1084,7 +1016,8 @@ private:
         std::unique_ptr<ComboControl> type;
         std::unique_ptr<PillChoice> slope;
         std::vector<std::unique_ptr<KnobControl>> knobs;
-        std::vector<std::unique_ptr<ValueBar>> bars;
+        std::unique_ptr<KnobControl> morph;
+        std::vector<std::unique_ptr<KnobControl>> bars;
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 36, westCell = 31;
@@ -1192,7 +1125,7 @@ private:
     void layoutBand1 (juce::Rectangle<int> band)
     {
         const auto total = band.getWidth() - 2 * hGap;
-        const auto filterWidth = juce::roundToInt ((float) total * 0.358f);
+        const auto filterWidth = juce::roundToInt ((float) total * 0.35f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
@@ -1210,6 +1143,7 @@ private:
             parts.type->setBounds ({ x, centre - 8, 92, 16 });
             x += 92 + 6;
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
+            parts.morph->setBounds ({ card.getRight() - 5 - 106, centre - 8, 106, 17 });
 
             // (The graph's edge is 5 from the card on the left; the last dial's ring is 5 from it on the right.)
             auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
@@ -1283,7 +1217,7 @@ private:
             const auto gapInk = juce::jmax (2, (body.getWidth() - ink) / 6);
             auto x = body.getX() + gapInk;
             const auto subLeft = x;
-            auto stack = juce::Rectangle<int> (x, knobY + (int) dialSize / 2 - (menuHeight * 2 + 3) / 2, menuWidth, menuHeight * 2 + 3);
+            auto stack = juce::Rectangle<int> (x, knobY + 5, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));
             stack.removeFromTop (3);
             subOctave->setBounds (stack);
@@ -1352,6 +1286,12 @@ private:
                                     parameter->endChangeGesture();
                                 });
                             });
+    }
+
+    // Only some models take MORPH (FilterType::usesMorph).
+    bool filterHasMorph (int filterIndex) const
+    {
+        return FilterType::usesMorph (juce::jlimit (0, FilterType::Count - 1, readInt (filterIndex == 0 ? "f1_type" : "f2_type")));
     }
 
     // As on the FILTER page: only the classic models have a slope.

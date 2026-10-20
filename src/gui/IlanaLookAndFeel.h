@@ -1255,6 +1255,10 @@ public:
     {
         using namespace IlanaTheme;
 
+        // (A knob drawn as a bar paints itself.)
+        if ((bool) slider.getProperties().getWithDefault ("barMode", false))
+            return;
+
         if ((float) slider.getProperties().getWithDefault ("packedDial", 0.0f) > 0.0f)
         {
             drawPackedDial (g, x, y, width, height, targetPos, rotaryStartAngle, rotaryEndAngle, slider);

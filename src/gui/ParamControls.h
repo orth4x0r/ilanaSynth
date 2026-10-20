@@ -816,6 +816,9 @@ public:
 
     KnobSlider() { setSliderStyle (juce::Slider::RotaryVerticalDrag); }
 
+    // A knob drawn as a bar (KnobControl::setBarMode) turns with a drag along its width: a full width is the whole range.
+    void setBarDragWidth (float pixels) { barDragWidth = pixels; }
+
     static bool wantsFine (const juce::ModifierKeys& mods) { return mods.isShiftDown() || mods.isCommandDown(); }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -825,6 +828,7 @@ public:
         // (a popup-menu press or a ctrl-click reset is not the start of a drag)
         dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
         lastY = event.position.y;
+        lastX = event.position.x;
         proportion = valueToProportionOfLength (getValue());
     }
 
@@ -833,8 +837,10 @@ public:
         if (! dragging)
             return;
 
-        const auto step = (lastY - event.position.y) / fullRangePixels / (wantsFine (event.mods) ? fineDivisor : 1.0f);
+        const auto travel = barDragWidth > 0.0f ? (event.position.x - lastX) / barDragWidth : (lastY - event.position.y) / fullRangePixels;
+        const auto step = travel / (wantsFine (event.mods) ? fineDivisor : 1.0f);
         lastY = event.position.y;
+        lastX = event.position.x;
         proportion = juce::jlimit (0.0, 1.0, proportion + (double) step);
         setValue (proportionOfLengthToValue (proportion), juce::sendNotificationSync);
 
@@ -851,7 +857,7 @@ public:
 
 private:
     bool dragging = false;
-    float lastY = 0.0f;
+    float lastY = 0.0f, lastX = 0.0f, barDragWidth = 0.0f;
     double proportion = 0.0;
 };
 
@@ -1046,7 +1052,7 @@ public:
     }
     juce::Rectangle<float> getRingsBounds() const
     {
-        if (numRings() == 0 || knobRadiusFor (knobBounds) < 8.0f)
+        if (barMode || numRings() == 0 || knobRadiusFor (knobBounds) < 8.0f)
             return {};
 
         // The sweep passes the top and both sides; its ends sit 0.81 r below the centre.
@@ -1166,6 +1172,22 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+
+    // The knob as a Vital-style bar (PLAY's filters): the name at the left, the value at the right in the big size, the fill
+    // in the card's colour, its modulation as thin lines along the bottom. Same drops, menu, typing and automation as a dial.
+    void setBarMode (bool on)
+    {
+        if (barMode == on)
+            return;
+
+        barMode = on;
+        setPackedDial (on ? 28.0f : 0.0f);
+        slider.getProperties().set ("barMode", on);
+        dotStrip.setVisible (false);
+        resized();
+        repaint();
+    }
+    bool isBarMode() const { return barMode; }
     // A packed name too wide for its cell breaks at its first space onto a second line ("KEY" over "TRACK"),
     // in full words; the cell the page gives the knob must leave the room (about 9 px under the name).
     void setPackedNameWrap (bool wrap)
@@ -1361,6 +1383,12 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (barMode)
+        {
+            paintBar (g);
+            return;
+        }
+
         const auto mod = processorRef != nullptr && ringConfig.destination != 0
                              ? processorRef->getModDisplay (ringConfig.destination)
                              : 0.0f;
@@ -1533,6 +1561,97 @@ public:
         paintPackedName (g, on);
     }
 
+    // The bar: a raised track filled to the value, its modulation as thin lines along the foot (one per routing, the source's
+    // colour, what it adds now brighter with a white dot), the name at the left and the value (number big, unit small) at the right.
+    void paintBar (juce::Graphics& g)
+    {
+        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
+        const auto share = (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()));
+        const auto xOf = [&box] (float norm) { return box.getX() + box.getWidth() * juce::jlimit (0.0f, 1.0f, norm); };
+
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (box, 4.0f);
+        if (share > 0.001f)
+        {
+            const juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
+            g.setColour (accent.withAlpha (0.42f * alpha));
+            g.fillRoundedRectangle (box, 4.0f);
+        }
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+
+        // Modulation: from the value to where its depth reaches, along the foot; what it adds now is the brighter stretch.
+        const auto highlighted = highlightedModSource() != 0 ? highlightedModSource() : pinnedModSource();
+        const auto count = juce::jmin ((int) routings.size(), 3);
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& dot = routings[(size_t) i];
+            const auto quiet = dot.bypass || (highlighted != 0 && highlighted != dot.source);
+            const auto colour = modArcColour (modSourceColour (dot.source), accent);
+            const auto depth = dot.depth * ringConfig.scale;
+            const auto low = dot.bipolar ? share - std::abs (depth) : juce::jmin (share, share + depth);
+            const auto high = dot.bipolar ? share + std::abs (depth) : juce::jmax (share, share + depth);
+            const auto y = box.getBottom() - 2.5f - (float) i * 2.4f;
+            auto a = xOf (low), b = xOf (high);
+            if (b - a < 3.0f)
+                a -= 1.5f, b += 1.5f;
+            g.setColour (colour.withAlpha ((quiet ? 0.3f : 0.95f) * alpha));
+            g.drawLine (a, y, b, y, 1.7f);
+
+            if (! dot.bypass && ! quiet)
+            {
+                const auto live = juce::isPositiveAndBelow (i, (int) liveValues.size()) ? liveValues[(size_t) i] : 0.0f;
+                const auto at = xOf (share + live * ringConfig.scale);
+                g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f).withAlpha (alpha));
+                g.drawLine (juce::jmin (xOf (share), at), y, juce::jmax (xOf (share), at), y, 1.7f);
+                g.setColour (juce::Colours::white.withAlpha (0.95f * alpha));
+                g.fillEllipse (juce::Rectangle<float> (3.4f, 3.4f).withCentre ({ at, y }));
+            }
+        }
+
+        // A source being dragged: this bar says whether it takes it.
+        if (dragSource != 0 && ! sourceKnob)
+        {
+            g.setColour (isModulatable() ? modSourceColour (dragSource).withAlpha (dragHover ? 1.0f : 0.5f) : IlanaTheme::Ui::bg.withAlpha (0.45f));
+            if (isModulatable())
+                g.drawRoundedRectangle (box, 4.0f, dragHover ? 2.0f : 1.5f);
+            else
+                g.fillRoundedRectangle (box, 4.0f);
+        }
+
+        auto text = slider.getTextFromValue (slider.getValue());
+        auto unit = juce::String();
+        if (text.containsChar (' '))
+        {
+            unit = text.fromLastOccurrenceOf (" ", false, false);
+            text = text.upToLastOccurrenceOf (" ", false, false);
+            if (unit == "kHz" && text.endsWith (".00"))
+                text = text.dropLastCharacters (3);
+        }
+        const auto inner = getLocalBounds().toFloat().reduced (5.0f, 0.0f);
+        const auto numberFont = IlanaTheme::font (kBelowNumberSize, true, true);
+        const auto unitFont = IlanaTheme::font (kBelowUnitSize, true);
+        const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit) + 1.5f;
+        const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), text);
+        auto right = inner.getRight();
+        if (unit.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (alpha));
+            g.setFont (unitFont);
+            g.drawText (unit, juce::Rectangle<float> (right - unitW, inner.getY() + 0.5f, unitW, inner.getHeight()), juce::Justification::centredRight, false);
+            right -= unitW;
+        }
+        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
+        g.setFont (numberFont);
+        g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, inner.getY(), numberW + 1.0f, inner.getHeight()), juce::Justification::centredRight, false);
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.5f).withMultipliedAlpha (alpha));
+        g.setFont (IlanaTheme::font (7.6f, true));
+        g.drawText (label.getText(), juce::Rectangle<float> (inner.getX(), inner.getY(), juce::jmax (0.0f, right - numberW - 4.0f - inner.getX()), inner.getHeight()), juce::Justification::centredLeft, true);
+    }
+
     void paintPackedName (juce::Graphics& g, float on) const
     {
         const auto name = label.getText();
@@ -1673,6 +1792,9 @@ public:
 
     void paintOverChildren (juce::Graphics& g) override
     {
+        if (barMode)
+            return;
+
         if (packedD > 0.0f)
         {
             paintPackedText (g);
@@ -1690,6 +1812,18 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+
+        if (barMode)
+        {
+            knobBounds = area;
+            slider.setPaintingIsUnclipped (false);
+            slider.setBounds (knobBounds);
+            slider.setBarDragWidth ((float) juce::jmax (1, knobBounds.getWidth()));
+            label.setBounds ({});
+            packedNameArea = {};
+            dotStrip.setVisible (false);
+            return;
+        }
 
         if (packedD > 0.0f)
         {
@@ -1975,6 +2109,9 @@ private:
     // and the arc's sweep (the gap at the bottom stays the knob's).
     int ringAt (juce::Point<float> position) const
     {
+        if (barMode)
+            return -1;
+
         const auto count = numRings();
 
         if (count == 0 || knobRadiusFor (knobBounds) < 12.0f)
@@ -2211,6 +2348,12 @@ private:
     // height takes (then "+N"); the ring overlay covers the dial.
     void layoutDots()
     {
+        if (barMode)
+        {
+            dotStrip.setVisible (false);
+            return;
+        }
+
         const auto centre = dialCentre();
         const auto dial = dialRadius();
         dotStrip.setMini (packedD > 0.0f);
@@ -2782,6 +2925,7 @@ private:
     bool hover = false;
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
+    bool barMode = false;
     int packedValueRoom = 12;
     // The value under the ring needs a dial big enough to read as a knob (the 17 px amount dials keep theirs inside).
     bool belowMode() const { return packedValueRoom > 0 && packedD >= 24.0f; }

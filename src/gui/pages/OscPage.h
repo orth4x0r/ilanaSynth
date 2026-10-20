@@ -2781,7 +2781,7 @@ private:
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
             osc.tune.setBounds ({ tuneX, top + (cellH - menuH) / 2, c.getRight() - tuneX, menuH });
-            const auto lower = top + cellH + 2;
+            const auto lower = top + cellH + (embedded ? 1 : 2);
             if (readChoice (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_scale") != 0)
             {
                 const auto rootW = 36, free = c.getWidth() - rootW - 8;
@@ -2806,7 +2806,7 @@ private:
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
             osc.ampEnv.setBounds ({ envX, top + (cellH - menuH) / 2, c.getRight() - envX, menuH });
-            auto filterY = top + cellH + 2;
+            auto filterY = top + cellH + (embedded ? 1 : 2);
             const auto labelW = 28;
             if (true)
             {
@@ -2847,7 +2847,7 @@ private:
             auto i = 0;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
                 placeKnob (*knob, cellsLeft + 2 + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), mainDial);
-            const auto spreadY = top + cellH + 2;
+            const auto spreadY = top + cellH + (embedded ? 1 : 2);
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });
             pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, menuH });

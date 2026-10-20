@@ -92,7 +92,11 @@ def render(folder, out):
         w.writeheader()
         w.writerows(rows)
     subprocess.run([sys.executable, str(ROOT / "tools" / "preset_critic.py"), str(out)], check=True, stdout=subprocess.DEVNULL)
-    return {r["name"]: r for r in csv.DictReader(open(out / "report.csv", newline="", encoding="utf-8"))}
+    rep = {r["name"]: r for r in csv.DictReader(open(out / "report.csv", newline="", encoding="utf-8"))}
+    for sub in out.iterdir():  # the wavs are not needed after measuring: the archive keeps the presets
+        if sub.is_dir():
+            shutil.rmtree(sub)
+    return rep
 
 
 def gate(row):

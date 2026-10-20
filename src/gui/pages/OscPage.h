@@ -2453,8 +2453,10 @@ private:
             }
         }
 
+        // (Embedded, what a folded or short row leaves is shared as air between the cards, a few units each, never as a dead strip.)
+        const auto extraGap = embedded && ! shown.empty() ? juce::jlimit (0, 8, slack / ((int) shown.size() + 1)) : 0;
         const auto width = getWidth() - sideMargin * 2;
-        auto y = topNow();
+        auto y = topNow() + extraGap;
 
         for (size_t i = 0; i < shown.size(); ++i)
         {
@@ -2464,7 +2466,7 @@ private:
             card.bounds = { sideMargin, y, width, heights[i] };
             layoutCard (card);
             cards.push_back (card);
-            y += heights[i] + gapNow();
+            y += heights[i] + gapNow() + extraGap;
         }
 
         addArea = {};
@@ -2629,7 +2631,7 @@ private:
             x += width + 4;
         }
 
-        const auto statusWidth = juce::jlimit (0, 190, right.getRight() - x - 2);
+        const auto statusWidth = juce::jlimit (0, isFolded (index) && embedded ? 230 : 190, right.getRight() - x - 2);
         card.statusArea = { x, centre - 9, statusWidth, 18 };
     }
 
@@ -2772,12 +2774,26 @@ private:
         const auto left = rowArea.getX(), top = rowArea.getY();
         const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), physTopH + panelGap + physBottomH);
         const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
-        const auto toneW = embedded ? 186 : 195, resW = embedded ? 160 : 175, smallW = embedded ? 96 : 85;
-        const auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
+        // (On PLAY the top row's seams stand on the page's columns: EXCITER ends where MIX's column begins, TONE is that column, RESONANCE
+        // and MIX share UNISON's.)
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
+        const auto toneW = 195, resW = 175, smallW = 85;
+        auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
+        auto toneX = 0, resX = 0, mixX = 0, mixW = 0, tonePanelW = toneW, resPanelW = resW;
+        if (embedded)
+        {
+            exciterW = cols.x[2] - panelGap - rightX;
+            tonePanelW = cols.w[2];
+            resPanelW = 165;
+            toneX = cols.x[2];
+            resX = cols.x[3];
+            mixX = resX + resPanelW + panelGap;
+            mixW = rowArea.getRight() - mixX;
+        }
         const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, physTopH);
-        const auto tonePanel = juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, physTopH);
-        const auto resPanel = juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, physTopH);
-        const auto mixPanel = juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, physTopH);
+        const auto tonePanel = embedded ? juce::Rectangle<int> (toneX, top, tonePanelW, physTopH) : juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, physTopH);
+        const auto resPanel = embedded ? juce::Rectangle<int> (resX, top, resPanelW, physTopH) : juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, physTopH);
+        const auto mixPanel = embedded ? juce::Rectangle<int> (mixX, top, mixW, physTopH) : juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, physTopH);
         const auto lowY = top + physTopH + panelGap;
         // (On PLAY UNISON and MORE hold their dials at one pitch, 64: the unison panel is as wide as menu and four rings need, MORE's as six rings need.)
         const auto lowUnisonW = embedded ? 292 : unisonColumn(), lowMoreW = embedded ? 361 : 0;
@@ -2836,11 +2852,11 @@ private:
             const auto blockW = count * cell + (slap != nullptr ? slapW : 0);
             const auto pillsW = juce::jmax (60, c.getWidth() - blockW - 7);
             const auto pillsH = pieces.exciterPills.heightFor (pillsW);
-            const auto hintH = embedded ? 22 : 15;
+            const auto hintH = embedded ? 30 : 15;
             const auto total = pillsH + 3 + hintH;
             const auto y = c.getY() + juce::jmax (0, (c.getHeight() - total) / 2);
             pieces.exciterPills.setBounds ({ c.getX(), y, pillsW, pillsH });
-            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), 2, true, embedded ? 9.0f : 0.0f });
+            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), 2, true, embedded ? 11.0f : 0.0f });
             auto x = c.getRight() - blockW;
             const auto knobY = middle (c, cellH);
             for (auto* knob : exciterKnobs)
@@ -2855,7 +2871,7 @@ private:
         // TONE: RING TIME, DARKEN, STIFF and the partials.
         {
             const auto c = panelContent (tonePanel);
-            const auto cell = 37;
+            const auto cell = embedded ? 36 : 37;
             const auto y = middle (c, cellH);
             auto x = c.getX();
             for (auto* knob : toneKnobs)
@@ -2863,7 +2879,7 @@ private:
                 placeKnob (*knob, x, y, cell, mainDial);
                 x += cell;
             }
-            const auto partialsX = x + 4;
+            const auto partialsX = x + (embedded ? 2 : 4);
             if (! electric && partialsX < c.getRight() - 20)
             {
                 // (The caption sits on the knob names' line: the picture ends where their row starts.)
@@ -3548,6 +3564,17 @@ private:
 
         if (isFolded (index))
         {
+            // (Folded on PLAY to leave a taller card its room: a little arrow and the way to open it.)
+            if (embedded && ! card.statusArea.isEmpty())
+            {
+                const auto area = card.statusArea.toFloat();
+                juce::Path arrow;
+                arrow.addTriangle (area.getX(), area.getCentreY() - 3.5f, area.getX(), area.getCentreY() + 3.5f, area.getX() + 5.0f, area.getCentreY());
+                g.setColour (IlanaTheme::Ui::text2);
+                g.fillPath (arrow);
+                g.setFont (IlanaTheme::font (9.5f));
+                IlanaTheme::drawFitted (g, "Folded for room: switch on to open", card.statusArea.withTrimmedLeft (10), juce::Justification::centredLeft, 1);
+            }
             g.endTransparencyLayer();
             return;
         }

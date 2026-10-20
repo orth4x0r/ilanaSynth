@@ -953,7 +953,7 @@ public:
         const auto bottom = area.getBottom() - bottomMargin;
         const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
-        const auto oscMin = oscView.getPage() != nullptr ? juce::jmin (oscView.getPage()->getReferenceHeight(), oscView.getPage()->getMinimumHeight()) : 0;
+        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
         oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, bandsTop - 8));
@@ -990,7 +990,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 33, westCell = 31;
-    static constexpr int minBand = 62, maxBand = 112;
+    static constexpr int minBand = 62, maxBand = 96;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -1036,7 +1036,7 @@ private:
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = juce::jmin (page->getReferenceHeight(), page->getMinimumHeight());
+            oscHeight = page->getReferenceHeight();
         return pageHeight - bottomMargin - oscHeight;
     }
 

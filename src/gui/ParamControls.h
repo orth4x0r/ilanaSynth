@@ -1501,14 +1501,15 @@ public:
         const auto widest = value.length() >= 4 && value.endsWithChar ('%') && value.initialSectionContainingOnly ("0123456789").length() == value.length() - 1;
         auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
         if (widest)
-            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (-0.08f);
+            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (packedValueRoom > 0 ? -0.11f : -0.08f);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {
             const auto numberH = drawn.getHeight();
             const auto unitFont = drawn.withHeight (numberH * 0.78f);
             const auto total = numberH + unitFont.getHeight() - 1.0f;
-            const auto top = inner.getCentreY() - total * 0.5f;
+            // (A pixel above the middle: the unit's foot keeps 3 px from the ring's end caps.)
+            const auto top = inner.getCentreY() - total * 0.5f - 1.0f;
             const auto box = inner.toNearestInt().expanded (1, 0);
             IlanaTheme::drawFitted (g, value, juce::Rectangle<float> (box.getX(), top, box.getWidth(), numberH).toNearestInt(), juce::Justification::centred, 1);
             g.setFont (unitFont);
@@ -3410,7 +3411,7 @@ public:
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
@@ -3486,6 +3487,9 @@ public:
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
 
+    // The packed switch's name lower under it, level with a knob row's names.
+    void setNameDrop (int pixels) { nameDrop = pixels; repaint(); }
+
     // Lowers the switch under its name, to sit level with the dials of the
     // knobs in its row (S13-1); 0 is the usual place.
     void setSwitchDrop (int pixels)
@@ -3499,7 +3503,7 @@ public:
 
 
 private:
-    int switchDrop = 0;
+    int switchDrop = 0, nameDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
     NamePlace packedPlace = NamePlace::none;
     juce::Colour groupColour;

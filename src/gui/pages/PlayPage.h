@@ -767,7 +767,30 @@ public:
     }
 };
 
+// The OSC area's thin scroll bar: a track and a thumb that read on the dark page.
+class OscScrollBar : public juce::ScrollBar
+{
+public:
+    using juce::ScrollBar::ScrollBar;
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour (IlanaTheme::Ui::line.withAlpha (0.9f));
+        g.fillRoundedRectangle (bounds, 2.5f);
+
+        const auto total = getMaximumRangeLimit() - getMinimumRangeLimit();
+        if (total <= 0.0)
+            return;
+        const auto top = (float) ((getCurrentRangeStart() - getMinimumRangeLimit()) / total) * bounds.getHeight();
+        const auto height = juce::jmax (16.0f, (float) (getCurrentRangeSize() / total) * bounds.getHeight());
+        g.setColour (IlanaTheme::Ui::text2);
+        g.fillRoundedRectangle (bounds.getX(), bounds.getY() + top, bounds.getWidth(), juce::jmin (height, bounds.getHeight() - top), 2.5f);
+    }
+};
+
 class PlayPage : public juce::Component,
+                 private juce::ScrollBar::Listener,
                  private juce::Timer
 {
 public:
@@ -777,7 +800,12 @@ public:
         if (auto* page = oscView.getPage())
             page->setEmbedded (true);
         oscView.setMaximumScale (1.0f);
+        oscView.setOverlayScroll (true);
+        oscView.onViewMoved = [this] { syncOscBar(); };
         addAndMakeVisible (oscView);
+        oscBar.setAutoHide (false);
+        oscBar.addListener (this);
+        addChildComponent (oscBar);
 
         auto& state = p.apvts;
         const auto knob = [&] (const juce::String& id, const juce::String& label, juce::Colour colour)
@@ -947,9 +975,11 @@ public:
         const auto bottom = area.getBottom() - bottomMargin;
         const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
-        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getMinimumHeight() : 0;
+        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
+        oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, bandsTop - 8));
+        syncOscBar();
 
         // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
         const auto band1Height = juce::jlimit (minBand, 84, bandsHeight - gap - 90);
@@ -1000,6 +1030,22 @@ private:
 
     bool operatorFilterOff = false;
 
+    // The OSC area's own scroll bar (thin, over the cards' side margin), shown only while the cards overflow it.
+    void syncOscBar()
+    {
+        auto* page = oscView.getViewedComponent();
+        if (page == nullptr)
+            return;
+        oscBar.setRangeLimits (0.0, (double) page->getHeight());
+        oscBar.setCurrentRange ((double) oscView.getViewPositionY(), (double) oscView.getHeight());
+        oscBar.setVisible (page->getHeight() > oscView.getHeight() + 1);
+    }
+
+    void scrollBarMoved (juce::ScrollBar*, double newStart) override
+    {
+        oscView.setViewPosition (0, oscView.snapToCard (juce::roundToInt (newStart)));
+    }
+
     int readInt (const juce::String& id) const
     {
         const auto* value = processorRef.apvts.getRawParameterValue (id);
@@ -1012,7 +1058,7 @@ private:
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = page->getMinimumHeight();
+            oscHeight = page->getReferenceHeight();
         return pageHeight - bottomMargin - oscHeight;
     }
 
@@ -1239,6 +1285,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
     OscPageViewport oscView;
+    OscScrollBar oscBar { true };
     SourceCarouselCard envelopeCard, lfoCard;
     std::array<FilterCard, 2> filters;
     std::array<juce::Rectangle<int>, 2> filterCardBounds;

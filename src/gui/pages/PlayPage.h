@@ -360,6 +360,7 @@ private:
             auto knob = std::make_unique<KnobControl> (state, id, label, colour, false);
             knob->setPackedDial (dialSize);
             knob->setPackedValueRoom (12);
+            knob->setValueLine (KnobControl::packedValueLine2);
             addAndMakeVisible (*knob);
             knobs.push_back (std::move (knob));
         };
@@ -387,6 +388,8 @@ private:
             rate->addTo (*this);
             rate->getRateKnob().setPackedDial (dialSize);
             rate->getRateKnob().setPackedValueRoom (12);
+            rate->getRateKnob().setValueLine (KnobControl::packedValueLine2);
+            rate->getDivisionKnob().setValueLine (KnobControl::packedValueLine2);
             rate->getDivisionKnob().setPackedDial (dialSize);
             rate->setShown (true);
             dial (prefix + "_smooth", "SMOOTH");
@@ -425,7 +428,7 @@ private:
         body.removeFromLeft (gap);
         const auto place = [&] (KnobControl& knob, int x)
         {
-            knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2, cell, (int) dialSize + 10 + KnobControl::packedValueLine }));
+            knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine2) / 2, cell, (int) dialSize + 10 + KnobControl::packedValueLine2 }));
         };
 
         if (kind == Kind::envelope)

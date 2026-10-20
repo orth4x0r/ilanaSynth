@@ -1152,7 +1152,7 @@ public:
     static constexpr float kPackedValueSize = 6.1f;
     // PLAY's dials (setPackedValueRoom) write the value under the ring in its own line, in a big readable size
     // (ilana 2026-10-20: the in-ring numbers were tiny in Live), the name under that.
-    static constexpr int packedValueLine = 13;
+    static constexpr int packedValueLine = 13, packedValueLine2 = 21;
     static constexpr float kBelowNumberSize = 11.4f, kBelowUnitSize = 8.6f;
 
     void setPackedDial (float dial)
@@ -1196,6 +1196,12 @@ public:
         repaint();
     }
     // Pixels a packed value may run past the dial's width before its unit is dropped ("1.20 kHz").
+    // The value's room under the ring: one line (13 px), or two (21 px) where the unit stands under the number, ilana's rule.
+    void setValueLine (int pixels)
+    {
+        valueLine = pixels;
+        repaint();
+    }
     void setPackedValueRoom (int pixels)
     {
         packedValueRoom = pixels;
@@ -1676,16 +1682,17 @@ public:
         }
     }
 
-    // The value under the ring: the number big, its unit after it in a smaller size, one line.
+    // The value under the ring: the number big, its unit under it in a smaller size (a one-line room puts the unit after the number).
     void paintValueBelow (juce::Graphics& g, const juce::String& number, const juce::String& unit, float on) const
     {
+        const auto twoLines = valueLine >= packedValueLine2;
         const auto line = juce::Rectangle<int> (packedNameArea.getX(), knobBounds.getBottom() + 1, packedNameArea.getWidth(), packedValueLine);
         const auto numberFont = IlanaTheme::font (kBelowNumberSize, true, true);
         const auto unitFont = IlanaTheme::font (kBelowUnitSize, true);
         const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), number);
-        const auto gap = unit.isEmpty() ? 0.0f : 1.5f;
+        const auto gap = unit.isEmpty() || twoLines ? 0.0f : 1.5f;
         const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit);
-        auto x = (float) line.getCentreX() - (numberW + gap + unitW) * 0.5f;
+        const auto x = (float) line.getCentreX() - (twoLines ? numberW : numberW + gap + unitW) * 0.5f;
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         g.setFont (numberFont);
         g.drawText (number, juce::Rectangle<float> (x, (float) line.getY(), numberW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
@@ -1693,7 +1700,10 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (on));
             g.setFont (unitFont);
-            g.drawText (unit, juce::Rectangle<float> (x + numberW + gap, (float) line.getY() + 1.0f, unitW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
+            if (twoLines)
+                g.drawText (unit, juce::Rectangle<float> ((float) line.getX(), (float) line.getBottom() - 2.0f, (float) line.getWidth(), 9.0f), juce::Justification::centred, false);
+            else
+                g.drawText (unit, juce::Rectangle<float> (x + numberW + gap, (float) line.getY() + 1.0f, unitW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
         }
     }
 
@@ -1837,7 +1847,7 @@ public:
             slider.setPaintingIsUnclipped (true);
             slider.setBounds (knobBounds);
             label.setBounds ({});
-            const auto belowLine = belowMode() ? packedValueLine : 0;
+            const auto belowLine = belowMode() ? valueLine : 0;
             packedNameArea = { cell.getX() - packedPadX - 4, knobBounds.getBottom() + belowLine, cell.getWidth() + 2 * packedPadX + 8, juce::jmax (0, cell.getBottom() - knobBounds.getBottom() - belowLine) };
             layoutDots();
             return;
@@ -2928,7 +2938,7 @@ private:
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
     bool barMode = false;
-    int packedValueRoom = 12;
+    int packedValueRoom = 12, valueLine = packedValueLine;
     // The value under the ring needs a dial big enough to read as a knob (the 17 px amount dials keep theirs inside).
     bool belowMode() const { return packedValueRoom > 0 && packedD >= 24.0f; }
     bool packedNameWrap = false;

@@ -1929,7 +1929,7 @@ private:
     // cards and the strip no longer fit.
     // (Review 23: one margin all round and one gap, as the mockup's 10 px at 1.5x; the
     // header is 23 high.)
-    static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 6;
+    static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 5;
     static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int stripRowGap = 5;
@@ -1938,9 +1938,9 @@ private:
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 10 + KnobControl::packedValueLine, knobCell = 35, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 16, stripDialBase = 28, stripPanelBase = 52 + KnobControl::packedValueLine + 1, stripMaxBonus = 20;
+    static constexpr int addRowHeight = 16, stripDialBase = 28, stripPanelBase = 52 + KnobControl::packedValueLine + 1, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 20;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2394,7 +2394,7 @@ private:
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
         // (The MIX column's dial row with its value line and name, then OUT under it, is the tallest; on PLAY the FILTER route sits in the header.)
-        const auto content = juce::jmax (rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), mainDial + nameLine + 3 + (embedded ? 0 : filterH + 3) + outH);
+        const auto content = juce::jmax (rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), mainDial + nameLine + (embedded ? 2 : 3 + filterH + 3) + outH);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
@@ -2463,7 +2463,7 @@ private:
     // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
     int stripPanelHeight() const { return stripPanelBase + stripBonus; }
     int stripDialSize() const { return stripDialBase; }
-    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + stripRowGap + (readBool ("sym_manual") ? panel + stripRowGap : 0); }
+    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + stripRowAExtra + stripRowGap + (readBool ("sym_manual") ? panel + stripRowGap : 0); }
     int stripHeight() const { return stripHeightFor (stripBonus); }
 
     // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
@@ -2772,14 +2772,14 @@ private:
         {
             const auto c = addPanel (1, "PITCH");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 4 + spreadH);
+            const auto top = middle (c, cellH + 1 + menuH);
             const auto tuning = OscRole::tuning (processorRef, index);
             KnobControl& first = tuning == OscTuning::Ratio ? osc.ratio : tuning == OscTuning::Fixed ? osc.fixedHz : osc.semi;
             placeKnob (first, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
             osc.tune.setBounds ({ tuneX, top + (cellH - menuH) / 2, c.getRight() - tuneX, menuH });
-            const auto lower = top + cellH + 3;
+            const auto lower = top + cellH + 1;
             if (readChoice (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_scale") != 0)
             {
                 const auto rootW = 36, free = c.getWidth() - rootW - 8;
@@ -2799,7 +2799,7 @@ private:
         {
             const auto c = addPanel (2, "MIX");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 4 + spreadH);
+            const auto top = middle (c, cellH + 1 + menuH);
             placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
@@ -2833,7 +2833,7 @@ private:
         {
             const auto c = addPanel (3, "UNISON");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 4 + spreadH);
+            const auto top = middle (c, cellH + 1 + menuH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 55 : 52;
             // (Each cell is its name plus one shared gap, so the names stand evenly apart.)
@@ -2856,10 +2856,10 @@ private:
                     ++i;
                 }
             }
-            const auto spreadY = top + cellH + 4;
+            const auto spreadY = top + cellH + 1;
             const auto labelW = 36;
-            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
-            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
+            card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });
+            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, menuH });
         }
 
         pieces.status.setBounds (card.statusArea);
@@ -3149,7 +3149,7 @@ private:
         // PITCH: SEMI, FINE and RATIO or FIXED HZ, the TUNING menu; SCALE and CHORD under them.
         {
             const auto c = addPanel (1, "PITCH");
-            const auto top = middle (c, cellH + 3 + menuH);
+            const auto top = middle (c, cellH + 1 + menuH);
             const auto pitchCell = 33; // (the TUNING menu keeps room for "Ratio")
             const auto tuning = OscRole::tuning (processorRef, index);
             auto x = c.getX();
@@ -3462,7 +3462,7 @@ private:
         // PITCH: SEMI and FINE, TUNED over REVERSE; SCALE and CHORD under them.
         {
             const auto c = addPanel (1, "PITCH");
-            const auto top = middle (c, cellH + 3 + menuH);
+            const auto top = middle (c, cellH + 1 + menuH);
             placeKnob (osc.semi, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto toggleX = c.getX() + 2 * knobCell + 8;
@@ -3849,12 +3849,17 @@ private:
         // (At most 48 px between controls, the group centred.)
         const auto each = juce::jmin (48.0f, (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size()));
         auto x = (float) c.getX() + ((float) juce::jmax (0, c.getWidth() - used) - each * (float) entries.size()) * 0.5f + each * 0.5f;
-        const auto cellH = stripDialSize() + nameLine;
+        // (The first row's knobs carry units (ms, st): the unit stands under the number there, two value lines.)
+        const auto valueLine = panel.getY() == stripArea.getY() ? KnobControl::packedValueLine2 : KnobControl::packedValueLine;
+        const auto cellH = stripDialSize() + 10 + valueLine;
         for (const auto& entry : entries)
         {
             const auto left = juce::roundToInt (x);
             if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
-                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDialSize());
+            {
+                knob->setValueLine (valueLine);
+                knob->setBounds (KnobControl::packedBoundsFor ({ left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, cellH }));
+            }
             else if (auto* toggle = dynamic_cast<ToggleControl*> (entry.item))
                 toggle->setBounds ({ left, c.getY() + (c.getHeight() - 15) / 2 - 1, entry.width, 15 });
             else
@@ -3876,10 +3881,10 @@ private:
         const auto cols = columnsFor (stripArea.getX(), stripArea.getWidth());
         const auto accent = IlanaTheme::accent();
         const auto grey = stripGrey();
-        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + stripRowGap;
+        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + stripRowAExtra + stripRowGap;
         const auto panelAt = [&] (int from, int to, int y, const juce::String& title, juce::Colour colour)
         {
-            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight());
+            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight() + (y == rowAY ? stripRowAExtra : 0));
             stripPanels.push_back ({ area, title, {}, colour });
             return area;
         };
@@ -4365,6 +4370,12 @@ private:
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
+        // (Every card's dial keeps the unit under the number: two value lines, ilana's PLAY rule.)
+        for (auto* knob : { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.ratio, &osc.fixedHz, &osc.unison, &osc.detune, &osc.spread,
+                            &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.egOut, &osc.sampleStart, &osc.sampleEnd,
+                            &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
+                            &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.feedback })
+            knob->setValueLine (KnobControl::packedValueLine2);
         // (VOICES keeps the PLAY picture's full dial too, v26; the OSC tab's wavetable card draws it smaller.)
         osc.unison.setPackedDial (panels ? (embedded || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);

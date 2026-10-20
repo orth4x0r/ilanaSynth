@@ -3840,7 +3840,9 @@ private:
     // Controls spread over a panel with equal space around each, centred in its content.
     void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries) const
     {
-        const auto c = panelContent (panel);
+        // (One px lower than the centre: the title keeps clear of the rings.)
+        auto c = panelContent (panel);
+        c.translate (0, 1);
         auto used = 0;
         for (const auto& entry : entries)
             used += entry.width;

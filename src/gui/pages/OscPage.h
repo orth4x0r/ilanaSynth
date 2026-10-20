@@ -1790,7 +1790,7 @@ public:
     {
         std::vector<int> tops;
         for (const auto& card : cards)
-            tops.push_back (card.bounds.getY());
+            tops.push_back (juce::jmax (0, card.bounds.getY() - topNow()));
         return tops;
     }
 
@@ -2837,9 +2837,11 @@ private:
         card.rows = 0;
         card.well = {};
 
-        const auto topH = physTopH + juce::jmax (0, card.bounds.getHeight() - panelCardHeight (index));
+        const auto extra = juce::jmax (0, card.bounds.getHeight() - panelCardHeight (index));
+        // (On PLAY the first row keeps near its mock height, 110; the rest of what the folds leave goes to the second row and, over both, the string.)
+        const auto topH = physTopH + juce::jmin (extra, 10), bottomH = physBottomH + juce::jmax (0, extra - 10);
         const auto left = rowArea.getX(), top = rowArea.getY();
-        const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), topH + panelGap + physBottomH);
+        const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), topH + panelGap + bottomH);
         const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
         // (On PLAY the top row's first seam stands on the page's columns, EXCITER ending where MIX's column begins; TONE, RESONANCE
         // and MIX share the rest, the dials of EXCITER and TONE at one pitch.)
@@ -2865,9 +2867,9 @@ private:
         // (On PLAY UNISON and MORE hold their dials at one pitch, 64: the unison panel is as wide as menu and four rings need, MORE's as six rings need.)
         const auto lowUnisonW = embedded ? 292 : unisonColumn(), lowMoreW = embedded ? 361 : 0;
         const auto lowPitchW = embedded ? rightW - lowUnisonW - lowMoreW - 2 * panelGap : pitchColumn();
-        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, lowPitchW, physBottomH);
-        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, lowUnisonW, physBottomH);
-        const auto morePanel = juce::Rectangle<int> (unisonPanel.getRight() + panelGap, lowY, rowArea.getRight() - unisonPanel.getRight() - panelGap, physBottomH);
+        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, lowPitchW, bottomH);
+        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, lowUnisonW, bottomH);
+        const auto morePanel = juce::Rectangle<int> (unisonPanel.getRight() + panelGap, lowY, rowArea.getRight() - unisonPanel.getRight() - panelGap, bottomH);
 
         card.panels.push_back ({ stringPanel, "STRING", electric ? "" : "", tint });
         card.panels.push_back ({ exciterPanel, "EXCITER", {}, tint });
@@ -2936,7 +2938,7 @@ private:
             if (slap != nullptr)
             {
                 // (On PLAY the switch sits level with the rings and its name on the knobs' names' line.)
-                slap->setNameDrop (embedded ? 5 : 0);
+                slap->setNameDrop (embedded ? 6 : 0);
                 slap->setBounds (embedded ? juce::Rectangle<int> (x, knobY + 7, slapW, 32) : juce::Rectangle<int> (x, knobY + 2, slapW, cellH - 2));
             }
         }
@@ -3219,6 +3221,8 @@ private:
         const auto addPanel = [&] (juce::Rectangle<int> area, const juce::String& title) { card.panels.push_back ({ area, title, {}, tint }); return panelContent (area); };
         const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
         const auto cellH = mainDial + nameLine;
+        // (On PLAY what the folds leave grows the wave; the first row's panels take it as air between their rows, so none ends short.)
+        const auto extra = topH - sampleTopH;
         // Knobs of one width spread over a panel's content, equal gaps between them.
         const auto spreadKnobs = [&] (juce::Rectangle<int> c, std::initializer_list<KnobControl*> knobs)
         {
@@ -3264,7 +3268,8 @@ private:
         // PITCH: SEMI, FINE and ROOT spread over the panel; SCALE and CHORD under them.
         {
             const auto c = addPanel (topRect (1), "PITCH");
-            const auto top = middle (c, cellH + 3 + menuH);
+            const auto pitchGap = extra / 2;
+            const auto top = middle (c, cellH + 3 + pitchGap + menuH);
             const auto cell = c.getWidth() / 3;
             auto x = c.getX();
             for (auto* knob : { &osc.semi, &osc.fine, &osc.sampleRoot })
@@ -3272,7 +3277,7 @@ private:
                 placeKnob (*knob, x, top, cell, mainDial);
                 x += cell;
             }
-            const auto lower = top + cellH + 3;
+            const auto lower = top + cellH + 3 + pitchGap;
             if (readChoice (prefix + "_scale") != 0)
             {
                 const auto rootW = 36, free = c.getWidth() - rootW - 8;
@@ -3291,22 +3296,24 @@ private:
         // MIX: LEVEL, PAN, ENV, FILTER and OUT.
         {
             const auto c = addPanel (topRect (2), "MIX");
-            const auto top = middle (c, cellH + 3 + filterH + 3 + outH);
+            const auto mixGap = extra / 3;
+            const auto top = middle (c, cellH + 3 + mixGap + filterH + 3 + mixGap + outH);
             placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
             osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
-            const auto filterY = top + cellH + 3;
+            const auto filterY = top + cellH + 3 + mixGap;
             const auto labelW = 28;
             card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
             pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
-            pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
+            pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3 + mixGap, c.getWidth(), outH });
         }
 
         // UNISON: the mode, VOICES, DETUNE, BLEND and SPREAD, the spread picture under them.
         {
             const auto c = addPanel (topRect (3), "UNISON");
-            const auto top = middle (c, cellH + 4 + spreadH);
+            const auto spreadBig = spreadH + extra / 2;
+            const auto top = middle (c, cellH + 4 + spreadBig);
             osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
             auto x = c.getX() + 55 + 3;
             const auto uniCell = (c.getRight() - x) / 4;
@@ -3317,8 +3324,8 @@ private:
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
-            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
-            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
+            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadBig }, "SPREAD" });
+            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadBig });
         }
 
         // RANGE: START, END and the two fades.

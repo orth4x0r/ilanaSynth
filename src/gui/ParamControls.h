@@ -1144,6 +1144,10 @@ public:
     // and the slider's text box stay empty and hidden.
     static constexpr int packedPadX = 3, packedPadTop = 6;
     static constexpr float kPackedValueSize = 6.1f;
+    // PLAY's dials (setPackedValueRoom) write the value under the ring in its own line, in a big readable size
+    // (ilana 2026-10-20: the in-ring numbers were tiny in Live), the name under that.
+    static constexpr int packedValueLine = 13;
+    static constexpr float kBelowNumberSize = 11.4f, kBelowUnitSize = 8.6f;
 
     void setPackedDial (float dial)
     {
@@ -1462,7 +1466,7 @@ public:
         // size ("300" over "ms"); a value with no unit stays on one line, four characters at most so it keeps
         // clear of the ring: "100%", "x1.0", "+1.5". The name under the dial says what it is.
         auto unit = juce::String();
-        if (packedValueRoom > 0)
+        if (belowMode())
         {
             if (value.containsChar (' '))
             {
@@ -1485,7 +1489,7 @@ public:
         else
         {
         // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
-        const auto room = (float) packedValueRoom;
+        const auto room = 0.0f;
         // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
         const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + (longUnit ? 0.0f : room) + 0.5f && value.containsChar (' '))
@@ -1495,13 +1499,20 @@ public:
             value = value.dropLastCharacters (1);
         }
 
+        if (belowMode())
+        {
+            paintValueBelow (g, value, unit, on);
+            paintPackedName (g, on);
+            return;
+        }
+
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         // ("100%" is the one value as wide as the ring's inside: proportional digits, a touch tighter, keep it clear of the ring
         // on every card; every other value keeps the tabular digits and the normal spacing so a point never meets a digit.)
         const auto widest = value.length() >= 4 && value.endsWithChar ('%') && value.initialSectionContainingOnly ("0123456789").length() == value.length() - 1;
-        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
+        auto drawn = belowMode() ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
         if (widest)
-            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (packedValueRoom > 0 ? -0.11f : -0.08f);
+            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (belowMode() ? -0.11f : -0.08f);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {
@@ -1519,6 +1530,11 @@ public:
         else
             IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
 
+        paintPackedName (g, on);
+    }
+
+    void paintPackedName (juce::Graphics& g, float on) const
+    {
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
         {
@@ -1536,6 +1552,27 @@ public:
             }
             else
                 IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
+        }
+    }
+
+    // The value under the ring: the number big, its unit after it in a smaller size, one line.
+    void paintValueBelow (juce::Graphics& g, const juce::String& number, const juce::String& unit, float on) const
+    {
+        const auto line = juce::Rectangle<int> (packedNameArea.getX(), knobBounds.getBottom() + 1, packedNameArea.getWidth(), packedValueLine);
+        const auto numberFont = IlanaTheme::font (kBelowNumberSize, true, true);
+        const auto unitFont = IlanaTheme::font (kBelowUnitSize, true);
+        const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), number);
+        const auto gap = unit.isEmpty() ? 0.0f : 1.5f;
+        const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit);
+        auto x = (float) line.getCentreX() - (numberW + gap + unitW) * 0.5f;
+        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
+        g.setFont (numberFont);
+        g.drawText (number, juce::Rectangle<float> (x, (float) line.getY(), numberW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
+        if (unit.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (on));
+            g.setFont (unitFont);
+            g.drawText (unit, juce::Rectangle<float> (x + numberW + gap, (float) line.getY() + 1.0f, unitW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
         }
     }
 
@@ -1664,7 +1701,8 @@ public:
             slider.setPaintingIsUnclipped (true);
             slider.setBounds (knobBounds);
             label.setBounds ({});
-            packedNameArea = { cell.getX() - packedPadX - 4, knobBounds.getBottom(), cell.getWidth() + 2 * packedPadX + 8, juce::jmax (0, cell.getBottom() - knobBounds.getBottom()) };
+            const auto belowLine = belowMode() ? packedValueLine : 0;
+            packedNameArea = { cell.getX() - packedPadX - 4, knobBounds.getBottom() + belowLine, cell.getWidth() + 2 * packedPadX + 8, juce::jmax (0, cell.getBottom() - knobBounds.getBottom() - belowLine) };
             layoutDots();
             return;
         }
@@ -2744,7 +2782,9 @@ private:
     bool hover = false;
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
-    int packedValueRoom = 0;
+    int packedValueRoom = 12;
+    // The value under the ring needs a dial big enough to read as a knob (the 17 px amount dials keep theirs inside).
+    bool belowMode() const { return packedValueRoom > 0 && packedD >= 24.0f; }
     bool packedNameWrap = false;
     juce::Rectangle<int> packedNameArea;
     std::unique_ptr<juce::TextEditor> valueEditor;

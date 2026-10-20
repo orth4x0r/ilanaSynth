@@ -1923,9 +1923,9 @@ private:
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10 + KnobControl::packedValueLine, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
+    static constexpr int addRowHeight = 18, stripDialBase = 24, stripPanelBase = 52 + KnobControl::packedValueLine + 2, stripMaxBonus = 14;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2376,7 +2376,8 @@ private:
             return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 4) + panelTail + 1 + cardPad + 1;
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
-        const auto content = rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
+        // (The MIX column's dial row with its value line and name, then OUT under it, is the tallest; on PLAY the FILTER route sits in the header.)
+        const auto content = juce::jmax (rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), mainDial + nameLine + 3 + (embedded ? 0 : filterH + 3) + outH);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
@@ -2722,15 +2723,19 @@ private:
         // WAVE
         {
             const auto c = addPanel (0, "WAVE");
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2), c.getHeight());
+            // (On PLAY the picture's own frame slider sets FRAME, so the dial is gone and the picture takes its place, ilana 2026-10-20.)
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 0), c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
 
             const auto frameCell = juce::Rectangle<int> (picture.getRight() + 7, 0, 49, frameDial + nameLine).withY (middle (c, frameDial + nameLine));
-            placeKnob (osc.frame, frameCell.getX(), frameCell.getY(), frameCell.getWidth(), frameDial);
+            if (embedded)
+                osc.frame.setBounds ({});
+            else
+                placeKnob (osc.frame, frameCell.getX(), frameCell.getY(), frameCell.getWidth(), frameDial);
 
-            const auto columnX = frameCell.getRight() + 7;
+            const auto columnX = embedded ? picture.getRight() + 7 : frameCell.getRight() + 7;
             const auto columnW = juce::jmax (0, c.getRight() - columnX);
             const auto rows = 2 + effectiveExtraWarps (index);
             const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
@@ -2778,17 +2783,33 @@ private:
         {
             const auto c = addPanel (2, "MIX");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 3 + filterH + 3 + outH);
+            const auto top = middle (c, cellH + 3 + (embedded ? 0 : filterH + 3) + outH);
             placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
             osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
-            const auto filterY = top + cellH + 3;
+            auto filterY = top + cellH + 3;
             const auto labelW = 28;
-            // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
-            card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
-            pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
-            pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
+            if (embedded)
+            {
+                // PLAY: the value line took 12 px under the dials, so the FILTER route moves into the header's free stretch,
+                // right-aligned against the table buttons (the card keeps its height).
+                auto limit = card.header.getRight() - 6 - 30 - 8;
+                for (auto* button : { &loadButton (index), editButtons[(size_t) index].get(), bounceButtons[(size_t) index].get() })
+                    if (button != nullptr && button->isVisible())
+                        limit = juce::jmin (limit, button->getX() - 4);
+                const auto barW = 132, centreY = card.header.getCentreY();
+                card.labels.push_back ({ { limit - 10 - barW - labelW - 4, centreY - filterH / 2, labelW + 4, filterH }, "FILTER" });
+                pieces.routeBar.setBounds ({ limit - 10 - barW, centreY - filterH / 2, barW, filterH });
+            }
+            else
+            {
+                // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
+                card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
+                pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
+                filterY += filterH + 3;
+            }
+            pieces.outBar.setBounds ({ c.getX(), embedded ? filterY : filterY, c.getWidth(), outH });
         }
 
         // UNISON

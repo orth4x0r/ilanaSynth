@@ -4,6 +4,80 @@
 
 namespace
 {
+// A horizontal slider in Vital's filter style: the name at the left of the bar, the value at its right in the big
+// readable size, the fill in the card's colour (ilana 2026-10-20).
+class ValueBar : public KeyboardSlider
+{
+public:
+    ValueBar (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText, juce::Colour colourIn)
+        : name (nameText), colour (colourIn)
+    {
+        setSliderStyle (juce::Slider::LinearBar);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, *this);
+        if (auto* parameter = state.getParameter (parameterID))
+        {
+            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            const auto description = describeParameter (parameterID);
+            setTitle (parameter->getName (64));
+            setDescription (description);
+            setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        const auto share = (float) juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()));
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (box, 4.0f);
+        if (share > 0.001f)
+        {
+            const juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
+            g.setColour (colour.withAlpha (0.42f * alpha));
+            g.fillRoundedRectangle (box, 4.0f);
+        }
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+
+        auto text = getTextFromValue (getValue());
+        auto unit = juce::String();
+        if (text.containsChar (' '))
+        {
+            unit = text.fromLastOccurrenceOf (" ", false, false);
+            text = text.upToLastOccurrenceOf (" ", false, false);
+            if (unit == "kHz" && text.endsWith (".00"))
+                text = text.dropLastCharacters (3);
+        }
+        const auto inner = getLocalBounds().toFloat().reduced (5.0f, 0.0f);
+        const auto numberFont = IlanaTheme::font (KnobControl::kBelowNumberSize, true, true);
+        const auto unitFont = IlanaTheme::font (KnobControl::kBelowUnitSize, true);
+        const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit) + 1.5f;
+        const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), text);
+        auto right = inner.getRight();
+        if (unit.isNotEmpty())
+        {
+            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (alpha));
+            g.setFont (unitFont);
+            g.drawText (unit, juce::Rectangle<float> (right - unitW, inner.getY() + 0.5f, unitW, inner.getHeight()), juce::Justification::centredRight, false);
+            right -= unitW;
+        }
+        g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
+        g.setFont (numberFont);
+        g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, inner.getY(), numberW + 1.0f, inner.getHeight()), juce::Justification::centredRight, false);
+        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.5f).withMultipliedAlpha (alpha));
+        g.setFont (IlanaTheme::font (7.6f, true));
+        g.drawText (name, juce::Rectangle<float> (inner.getX(), inner.getY(), juce::jmax (0.0f, right - numberW - 4.0f - inner.getX()), inner.getHeight()), juce::Justification::centredLeft, true);
+    }
+
+private:
+    juce::String name;
+    juce::Colour colour;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+};
+
 // A small selector of two or three solid-fill pills (the slope, SUB's octave).
 class PillChoice : public ParamBoundComponent
 {
@@ -425,7 +499,7 @@ private:
         body.removeFromLeft (gap);
         const auto place = [&] (KnobControl& knob, int x)
         {
-            knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
+            knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2, cell, (int) dialSize + 10 + KnobControl::packedValueLine }));
         };
 
         if (kind == Kind::envelope)
@@ -846,14 +920,15 @@ public:
             card.slope = std::make_unique<PillChoice> (state, prefix + "_slope", juce::StringArray { "12", "24" }, colour, "Slope\n12 dB is gentler and brighter; 24 dB cuts harder.");
             addAndMakeVisible (*card.slope);
             effectRules.add (*card.slope, [this, f] { return filterHasSlope (f); }, "this filter type has no slope");
-            for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" }, { "_drive", "DRIVE" },
+            // The six filter controls as Vital-style sliders in two columns of three (the value in the big readable size).
+            for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESONANCE" }, { "_drive", "DRIVE" },
                                       { "_env", "ENV AMOUNT" }, { "_keytrack", "KEY TRACK" }, { "_fm", "AUDIO FM" } })
             {
-                card.knobs.push_back (knob (prefix + spec.first, spec.second, colour));
-                card.knobs.back()->setPackedNameWrap (true);
+                card.bars.push_back (std::make_unique<ValueBar> (state, prefix + spec.first, spec.second, colour));
+                addAndMakeVisible (*card.bars.back());
                 // A DX7 voice has no filter until CUTOFF comes down: the rest dims (I14-3).
                 if (juce::String (spec.first) != "_cutoff")
-                    effectRules.add (*card.knobs.back(), [this] { return ! operatorFilterOff; },
+                    effectRules.add (*card.bars.back(), [this] { return ! operatorFilterOff; },
                                      "a DX7 voice has no filter: turn CUTOFF down to bring one in");
             }
         }
@@ -982,7 +1057,7 @@ public:
         syncOscBar();
 
         // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
-        const auto band1Height = juce::jlimit (minBand, 84, bandsHeight - gap - 90);
+        const auto band1Height = juce::jlimit (minBand, 79, bandsHeight - gap - 88);
         const auto bandHeight = bandsHeight - gap - band1Height;
         auto band1 = juce::Rectangle<int> (area.getX(), bandsTop, area.getWidth(), band1Height);
         auto band2 = juce::Rectangle<int> (area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight);
@@ -1009,9 +1084,10 @@ private:
         std::unique_ptr<ComboControl> type;
         std::unique_ptr<PillChoice> slope;
         std::vector<std::unique_ptr<KnobControl>> knobs;
+        std::vector<std::unique_ptr<ValueBar>> bars;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 33, westCell = 31;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 36, westCell = 31;
     static constexpr int minBand = 62, maxBand = 96;
     static constexpr float dialSize = 28.0f;
 
@@ -1089,7 +1165,7 @@ private:
         auto x = area.getX() + (area.getWidth() - width) / 2;
         for (auto* knob : row)
         {
-            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10 - extraBelow) / 2, pitch, (int) dialSize + 10 + extraBelow }));
+            knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + (area.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine - extraBelow) / 2, pitch, (int) dialSize + 10 + KnobControl::packedValueLine + extraBelow }));
             x += pitch;
         }
     }
@@ -1136,10 +1212,14 @@ private:
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
 
             // (The graph's edge is 5 from the card on the left; the last dial's ring is 5 from it on the right.)
-            auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
-            const auto knobsWidth = (int) parts.knobs.size() * filterCell;
-            parts.display->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 2));
-            placeKnobRow (body, pointers (parts.knobs), filterCell, 9);
+            auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
+            const auto barsWidth = 106, columnGap = 4;
+            auto barArea = body.removeFromRight (2 * barsWidth + columnGap);
+            parts.display->setBounds (body.withTrimmedRight (4));
+            // (Two columns of three equal rows, as tall as the graph: the card's body from top to bottom.)
+            const auto rowGap = 3, rowH = (barArea.getHeight() - 2 * rowGap) / 3;
+            for (size_t i = 0; i < parts.bars.size(); ++i)
+                parts.bars[i]->setBounds (barArea.getX() + (int) (i / 3) * (barsWidth + columnGap), barArea.getY() + (int) (i % 3) * (rowH + rowGap), barsWidth, rowH);
         }
 
         {
@@ -1153,7 +1233,7 @@ private:
             // The picture at the left, the seven knobs at a 33 pitch to its right.
             auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
             const auto knobsWidth = (int) westKnobs.size() * westCell;
-            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 2));
+            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 5));
             placeKnobRow (body, pointers (westKnobs), westCell, 9);
         }
     }
@@ -1181,7 +1261,7 @@ private:
             const auto body = bodyOf (bodyBounds).translated (3, 0);
             placeKnobRow (body, pointers (bodyKnobs));
             // The resonance picture takes the strip above the dials, the dials staying level with their neighbours'.
-            const auto dialTop = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
+            const auto dialTop = body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2;
             const auto top = bodyBounds.getY() + headerHeight + 3;
             bodyDisplay->setBounds (juce::Rectangle<int> (bodyOf (bodyBounds).getX(), top, bodyOf (bodyBounds).getWidth(), juce::jmax (8, dialTop - 3 - top)));
         }
@@ -1192,8 +1272,8 @@ private:
             noiseOn->setBounds (juce::Rectangle<int> (66, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 33, centre }));
             subOn->setBounds (juce::Rectangle<int> (54, 17).withCentre ({ noiseOn->getX() - 4 - 27, centre }));
             const auto menuHeight = 16;
-            const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10) / 2;
-            const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 })); };
+            const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2;
+            const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 + KnobControl::packedValueLine })); };
             // One row at one gap: SUB's wave menu over its octave pills, LEVEL, COLOUR, then NOISE's colour menu and LEVEL.
             // Both menus are the same size and sit on the dials' middle; the gaps are measured between what is drawn
             // (a menu's edges, a dial's ring, COLOUR's name), the same between every pair and at both ends.

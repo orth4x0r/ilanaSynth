@@ -936,6 +936,7 @@ inline juce::StringArray getLegacyCategories()
 } // namespace Presets
 
 #include "PresetLibrary.h"
+#include "PresetRetired.h"
 #include "Dx7Presets.h"
 
 namespace Presets
@@ -959,6 +960,12 @@ inline const std::vector<FactoryPreset>& getFactoryPresets()
         // Later packs go after the DX7 banks, so no earlier index moves.
         for (auto& preset : Library::buildLaterPacks())
             list.push_back (std::move (preset));
+
+        // Near-duplicates are left out (PresetRetired.h); the original 80 stay.
+        const auto original = (size_t) getLegacyCategories().size();
+        for (auto i = list.size(); i-- > original;)
+            if (isRetiredPreset (list[i].name))
+                list.erase (list.begin() + (std::ptrdiff_t) i);
 
         return list;
     }();

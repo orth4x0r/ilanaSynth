@@ -1143,6 +1143,7 @@ public:
     // font(), so it holds the 10 px screen floor at every zoom; the name Label
     // and the slider's text box stay empty and hidden.
     static constexpr int packedPadX = 3, packedPadTop = 6;
+    static constexpr float kPackedValueSize = 6.1f;
 
     void setPackedDial (float dial)
     {
@@ -1161,6 +1162,19 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    // A packed name too wide for its cell breaks at its first space onto a second line ("KEY" over "TRACK"),
+    // in full words; the cell the page gives the knob must leave the room (about 9 px under the name).
+    void setPackedNameWrap (bool wrap)
+    {
+        packedNameWrap = wrap;
+        repaint();
+    }
+    // Pixels a packed value may run past the dial's width before its unit is dropped ("1.20 kHz").
+    void setPackedValueRoom (int pixels)
+    {
+        packedValueRoom = pixels;
+        repaint();
+    }
     // The whole cell a packed knob takes for a dial (the page sizes it with this).
     // The cell a packed knob stands in, without the room round it for the rings (a layout test's measure).
     juce::Rectangle<int> packedCell() const { return isPacked() ? getLocalBounds().reduced (packedPadX, 0).withTrimmedTop (packedPadTop) : getLocalBounds(); }
@@ -1444,15 +1458,66 @@ public:
         const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
         const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
 
-        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 0.5f && value.containsChar (' '))
+        // PLAY's dials (setPackedValueRoom): the number on top in one size, its unit under it in one smaller
+        // size ("300" over "ms"); a value with no unit stays on one line, four characters at most so it keeps
+        // clear of the ring: "100%", "x1.0", "+1.5". The name under the dial says what it is.
+        auto unit = juce::String();
+        if (packedValueRoom > 0)
+        {
+            if (value.containsChar (' '))
+            {
+                unit = value.fromLastOccurrenceOf (" ", false, false);
+                value = value.upToLastOccurrenceOf (" ", false, false);
+                // ("20.0" kHz is "20": a whole number needs no decimal; a long unit word, "stages", is the name's job.)
+                if (unit == "kHz" && value.endsWith (".0"))
+                    value = value.dropLastCharacters (2);
+                if (unit.length() > 3)
+                    unit = {};
+            }
+            if (value.length() > 4 && value.containsChar ('.') && ! value.endsWithChar ('%'))
+                value = value.dropLastCharacters (value.length() - 4).trimCharactersAtEnd (".");
+            if (unit.isEmpty() && value.length() > 4 && value.endsWithChar ('%'))
+                value = value.dropLastCharacters (1);
+            // (At a small zoom the type holds its screen floor: "100%" then loses its sign, never its size.)
+            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (kPackedValueSize, true, false).withKerningFactor (-0.08f)), value) > inner.getWidth() + 0.5f)
+                value = value.dropLastCharacters (1);
+        }
+        else
+        {
+        // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
+        const auto room = (float) packedValueRoom;
+        // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
+        const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;
+        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + (longUnit ? 0.0f : room) + 0.5f && value.containsChar (' '))
             value = value.upToLastOccurrenceOf (" ", false, false);
         // (Under the floor at a small zoom even "100%" is wider than the dial: the number alone.)
         if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 2.5f && value.endsWithChar ('%'))
             value = value.dropLastCharacters (1);
+        }
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        g.setFont (valueFont (value));
-        IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
+        // ("100%" is the one value as wide as the ring's inside: proportional digits, a touch tighter, keep it clear of the ring
+        // on every card; every other value keeps the tabular digits and the normal spacing so a point never meets a digit.)
+        const auto widest = value.length() >= 4 && value.endsWithChar ('%') && value.initialSectionContainingOnly ("0123456789").length() == value.length() - 1;
+        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
+        if (widest)
+            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (packedValueRoom > 0 ? -0.11f : -0.08f);
+        g.setFont (drawn);
+        if (unit.isNotEmpty())
+        {
+            const auto numberH = drawn.getHeight();
+            const auto unitFont = drawn.withHeight (numberH * 0.78f);
+            const auto total = numberH + unitFont.getHeight() - 1.0f;
+            // (A pixel above the middle: the unit's foot keeps 3 px from the ring's end caps.)
+            const auto top = inner.getCentreY() - total * 0.5f - 1.0f;
+            const auto box = inner.toNearestInt().expanded (1, 0);
+            IlanaTheme::drawFitted (g, value, juce::Rectangle<float> (box.getX(), top, box.getWidth(), numberH).toNearestInt(), juce::Justification::centred, 1);
+            g.setFont (unitFont);
+            g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (on));
+            IlanaTheme::drawFitted (g, unit, juce::Rectangle<float> (box.getX(), top + numberH - 1.0f, box.getWidth(), unitFont.getHeight()).toNearestInt(), juce::Justification::centred, 1);
+        }
+        else
+            IlanaTheme::drawFitted (g, value, inner.toNearestInt().expanded (1, 0), juce::Justification::centred, 1);
 
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
@@ -1461,7 +1526,16 @@ public:
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
             const auto nameFont = IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
-            IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
+            const auto lineHeight = (int) std::ceil (nameFont.getHeight()) + 1;
+            if (packedNameWrap && name.containsChar (' ')
+                && juce::GlyphArrangement::getStringWidth (juce::Font (nameFont), name) > (float) (packedNameArea.getWidth() - 2 * packedPadX - 8) - 2.0f)
+            {
+                auto area = packedNameArea;
+                IlanaTheme::drawFitted (g, name.upToFirstOccurrenceOf (" ", false, false), area.removeFromTop (lineHeight), juce::Justification::centredTop, 1);
+                IlanaTheme::drawFitted (g, name.fromFirstOccurrenceOf (" ", false, false), area.removeFromTop (lineHeight), juce::Justification::centredTop, 1);
+            }
+            else
+                IlanaTheme::drawFitted (g, name, packedNameArea, juce::Justification::centredTop, 1);
         }
     }
 
@@ -2670,6 +2744,8 @@ private:
     bool hover = false;
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
+    int packedValueRoom = 0;
+    bool packedNameWrap = false;
     juce::Rectangle<int> packedNameArea;
     std::unique_ptr<juce::TextEditor> valueEditor;
     juce::Rectangle<int> inlineValueArea;
@@ -2750,6 +2826,17 @@ public:
     // The arrow keys' step to the next or previous choice (+1 / -1), when a
     // choice must go through more than its parameter (the oscillator type).
     void setNudgeOverride (std::function<void (int)> override) { combo.nudgeOverride = std::move (override); }
+
+    // Called with the new item's index when the person picks from the list
+    // (not when a preset load, undo or automation moves the choice).
+    void setOnPick (std::function<void (int)> onPick)
+    {
+        combo.onChange = [this, onPick = std::move (onPick)]
+        {
+            if (combo.pickedFromList() && ! IlanaAnim::presetJustLoaded())
+                onPick (combo.getSelectedItemIndex());
+        };
+    }
 
     juce::String getLabelText() const { return label.getText(); }
     void setLabelText (const juce::String& text)
@@ -2859,7 +2946,11 @@ public:
     {
         std::function<void()> popupOverride;
         double lastOverrideOpen = 0.0;
+        double lastPopupOpen = -1.0e9; // (when the person last opened this list)
         std::function<void (int)> nudgeOverride;
+
+        // True when a change comes within a moment of the person's pick from the list.
+        bool pickedFromList() const { return juce::Time::getMillisecondCounterHiRes() - lastPopupOpen < 20000.0; }
 
         void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
         {
@@ -2932,6 +3023,7 @@ public:
         {
             if (popupOverride == nullptr)
             {
+                lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
                 juce::ComboBox::showPopup();
                 return;
             }
@@ -3256,7 +3348,7 @@ public:
 
     // The packed panels' switch (review 23): a 28 x 15 switch with its name under it, to its
     // left (small, dim) or to its right (plain text).
-    enum class NamePlace { none, below, left, right };
+    enum class NamePlace { none, below, left, leftFlush, right }; // leftFlush: the name on the box's left edge, the switch on its right
     void setPackedName (NamePlace place)
     {
         if (packedPlace == place)
@@ -3319,13 +3411,13 @@ public:
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
-            else if (packedPlace == NamePlace::left)
+            else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, juce::Justification::centredRight, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, packedPlace == NamePlace::leftFlush ? juce::Justification::centredLeft : juce::Justification::centredRight, 1);
             }
             else
             {
@@ -3377,9 +3469,9 @@ public:
 
         if (packedPlace != NamePlace::none)
         {
-            const auto w = 28, h = 15;
+            const auto w = packedPlace == NamePlace::leftFlush ? 22 : 28, h = packedPlace == NamePlace::leftFlush ? 13 : 15; // (leftFlush: the mock's slimmer switch)
             button.setBounds (packedPlace == NamePlace::below ? juce::Rectangle<int> (w, h).withPosition (area.getCentreX() - w / 2, area.getY())
-                              : packedPlace == NamePlace::left ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
+                              : packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
                                                                : juce::Rectangle<int> (w, h).withPosition (area.getX(), area.getCentreY() - h / 2));
             return;
         }
@@ -3395,6 +3487,9 @@ public:
         button.setBounds (area.removeFromTop (juce::jmin (24, juce::jmax (16, area.getHeight()))));
     }
 
+    // The packed switch's name lower under it, level with a knob row's names.
+    void setNameDrop (int pixels) { nameDrop = pixels; repaint(); }
+
     // Lowers the switch under its name, to sit level with the dials of the
     // knobs in its row (S13-1); 0 is the usual place.
     void setSwitchDrop (int pixels)
@@ -3408,7 +3503,7 @@ public:
 
 
 private:
-    int switchDrop = 0;
+    int switchDrop = 0, nameDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
     NamePlace packedPlace = NamePlace::none;
     juce::Colour groupColour;
@@ -3513,6 +3608,75 @@ private:
     float hover = 0.0f;
     float switchAmount = 0.0f;
     bool lastOn = false, ticked = false;
+};
+
+
+// A compact bar-slider row for a card's list of switches (the sample's CROSSFADE): a rounded
+// box 16 units high, the share filled in the card's colour, the name on its left edge and the
+// value on its right, one drag or a double-click for the default.
+class BarSliderControl : public KeyboardSlider
+{
+public:
+    BarSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText)
+        : name (nameText)
+    {
+        setSliderStyle (juce::Slider::LinearBar);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, *this);
+
+        if (auto* parameter = state.getParameter (parameterID))
+        {
+            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            const auto description = describeParameter (parameterID);
+            setTitle (parameter->getName (64));
+            setDescription (description);
+            setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
+        }
+
+    }
+
+    void setAccent (juce::Colour c) { accent = c; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        const auto share = (float) juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()));
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (box, 4.0f);
+
+        if (share > 0.001f)
+        {
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
+            g.setColour (accent.withAlpha (0.38f * alpha));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.restoreState();
+        }
+
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+
+        // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
+        // by its ink: the caps' middle on the bar's middle.
+        const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
+        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (7.3f) : IlanaTheme::font (6.5f, true).withKerningFactor (0.08f);
+        g.setFont (font);
+        g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
+        const juce::Font f (font);
+        const auto capMiddle = f.getAscent() - f.getHeight() * 0.35f; // (the caps' middle below the box top)
+        const auto top = (float) getHeight() * 0.5f - capMiddle + inkNudge;
+        g.drawText (text, juce::Rectangle<float> (0.4f, top, (float) getWidth(), f.getHeight()), juce::Justification::centred, false);
+    }
+
+private:
+    static constexpr float inkNudge = -0.75f; // (the font box sits the caps a little low)
+    void mouseEnter (const juce::MouseEvent& e) override { KeyboardSlider::mouseEnter (e); repaint(); }
+    void mouseExit (const juce::MouseEvent& e) override { KeyboardSlider::mouseExit (e); repaint(); }
+
+    juce::String name;
+    juce::Colour accent { juce::Colours::orange };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
 
 class ValueSliderControl : public juce::Component

@@ -271,8 +271,11 @@ public:
         const auto dotX = plot.getX() + (float) phase * plot.getWidth() / (float) cycles;
         const auto dotY = centreY - value * halfHeight;
 
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
+        if (! minimal || isMouseOver())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
+        }
 
         // The value scale and the live reading (N16-4: one line in a big well):
         // +1 / 0 / -1 against the centre line, and where the dot is now.
@@ -318,6 +321,7 @@ public:
 
         // The value scale last, on small plates just inside the graph's left edge: a node
         // or a trace at the edge never covers it.
+        if (! minimal)
         {
             const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
             g.setFont (tiny);
@@ -334,7 +338,7 @@ public:
 
         // The snap grid's own control, on the graph wherever a drag makes
         // (or will make) a curve.
-        if (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape))
+        if (! minimal && (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)))
         {
             // A menu, not a label: the pill ends in a chevron (V10-20).
             const auto chip = gridChipBounds();
@@ -491,6 +495,9 @@ public:
     int getGridDivisions() const { return gridDivisions; }
     void setGridDivisions (int divisions) { gridDivisions = divisions; repaint(); }
 
+    // A small picture (PLAY's LFO card): no value scale, no GRID chip.
+    void setMinimal (bool shouldBeMinimal) { minimal = shouldBeMinimal; setRepaintsOnMouseActivity (shouldBeMinimal); repaint(); }
+
 private:
     void mouseDown (const juce::MouseEvent& event) override
     {
@@ -506,7 +513,7 @@ private:
             return;
         }
 
-        if ((shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
+        if (! minimal && (shape == IlanaSynthAudioProcessor::curveShape || convertsToCurve (shape)) && gridChipBounds().contains (event.position))
         {
             showGridMenu();
             return;
@@ -609,7 +616,7 @@ private:
         {
             curve = processorRef.getLfoCurve (index);
 
-            if (gridChipBounds().contains (event.position) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
+            if ((! minimal && gridChipBounds().contains (event.position)) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
                 cursor = juce::MouseCursor::PointingHandCursor;
         }
 
@@ -701,15 +708,19 @@ private:
     juce::Rectangle<float> wellArea() const
     {
         const auto bounds = getLocalBounds().toFloat();
+        if (minimal)
+            return bounds;
         return LfoSimShapes::isSim ((int) readParam ("_shape")) ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
     }
 
-    juce::Rectangle<float> plotArea() const { return wellArea().reduced (10.0f, 14.0f); }
+    juce::Rectangle<float> plotArea() const { return minimal ? wellArea().reduced (8.0f, 7.0f) : wellArea().reduced (10.0f, 14.0f); }
 
     // One cycle's ruler under the graph: its time at RATE in Hz, or note
     // values while SYNC is on, at the quarters.
     void paintTimeRuler (juce::Graphics& g, juce::Rectangle<float> plot) const
     {
+        if (minimal)
+            return;
         const auto rulerY = (float) getHeight() - rulerHeight;
         const auto synced = readParam ("_sync") > 0.5f;
         juce::StringArray labels;
@@ -1320,6 +1331,7 @@ private:
     int dragTension = -1;
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
+    bool minimal = false;
     bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
     int pendingOutputDrag = -1;        // a press on a simulated shape's output tag (0 A, 1 B)
     int draggedStep = -1;              // the step being set, for its readout

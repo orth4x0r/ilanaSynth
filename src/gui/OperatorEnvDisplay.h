@@ -336,11 +336,19 @@ public:
     }
 
     bool isReadOnly() const { return readOnly; }
+
+    // The OSC card's picture: just the curve and its three stage dots, no ruler, KEY UP or caption
+    // (the card says in words what it is).
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        repaint();
+    }
     std::function<void()> onOpen;
 
     // The frame around the plot; the time ruler sits under it (the UI test
     // checks that no handle sits on the ruler).
-    juce::Rectangle<float> getFrameBounds() const { return getLocalBounds().toFloat().withTrimmedBottom (rulerHeight + 2.0f); }
+    juce::Rectangle<float> getFrameBounds() const { return getLocalBounds().toFloat().withTrimmedBottom (compact ? 0.0f : rulerHeight + 2.0f); }
     juce::Rectangle<float> getPlotBounds() const { return layout().plot; }
 
     // Re-reads the patch; repaints when the shape changed.
@@ -378,7 +386,8 @@ public:
             return;
 
         const auto geo = layout();
-        paintTicks (g, geo);
+        if (! compact)
+            paintTicks (g, geo);
 
         if (isPitch())
         {
@@ -419,7 +428,7 @@ public:
 
         // Stage handles (a read-only picture has none).
         const auto handles = getHandlePositions();
-        for (int i = 0; i < (readOnly ? 0 : 4); ++i)
+        for (int i = 0; i < (compact ? 3 : readOnly ? 0 : 4); ++i)
         {
             const auto active = hoverHandle == i || dragHandle == i;
             if (active)
@@ -446,6 +455,7 @@ public:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         g.setColour (IlanaTheme::Ui::text3);
         const auto corner = bounds.reduced (8.0f, 3.0f).withHeight (12.0f).toNearestInt();
+        if (! compact)
         g.drawText (IlanaTheme::fittedHint (isPitch() ? "PITCH, at C3" : "C3, velocity 100", g.getCurrentFont(), (float) corner.getWidth()),
                     corner, juce::Justification::centredRight, false);
         const auto flat = std::all_of (curve.values.begin(), curve.values.end(),
@@ -652,7 +662,8 @@ private:
         // top for the corner caption, at the right for the last handle, and
         // for the pitch a gutter for its axis.
         geo.pitch = isPitch();
-        geo.plot = getFrameBounds().reduced (12.0f, 8.0f).withTrimmedTop (10.0f).withTrimmedRight (4.0f);
+        geo.plot = compact ? getFrameBounds().reduced (10.0f, 8.0f).withTrimmedRight (4.0f)
+                           : getFrameBounds().reduced (12.0f, 8.0f).withTrimmedTop (10.0f).withTrimmedRight (4.0f);
         if (geo.pitch)
             geo.plot = geo.plot.withTrimmedLeft (juce::jmin (34.0f, geo.plot.getWidth() * 0.18f));
         geo.stageEnd = curve.stageEnd;
@@ -874,4 +885,5 @@ private:
     juce::String readout;
     float lastPlayed = -1.0f;
     bool readOnly = false;
+    bool compact = false;
 };

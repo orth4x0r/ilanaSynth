@@ -13,5 +13,8 @@ Rebuild with `python3 tools/import_surge_wavetables.py <that folder> "content/wa
 Each table becomes a mono .wav with a `clm ` chunk naming its frame size.
 Skipped: one-shot samples and anything whose length does not split into
 frames (162 of 730 files); tables over 256 frames are thinned to 256.
-Copy or link the folder into `Documents/ilanaSynth Wavetables`; the
-LIBRARY button in the wavetable browser lists it.
+The synth carries these tables itself now (`content/wavetables/builtin-wavetables.bin`,
+built by `tools/build_builtin_wavetables.py`); near-duplicates were removed with
+`tools/dedupe_wavetables.py` (list in DEDUPE.md), so after a re-import run the
+dedupe and the build tool again. The folder itself no longer needs copying to
+`Documents/ilanaSynth Wavetables`.

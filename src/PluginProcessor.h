@@ -300,6 +300,8 @@ public:
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
+    // Builds the built-in wavetables the oscillators have chosen (message thread).
+    void ensureBuiltInTables();
     // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
     // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
     // (for the tuning tool's own renders).
@@ -601,6 +603,7 @@ public:
     // M7.4 patch tables (message thread). setUserTable builds the table from
     // the doc and swaps it in; the doc is saved with the patch.
     bool setUserTable (int slot, const WavetableDoc& doc);
+    // Gives a slot its default table back (what a listen in the table browser leaves behind).
     // The slot's doc; a slot never edited gives its default (factory) table.
     WavetableDoc getUserTableDoc (int slot) const;
     // The same doc by identity (null: default), for the wavetable editor to

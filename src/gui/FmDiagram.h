@@ -785,6 +785,31 @@ private:
             left = juce::jmin (left, centres[(size_t) osc].x - radius * (read (routeId (osc, osc)) > 0.001f ? 2.1f : 1.1f));
             right = juce::jmax (right, centres[(size_t) osc].x + radius + 6.0f + captionWidth);
         }
+        // Too wide (six columns in a narrow box): the columns close up a
+        // little, so the last caption is not cut off.
+        const auto overflow = right - left - area.getWidth();
+        if (overflow > 0.0f)
+        {
+            auto first = std::numeric_limits<float>::max(), last = std::numeric_limits<float>::lowest();
+            for (const auto osc : shown)
+            {
+                first = juce::jmin (first, centres[(size_t) osc].x);
+                last = juce::jmax (last, centres[(size_t) osc].x);
+            }
+            if (last > first)
+            {
+                const auto factor = juce::jmax (0.7f, (last - first - overflow) / (last - first));
+                for (const auto osc : shown)
+                    centres[(size_t) osc].x = first + (centres[(size_t) osc].x - first) * factor;
+                left = std::numeric_limits<float>::max();
+                right = std::numeric_limits<float>::lowest();
+                for (const auto osc : shown)
+                {
+                    left = juce::jmin (left, centres[(size_t) osc].x - radius * (read (routeId (osc, osc)) > 0.001f ? 2.1f : 1.1f));
+                    right = juce::jmax (right, centres[(size_t) osc].x + radius + 6.0f + captionWidth);
+                }
+            }
+        }
         auto shift = area.getCentreX() - (left + right) * 0.5f;
         if (right - left <= area.getWidth())
             shift = juce::jlimit (area.getX() - left, area.getRight() - right, shift);

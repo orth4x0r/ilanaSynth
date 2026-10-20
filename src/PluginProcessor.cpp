@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "dsp/BuiltInTables.h"
 #include "dsp/MultiSample.h"
 #include "gui/SampleBrowserModel.h"
 #include "dsp/PitchDetect.h"
@@ -147,10 +148,16 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             if (choice < factoryCount)
                 return std::shared_ptr<const Wavetable> (std::shared_ptr<const Wavetable> {}, factory[(size_t) juce::jmax (0, choice)].get());
 
+            if (choice >= factoryCount + numUserSlots)
+            {
+                const auto* built = BuiltInTables::build (choice - factoryCount - numUserSlots); // (the spectral worker, not the audio thread)
+                return std::shared_ptr<const Wavetable> (std::shared_ptr<const Wavetable> {}, built != nullptr ? built : factory[0].get());
+            }
+
             const juce::SpinLock::ScopedLockType lock (tableLock);
             return userTables[(size_t) juce::jlimit (0, numUserSlots - 1, choice - factoryCount)];
         },
-        TableFactory::getNumFactoryTables() + numUserSlots);
+        TableFactory::getNumFactoryTables() + numUserSlots + BuiltInTables::count());
 
     for (auto& value : modDisplayValues)
         value.store (0.0f);
@@ -1277,7 +1284,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     }
 
     {
-        if (wantedOversamplingFactor() != oversamplingFactor.load())
+        if (wantedOversamplingFactor() != oversamplingFactor.load() || BuiltInTables::anyWanted())
             triggerAsyncUpdate();
     }
 
@@ -2253,6 +2260,21 @@ const Wavetable* IlanaSynthAudioProcessor::getTableForChoice (int choiceIndex) c
 
     if (choiceIndex < factoryCount)
         return factory[(size_t) juce::jlimit (0, factoryCount - 1, choiceIndex)].get();
+
+    if (choiceIndex >= factoryCount + numUserSlots)
+    {
+        // A built-in table is built the first time it is chosen (message thread,
+        // or here when rendering offline); until then the note plays a stand-in.
+        const auto index = juce::jmin (choiceIndex - factoryCount - numUserSlots, BuiltInTables::count() - 1);
+        if (const auto* ready = BuiltInTables::table (index))
+            return ready;
+        if (isNonRealtime())
+            if (const auto* built = BuiltInTables::build (index))
+                return built;
+
+        BuiltInTables::want (index);
+        return factory[(size_t) (index % factoryCount)].get();
+    }
 
     const auto slot = juce::jlimit (0, numUserSlots - 1, choiceIndex - factoryCount);
     const juce::SpinLock::ScopedLockType lock (tableLock);

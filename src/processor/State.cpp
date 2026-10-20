@@ -642,6 +642,19 @@ void IlanaSynthAudioProcessor::addOscillator (int index, int mode)
     addOscillator (index);
 }
 
+// Builds the built-in wavetables the oscillators use now, so the first note of
+// a loaded patch plays them (the audio thread would only ask for them).
+void IlanaSynthAudioProcessor::ensureBuiltInTables()
+{
+    if (! juce::MessageManager::existsAndIsCurrentThread())
+        return;
+
+    const auto base = TableFactory::getNumFactoryTables() + numUserSlots;
+    for (const auto& ids : oscCoreIds)
+        if (const auto choice = (int) getRawParam (ids.table); choice >= base)
+            BuiltInTables::build (choice - base);
+}
+
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
     liveRetrigger = true;
@@ -1154,6 +1167,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     }
 
     apvts.replaceState (state);
+    ensureBuiltInTables();
     // replaceState emptied the undo history: a gesture still open around this
     // load would add a step that restores only the data (a hybrid patch).
     pendingEditData.reset();

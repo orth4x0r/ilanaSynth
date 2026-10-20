@@ -1152,8 +1152,8 @@ public:
     static constexpr float kPackedValueSize = 6.1f;
     // PLAY's dials (setPackedValueRoom) write the value under the ring in its own line, in a big readable size
     // (ilana 2026-10-20: the in-ring numbers were tiny in Live), the name under that.
-    static constexpr int packedValueLine = 13, packedValueLine2 = 21;
-    static constexpr float kBelowNumberSize = 11.4f, kBelowUnitSize = 8.6f;
+    static constexpr int packedValueLine = 15, packedValueLine2 = 25;
+    static constexpr float kBelowNumberSize = 13.5f, kBelowUnitSize = 9.4f;
 
     void setPackedDial (float dial)
     {
@@ -1655,7 +1655,7 @@ public:
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
         g.setFont (numberFont);
         g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, inner.getY(), numberW + 1.0f, inner.getHeight()), juce::Justification::centredRight, false);
-        g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.5f).withMultipliedAlpha (alpha));
+        g.setColour (IlanaTheme::Ui::text.withAlpha (0.82f).withMultipliedAlpha (alpha));
         g.setFont (IlanaTheme::font (7.6f, true));
         g.drawText (label.getText(), juce::Rectangle<float> (inner.getX(), inner.getY(), juce::jmax (0.0f, right - numberW - 4.0f - inner.getX()), inner.getHeight()), juce::Justification::centredLeft, true);
     }
@@ -1701,7 +1701,7 @@ public:
             g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (on));
             g.setFont (unitFont);
             if (twoLines)
-                g.drawText (unit, juce::Rectangle<float> ((float) line.getX(), (float) line.getBottom() - 2.0f, (float) line.getWidth(), 9.0f), juce::Justification::centred, false);
+                g.drawText (unit, juce::Rectangle<float> ((float) line.getX(), (float) line.getBottom() - 1.0f, (float) line.getWidth(), 10.0f), juce::Justification::centred, false);
             else
                 g.drawText (unit, juce::Rectangle<float> (x + numberW + gap, (float) line.getY() + 1.0f, unitW + 2.0f, (float) line.getHeight()), juce::Justification::centredLeft, false);
         }

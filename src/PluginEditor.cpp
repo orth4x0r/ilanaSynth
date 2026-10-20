@@ -359,7 +359,6 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     addSection ("PLAY", { { "MAIN", "OVERVIEW", playPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
-    oscViewport->setMaximumScale (1.09f); // (the page's drawn size: the unit under each number needs the height two open cards take)
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);

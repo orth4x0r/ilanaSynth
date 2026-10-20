@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from taste_pairs import CLIP, clip, write  # noqa: E402
 from taste_round2 import load  # noqa: E402
 from taste_round3 import passes, report  # noqa: E402
+from preset_dedupe import is_duplicate  # noqa: E402
 
-SAME = 0.93
 PER = 3
 GEN = Path("build/gen")
 WINNERS = {  # render folder -> (preset folders, concepts)
@@ -48,7 +48,9 @@ def main():
             for i in ids:
                 if taken >= PER:
                     break
-                if any(float(emb[i] @ e) >= SAME for e in chosen_emb):
+                if taken == 0 and is_duplicate(emb[i], concept, chosen_emb):
+                    continue
+                if taken and any(float(emb[i] @ e) >= 0.85 for e, _ in chosen_emb):
                     continue
                 r = rows[i]
                 src = next((GEN / d / f"{r['name']}.ilanapreset" for d in dirs if (GEN / d / f"{r['name']}.ilanapreset").exists()), None)
@@ -60,7 +62,7 @@ def main():
                 shutil.copy(src, out / "presets" / f"{concept} {taken + 1}.ilanapreset")
                 pack.append({"id": pid, "name": f"{concept} {taken + 1}", "category": r["category"], "concept": concept,
                              "source": r["name"], "preset": f"presets/{concept} {taken + 1}.ilanapreset"})
-                chosen_emb.append(emb[i])
+                chosen_emb.append((emb[i], concept))
                 taken += 1
             if taken < PER:
                 print(f"{concept}: only {taken} distinct drafts")

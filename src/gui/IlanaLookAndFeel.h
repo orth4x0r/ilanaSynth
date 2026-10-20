@@ -841,7 +841,7 @@ inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, tru
 // dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
 // in its colour with a bright edge; the others are quiet.
 inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juce::String& text, juce::Colour colour,
-                       float active, float hover = 0.0f, bool enabled = true)
+                       float active, float hover = 0.0f, bool enabled = true, float fontSize = 0.0f)
 {
     // The component sheet's pill (.pill): ink 3 with a hairline and t2
     // text; chosen, its colour at 22 % over ink 3, a 75 % edge and t1 text.
@@ -855,7 +855,7 @@ inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juc
     g.drawRoundedRectangle (pill.reduced (0.5f), radius - 0.5f, 1.0f);
 
     g.setColour (Ui::text2.withAlpha (enabled ? 1.0f : 0.5f).interpolatedWith (Ui::text, juce::jmax (active, 0.5f * hover)));
-    g.setFont (pillFont());
+    g.setFont (fontSize > 0.0f ? font (fontSize, true).withKerningFactor (0.08f) : pillFont());
     g.drawText (text, pill, juce::Justification::centred);
 }
 // A card header's "EDIT ›" link (the sheet's .lk): bold caps tracked 0.08 em
@@ -1391,7 +1391,8 @@ public:
         if (button.getProperties().contains ("pill"))
         {
             paintPill (g, bounds, button.getButtonText(), button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f),
-                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled());
+                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled(),
+                       (float) button.getProperties().getWithDefault ("pillFontSize", 0.0f));
             return;
         }
 

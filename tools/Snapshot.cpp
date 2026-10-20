@@ -340,10 +340,11 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* wave : waves)
             compactWaves += visibleInTree (wave) && wave->isCompact() ? 1 : 0;
         expect (level != nullptr && levelText.endsWith ("dB") && trim == nullptr && knobFor ("osc2_frame") == nullptr
-                    && centreX (knobFor ("osc2_ratio")) < centreX (knobFor ("osc2_fine")) && centreX (knobFor ("osc2_fine")) < centreX (level)
-                    && compactWaves == 0,
-                "PLAY: an operator strip is RATIO, FINE, OUTPUT (" + levelText + ") as on FM (V8-5, I10-1), its Operator Env "
-                "pictured, no FRAME");
+                    && centreX (knobFor ("osc2_fine")) < centreX (knobFor ("osc2_ratio")) && centreX (knobFor ("osc2_ratio")) < centreX (level)
+                    && compactWaves > 0, // (the FM card's compact picture is the Operator Env itself, #133)
+                "PLAY: an operator card is FINE, RATIO, OUTPUT (" + levelText + ") as on FM (V8-5, I10-1), its Operator Env "
+                "pictured, no FRAME (Operator Env pictures " + juce::String (compactWaves) + ", frame " + juce::String (knobFor ("osc2_frame") != nullptr ? 1 : 0)
+                + ", trim " + juce::String (trim != nullptr ? 1 : 0) + ")");
     }
 
     // Review 14 (I14-3): a DX7 voice with both filters open has no filter;
@@ -371,21 +372,21 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
-                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
+                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) == nullptr,
                 "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread ("
                     + juce::String ((int) graph) + juce::String ((int) (knobFor ("osc1_eg_out", "OUTPUT") != nullptr)) + juce::String ((int) (knobFor ("osc1_level", "VOICE LEVEL") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_warp_amt") == nullptr)) + juce::String ((int) (knobFor ("osc1_spectral_amt") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_detune") == nullptr)) + juce::String ((int) (knobFor ("osc1_frame") == nullptr))
-                    + juce::String ((int) (buttonNamed (editOpEnv) != nullptr)) + ")");
+                    + juce::String ((int) (buttonNamed (editOpEnv) == nullptr)) + ")");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
         // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
         expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
                 "OSC: an Operator Env operator has the envelope and one WAVE menu, no sine picture (V11-7)");
 
-        // EDIT OP ENV whatever the mode (I7-20).
+        // (The mock has no EDIT OP ENV button on the card: a click on the envelope picture opens the editor.)
         setParam ("osc1_mode", 1.0f);
         settle (400);
-        expect (buttonNamed (editOpEnv) != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
+        expect (buttonNamed (editOpEnv) == nullptr, "OSC: an operator's card has no EDIT OP ENV button (its picture opens the editor)");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -10128,6 +10129,26 @@ int main (int argc, char** argv)
     for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SET", ""), ",", ""))
         if (auto* parameter = processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false)))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+
+    // ILANA_SNAPSHOT_SAMPLE="1": oscillator 1 holds a decaying electric-piano-like sample (as the mockups do), so a
+    // Sample or Granular card shows its waveform instead of the drop zone.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SAMPLE", "").isNotEmpty())
+    {
+        auto piano = std::make_shared<SampleData>();
+        piano->sampleRate = 48000.0;
+        piano->name = "Rhodes C3.wav";
+        piano->buffer.setSize (2, 144000);
+        for (int i = 0; i < 144000; ++i)
+        {
+            const auto t = i / 48000.0;
+            const auto tone = std::sin (juce::MathConstants<double>::twoPi * 131.0 * t) + 0.5 * std::sin (juce::MathConstants<double>::twoPi * 262.0 * t + 0.4)
+                              + 0.25 * std::sin (juce::MathConstants<double>::twoPi * 393.0 * t);
+            const auto value = (float) (0.5 * std::exp (-1.1 * t) * (1.0 - std::exp (-t * 400.0)) * tone);
+            piano->buffer.setSample (0, i, value);
+            piano->buffer.setSample (1, i, value);
+        }
+        processor.setUserSample (0, piano, {});
+    }
 
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.

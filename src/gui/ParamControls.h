@@ -3347,7 +3347,7 @@ public:
 
     // The packed panels' switch (review 23): a 28 x 15 switch with its name under it, to its
     // left (small, dim) or to its right (plain text).
-    enum class NamePlace { none, below, left, right };
+    enum class NamePlace { none, below, left, leftFlush, right }; // leftFlush: the name on the box's left edge, the switch on its right
     void setPackedName (NamePlace place)
     {
         if (packedPlace == place)
@@ -3412,11 +3412,11 @@ public:
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1) }, juce::Justification::centredTop, 1);
             }
-            else if (packedPlace == NamePlace::left)
+            else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
                 g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
-                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, juce::Justification::centredRight, 1);
+                IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, packedPlace == NamePlace::leftFlush ? juce::Justification::centredLeft : juce::Justification::centredRight, 1);
             }
             else
             {
@@ -3468,9 +3468,9 @@ public:
 
         if (packedPlace != NamePlace::none)
         {
-            const auto w = 28, h = 15;
+            const auto w = packedPlace == NamePlace::leftFlush ? 22 : 28, h = packedPlace == NamePlace::leftFlush ? 13 : 15; // (leftFlush: the mock's slimmer switch)
             button.setBounds (packedPlace == NamePlace::below ? juce::Rectangle<int> (w, h).withPosition (area.getCentreX() - w / 2, area.getY())
-                              : packedPlace == NamePlace::left ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
+                              : packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush ? juce::Rectangle<int> (w, h).withPosition (area.getRight() - w, area.getCentreY() - h / 2)
                                                                : juce::Rectangle<int> (w, h).withPosition (area.getX(), area.getCentreY() - h / 2));
             return;
         }
@@ -3604,6 +3604,75 @@ private:
     float hover = 0.0f;
     float switchAmount = 0.0f;
     bool lastOn = false, ticked = false;
+};
+
+
+// A compact bar-slider row for a card's list of switches (the sample's CROSSFADE): a rounded
+// box 16 units high, the share filled in the card's colour, the name on its left edge and the
+// value on its right, one drag or a double-click for the default.
+class BarSliderControl : public KeyboardSlider
+{
+public:
+    BarSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText)
+        : name (nameText)
+    {
+        setSliderStyle (juce::Slider::LinearBar);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, parameterID, *this);
+
+        if (auto* parameter = state.getParameter (parameterID))
+        {
+            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            const auto description = describeParameter (parameterID);
+            setTitle (parameter->getName (64));
+            setDescription (description);
+            setTooltip (parameter->getName (64) + (description.isNotEmpty() ? "\n" + description : ""));
+        }
+
+    }
+
+    void setAccent (juce::Colour c) { accent = c; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto box = getLocalBounds().toFloat().reduced (0.5f);
+        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        const auto share = (float) juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()));
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (box, 4.0f);
+
+        if (share > 0.001f)
+        {
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<float> (box.getX(), box.getY(), box.getWidth() * share, box.getHeight()).getSmallestIntegerContainer());
+            g.setColour (accent.withAlpha (0.38f * alpha));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.restoreState();
+        }
+
+        g.setColour (IlanaTheme::Ui::line);
+        g.drawRoundedRectangle (box, 4.0f, 1.0f);
+
+        // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
+        // by its ink: the caps' middle on the bar's middle.
+        const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
+        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (7.3f) : IlanaTheme::font (6.5f, true).withKerningFactor (0.08f);
+        g.setFont (font);
+        g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
+        const juce::Font f (font);
+        const auto capMiddle = f.getAscent() - f.getHeight() * 0.35f; // (the caps' middle below the box top)
+        const auto top = (float) getHeight() * 0.5f - capMiddle + inkNudge;
+        g.drawText (text, juce::Rectangle<float> (0.4f, top, (float) getWidth(), f.getHeight()), juce::Justification::centred, false);
+    }
+
+private:
+    static constexpr float inkNudge = -0.75f; // (the font box sits the caps a little low)
+    void mouseEnter (const juce::MouseEvent& e) override { KeyboardSlider::mouseEnter (e); repaint(); }
+    void mouseExit (const juce::MouseEvent& e) override { KeyboardSlider::mouseExit (e); repaint(); }
+
+    juce::String name;
+    juce::Colour accent { juce::Colours::orange };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
 };
 
 class ValueSliderControl : public juce::Component

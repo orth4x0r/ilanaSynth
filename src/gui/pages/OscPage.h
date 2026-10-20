@@ -1543,7 +1543,7 @@ public:
         }
         for (auto* menu : { &subShape, &subOctave, &sbModel, voiceMode.get() })
             menu->setCompactLayout (true);
-        symManual.setInlineLabel (true);
+        symManual.setSmallName (true);
         glideLegato->setSmallName (true);
         subOscOn->setGroupName ("SUB", IlanaTheme::accent());
         symOn.setGroupName ("STRINGS", oscColour (4));
@@ -1932,7 +1932,7 @@ private:
     static constexpr int sideMargin = 7, topMargin = 5, bottomMargin = 5, gap = 4;
     static constexpr int cardHeaderHeight = 22, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
-    static constexpr int stripRowGap = 3;
+    static constexpr int stripRowGap = 3, stripPitch = 41, keysPitch = 62;
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
@@ -2829,7 +2829,8 @@ private:
                 pieces.routeBar.setBounds ({ c.getX() + labelW, filterY, c.getWidth() - labelW + 3, filterH });
                 filterY += filterH + 1;
             }
-            pieces.outBar.setBounds ({ c.getX(), filterY, c.getWidth(), outH });
+            // (OUT stands in the row PITCH's SCALE and UNISON's SPREAD share: one bottom edge across the card.)
+            pieces.outBar.setBounds ({ c.getX(), filterY + (menuH - outH) / 2, c.getWidth(), outH });
         }
 
         // UNISON
@@ -2839,28 +2840,13 @@ private:
             const auto top = middle (c, cellH + 1 + menuH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 55 : 52;
-            // (Each cell is its name plus one shared gap, so the names stand evenly apart.)
-            // (The names' drawn widths, measured; one gap of about 6 between them, the group ending at the panel's edge.)
-            const std::array<float, 6> nameW { 25.5f, 27.0f, 21.5f, 27.5f, 28.5f, 25.5f };
-            auto namesTotal = 0.0f;
-            for (const auto width : nameW)
-                namesTotal += width;
-            const auto room = (float) (c.getWidth() - menuW - 3);
-            const auto shared = 6.0f;
-            // (The menu, the six dials and the panel's edge keep even gutters.)
-            const auto gutter = juce::jmax (0.0f, (room - namesTotal - shared * 5.0f) / 2.0f);
-            auto xf = (float) (c.getX() + menuW + 3) + gutter - shared * 0.5f;
+            // (Six equal cells between the menu and the panel's edge: the rings stand one pitch apart, the margins even.)
             osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
-            {
-                auto i = 0;
-                for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
-                {
-                    const auto width = juce::roundToInt (nameW[(size_t) i] + shared);
-                    placeKnob (*knob, juce::roundToInt (xf), top, width, mainDial);
-                    xf += nameW[(size_t) i] + shared;
-                    ++i;
-                }
-            }
+            const auto cellsLeft = c.getX() + menuW + 3;
+            const auto pitchU = (float) (c.getRight() - cellsLeft) / 6.0f;
+            auto i = 0;
+            for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
+                placeKnob (*knob, cellsLeft + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), mainDial);
             const auto spreadY = top + cellH + 1;
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });
@@ -3843,25 +3829,26 @@ private:
     static juce::Colour stripGrey() { return juce::Colour (0xff8b8f99); }
 
     // Controls spread over a panel with equal space around each, centred in its content.
-    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries) const
+    // The strips' controls stand on one pitch (a knob's cell is `pitch` wide, a menu keeps its width), the group centred in the
+    // panel; a switch stands at the panel's right edge, so LEGATO and MANUAL share one column.
+    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch) const
     {
         // (One px lower than the centre: the title keeps clear of the rings.)
         auto c = panelContent (panel);
         c.translate (0, 1);
-        // (A switch stands at the panel's right edge: LEGATO and MANUAL share one column. The rest are one gap apart, the group centred.)
         const StripEntry* toggleEntry = nullptr;
         for (const auto& entry : entries)
             if (dynamic_cast<ToggleControl*> (entry.item) != nullptr)
                 toggleEntry = &entry;
         auto area = c;
         if (toggleEntry != nullptr)
-            area.removeFromRight (toggleEntry->width + 6);
-        auto used = 0, count = 0;
+            area.removeFromRight (toggleEntry->width + 8);
+        const auto widthOf = [&] (const StripEntry& entry) { return dynamic_cast<KnobControl*> (entry.item) != nullptr ? pitch : entry.width; };
+        auto used = 0;
         for (const auto& entry : entries)
             if (&entry != toggleEntry)
-                used += entry.width, ++count;
-        const auto each = juce::jmin (22.0f, (float) juce::jmax (0, area.getWidth() - used) / (float) juce::jmax (1, count));
-        auto x = (float) area.getX() + ((float) juce::jmax (0, area.getWidth() - used) - each * (float) (count - 1)) * 0.5f;
+                used += widthOf (entry);
+        auto x = area.getX() + juce::jmax (0, area.getWidth() - used) / 2;
         // (The first row's knobs carry units (ms, st): the unit stands under the number there, two value lines.)
         const auto valueLine = panel.getY() == stripArea.getY() ? KnobControl::packedValueLine2 : KnobControl::packedValueLine;
         const auto cellH = stripDialSize() + 10 + valueLine;
@@ -3872,15 +3859,15 @@ private:
                 entry.item->setBounds ({ c.getRight() - entry.width - 2, c.getY() + (stripDialSize() - 15) / 2 + (c.getHeight() - cellH) / 2, entry.width, 15 });
                 continue;
             }
-            const auto left = juce::roundToInt (x);
+            const auto width = widthOf (entry);
             if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
             {
                 knob->setValueLine (valueLine);
-                knob->setBounds (KnobControl::packedBoundsFor ({ left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, cellH }));
+                knob->setBounds (KnobControl::packedBoundsFor ({ x, c.getY() + (c.getHeight() - cellH) / 2, width, cellH }));
             }
             else
-                entry.item->setBounds ({ left, c.getY() + (c.getHeight() - cellH) / 2 + (stripDialSize() - menuH) / 2, entry.width, menuH });
-            x += (float) entry.width + each;
+                entry.item->setBounds ({ x, c.getY() + (c.getHeight() - cellH) / 2 + (stripDialSize() - menuH) / 2, width, menuH });
+            x += width;
         }
     }
 
@@ -3920,13 +3907,13 @@ private:
             // the strings' six tuning notes take a third row of their own while MANUAL is on.)
             const auto strings = panelAt (0, 0, rowBY, {}, grey);
             placeStripSwitch (symOn, strings, "STRINGS");
-            placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell }, { &symManual, 66 } });
+            placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell }, { &symManual, legatoW } });
             const auto board = panelAt (1, 1, rowBY, {}, grey);
             placeStripSwitch (sbOn, board, "SOUNDBOARD");
             // (The model menu is bare like PLAY's BODY menu.)
-            placeStripRow (board, { { &sbModel, 46 }, { &sbSize, 31 }, { &sbTone, 31 }, { &sbMix, 31 } });
+            placeStripRow (board, { { &sbModel, 44 }, { &sbSize, 0 }, { &sbTone, 0 }, { &sbMix, 0 } }, 34);
             const auto keys = panelAt (2, 3, rowBY, "KEYS", accent);
-            placeStripRow (keys, { { &stretch, 62 }, { &pedalRes, 62 }, { &mechKey, 62 }, { &mechDamper, 62 }, { &mechPedal, 62 } });
+            placeStripRow (keys, { { &stretch, 0 }, { &pedalRes, 0 }, { &mechKey, 0 }, { &mechDamper, 0 }, { &mechPedal, 0 } }, keysPitch);
         }
 
         if (readBool ("sym_manual"))
@@ -3951,7 +3938,7 @@ private:
         for (auto* menu : { voiceMode.get(), &subShape, &subOctave, &sbModel })
             menu->setPackedMenu (true);
         glideLegato->setPackedName (ToggleControl::NamePlace::left);
-        symManual.setPackedName (ToggleControl::NamePlace::right);
+        symManual.setPackedName (ToggleControl::NamePlace::left);
         for (auto* group : { subOscOn.get(), &symOn, &sbOn })
             group->getButton().getProperties().set ("packedGroup", true);
         if (! moreButton.getProperties().contains ("packedButton"))

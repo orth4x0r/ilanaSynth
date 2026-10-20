@@ -1932,6 +1932,7 @@ private:
     static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 6;
     static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
+    static constexpr int stripRowGap = 7;
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 160, mixW = 164, unisonW = 270;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
@@ -1939,7 +1940,7 @@ private:
     int unisonColumn() const { return embedded ? 275 : unisonW; }
     static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 10 + KnobControl::packedValueLine, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 16, stripDialBase = 28, stripPanelBase = 52 + KnobControl::packedValueLine + 1, stripMaxBonus = 0;
+    static constexpr int addRowHeight = 16, stripDialBase = 28, stripPanelBase = 52 + KnobControl::packedValueLine + 1, stripMaxBonus = 20;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2426,8 +2427,9 @@ private:
         if (isFolded (osc))
             return foldedCardHeight;
 
+        // (A panel card on the OSC tab takes a little air with spare height, its controls centred in the panels.)
         if (usesPanels (kindOf (osc)))
-            return panelCardHeight (osc);
+            return panelCardHeight (osc) + (embedded ? 0 : 8);
 
         // (A card beside folded ones keeps its condensed height: ilana
         // 2026-10-15, the one grown into their room was far too tall.)
@@ -2460,8 +2462,8 @@ private:
 
     // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
     int stripPanelHeight() const { return stripPanelBase + stripBonus; }
-    int stripDialSize() const { return stripDialBase + stripBonus; }
-    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (readBool ("sym_manual") ? panel + panelGap : 0); }
+    int stripDialSize() const { return stripDialBase; }
+    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + stripRowGap + (readBool ("sym_manual") ? panel + stripRowGap : 0); }
     int stripHeight() const { return stripHeightFor (stripBonus); }
 
     // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
@@ -2834,17 +2836,29 @@ private:
             const auto top = middle (c, cellH + 4 + spreadH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 55 : 52;
-            // (The six dials share what the menu leaves, at most 37 each: the names keep 20 px apart.)
-            const auto cell = juce::jlimit (33, 37, (c.getWidth() - menuW - 3) / 6);
-            osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
-            auto x = c.getX() + menuW + 3;
-            // (FRAME ± and WARP ± are the two longest names: the four before them give up 3 px each so these two take 6 more.)
-            for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
+            // (The six cells are as wide as their names plus one shared gap, so the names stand evenly apart.)
+            const juce::StringArray names { "VOICES", "DETUNE", "BLEND", "SPREAD", "FRAME \xc2\xb1", "WARP \xc2\xb1" };
+            const auto nameFont = juce::Font (IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * (float) mainDial / 26.0f), true));
+            std::vector<float> nameW;
+            auto namesTotal = 0.0f;
+            for (const auto& name : names)
             {
-                const auto last = knob == &osc.uniFrame || knob == &osc.uniWarp;
-                const auto width = last ? cell + 6 : cell - 3;
-                placeKnob (*knob, x, top, width, mainDial);
-                x += width;
+                nameW.push_back (juce::GlyphArrangement::getStringWidth (nameFont, juce::String::fromUTF8 (name.toRawUTF8())));
+                namesTotal += nameW.back();
+            }
+            const auto room = (float) (c.getWidth() - menuW - 3);
+            const auto shared = juce::jmax (2.0f, (room - namesTotal) / 6.0f);
+            auto xf = (float) (c.getX() + menuW + 3);
+            osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
+            {
+                auto i = 0;
+                for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
+                {
+                    const auto width = juce::roundToInt (nameW[(size_t) i] + shared);
+                    placeKnob (*knob, juce::roundToInt (xf), top, width, mainDial);
+                    xf += nameW[(size_t) i] + shared;
+                    ++i;
+                }
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
@@ -3864,7 +3878,7 @@ private:
         const auto cols = columnsFor (stripArea.getX(), stripArea.getWidth());
         const auto accent = IlanaTheme::accent();
         const auto grey = stripGrey();
-        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + panelGap;
+        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + stripRowGap;
         const auto panelAt = [&] (int from, int to, int y, const juce::String& title, juce::Colour colour)
         {
             const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight());
@@ -3890,14 +3904,15 @@ private:
             placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell }, { &symManual, 66 } });
             const auto board = panelAt (1, 1, rowBY, {}, grey);
             placeStripSwitch (sbOn, board, "SOUNDBOARD");
-            placeStripRow (board, { { &sbModel, 54 }, { &sbSize, knobCell - 2 }, { &sbTone, knobCell - 2 }, { &sbMix, knobCell - 2 } });
+            // (The model menu is bare like PLAY's BODY menu.)
+            placeStripRow (board, { { &sbModel, 50 }, { &sbSize, 32 }, { &sbTone, 32 }, { &sbMix, 32 } });
             const auto keys = panelAt (2, 3, rowBY, "KEYS", accent);
-            placeStripRow (keys, { { &stretch, 40 }, { &pedalRes, 50 }, { &mechKey, 50 }, { &mechDamper, 64 }, { &mechPedal, 64 } });
+            placeStripRow (keys, { { &stretch, 62 }, { &pedalRes, 62 }, { &mechKey, 62 }, { &mechDamper, 62 }, { &mechPedal, 62 } });
         }
 
         if (readBool ("sym_manual"))
         {
-            const auto tuning = panelAt (0, 3, rowBY + stripPanelHeight() + panelGap, "STRING TUNING", grey);
+            const auto tuning = panelAt (0, 3, rowBY + stripPanelHeight() + stripRowGap, "STRING TUNING", grey);
             placeStripRow (tuning, { { symNotes[0].get(), knobCell }, { symNotes[1].get(), knobCell }, { symNotes[2].get(), knobCell },
                                      { symNotes[3].get(), knobCell }, { symNotes[4].get(), knobCell }, { symNotes[5].get(), knobCell } });
         }

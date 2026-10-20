@@ -1595,21 +1595,21 @@ public:
             const auto depth = dot.depth * ringConfig.scale;
             const auto low = dot.bipolar ? share - std::abs (depth) : juce::jmin (share, share + depth);
             const auto high = dot.bipolar ? share + std::abs (depth) : juce::jmax (share, share + depth);
-            const auto y = box.getBottom() - 2.5f - (float) i * 2.4f;
+            const auto y = box.getBottom() - 1.7f - (float) i * 1.4f;
             auto a = xOf (low), b = xOf (high);
             if (b - a < 3.0f)
                 a -= 1.5f, b += 1.5f;
             g.setColour (colour.withAlpha ((quiet ? 0.3f : 0.95f) * alpha));
-            g.drawLine (a, y, b, y, 1.7f);
+            g.drawLine (a, y, b, y, 1.1f);
 
             if (! dot.bypass && ! quiet)
             {
                 const auto live = juce::isPositiveAndBelow (i, (int) liveValues.size()) ? liveValues[(size_t) i] : 0.0f;
                 const auto at = xOf (share + live * ringConfig.scale);
                 g.setColour (colour.interpolatedWith (juce::Colours::white, 0.45f).withAlpha (alpha));
-                g.drawLine (juce::jmin (xOf (share), at), y, juce::jmax (xOf (share), at), y, 1.7f);
+                g.drawLine (juce::jmin (xOf (share), at), y, juce::jmax (xOf (share), at), y, 1.1f);
                 g.setColour (juce::Colours::white.withAlpha (0.95f * alpha));
-                g.fillEllipse (juce::Rectangle<float> (3.4f, 3.4f).withCentre ({ at, y }));
+                g.fillEllipse (juce::Rectangle<float> (2.4f, 2.4f).withCentre ({ at, y }));
             }
         }
 
@@ -1632,7 +1632,8 @@ public:
             if (unit == "kHz" && text.endsWith (".00"))
                 text = text.dropLastCharacters (3);
         }
-        const auto inner = getLocalBounds().toFloat().reduced (5.0f, 0.0f);
+        // (The foot's last 4 px are the modulation lane: no text in it.)
+        const auto inner = getLocalBounds().toFloat().reduced (5.0f, 0.0f).withTrimmedBottom (4.0f);
         const auto numberFont = IlanaTheme::font (kBelowNumberSize, true, true);
         const auto unitFont = IlanaTheme::font (kBelowUnitSize, true);
         const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit) + 1.5f;

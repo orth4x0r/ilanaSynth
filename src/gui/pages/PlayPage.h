@@ -444,20 +444,27 @@ private:
             place (*knob, x);
             x += cell;
         }
-        // (Clear of the header's line above and the card's edge at the right.)
-        auto column = body.withTrimmedLeft (x - body.getX() + 4).reduced (0, 2);
-        auto rowH = juce::jmax (12, column.getHeight() / 2);
-        rowH = juce::jmax (11, (column.getHeight() - 6) / 3);
+        // The column runs the graph's full height: three rows, the same height, the leftover pixels shared by the two gaps,
+        // so the top row starts where the graph starts and the chip ends where it ends.
+        auto column = body.withTrimmedLeft (x - body.getX() + 4);
+        const auto rowH = juce::jmax (11, (column.getHeight() - 6) / 3);
+        const auto leftover = juce::jmax (0, column.getHeight() - 3 * rowH - 6);
+        const auto gapA = 3 + leftover / 2, gapB = 3 + leftover - leftover / 2;
         auto switches = column.removeFromTop (rowH);
-        column.removeFromTop (3);
-        const auto each = switches.getWidth() / juce::jmax (1, (int) toggles.size());
-        // (Each pill draws 1 px inside its bounds: the row reaches 1 px past the column so the three span the pills' width.)
+        column.removeFromTop (gapA);
+        // Three pills at one gap (each draws 1 px inside its bounds, so the row reaches 1 px past the column on both sides).
+        const auto count = juce::jmax (1, (int) toggles.size());
+        const auto across = switches.getWidth() + 2;
+        const auto pillW = (across - 2 * (count - 1)) / count;
+        const auto pillGap = count > 1 ? (across - pillW * count) / (count - 1) : 0;
         auto pills = switches.expanded (1, 0);
         for (size_t i = 0; i < toggles.size(); ++i)
-            toggles[i]->setBounds (i + 1 == toggles.size() ? pills : pills.removeFromLeft (pills.getWidth() / (int) (toggles.size() - i)));
-        (void) each;
+        {
+            toggles[i]->setBounds (pills.removeFromLeft (pillW));
+            pills.removeFromLeft (pillGap);
+        }
         shape->setBounds (column.removeFromTop (rowH));
-        column.removeFromTop (3);
+        column.removeFromTop (gapB);
         chipBounds = column.removeFromTop (rowH);
     }
 

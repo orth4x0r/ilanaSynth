@@ -80,14 +80,14 @@ public:
             g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         }
         g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (7.7f, true));
+        g.setFont (IlanaTheme::font (8.5f, true));
         g.drawText (label, bounds, juce::Justification::centred);
     }
 
     void mouseDown (const juce::MouseEvent&) override { setValue (current > 0 ? 0 : 1); }
 
     // The text's width, so a row of pills can be sized to what they say.
-    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (7.7f, true)), label) + 2.0f; }
+    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (8.5f, true)), label) + 2.0f; }
 
 private:
     juce::String label;
@@ -411,15 +411,18 @@ private:
             return;
 
         // (Equal above and below the graph, and at both sides: the envelope's last dial and the LFO's buttons end as far from the card as the graph starts.)
-        auto body = getLocalBounds().withTrimmedTop (headerHeight + 2).withTrimmedBottom (1).reduced (7, 0);
-        body.setRight (body.getRight() + (kind == Kind::envelope ? 4 : 1));
-        const auto cell = 36;
+        auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
+        body.setRight (body.getRight() + (kind == Kind::envelope ? 4 : 0));
+        // (The LFO's three dials sit in 34 px cells so its pills keep their padding; the graph keeps its size.)
+        const auto cell = kind == Kind::envelope ? 36 : 34;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
-        const auto lfoColumn = 86;
+        const auto lfoColumn = 91;
         const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
                                                         : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 9);
         graph->setBounds (body.removeFromLeft (graphWidth));
-        body.removeFromLeft (3);
+        // (The LFO's graph keeps its size; the buttons' column takes its width from the two gaps beside the knobs, which stay equal.)
+        const auto gap = kind == Kind::envelope ? 3 : 1;
+        body.removeFromLeft (gap);
         const auto place = [&] (KnobControl& knob, int x)
         {
             knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
@@ -448,34 +451,36 @@ private:
         }
         // The column runs the graph's full height: three rows, the same height, the leftover pixels shared by the two gaps,
         // so the top row starts where the graph starts and the chip ends where it ends.
-        auto column = body.withTrimmedLeft (x - body.getX() + 4);
-        const auto rowH = juce::jmax (11, (column.getHeight() - 6) / 3);
-        const auto leftover = juce::jmax (0, column.getHeight() - 3 * rowH - 6);
-        const auto gapA = 3 + leftover / 2, gapB = 3 + leftover - leftover / 2;
+        auto column = body.withTrimmedLeft (x - body.getX() + gap);
+        // (Gaps near 9: the first one that lets the three rows come out whole, so rows and gaps are each equal.)
+        auto gapA = 9;
+        for (const auto candidate : { 9, 8, 10, 7, 11, 6, 12 })
+            if ((column.getHeight() - 2 * candidate) % 3 == 0)
+            {
+                gapA = candidate;
+                break;
+            }
+        const auto gapB = gapA;
+        const auto rowH = juce::jmax (11, (column.getHeight() - 2 * gapA) / 3);
         auto switches = column.removeFromTop (rowH);
         column.removeFromTop (gapA);
         // Three pills at one gap (each draws 1 px inside its bounds, so the row reaches 1 px past the column on both sides).
         const auto count = juce::jmax (1, (int) toggles.size());
         const auto across = switches.getWidth() + 2;
-        // 4 design px (6 at the snapshot's 1.5x) of padding each side of every word, the same on all three; the gaps take what is left.
+        // One gap between the pills (2 design px, each pill also draws 1 px inside its bounds); the padding each side of every word is the same on all
+        // three and takes the rest, so the row ends flush with the column on both edges (no under 4 design px of padding at the 8.5 text).
         auto textTotal = 0.0f;
         for (auto& toggle : toggles)
             textTotal += toggle->textWidth();
-        // (Never under a 4 px gap between pills: the padding gives way first.)
-        const auto pad = juce::jmin (4.0f, ((float) (across - 4 * (count - 1)) - textTotal) / (float) (2 * count));
-        auto widths = std::vector<int>();
-        auto used = 0;
-        for (auto& toggle : toggles)
-        {
-            widths.push_back (juce::roundToInt (toggle->textWidth() + 2.0f * pad));
-            used += widths.back();
-        }
-        const auto gaps = count > 1 ? (across - used) / (count - 1) : 0;
-        auto pills = switches.expanded (1, 0);
+        const auto pillGap = 2.0f;
+        const auto pad = ((float) across - pillGap * (float) (count - 1) - textTotal) / (float) (2 * count);
+        auto pills = switches.expanded (1, 0).withTrimmedBottom (-1);
+        auto edge = (float) pills.getX();
         for (size_t i = 0; i < toggles.size(); ++i)
         {
-            toggles[i]->setBounds (i + 1 == toggles.size() ? pills.removeFromRight (widths[i]) : pills.removeFromLeft (widths[i]));
-            pills.removeFromLeft (gaps);
+            const auto right = edge + toggles[i]->textWidth() + 2.0f * pad;
+            toggles[i]->setBounds (pills.withLeft (juce::roundToInt (edge)).withRight (juce::roundToInt (right)));
+            edge = right + pillGap;
         }
         shape->setBounds (column.removeFromTop (rowH));
         column.removeFromTop (gapB);

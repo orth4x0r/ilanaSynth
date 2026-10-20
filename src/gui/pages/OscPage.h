@@ -2837,11 +2837,13 @@ private:
             const auto partialsX = x + 4;
             if (! electric && partialsX < c.getRight() - 20)
             {
-                const auto partialsH = 34;
-                const auto py = middle (c, partialsH + 10);
+                // (The caption sits on the knob names' line: the picture ends where their row starts.)
+                const auto knobTop = middle (c, cellH);
+                const auto partialsH = embedded ? 31 : 34;
+                const auto py = embedded ? knobTop - 2 : middle (c, partialsH + 10);
                 pieces.partials.setCompact (true);
                 pieces.partials.setBounds ({ partialsX, py, c.getRight() - partialsX, partialsH });
-                card.labels.push_back ({ { partialsX, py + partialsH + 1, c.getRight() - partialsX, 9 }, "PARTIALS" });
+                card.labels.push_back ({ { partialsX, embedded ? knobTop + mainDial : py + partialsH + 1, c.getRight() - partialsX, embedded ? 10 : 9 }, "PARTIALS" });
             }
             else
             {
@@ -2878,8 +2880,10 @@ private:
         {
             const auto c = panelContent (pitchPanel);
             const auto y = middle (c, cellH);
-            placeKnob (osc.semi, c.getX(), y, knobCell, mainDial);
-            placeKnob (osc.fine, c.getX() + knobCell, y, knobCell, mainDial);
+            // (On PLAY the first ring starts 3 px nearer the panel's edge, as far from it as the menu's end is at the right.)
+            const auto shift = embedded ? 3 : 0;
+            placeKnob (osc.semi, c.getX() - shift, y, knobCell, mainDial);
+            placeKnob (osc.fine, c.getX() - shift + knobCell, y, knobCell, mainDial);
             const auto x = c.getX() + 2 * knobCell + 3;
             osc.chord.setBounds ({ x, y + 4, c.getRight() - x, menuH });
         }
@@ -4173,6 +4177,10 @@ private:
         // (On PLAY the unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every PLAY dial,
         // so "0.0 dB" and "80 ms" keep clear of the ring.)
         osc.egOut.setPackedValueRoom (embedded && panels ? 12 : 0);
+        // (The same for a ratio and a cloud's SCAN: "×1.00" and "0.00x" lose their last digit's room, not their size.)
+        osc.ratio.setPackedValueRoom (embedded && panels ? 12 : 0);
+        osc.fixedHz.setPackedValueRoom (embedded && panels ? 12 : 0);
+        osc.grainScan.setPackedValueRoom (embedded && panels ? 12 : 0);
         osc.grainSize.setPackedValueRoom (embedded && panels ? 12 : 0);
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })

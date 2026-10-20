@@ -946,13 +946,13 @@ public:
         if (page == nullptr || page->getHeight() - oscView.getViewPositionY() <= oscView.getHeight() + 1)
             return;
 
-        const auto fade = oscView.getBounds().removeFromBottom (14).withTrimmedRight (oscView.getScrollBarThickness());
+        const auto fade = oscView.getBounds().removeFromBottom (18).withTrimmedRight (oscView.getScrollBarThickness());
         juce::ColourGradient gradient (IlanaTheme::Ui::bg.withAlpha (0.0f), 0.0f, (float) fade.getY(),
-                                       IlanaTheme::Ui::bg, 0.0f, (float) fade.getBottom() - 4.0f, false);
+                                       IlanaTheme::Ui::bg, 0.0f, (float) fade.getBottom() - 9.0f, false);
         g.setGradientFill (gradient);
         g.fillRect (fade);
         g.setColour (IlanaTheme::Ui::bg);
-        g.fillRect (fade.withTop (fade.getBottom() - 4));
+        g.fillRect (fade.withTop (fade.getBottom() - 9));
     }
 
     void resized() override

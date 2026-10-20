@@ -4,17 +4,20 @@
 # PC does. One-off set-up: download xwin (github.com/Jake-Shadle/xwin) and run
 #   xwin --accept-license splat --output $XWIN
 # then   XWIN=/path/to/splat tools/win-syntax-check.sh src/dsp/Voice.cpp tests/TableTest.cpp
-# Needs a Linux build in build/ (cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
+# Needs a Linux build in build/ (cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) that has generated BinaryData.h
+# (build any target once, e.g. ninja -C build ilanaSnapshot).
 # Clang does not enforce MSVC's 16 KB string-literal limit (C2026): keep
 # embedded text chunks small.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${XWIN:?set XWIN to the xwin splat folder}"
 python3 - "$@" <<'PY'
-import json, os, shlex, subprocess, sys
+import glob, json, os, shlex, subprocess, sys
 root = os.getcwd()
 xwin = os.environ["XWIN"]
 cc = json.load(open("build/compile_commands.json"))
+# JUCE writes BinaryData.h into the build tree; the sources include it.
+binary = [f"-imsvc{os.path.dirname(h)}" for h in glob.glob("build/**/BinaryData.h", recursive=True)]
 byfile = {}
 for e in cc:
     byfile.setdefault(os.path.relpath(e["file"], root), e)
@@ -30,7 +33,7 @@ for src in sys.argv[1:]:
         if a.startswith(("-D", "-I")) and a not in ("-DLINUX=1",) and "x11" not in a.lower() and "/usr/include" not in a:
             keep.append(a)
     cmd = ["clang", "--driver-mode=cl", "--target=x86_64-pc-windows-msvc", "/Zs", "/std:c++20", "/EHsc", "/DNOMINMAX", "/DWIN32",
-           "/D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH", "-Wno-everything",
+           "/D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH", "-Wno-everything", *binary,
            f"-imsvc{xwin}/crt/include", f"-imsvc{xwin}/sdk/include/ucrt", f"-imsvc{xwin}/sdk/include/um",
            f"-imsvc{xwin}/sdk/include/shared"] + keep + [src]
     r = subprocess.run(cmd, capture_output=True, text=True)

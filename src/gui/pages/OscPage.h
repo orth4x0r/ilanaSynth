@@ -3842,7 +3842,7 @@ private:
                 toggleEntry = &entry;
         auto area = c;
         if (toggleEntry != nullptr)
-            area.removeFromRight (toggleEntry->width + 8);
+            area.removeFromRight (toggleEntry->width - 1);
         const auto widthOf = [&] (const StripEntry& entry) { return dynamic_cast<KnobControl*> (entry.item) != nullptr ? pitch : entry.width; };
         auto used = 0;
         for (const auto& entry : entries)
@@ -3911,7 +3911,9 @@ private:
             const auto board = panelAt (1, 1, rowBY, {}, grey);
             placeStripSwitch (sbOn, board, "SOUNDBOARD");
             // (The model menu is bare like PLAY's BODY menu.)
-            placeStripRow (board, { { &sbModel, 44 }, { &sbSize, 0 }, { &sbTone, 0 }, { &sbMix, 0 } }, 34);
+            // (The model menu stands in the title row's free stretch, so the three rings keep the strips' shared pitch.)
+            sbModel.setBounds ({ board.getRight() - 6 - 52, board.getY() + 2, 52, panelTitleH + 3 });
+            placeStripRow (board, { { &sbSize, 0 }, { &sbTone, 0 }, { &sbMix, 0 } });
             const auto keys = panelAt (2, 3, rowBY, "KEYS", accent);
             placeStripRow (keys, { { &stretch, 0 }, { &pedalRes, 0 }, { &mechKey, 0 }, { &mechDamper, 0 }, { &mechPedal, 0 } }, keysPitch);
         }

@@ -155,7 +155,7 @@ void runOscTypeTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProces
 
     editor.showPage ("MAIN");
     settle (400);
-    expect (addButton ("+  ADD FM / DX7") != nullptr, "PLAY: the add row offers + ADD FM / DX7");
+    // (PLAY's three cards leave no free slot: its add row is on the OSC page.)
 
     // FM: another type's card offers the switch; an operator's doesn't.
     editor.showOperatorEnvelope (0); // (the FM page on OSC 1)

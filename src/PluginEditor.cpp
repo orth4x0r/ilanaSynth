@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 
+#include "dsp/BodyTuning.h"
 #include "dsp/Modulation.h"
 #include "dsp/TableFactory.h"
 #include "gui/EnvelopeDisplay.h"
@@ -61,7 +62,7 @@
 #include "gui/pages/ModSourcePanel.h"
 #include "gui/pages/FmInputPages.h"
 #include "gui/pages/SeqPage.h"
-#include "gui/pages/MainPage.h"
+#include "gui/pages/PlayPage.h"
 #include "gui/pages/MatrixPage.h"
 #include "gui/FxInfoText.h"
 #include "gui/pages/FxWidgets.h"
@@ -333,7 +334,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         }
     };
 
-    auto* mainPage = new MainPage (p);
+    auto* playPage = new PlayPage (p);
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
     // Eight tabs; the ones holding several pages switch them from the tab
@@ -356,7 +357,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         sections.push_back (section);
     };
 
-    addSection ("PLAY", { { "MAIN", "OVERVIEW", mainPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
+    addSection ("PLAY", { { "MAIN", "OVERVIEW", playPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
@@ -400,13 +401,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     if (IlanaSynthAudioProcessor::isEffectBuild)
         addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });
 
-    mainPage->onEditLfo = [this, envLfoPage] (int lfo)
+    playPage->onEditLfo = [this, envLfoPage] (int lfo)
     {
         envLfoPage->selectLfo (lfo);
         showPage ("ENV/LFO");
     };
 
-    mainPage->onEditEnvelope = [this, envLfoPage] (int envelope)
+    playPage->onEditEnvelope = [this, envLfoPage] (int envelope)
     {
         envLfoPage->selectEnvelope (envelope);
         showPage ("ENV/LFO");
@@ -423,15 +424,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         showPage ("ENV/LFO");
     };
 
-    mainPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
-    // SUB + NOISE pinned below the oscillator cards: an editor setting, not a preset's.
-    // (V2 key: ilana 2026-10-15, start unpinned again, as pinned they squeeze OSC 3 out of PLAY.)
-    mainPage->setSubNoisePinned (settings->getBoolValue ("subNoisePinnedV2", false));
-    mainPage->onSubNoisePinChanged = [this] (bool pinned)
-    {
-        settings->setValue ("subNoisePinnedV2", pinned);
-        settings->saveIfNeeded();
-    };
+    playPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
     // The header's VOICES: the OSC page's VOICE tab (one voice panel).
     showVoicePanel = [this, oscViewport]
     {
@@ -445,21 +438,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             return getLocalArea (page, page->getCardBounds (osc));
         return {};
     };
-    // PLAY's oscillator title: that oscillator's full page.
-    mainPage->onEditOscillator = [this, oscViewport] (int osc)
-    {
-        if (auto* page = oscViewport->getPage())
-            page->selectOscillator (osc);
-        showPage ("OSC");
-    };
-
     // EDIT OP ENV (PLAY and OSC): the operator's envelope lives on FM.
     editOperator = [this, fmPage] (int op)
     {
         fmPage->selectOperator (op);
         showPage ("FM");
     };
-    mainPage->onEditOperator = [this] (int op) { showOperatorEnvelope (op); };
+    playPage->onEditOperator = [this] (int op) { showOperatorEnvelope (op); };
 
     // Any page can open the FM page on an operator (-1: as it was), and
     // MOD on OP PITCH and OP LFO (the FM card's link to them).
@@ -1752,14 +1737,16 @@ void IlanaSynthAudioProcessorEditor::resized()
     strip.removeFromRight (10);
 
     // The "+ MACRO" tile sits right after the last macro (review 11, S11-9).
-    const auto plusWidth = shownMacros < (int) macroKnobs.size() ? macroPlusButton.getIdealWidth() + 4 : 0;
-    const auto macroWidth = juce::jlimit (84, 122, (strip.getWidth() - plusWidth) / juce::jmax (1, shownMacros));
+    // (PLAY, review 24: the macros and + MACRO at one even pitch across the row.)
+    const auto hasPlus = shownMacros < (int) macroKnobs.size();
+    const auto plusWidth = hasPlus ? macroPlusButton.getIdealWidth() + 4 : 0;
+    const auto macroWidth = juce::jlimit (84, 190, (strip.getWidth() + 10) / juce::jmax (1, shownMacros + (hasPlus ? 1 : 0)));
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
         macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
 
     const auto macrosEnd = strip.getX() + shownMacros * macroWidth;
-    macroPlusButton.setBounds (macrosEnd, strip.getCentreY() - 12, macroPlusButton.getIdealWidth(), 24);
+    macroPlusButton.setBounds (macrosEnd + (macroWidth - macroPlusButton.getIdealWidth()) / 2, strip.getCentreY() - 12, macroPlusButton.getIdealWidth(), 24);
     macroPlusButton.setVisible (plusWidth > 0);
 
     // The hover line: in what is left of the macro row, between the last

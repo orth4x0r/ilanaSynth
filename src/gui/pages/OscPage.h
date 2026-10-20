@@ -1737,7 +1737,8 @@ public:
         for (const auto& card : cards)
             paintOscCard (g, card);
 
-        paintStrip (g);
+        if (! embedded)
+            paintStrip (g);
     }
 
     // A right-click on a card's header: switch it off or remove it (the old
@@ -1784,6 +1785,16 @@ public:
     }
 
     int getSelectedOscillator() const { return selected; }
+
+    // PLAY hosts the cards alone: no VOICE / NOISE / SUB / STRINGS strip below them.
+    void setEmbedded (bool shouldEmbed)
+    {
+        if (embedded == shouldEmbed)
+            return;
+
+        embedded = shouldEmbed;
+        updateModeVisibility();
+    }
 
     // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
     // unless it had a type), or as that type. The add row and the UI tests.
@@ -2219,7 +2230,8 @@ private:
     // 190 px cards hid the VOICE strip and the sampler rows below them, and
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
-    bool isFolded (int osc) const { return isOff (osc); }
+    // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
+    bool isFolded (int osc) const { return ! embedded && isOff (osc); }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
     static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain; }
@@ -2232,10 +2244,15 @@ private:
         return juce::jmax (needed, aux[(size_t) osc]->extraWarps);
     }
 
+    // (Embedded on PLAY the warp rows are a little closer, so the three cards leave the module bands their room.)
+    int warpRowH() const { return embedded ? 28 : ampRowH; }
+    int warpChipH() const { return embedded ? 12 : chipH; }
+    int warpDial() const { return embedded ? 17 : ampDial; }
+
     int waveContentHeight (int osc) const
     {
         const auto rows = 2 + effectiveExtraWarps (osc);
-        return rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
+        return rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
     }
 
     static constexpr int physTopH = 100, physBottomH = 64, sampleTopH = 100;
@@ -2256,7 +2273,7 @@ private:
             return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 4) + panelTail + 1 + cardPad + 1;
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
-        const auto content = rows * ampRowH + (rows - 1) + (rows < 4 ? 3 + chipH : 0);
+        const auto content = rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
@@ -2314,7 +2331,10 @@ private:
         return heights;
     }
 
-    bool canAdd() const { return numShown() < OscillatorIds::count; }
+    // (Embedded on PLAY the row shows only while a card or two leave room: three oscillators and the
+    // two module rows fill the page, and the OSC tab adds more.)
+    bool canAdd() const { return numShown() < (embedded ? embeddedAddRowBelow : OscillatorIds::count); }
+    static constexpr int embeddedAddRowBelow = 3;
 
     // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
     int stripPanelHeight() const { return stripPanelBase + stripBonus; }
@@ -2322,13 +2342,18 @@ private:
     int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (stripOpen ? 2 * (panel + panelGap) : 0); }
     int stripHeight() const { return stripHeightFor (stripBonus); }
 
+    // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
+    int topNow() const { return embedded ? 2 : topMargin; }
+    int gapNow() const { return embedded ? 0 : gap; }
+    int bottomNow() const { return embedded ? 0 : bottomMargin; }
+
     int contentHeight (const std::vector<int>& heights) const
     {
-        auto total = topMargin + stripHeightFor (0) + bottomMargin;
+        auto total = topNow() + (embedded ? 0 : stripHeightFor (0)) + bottomNow();
         for (const auto height : heights)
-            total += height + gap;
+            total += height + gapNow();
         if (canAdd())
-            total += addRowHeight + gap;
+            total += addRowHeight + gapNow();
         return total;
     }
 
@@ -2364,6 +2389,7 @@ private:
         }
 
         // What the cards left over goes to the strip's panels: bigger dials where the window has room.
+        if (! embedded)
         {
             auto used = contentHeight (heights);
             const auto rows = stripOpen ? 4 : 2;
@@ -2376,7 +2402,7 @@ private:
         }
 
         const auto width = getWidth() - sideMargin * 2;
-        auto y = topMargin;
+        auto y = topNow();
 
         for (size_t i = 0; i < shown.size(); ++i)
         {
@@ -2386,7 +2412,7 @@ private:
             card.bounds = { sideMargin, y, width, heights[i] };
             layoutCard (card);
             cards.push_back (card);
-            y += heights[i] + gap;
+            y += heights[i] + gapNow();
         }
 
         addArea = {};
@@ -2408,7 +2434,15 @@ private:
             addFmButton.setBounds (row.removeFromRight (addFmWidth));
             row.removeFromRight (gap);
             addButton.setBounds (row);
-            y += addRowHeight + gap;
+            y += addRowHeight + gapNow();
+        }
+
+        // (Embedded on PLAY: the cards alone, no strip below them.)
+        if (embedded)
+        {
+            stripArea = {};
+            stripPanels.clear();
+            return;
         }
 
         const auto stripY = juce::jmax (y, getHeight() - bottomMargin - stripHeight());
@@ -2564,11 +2598,12 @@ private:
             auto y = middle (c, waveContentHeight (index));
             for (int r = 0; r < rows; ++r)
             {
-                menus[r]->setBounds ({ columnX, y + (ampRowH - menuH) / 2, comboW, menuH });
-                placeKnob (*amounts[r], columnX + comboW + 3, y, ampCell, ampDial);
-                y += ampRowH + 1;
+                menus[r]->setBounds ({ columnX, y + (warpRowH() - menuH) / 2, comboW, menuH });
+                // (The ring and its name sit 1 px low: their block, name included, centres on the menu beside them.)
+                placeKnob (*amounts[r], columnX + comboW + 3, y + 1, ampCell, warpDial());
+                y += warpRowH() + 1;
             }
-            pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), chipH) : juce::Rectangle<int>());
+            pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
         }
 
         // PITCH
@@ -2945,8 +2980,8 @@ private:
                         const auto areaX = c.getX() + knobCell + 7;
                         const auto columnW = (c.getRight() - areaX - 7) / 2;
                         const auto x = areaX + (used % 2) * (columnW + 7);
-                        const auto y = c.getY() + (used / 2) * (ampRowH + 1);
-                        shapers[i].first->setBounds ({ x, y + (ampRowH - menuH) / 2, juce::jmax (40, columnW - ampCell - 3), menuH });
+                        const auto y = c.getY() + (used / 2) * (warpRowH() + 1);
+                        shapers[i].first->setBounds ({ x, y + (warpRowH() - menuH) / 2, juce::jmax (40, columnW - ampCell - 3), menuH });
                         placeKnob (*shapers[i].second, x + juce::jmax (40, columnW - ampCell - 3) + 3, y, ampCell, ampDial);
                         ++used;
                     }
@@ -3397,7 +3432,7 @@ private:
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 14.0f, (float) centre }, tint);
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (embedded ? 13.0f : 10.0f, true));
         IlanaTheme::drawFitted (g, "OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 23, centre - 9, 38, 18), juce::Justification::centredLeft, 1);
 
         if (isFolded (index))
@@ -4237,13 +4272,13 @@ private:
                                                                     voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
                                                                     subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount, &symCount,
                                                                     &symDecay, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix, &moreButton })
-            item->setVisible (true);
+            item->setVisible (! embedded);
 
         for (auto* item : std::initializer_list<juce::Component*> { &symManual, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            item->setVisible (stripOpen);
+            item->setVisible (stripOpen && ! embedded);
 
         for (auto& note : symNotes)
-            note->setVisible (stripOpen && readBool ("sym_manual"));
+            note->setVisible (stripOpen && ! embedded && readBool ("sym_manual"));
 
         moreButton.setButtonText (stripOpen ? juce::String ("LESS ") + juce::String::fromUTF8 ("\xe2\x96\xb4")
                                             : juce::String ("MORE ") + juce::String::fromUTF8 ("\xe2\x96\xbe"));
@@ -4634,6 +4669,7 @@ private:
     int selected = 0;
     int stripBonus = 0;
     bool stripOpen = false;
+    bool embedded = false; // on PLAY: the oscillator cards without the voice strip
     float laidOutScale = 0.0f;
 
     std::array<std::unique_ptr<juce::TextButton>, OscillatorIds::count> loadButtons, editButtons, bounceButtons;
@@ -4695,6 +4731,8 @@ public:
     // labels and dials read like the other tabs'. Where it would have to
     // scroll, it stays at 1.
     static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
+    // PLAY's copy keeps its cards at their drawn size (the bands under them are not scaled).
+    void setMaximumScale (float scale) { maxScale = scale; }
 
     void resized() override
     {
@@ -4702,7 +4740,7 @@ public:
         if (auto* page = getPage())
         {
             const auto width = (float) getWidth(), height = (float) getHeight();
-            const auto widest = juce::jlimit (1.0f, maximumContentScale, width / minimumVirtualWidth);
+            const auto widest = juce::jlimit (1.0f, maxScale, width / minimumVirtualWidth);
 
             auto chosen = 1.0f;
             for (auto scale = widest; scale > 1.005f; scale -= 0.02f)
@@ -4729,5 +4767,8 @@ public:
                            juce::jmax (getHeight(), needed));
         }
     }
+
+private:
+    float maxScale = maximumContentScale;
 };
 } // namespace

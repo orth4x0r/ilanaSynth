@@ -66,34 +66,51 @@ def cell(row):
                               int(f("sustain_db") > -14), int(f("movement") >= 0.8), int(f("width") >= 0.35))))
 
 
-def render(folder, out):
+def render(folder, out, keep=False):
     """Render every preset in FOLDER into OUT (chunks of 24 in separate processes: the renderer dies on big batches)."""
     files = sorted(Path(folder).glob("*.ilanapreset"))
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     rows, n = [], 0
-    for c in range(0, len(files), 24):
+    def run_chunk(batch):
         chunk = out.parent / f"{out.name}-chunk"
         shutil.rmtree(chunk, ignore_errors=True)
         (chunk / "in").mkdir(parents=True)
-        for f in files[c:c + 24]:
+        for f in batch:
             shutil.copy(f, chunk / "in" / f.name)
         env = dict(os.environ, ILANA_RENDER_FILES=str(chunk / "in"))
-        subprocess.run(["xvfb-run", "-a", str(RENDER), str(chunk / "out")], env=env, check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        done = subprocess.run(["xvfb-run", "-a", str(RENDER), str(chunk / "out")], env=env,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        return chunk, done
+
+    def collect(chunk):
+        nonlocal n
         for row in csv.DictReader(open(chunk / "out" / "index.csv", newline="", encoding="utf-8")):
             shutil.copytree(chunk / "out" / row["index"], out / str(n))
             row["index"] = str(n)
             rows.append(row)
             n += 1
         shutil.rmtree(chunk)
+
+    for c in range(0, len(files), 24):
+        batch = files[c:c + 24]
+        chunk, ok = run_chunk(batch)
+        if ok:
+            collect(chunk)
+            continue
+        for f in batch:  # a preset crashed the renderer: render one by one and skip the crashers
+            chunk, ok = run_chunk([f])
+            if ok:
+                collect(chunk)
+            else:
+                print("renderer crashed on", f.name, flush=True)
     with open(out / "index.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
     subprocess.run([sys.executable, str(ROOT / "tools" / "preset_critic.py"), str(out)], check=True, stdout=subprocess.DEVNULL)
     rep = {r["name"]: r for r in csv.DictReader(open(out / "report.csv", newline="", encoding="utf-8"))}
-    for sub in out.iterdir():  # the wavs are not needed after measuring: the archive keeps the presets
+    for sub in ([] if keep else out.iterdir()):  # the wavs are not needed after measuring: the archive keeps the presets
         if sub.is_dir():
             shutil.rmtree(sub)
     return rep

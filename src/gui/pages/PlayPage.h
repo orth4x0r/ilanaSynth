@@ -72,11 +72,12 @@ public:
         const auto bounds = getLocalBounds().toFloat().reduced (1.0f);
         const auto on = current > 0;
         g.setColour (on ? colour : IlanaTheme::Ui::raised.interpolatedWith (colour, isMouseOver() ? 0.12f : 0.0f));
-        g.fillRoundedRectangle (bounds, 4.0f);
+        const auto radius = bounds.getHeight() * 0.5f;
+        g.fillRoundedRectangle (bounds, radius);
         if (! on)
         {
             g.setColour (IlanaTheme::Ui::line);
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         }
         g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (8.5f, true));
@@ -84,6 +85,9 @@ public:
     }
 
     void mouseDown (const juce::MouseEvent&) override { setValue (current > 0 ? 0 : 1); }
+
+    // The text's width, so a row of pills can be sized to what they say.
+    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (8.5f, true)), label); }
 
 private:
     juce::String label;
@@ -395,7 +399,6 @@ private:
             }
             shape = std::make_unique<ComboControl> (state, prefix + "_shape", "SHAPE");
             LfoShapeMenu::apply (*shape, processorRef);
-            shape->setTint (colour);
             shape->setPackedMenu (true);
             addAndMakeVisible (*shape);
         }
@@ -407,13 +410,12 @@ private:
         if (graph == nullptr)
             return;
 
-        auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
-        // (The envelope's last dial ends as far from the card as its graph starts.)
-        if (kind == Kind::envelope)
-            body.setRight (body.getRight() + 4);
+        // (Equal above and below the graph, and at both sides: the envelope's last dial and the LFO's buttons end as far from the card as the graph starts.)
+        auto body = getLocalBounds().withTrimmedTop (headerHeight + 1).withTrimmedBottom (2).reduced (7, 0);
+        body.setRight (body.getRight() + (kind == Kind::envelope ? 4 : 2));
         const auto cell = 36;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
-        const auto lfoColumn = 86;
+        const auto lfoColumn = 100;
         const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
                                                         : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 9);
         graph->setBounds (body.removeFromLeft (graphWidth));
@@ -455,13 +457,25 @@ private:
         // Three pills at one gap (each draws 1 px inside its bounds, so the row reaches 1 px past the column on both sides).
         const auto count = juce::jmax (1, (int) toggles.size());
         const auto across = switches.getWidth() + 2;
-        const auto pillW = (across - 2 * (count - 1)) / count;
-        const auto pillGap = count > 1 ? (across - pillW * count) / (count - 1) : 0;
+        // Each pill as wide as its word plus its padding; the gaps 5 where they fit, the padding giving way (not under 4.5) when they don't.
+        auto textTotal = 0.0f;
+        for (auto& toggle : toggles)
+            textTotal += toggle->textWidth();
+        const auto gap = 5;
+        const auto pad = juce::jlimit (4.5f, 9.0f, ((float) (across - gap * (count - 1)) - textTotal) / (float) (2 * count));
+        auto widths = std::vector<int>();
+        auto used = 0;
+        for (auto& toggle : toggles)
+        {
+            widths.push_back (juce::roundToInt (toggle->textWidth() + 2.0f * pad));
+            used += widths.back();
+        }
+        const auto gaps = count > 1 ? (across - used) / (count - 1) : 0;
         auto pills = switches.expanded (1, 0);
         for (size_t i = 0; i < toggles.size(); ++i)
         {
-            toggles[i]->setBounds (pills.removeFromLeft (pillW));
-            pills.removeFromLeft (pillGap);
+            toggles[i]->setBounds (i + 1 == toggles.size() ? pills : pills.removeFromLeft (widths[i]));
+            pills.removeFromLeft (gaps);
         }
         shape->setBounds (column.removeFromTop (rowH));
         column.removeFromTop (gapB);

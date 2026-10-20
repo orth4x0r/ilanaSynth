@@ -114,6 +114,36 @@ void save (juce::Component& editor, const juce::File& file)
     juce::FileOutputStream stream (file);
     juce::PNGImageFormat().writeImageToStream (image, stream);
     std::cout << file.getFullPathName() << std::endl;
+
+    // ILANA_SNAPSHOT_FULL=1: a page that scrolls is also written whole (<name>-full.png), from its viewport's content.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FULL", "0") == "1")
+    {
+        std::function<void (juce::Component&)> visit = [&] (juce::Component& parent)
+        {
+            for (auto* child : parent.getChildren())
+            {
+                if (! child->isVisible())
+                    continue;
+                if (auto* viewport = dynamic_cast<juce::Viewport*> (child); viewport != nullptr && viewport->getViewedComponent() != nullptr
+                    && viewport->getViewedComponent()->getHeight() > viewport->getHeight() + 2 && viewport->getWidth() > 600)
+                {
+                    const auto position = viewport->getViewPosition();
+                    viewport->setViewPosition (0, 0);
+                    auto* content = viewport->getViewedComponent();
+                    const auto whole = content->createComponentSnapshot (content->getLocalBounds(), true, scale > 0.1f ? scale : 1.5f);
+                    viewport->setViewPosition (position);
+                    const auto fullFile = file.getSiblingFile (file.getFileNameWithoutExtension() + "-full.png");
+                    fullFile.deleteFile();
+                    juce::FileOutputStream fullStream (fullFile);
+                    juce::PNGImageFormat().writeImageToStream (whole, fullStream);
+                    std::cout << fullFile.getFullPathName() << std::endl;
+                    return;
+                }
+                visit (*child);
+            }
+        };
+        visit (editor);
+    }
 }
 int uiFailures = 0;
 

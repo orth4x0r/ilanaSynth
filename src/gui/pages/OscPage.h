@@ -1936,13 +1936,13 @@ private:
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
-    static constexpr int pitchW = 160, mixW = 164, unisonW = 270;
+    static constexpr int pitchW = 166, mixW = 170, unisonW = 288;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
-    int pitchColumn() const { return embedded ? 175 : pitchW; }
-    int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 35, ampCell = 27, menuH = 16;
+    int pitchColumn() const { return embedded ? 181 : pitchW; }
+    int unisonColumn() const { return embedded ? 293 : unisonW; }
+    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 14, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 13, stripDialBase = 28, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 7;
+    static constexpr int addRowHeight = 13, stripDialBase = 35, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 0;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2324,7 +2324,7 @@ private:
             heights.push_back (embedded ? panelCardHeight (each) : minimumOpenHeight (each));
 
         const auto room = embedded ? getReferenceHeight() : getHeight();
-        if (contentHeight (heights) <= room)
+        if (true || contentHeight (heights) <= room)
             return false;
 
         std::vector<int> order;
@@ -3954,10 +3954,13 @@ private:
         if (viewport == nullptr)
             return;
 
-        const auto area = osc >= 0 ? getCardBounds (osc) : stripArea;
+        auto area = osc >= 0 ? getCardBounds (osc) : stripArea;
 
         if (area.isEmpty())
             return;
+
+        // (The OSC tab draws the page larger than it lays it out: the viewport's coordinates are the scaled ones.)
+        area = area.toFloat().transformedBy (getTransform()).getSmallestIntegerContainer();
 
         const auto top = viewport->getViewPositionY();
         const auto height = viewport->getViewHeight();
@@ -5021,18 +5024,20 @@ public:
     explicit OscPageViewport (IlanaSynthAudioProcessor& processor)
     {
         setScrollBarsShown (true, false);
-        auto* page = new OscPage (processor);
+        auto* holder = new Holder();
+        page = new OscPage (processor);
+        holder->addAndMakeVisible (page);
         page->onModeChanged = [this] { resized(); };
-        setViewedComponent (page, true);
+        setViewedComponent (holder, true);
     }
 
-    OscPage* getPage() const { return dynamic_cast<OscPage*> (getViewedComponent()); }
+    OscPage* getPage() const { return page; }
 
     // The page is laid out for 1060 design units of width, and its cards pack
     // a lot in; where the window is wider than the packing needs, the whole
     // page is drawn this much larger (the wave column takes the rest), so the
-    // labels and dials read like the other tabs'. Where it would have to
-    // scroll, it stays at 1.
+    // labels and dials read like the other tabs'. The page never folds a card
+    // for room: what does not fit scrolls (ilana 2026-10-20: "i can just scroll").
     static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
     // PLAY's copy keeps its cards at their drawn size (the bands under them are not scaled).
     void setMaximumScale (float scale) { maxScale = scale; }
@@ -5043,6 +5048,9 @@ public:
         setScrollBarsShown (! overlay, false);
     }
 
+    // The page's scale on screen (the holder is as tall as the scaled page).
+    float getContentScale() const { return page->getTransform().mat00; }
+
     void resized() override
     {
         // (A fold change while the scale is tried calls back here: the outer pass settles the page.)
@@ -5050,35 +5058,28 @@ public:
             return;
         const juce::ScopedValueSetter<bool> guard (resizing, true);
         juce::Viewport::resized();
-        if (auto* page = getPage())
+        auto* holder = getViewedComponent();
+        const auto height = (float) getHeight();
+        auto width = (float) getWidth();
+
+        const auto settle = [&] (float outerWidth)
         {
-            const auto width = (float) getWidth(), height = (float) getHeight();
-            const auto widest = juce::jlimit (1.0f, maxScale, width / minimumVirtualWidth);
+            const auto scale = juce::jlimit (1.0f, maxScale, outerWidth / minimumVirtualWidth);
+            page->setTransform (juce::AffineTransform::scale (scale));
+            page->setSize (juce::jmax (1, juce::roundToInt (outerWidth / scale)), juce::jmax (1, juce::roundToInt (height / scale)));
+            const auto needed = juce::jmax (page->getHeight(), page->getMinimumHeight());
+            page->setSize (page->getWidth(), needed);
+            return scale;
+        };
 
-            auto chosen = 1.0f;
-            for (auto scale = widest; scale > 1.005f; scale -= 0.02f)
-            {
-                page->setSize (juce::jmax (1, juce::roundToInt (width / scale)), juce::jmax (1, juce::roundToInt (height / scale)));
-                if (page->getMinimumHeight() <= juce::roundToInt (height / scale))
-                {
-                    chosen = scale;
-                    break;
-                }
-            }
-
-            page->setTransform (juce::AffineTransform::scale (chosen));
-
-            if (chosen > 1.0f)
-            {
-                page->setSize (juce::roundToInt (width / chosen), juce::roundToInt (height / chosen));
-                return;
-            }
-
-            const auto needed = page->getMinimumHeight();
-            const auto scrolls = needed > getHeight();
-            page->setSize (juce::jmax (1, getWidth() - (scrolls && ! overlayScroll ? getScrollBarThickness() : 0)),
-                           juce::jmax (getHeight(), needed));
+        auto scale = settle (width);
+        if (page->getHeight() * scale > height + 0.5f && ! overlayScroll)
+        {
+            width -= (float) getScrollBarThickness();
+            scale = settle (width);
         }
+        holder->setSize (juce::roundToInt (width), juce::roundToInt ((float) page->getHeight() * scale));
+        page->setTopLeftPosition (0, 0);
     }
 
     bool resizing = false;
@@ -5094,7 +5095,7 @@ public:
             return;
         }
 
-        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
+        const auto maxY = juce::jmax (0, getViewedComponent()->getHeight() - getHeight());
         const auto now = juce::Time::getMillisecondCounter();
         if (maxY == 0 || wheel.deltaY == 0.0f || now - lastWheel < 140)
             return;
@@ -5130,7 +5131,7 @@ public:
         auto* page = getPage();
         if (page == nullptr)
             return position;
-        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
+        const auto maxY = juce::jmax (0, getViewedComponent()->getHeight() - getHeight());
         auto best = juce::jmin (position, maxY);
         auto distance = 1 << 30;
         for (const auto top : page->getCardTops())
@@ -5150,6 +5151,8 @@ public:
     }
 
 private:
+    struct Holder : juce::Component {};
+    OscPage* page = nullptr;
     float maxScale = maximumContentScale;
     bool overlayScroll = false;
     juce::uint32 lastWheel = 0;

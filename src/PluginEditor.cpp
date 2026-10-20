@@ -357,7 +357,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         sections.push_back (section);
     };
 
-    addSection ("PLAY", { { "MAIN", "OVERVIEW", playPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
+    addSection ("PLAY", { { "MAIN", "OVERVIEW", new PlayScrollHost (playPage) }, { "VECTOR", "VECTOR", new VectorPage (p) } });
     auto* oscViewport = new OscPageViewport (p);
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
     addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });

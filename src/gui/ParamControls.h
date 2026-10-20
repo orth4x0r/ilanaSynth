@@ -753,9 +753,17 @@ inline bool scrollPageInstead (juce::Component& control, const juce::MouseEvent&
     if (event.mods.isCommandDown() || event.mods.isCtrlDown())
         return false;
 
-    auto* viewport = control.findParentComponentOfClass<juce::Viewport>();
-    if (viewport == nullptr || viewport->getViewedComponent() == nullptr
-        || viewport->getViewedComponent()->getHeight() <= viewport->getMaximumVisibleHeight())
+    // (The nearest page that scrolls: PLAY's card area inside PLAY's own scroll, say.)
+    juce::Viewport* viewport = nullptr;
+    for (auto* parent = control.getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+        if (auto* candidate = dynamic_cast<juce::Viewport*> (parent);
+            candidate != nullptr && candidate->getViewedComponent() != nullptr
+            && candidate->getViewedComponent()->getHeight() > candidate->getMaximumVisibleHeight())
+        {
+            viewport = candidate;
+            break;
+        }
+    if (viewport == nullptr)
         return false;
 
     viewport->mouseWheelMove (event.getEventRelativeTo (viewport), wheel);
@@ -1152,8 +1160,8 @@ public:
     static constexpr float kPackedValueSize = 6.1f;
     // PLAY's dials (setPackedValueRoom) write the value under the ring in its own line, in a big readable size
     // (ilana 2026-10-20: the in-ring numbers were tiny in Live), the name under that.
-    static constexpr int packedValueLine = 15, packedValueLine2 = 25;
-    static constexpr float kBelowNumberSize = 13.5f, kBelowUnitSize = 9.4f;
+    static constexpr int packedValueLine = 19, packedValueLine2 = 29;
+    static constexpr float kBelowNumberSize = 18.0f, kBelowUnitSize = 9.4f;
 
     void setPackedDial (float dial)
     {
@@ -1645,6 +1653,27 @@ public:
         const auto unitW = unit.isEmpty() ? 0.0f : juce::GlyphArrangement::getStringWidth (juce::Font (unitFont), unit) + 1.5f;
         const auto numberW = juce::GlyphArrangement::getStringWidth (juce::Font (numberFont), text);
         auto right = inner.getRight();
+        const auto twoLines = inner.getHeight() >= 30.0f;
+        if (twoLines)
+        {
+            // A bar tall enough for it writes the number big and its unit under it at the right, as the dials do.
+            const auto numberH = (float) packedValueLine;
+            const auto top = inner.getY() + (inner.getHeight() - numberH - (unit.isEmpty() ? 0.0f : 10.0f)) * 0.5f;
+            g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
+            g.setFont (numberFont);
+            g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, top, numberW + 1.0f, numberH), juce::Justification::centredRight, false);
+            if (unit.isNotEmpty())
+            {
+                g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (alpha));
+                g.setFont (unitFont);
+                g.drawText (unit, juce::Rectangle<float> (right - unitW, top + numberH - 1.0f, unitW, 10.0f), juce::Justification::centredRight, false);
+            }
+            const auto reach = juce::jmax (numberW, unitW);
+            g.setColour (IlanaTheme::Ui::text.withAlpha (0.82f).withMultipliedAlpha (alpha));
+            g.setFont (IlanaTheme::font (7.6f, true));
+            g.drawText (label.getText(), juce::Rectangle<float> (inner.getX(), inner.getY(), juce::jmax (0.0f, right - reach - 4.0f - inner.getX()), inner.getHeight()), juce::Justification::centredLeft, true);
+            return;
+        }
         if (unit.isNotEmpty())
         {
             g.setColour (IlanaTheme::Ui::text2.withMultipliedAlpha (alpha));

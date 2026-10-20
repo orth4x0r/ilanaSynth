@@ -417,7 +417,7 @@ private:
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
         body.setRight (body.getRight() + (kind == Kind::envelope ? 4 : 0));
         // (The LFO's three dials sit in 34 px cells so its pills keep their padding; the graph keeps its size.)
-        const auto cell = kind == Kind::envelope ? 36 : 34;
+        const auto cell = 38;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
         const auto lfoColumn = 91;
         const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
@@ -980,24 +980,23 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (sideMargin, 0);
-        // The oscillator cards take what they need (all three of them, or the page scrolls them);
-        // the two module bands sit under them at one height.
-        const auto bottom = area.getBottom() - bottomMargin;
-        const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
-        // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
-        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
-        const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
-        oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
-        oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, bandsTop - 8));
+        // The oscillator cards take what they need (whole, never folded: the page scrolls instead, ilana 2026-10-20);
+        // the three module rows follow them, each at its own height.
+        const auto oscNeed = oscCardsHeight();
+        oscView.setBounds (getLocalBounds().withHeight (oscNeed));
+        oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, oscNeed - 8));
         syncOscBar();
 
-        // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
-        const auto band1Height = juce::jlimit (minBand, 79, bandsHeight - gap - 88);
-        const auto bandHeight = bandsHeight - gap - band1Height;
-        auto band1 = juce::Rectangle<int> (area.getX(), bandsTop, area.getWidth(), band1Height);
-        auto band2 = juce::Rectangle<int> (area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight);
-        layoutBand1 (band1);
-        layoutBand2 (band2);
+        auto y = oscNeed;
+        const auto nextRow = [&]
+        {
+            const juce::Rectangle<int> row (area.getX(), y, area.getWidth(), bandRowHeight);
+            y += bandRowHeight + bandGap;
+            return row;
+        };
+        layoutBand1 (nextRow());
+        layoutBandWest (nextRow());
+        layoutBand2 (nextRow());
 
         // The cards' rectangles, for the layout tests' margin scan (x, y, width, height; name).
         juce::String cards;
@@ -1023,8 +1022,8 @@ private:
         std::vector<std::unique_ptr<KnobControl>> bars;
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 36, westCell = 31;
-    static constexpr int minBand = 62, maxBand = 96;
+    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 38, filterCell = 36, westCell = 38;
+    static constexpr int bandRowHeight = 137, bandGap = 3;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -1064,14 +1063,19 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
-    // What the bands may take: the oscillator cards' own height (their page's
-    // minimum, with its add row) first.
-    int bandsHeightFor (int pageHeight) const
+    // The height PLAY needs for three whole oscillator cards over the two bands at their best; where the window is shorter the
+    // page scrolls (PlayScrollHost), where it is taller the bands take the room up to their largest.
+public:
+    int getRequiredHeight() const
     {
-        auto oscHeight = 0;
-        if (auto* page = oscView.getPage())
-            oscHeight = page->getReferenceHeight();
-        return pageHeight - bottomMargin - oscHeight;
+        return oscCardsHeight() + 3 * bandRowHeight + 2 * bandGap + bottomMargin;
+    }
+
+private:
+    int oscCardsHeight() const
+    {
+        auto* page = oscView.getPage();
+        return page != nullptr ? juce::jmax (page->getReferenceHeight(), page->getMinimumHeight()) : 0;
     }
 
     void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint) const
@@ -1127,15 +1131,13 @@ private:
 
     void layoutBand1 (juce::Rectangle<int> band)
     {
-        const auto total = band.getWidth() - 2 * hGap;
-        const auto filterWidth = juce::roundToInt ((float) total * 0.35f);
+        const auto total = band.getWidth() - hGap;
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
-            filterCardBounds[(size_t) f] = row.removeFromLeft (filterWidth);
+            filterCardBounds[(size_t) f] = row.removeFromLeft (f == 0 ? total / 2 : total - total / 2);
             row.removeFromLeft (hGap);
         }
-        westBounds = row;
 
         for (int f = 0; f < 2; ++f)
         {
@@ -1150,7 +1152,7 @@ private:
 
             // (The graph's edge is 5 from the card on the left; the last dial's ring is 5 from it on the right.)
             auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
-            const auto barsWidth = 106, columnGap = 4;
+            const auto barsWidth = 125, columnGap = 4;
             auto barArea = body.removeFromRight (2 * barsWidth + columnGap);
             parts.display->setBounds (body.withTrimmedRight (4));
             // (Two columns of three equal rows, as tall as the graph: the card's body from top to bottom.)
@@ -1158,6 +1160,29 @@ private:
             for (size_t i = 0; i < parts.bars.size(); ++i)
                 parts.bars[i]->setBounds (barArea.getX() + (int) (i / 3) * (barsWidth + columnGap), barArea.getY() + (int) (i % 3) * (rowH + rowGap), barsWidth, rowH);
         }
+    }
+
+    void layoutBand2 (juce::Rectangle<int> band)
+    {
+        const auto total = band.getWidth() - hGap;
+        auto row = band;
+        envelopeCard.setBounds (row.removeFromLeft (total / 2));
+        row.removeFromLeft (hGap);
+        lfoCard.setBounds (row);
+    }
+
+    // WEST COAST, BODY and SUB / NOISE in one row.
+    void layoutBandWest (juce::Rectangle<int> band)
+    {
+        const auto total = band.getWidth() - 2 * hGap;
+        const auto westWidth = juce::roundToInt ((float) total * 0.40f);
+        const auto bodyWidth = juce::roundToInt ((float) total * 0.20f);
+        auto row = band;
+        westBounds = row.removeFromLeft (westWidth);
+        row.removeFromLeft (hGap);
+        bodyBounds = row.removeFromLeft (bodyWidth);
+        row.removeFromLeft (hGap);
+        subNoiseBounds = row;
 
         {
             const auto centre = westBounds.getY() + headerHeight / 2;
@@ -1173,22 +1198,6 @@ private:
             westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 5));
             placeKnobRow (body, pointers (westKnobs), westCell, 9);
         }
-    }
-
-    void layoutBand2 (juce::Rectangle<int> band)
-    {
-        const auto total = band.getWidth() - 3 * hGap;
-        const auto envWidth = juce::roundToInt ((float) total * 0.3594f);
-        const auto lfoWidth = juce::roundToInt ((float) total * 0.2895f);
-        const auto bodyWidth = juce::roundToInt ((float) total * 0.1180f);
-        auto row = band;
-        envelopeCard.setBounds (row.removeFromLeft (envWidth));
-        row.removeFromLeft (hGap);
-        lfoCard.setBounds (row.removeFromLeft (lfoWidth));
-        row.removeFromLeft (hGap);
-        bodyBounds = row.removeFromLeft (bodyWidth);
-        row.removeFromLeft (hGap);
-        subNoiseBounds = row;
 
         {
             const auto centre = bodyBounds.getY() + headerHeight / 2;
@@ -1322,5 +1331,31 @@ private:
     std::unique_ptr<PillChoice> subOctave;
     std::vector<std::unique_ptr<KnobControl>> westKnobs, bodyKnobs;
     std::unique_ptr<KnobControl> subLevel, noiseLevel, noiseColour;
+};
+
+// PLAY in a vertical scroll: the page keeps the height its cards and bands need (never shrunk into the window), and the
+// window scrolls over it. The tab row, the header and the bottom bar stay where they are.
+class PlayScrollHost : public juce::Viewport
+{
+public:
+    explicit PlayScrollHost (PlayPage* content)
+    {
+        setScrollBarsShown (true, false);
+        setViewedComponent (content, true);
+        page = content;
+    }
+
+    PlayPage& getPlayPage() const { return *page; }
+
+    void resized() override
+    {
+        juce::Viewport::resized();
+        const auto needed = page->getRequiredHeight();
+        const auto scrolls = needed > getHeight();
+        page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)), juce::jmax (getHeight(), needed));
+    }
+
+private:
+    PlayPage* page = nullptr;
 };
 } // namespace

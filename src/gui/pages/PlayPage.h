@@ -947,7 +947,7 @@ public:
         const auto bottom = area.getBottom() - bottomMargin;
         const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
-        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getMinimumHeight() : 0;
+        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
 
@@ -1012,7 +1012,7 @@ private:
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = page->getMinimumHeight();
+            oscHeight = page->getReferenceHeight();
         return pageHeight - bottomMargin - oscHeight;
     }
 

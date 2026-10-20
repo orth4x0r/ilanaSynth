@@ -1765,6 +1765,19 @@ public:
         return contentHeight (minimumHeights());
     }
 
+    // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
+    // card (a sample, a string) scrolls inside the cards' area instead of squeezing the bands.
+    int getReferenceHeight() const
+    {
+        const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * warpRowH() + 1 + 3 + warpChipH()) + panelTail + 1 + cardPad + 1;
+        std::vector<int> heights;
+        // (Never more than the three cards PLAY shows at once: a fourth operator and beyond scroll.)
+        for (const auto osc : shownList())
+            if (heights.size() < (size_t) embeddedAddRowBelow)
+                heights.push_back (isFolded (osc) ? foldedCardHeight : wavetableCard);
+        return contentHeight (heights);
+    }
+
     void resized() override
     {
         laidOutScale = IlanaTheme::uiScaleRef();
@@ -1874,6 +1887,9 @@ private:
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 160, mixW = 164, unisonW = 270;
+    // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
+    int pitchColumn() const { return embedded ? 175 : pitchW; }
+    int unisonColumn() const { return embedded ? 275 : unisonW; }
     static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
@@ -1989,6 +2005,11 @@ private:
                     add (osc.unison, 3, 0);
                 if (! OscRole::usesOperatorEg (processorRef, index))
                 {
+                    // (The whole unison, as the wavetable card's, so the panel is not left with one dial.)
+                    add (osc.uniMode, 3, 0);
+                    add (osc.detune, 3, 0);
+                    add (osc.uniBlend, 3, 0);
+                    add (osc.spread, 3, 0);
                     const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
                                                                             { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
                     for (const auto& [menu, amount] : shapers)
@@ -2475,8 +2496,12 @@ private:
     // what PITCH, MIX and UNISON leave (the strip below uses the same ones).
     struct Columns { int x[4]; int w[4]; };
 
-    static Columns columnsFor (int left, int width, int pitch = pitchW, int unison = unisonW)
+    Columns columnsFor (int left, int width, int pitch = 0, int unison = 0) const
     {
+        if (pitch <= 0)
+            pitch = pitchColumn();
+        if (unison <= 0)
+            unison = unisonColumn();
         Columns c;
         const auto total = width - 2 - 2 * cardPad;
         c.w[1] = pitch;
@@ -2695,8 +2720,8 @@ private:
         card.well = {};
 
         const auto left = rowArea.getX(), top = rowArea.getY();
-        const auto stringPanel = juce::Rectangle<int> (left, top, pitchW, physTopH + panelGap + physBottomH);
-        const auto rightX = left + pitchW + panelGap, rightW = rowArea.getWidth() - pitchW - panelGap;
+        const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), physTopH + panelGap + physBottomH);
+        const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
         const auto toneW = 195, resW = 175, smallW = 85;
         const auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
         const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, physTopH);
@@ -2704,8 +2729,8 @@ private:
         const auto resPanel = juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, physTopH);
         const auto mixPanel = juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, physTopH);
         const auto lowY = top + physTopH + panelGap;
-        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, pitchW, physBottomH);
-        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, unisonW, physBottomH);
+        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, pitchColumn(), physBottomH);
+        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, unisonColumn(), physBottomH);
         const auto morePanel = juce::Rectangle<int> (unisonPanel.getRight() + panelGap, lowY, rowArea.getRight() - unisonPanel.getRight() - panelGap, physBottomH);
 
         card.panels.push_back ({ stringPanel, "STRING", electric ? "" : "", tint });
@@ -2969,7 +2994,17 @@ private:
             }
             else
             {
-                placeKnob (osc.unison, c.getX(), middle (c, cellH), knobCell, mainDial);
+                // (A voice that is not a DX7 operator has a full unison: the mode, VOICES, DETUNE, BLEND and SPREAD, as the wavetable card's.)
+                const auto knobY = middle (c, cellH);
+                osc.uniMode.setBounds ({ c.getX(), knobY + 4, 55, menuH });
+                // (The four dials share what the menu leaves, so the row ends at the panel's edge.)
+                const auto unisonCell = juce::jlimit (33, 48, (c.getWidth() - 55 - 3) / 4);
+                auto unisonX = c.getX() + 55 + 3;
+                for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread })
+                {
+                    placeKnob (*knob, unisonX, knobY, unisonCell, mainDial);
+                    unisonX += unisonCell;
+                }
                 const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
                                                                         { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
                 const juce::StringArray stages { "_warp", "_warp2", "_spectral", "_pd_env" };
@@ -2977,10 +3012,10 @@ private:
                 for (int i = 0; i < 4; ++i)
                     if (readChoice (prefix + stages[i]) != 0)
                     {
-                        const auto areaX = c.getX() + knobCell + 7;
-                        const auto columnW = (c.getRight() - areaX - 7) / 2;
-                        const auto x = areaX + (used % 2) * (columnW + 7);
-                        const auto y = c.getY() + (used / 2) * (warpRowH() + 1);
+                        const auto areaX = unisonX + 7;
+                        const auto columnW = c.getRight() - areaX;
+                        const auto x = areaX;
+                        const auto y = c.getY() + used * (warpRowH() + 1);
                         shapers[i].first->setBounds ({ x, y + (warpRowH() - menuH) / 2, juce::jmax (40, columnW - ampCell - 3), menuH });
                         placeKnob (*shapers[i].second, x + juce::jmax (40, columnW - ampCell - 3) + 3, y, ampCell, ampDial);
                         ++used;
@@ -4092,6 +4127,10 @@ private:
         osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
+        // (On PLAY the unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every PLAY dial,
+        // so "0.0 dB" and "80 ms" keep clear of the ring.)
+        osc.egOut.setPackedValueRoom (embedded && panels ? 12 : 0);
+        osc.grainSize.setPackedValueRoom (embedded && panels ? 12 : 0);
         osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
         for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);

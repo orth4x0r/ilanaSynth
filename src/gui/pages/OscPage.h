@@ -800,6 +800,8 @@ public:
     // else the bar. The packed cards keep the chip in the header and the bar in MIX.
     enum class Part { either, chipOnly, barOnly };
     void setPart (Part newPart) { part = newPart; repaint(); }
+    // The width of the level text at the bar's end (PLAY keeps its wider one, v26).
+    void setValueWidth (float width) { valueWidth = width; repaint(); }
 
     // Re-reads the role and the level; repaints when they changed.
     void update (const juce::String& chipTextIn, juce::Colour chipColourIn, bool isLink, const juce::String& tip)
@@ -847,7 +849,7 @@ public:
             g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
-            const auto valueW = 28.0f;
+            const auto valueW = valueWidth;
             const auto track = juce::Rectangle<float> (area.getX() + 26.0f, area.getCentreY() - 2.5f, juce::jmax (0.0f, area.getWidth() - 26.0f - valueW - 4.0f), 5.0f);
             g.setColour (IlanaTheme::Ui::track);
             g.fillRoundedRectangle (track, 2.5f);
@@ -896,6 +898,7 @@ private:
     bool link = false;
     float level = -1.0f;
     Part part = Part::either;
+    float valueWidth = 28.0f;
 };
 
 // A small quiet action in the packed cards' panels (+ WARP): dashed, in the
@@ -1806,6 +1809,12 @@ public:
             return;
 
         embedded = shouldEmbed;
+        // (PLAY keeps the picture it was approved with, v26: equal route segments, the wider level text.)
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            aux[(size_t) i]->routeBar.setEqual (shouldEmbed);
+            aux[(size_t) i]->outBar.setValueWidth (shouldEmbed ? 34.0f : 28.0f);
+        }
         updateModeVisibility();
     }
 
@@ -2529,6 +2538,19 @@ private:
         knob.setBounds (KnobControl::packedBoundsFor ({ x, y, width, dial + nameLine }));
     }
 
+    // The four unison dials after a menu of `menuWidth`: the first ring right after the menu, the last ring ending at the
+    // panel's edge, one pitch between them (so no dead tail at the right of the panel).
+    static void placeEvenDials (juce::Rectangle<int> c, int y, int menuWidth, std::initializer_list<KnobControl*> knobs, int dial)
+    {
+        const auto count = (int) knobs.size();
+        const auto half = (float) dial * 0.5f;
+        const auto first = (float) (c.getX() + menuWidth + 4) + half, last = (float) c.getRight() - half;
+        const auto pitch = juce::jmax (33.0f, count > 1 ? (last - first) / (float) (count - 1) : 33.0f);
+        auto index = 0;
+        for (auto* knob : knobs)
+            placeKnob (*knob, juce::roundToInt (first + (float) index++ * pitch - pitch * 0.5f), y, juce::roundToInt (pitch), dial);
+    }
+
     static int packedButtonWidth (const juce::String& text)
     {
         return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f)), text) + 16;
@@ -2681,8 +2703,10 @@ private:
             const auto cell = 33;
             const auto cellH = mainDial + nameLine;
             const auto top = middle (c, cellH + 4 + spreadH);
-            osc.uniMode.setBounds ({ c.getX(), top + 4, 52, menuH });
-            auto x = c.getX() + 52 + 3;
+            // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
+            const auto menuW = embedded ? 55 : 52;
+            osc.uniMode.setBounds ({ c.getX(), top + 4, menuW, menuH });
+            auto x = c.getX() + menuW + 3;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {
                 placeKnob (*knob, x, top, cell, mainDial);
@@ -2722,7 +2746,7 @@ private:
         const auto left = rowArea.getX(), top = rowArea.getY();
         const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), physTopH + panelGap + physBottomH);
         const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
-        const auto toneW = 195, resW = 175, smallW = 85;
+        const auto toneW = 195, resW = 175, smallW = embedded ? 72 : 85;
         const auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
         const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, physTopH);
         const auto tonePanel = juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, physTopH);
@@ -2776,9 +2800,11 @@ private:
         // EXCITER: the pills and what the exciter does, its knobs to the right.
         {
             const auto c = panelContent (exciterPanel);
-            const auto cell = 35;
-            const auto count = (int) exciterKnobs.size() + (slap != nullptr ? 1 : 0);
-            const auto blockW = count * cell;
+            // (On PLAY the cells are wide enough for POSITION and HARDNESS to keep 6 px apart; the SLAP switch is as wide as its own ink.)
+            const auto cell = embedded ? 40 : 35;
+            const auto slapW = embedded ? 24 : cell;
+            const auto count = (int) exciterKnobs.size();
+            const auto blockW = count * cell + (slap != nullptr ? slapW : 0);
             const auto pillsW = juce::jmax (60, c.getWidth() - blockW - 7);
             const auto pillsH = pieces.exciterPills.heightFor (pillsW);
             const auto hintH = 15;
@@ -2794,7 +2820,7 @@ private:
                 x += cell;
             }
             if (slap != nullptr)
-                slap->setBounds ({ x, knobY + 2, cell, cellH - 2 });
+                slap->setBounds ({ x, knobY + 2, slapW, cellH - 2 });
         }
 
         // TONE: RING TIME, DARKEN, STIFF and the partials.
@@ -2827,8 +2853,10 @@ private:
         {
             const auto c = panelContent (resPanel);
             const auto y = middle (c, cellH);
-            placeKnob (phys.resAmount, c.getX(), y, 37, mainDial);
-            const auto x = c.getX() + 37 + 6;
+            // (On PLAY the ring starts 3 px nearer the panel's edge, so its margin matches the one at the right.)
+            const auto shift = embedded ? 3 : 0;
+            placeKnob (phys.resAmount, c.getX() - shift, y, 37, mainDial);
+            const auto x = c.getX() - shift + 37 + 6;
             const auto w = c.getRight() - x;
             const auto stackH = 15 + 5 + menuH;
             const auto sy = middle (c, stackH);
@@ -2840,8 +2868,10 @@ private:
         {
             const auto c = panelContent (mixPanel);
             const auto y = middle (c, cellH);
-            placeKnob (osc.level, c.getX(), y, 35, mainDial);
-            placeKnob (osc.pan, c.getX() + 35, y, 35, mainDial);
+            // (On PLAY the two dials share the panel, so the margins at its two sides are the same.)
+            const auto mixCell = embedded ? c.getWidth() / 2 : 35;
+            placeKnob (osc.level, c.getX(), y, mixCell, mainDial);
+            placeKnob (osc.pan, c.getX() + mixCell, y, mixCell, mainDial);
         }
 
         // PITCH.
@@ -2859,11 +2889,18 @@ private:
             const auto c = panelContent (unisonPanel);
             const auto y = middle (c, cellH);
             osc.uniMode.setBounds ({ c.getX(), y + 4, 55, menuH });
-            auto x = c.getX() + 55 + 3;
-            for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread })
+            if (embedded)
             {
-                placeKnob (*knob, x, y, 33, mainDial);
-                x += 33;
+                placeEvenDials (c, y, 55, { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread }, mainDial);
+            }
+            else
+            {
+                auto x = c.getX() + 55 + 3;
+                for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread })
+                {
+                    placeKnob (*knob, x, y, 33, mainDial);
+                    x += 33;
+                }
             }
             pieces.spreadView.setBounds ({});
         }
@@ -2880,7 +2917,7 @@ private:
                 for (auto* knob : moreKnobs)
                 {
                     placeKnob (*knob, x, y, knobCell, mainDial);
-                    x += knobCell + juce::jmin (gapW, 20);
+                    x += knobCell + (embedded ? gapW : juce::jmin (gapW, 20));
                 }
             }
         }
@@ -2994,32 +3031,37 @@ private:
             }
             else
             {
-                // (A voice that is not a DX7 operator has a full unison: the mode, VOICES, DETUNE, BLEND and SPREAD, as the wavetable card's.)
-                const auto knobY = middle (c, cellH);
+                // (A voice that is not a DX7 operator has a full unison, as the wavetable card's: the mode, VOICES, DETUNE, BLEND and
+                // SPREAD in a row, and under it the SPREAD picture, or the table's shapers while any is in use.)
+                const auto knobY = middle (c, cellH + 4 + spreadH);
                 osc.uniMode.setBounds ({ c.getX(), knobY + 4, 55, menuH });
-                // (The four dials share what the menu leaves, so the row ends at the panel's edge.)
-                const auto unisonCell = juce::jlimit (33, 48, (c.getWidth() - 55 - 3) / 4);
-                auto unisonX = c.getX() + 55 + 3;
-                for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread })
-                {
-                    placeKnob (*knob, unisonX, knobY, unisonCell, mainDial);
-                    unisonX += unisonCell;
-                }
+                placeEvenDials (c, knobY, 55, { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread }, mainDial);
+                const auto lowerY = knobY + cellH + 4;
                 const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
                                                                         { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
                 const juce::StringArray stages { "_warp", "_warp2", "_spectral", "_pd_env" };
-                auto used = 0;
+                auto inUse = 0;
                 for (int i = 0; i < 4; ++i)
-                    if (readChoice (prefix + stages[i]) != 0)
-                    {
-                        const auto areaX = unisonX + 7;
-                        const auto columnW = c.getRight() - areaX;
-                        const auto x = areaX;
-                        const auto y = c.getY() + used * (warpRowH() + 1);
-                        shapers[i].first->setBounds ({ x, y + (warpRowH() - menuH) / 2, juce::jmax (40, columnW - ampCell - 3), menuH });
-                        placeKnob (*shapers[i].second, x + juce::jmax (40, columnW - ampCell - 3) + 3, y, ampCell, ampDial);
-                        ++used;
-                    }
+                    inUse += readChoice (prefix + stages[i]) != 0 ? 1 : 0;
+                if (inUse == 0)
+                {
+                    card.labels.push_back ({ { c.getX(), lowerY, 36, spreadH }, "SPREAD" });
+                    pieces.spreadView.setBounds ({ c.getX() + 36, lowerY, c.getWidth() - 36, spreadH });
+                }
+                else
+                {
+                    const auto columnW = (c.getWidth() - 4 * (inUse - 1)) / inUse;
+                    auto used = 0;
+                    for (int i = 0; i < 4; ++i)
+                        if (readChoice (prefix + stages[i]) != 0)
+                        {
+                            const auto x = c.getX() + used * (columnW + 4);
+                            const auto menuW = juce::jmax (30, columnW - ampCell - 3);
+                            shapers[i].first->setBounds ({ x, lowerY + (spreadH - menuH) / 2, menuW, menuH });
+                            placeKnob (*shapers[i].second, x + menuW + 3, lowerY - 4, ampCell, ampDial);
+                            ++used;
+                        }
+                }
             }
         }
 
@@ -4124,7 +4166,8 @@ private:
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
+        // (VOICES keeps the PLAY picture's full dial too, v26; the OSC tab's wavetable card draws it smaller.)
+        osc.unison.setPackedDial (panels ? (embedded || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain ? (float) mainDial : 25.0f) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
         // (On PLAY the unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every PLAY dial,
@@ -4282,7 +4325,7 @@ private:
             pieces.status.setVisible (true);
             pieces.xfadeBar.setVisible (kind == Kind::sample && ! isFolded (index));
             pieces.xfadeBar.setAlpha (readFloat (prefix + "_sample_loop") > 0.5f ? 1.0f : 0.45f);
-            pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && kind != Kind::fm);
+            pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && (kind != Kind::fm || ! opEnv));
 
             // A folded card shows its header only.
             if (isFolded (index))

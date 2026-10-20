@@ -364,7 +364,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("res_decay", "Res Decay", 0.0f, 1.0f, 0.7f);
     addFloat ("res_offset", "Res Offset", -12.0f, 12.0f, 0.0f, 1.0f, 1.0f);
     addFloat ("res_keytrack", "Res Key Track", 0.0f, 1.0f, 1.0f);
-    addChoice ("body_type", "Body Type", { "Classic", "Bar", "Plate", "Bell", "Shell" }, 0);
+    addChoice ("body_type", "Body Type", { "Classic", "Bar", "Plate", "Bell", "Shell", "Guitar" }, 0);
     addFloat ("body_material", "Body Material", 0.0f, 1.0f, 0.0f);
     addFloat ("body_size", "Body Size", 0.0f, 1.0f, 0.5f);
     addChoice ("body_coupling_mode", "Body Coupling", { "Off", "String to body", "Body to string", "Strings" }, 0);

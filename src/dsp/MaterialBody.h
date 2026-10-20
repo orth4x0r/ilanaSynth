@@ -33,12 +33,14 @@ public:
         lastNote = noteHz;
         lastQuality = quality;
         lastStereo = stereoOffset;
-        const auto& shape = BodyTuning::shapes[(size_t) std::clamp (shapeIndex, 0, 3)];
+        const auto& shape = BodyTuning::shapes[(size_t) std::clamp (shapeIndex, 0, 4)];
         const auto colour = std::clamp (material, 0.0f, 1.0f);
         const auto extent = std::clamp (size, 0.0f, 1.0f);
         const auto life = std::clamp (decay, 0.0f, 1.0f);
         activeModes = quality <= 0 ? 4 : quality == 1 ? 6 : 8;
-        const auto pitch = std::clamp (noteHz * std::exp2 ((0.5 - extent) * 2.0), 25.0, sampleRate * 0.4);
+        // (A fixed-pitch body, the guitar, ignores the note: SIZE scales its modes by up to an octave either way.)
+        const auto pitch = shape.fixedPitch ? std::clamp ((double) shape.ratio[0] * std::exp2 ((0.5 - extent) * 2.0), 25.0, sampleRate * 0.4)
+                                            : std::clamp (noteHz * std::exp2 ((0.5 - extent) * 2.0), 25.0, sampleRate * 0.4);
         const auto seconds = 0.08 + 7.92 * (double) life * (double) life;
         const auto metal = std::clamp ((colour - 0.15f) / 0.55f, 0.0f, 1.0f);
         const auto glass = std::clamp ((colour - 0.8f) / 0.2f, 0.0f, 1.0f);
@@ -57,7 +59,7 @@ public:
         for (int i = 0; i < activeModes; ++i)
         {
             const auto m = (size_t) i;
-            const auto ratio = (double) shape.ratio[(size_t) i]
+            const auto ratio = (double) shape.ratio[(size_t) i] / (shape.fixedPitch ? (double) shape.ratio[0] : 1.0)
                                * (1.0 + (double) glass * (i == 0 ? 0.0 : 0.012 * i));
             const auto frequency = pitch * ratio * (1.0 + (double) stereoOffset * 0.001);
             if (frequency >= sampleRate * 0.46)

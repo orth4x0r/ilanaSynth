@@ -1243,10 +1243,16 @@ inline std::vector<FactoryPreset> build()
              .fx ({ FxLimiter, FxReverb }).limiter (-3.0f).reverb (Hall, 0.6f, 0.2f));
 
     add (B ("Nylon String", "Pluck")
-             .string (1, 0.85f, 0, 0.7f, 0.45f)
+             .string (1, 0.85f, 0, 0.9085f, 0.425f)
+             // Fitted to the University of Iowa nylon guitar (tools/fit_string.py, phase 2 of the physical overhaul).
+             .set ("osc1_string_stiffness", 0.505f).set ("osc1_string_excite_pos", 0.525f)
+             .set ("osc1_string_pick_hardness", 0.004f).set ("osc1_string_pickup", 0.785f).set ("subosc_on", 0)
+             // The fixed-pitch Guitar body, fitted with the same recordings (phase 3).
+             .set ("res_on", 1).set ("body_type", 5).set ("res_amount", 0.75f).set ("res_decay", 0.0225f)
+             .set ("body_material", 0.1375f).set ("body_size", 0.0f)
              .filter1 (LP, 7000.0f, 0.0f, 0.0f, 1.0f, 0.3f)
              .amp (0.001f, 2.0f, 0.0f, 0.5f)
-             .velocity (0.6f).master (-2.0f)
+             .velocity (0.6f).master (4.0f)
              .macro (1, "DECAY", { { param ("osc1_string_decay"), 0.25f } })
              .macro (2, "DAMP", { { param ("osc1_string_damp"), 0.4f } })
              .macro (3, "TONE", { { D::Filter1Cutoff, -0.4f } })

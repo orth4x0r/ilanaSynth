@@ -12,9 +12,10 @@ struct Shape
     std::array<float, modes> ratio;
     std::array<float, modes> gain;
     std::array<float, modes> lifetime;
+    bool fixedPitch = false; // ratio is then in Hz: a real instrument's body does not follow the note
 };
 
-// Free bar, plate, tuned bell, and curved shell. Ratios are relative to the
+// Free bar, plate, tuned bell, curved shell and guitar. Ratios are relative to the
 // pitch of the first prominent mode, rather than integer harmonics.
 constexpr Shape shapes[] {
     { { 1.0f, 3.0f, 5.404f, 8.933f, 13.34f, 18.64f, 24.7f, 31.5f },
@@ -28,6 +29,10 @@ constexpr Shape shapes[] {
       { 1.0f, 0.43f, 0.21f, 0.32f, 0.20f, 0.18f, 0.12f, 0.1f } },
     { { 1.0f, 1.27f, 1.81f, 2.42f, 3.16f, 4.08f, 5.12f, 6.32f },
       { 1.0f, 0.1f, 0.06f, 0.04f, 0.03f, 0.02f, 0.01f, 0.01f },
-      { 1.0f, 0.7f, 0.5f, 0.4f, 0.3f, 0.2f, 0.15f, 0.1f } }
+      { 1.0f, 0.7f, 0.5f, 0.4f, 0.3f, 0.2f, 0.15f, 0.1f } },
+    // Guitar: the air resonance (A0) and the first top-plate modes of a classical guitar, in Hz.
+    { { 98.0f, 200.0f, 285.0f, 382.0f, 470.0f, 560.0f, 690.0f, 850.0f },
+      { 1.0f, 0.8f, 0.45f, 0.35f, 0.3f, 0.2f, 0.15f, 0.1f },
+      { 1.0f, 0.8f, 0.6f, 0.5f, 0.4f, 0.3f, 0.25f, 0.2f }, true }
 };
 } // namespace BodyTuning

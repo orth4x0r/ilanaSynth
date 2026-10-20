@@ -1769,7 +1769,8 @@ public:
     }
 
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
-    // card (a sample, a string) scrolls inside the cards' area instead of squeezing the bands.
+    // card (a sample, a string) never squeezes the bands: an off oscillator folds to its header for the room, and
+    // only when that is not enough does the area scroll.
     int getReferenceHeight() const
     {
         const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * warpRowH() + 1 + 3 + warpChipH()) + panelTail + 1 + cardPad + 1;
@@ -1777,7 +1778,7 @@ public:
         // (Never more than the three cards PLAY shows at once: a fourth operator and beyond scroll.)
         for (const auto osc : shownList())
             if (heights.size() < (size_t) embeddedAddRowBelow)
-                heights.push_back (isFolded (osc) ? foldedCardHeight : wavetableCard);
+                heights.push_back (wavetableCard);
         return contentHeight (heights);
     }
 
@@ -2248,7 +2249,7 @@ private:
         std::vector<int> separatorY;
         // The packed cards (review 23): the panels, their small names and rules.
         struct Panel { juce::Rectangle<int> area; juce::String title, note; juce::Colour colour; };
-        struct Label { juce::Rectangle<int> area; juce::String text; int lines = 1; bool hint = false; };
+        struct Label { juce::Rectangle<int> area; juce::String text; int lines = 1; bool hint = false; float size = 0.0f; };
         std::vector<Panel> panels;
         std::vector<Label> labels;
     };
@@ -2261,7 +2262,28 @@ private:
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
     // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
-    bool isFolded (int osc) const { return ! embedded && isOff (osc); }
+    bool isFolded (int osc) const { return isOff (osc) && (! embedded || foldsForRoom (osc)); }
+
+    // (Embedded on PLAY the cards share the room three wavetable cards take: where a taller one (a sample, a string)
+    // does not leave it, the off oscillators fold to their headers, the last first, only as many as it takes.)
+    bool foldsForRoom (int osc) const
+    {
+        const auto shown = shownList();
+        std::vector<int> heights;
+        for (const auto each : shown)
+            heights.push_back (panelCardHeight (each));
+
+        const auto room = getReferenceHeight();
+        auto total = contentHeight (heights);
+        for (auto i = (int) shown.size() - 1; i >= 0 && total > room; --i)
+            if (isOff (shown[(size_t) i]))
+            {
+                total -= heights[(size_t) i] - foldedCardHeight;
+                if (shown[(size_t) i] == osc)
+                    return true;
+            }
+        return false;
+    }
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
     static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain; }
@@ -2299,10 +2321,10 @@ private:
 
         // (A live or FM / DX7 card is the wavetable card's height with two warp rows.)
         // A granular card is one row of panels, as tall as its tallest panel (MIX) needs.
-        if (kindOf (osc) == Kind::grain)
+        if (kindOf (osc) == Kind::grain && ! embedded)
             return 1 + cardHeaderHeight + panelTop + panelTitleH + (mainDial + nameLine + 3 + filterH + 3 + outH + 4) + panelTail + 1 + cardPad + 1;
 
-        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm ? 2 : 2 + effectiveExtraWarps (osc);
+        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
         const auto content = rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
@@ -2548,7 +2570,11 @@ private:
         const auto pitch = juce::jmax (33.0f, count > 1 ? (last - first) / (float) (count - 1) : 33.0f);
         auto index = 0;
         for (auto* knob : knobs)
-            placeKnob (*knob, juce::roundToInt (first + (float) index++ * pitch - pitch * 0.5f), y, juce::roundToInt (pitch), dial);
+            {
+            // (The cell is as wide as the name needs, so the last one stays inside the panel.)
+            const auto cellW = juce::jmin (pitch, 40.0f);
+            placeKnob (*knob, juce::roundToInt (first + (float) index++ * pitch - cellW * 0.5f), y, juce::roundToInt (cellW), dial);
+        }
     }
 
     static int packedButtonWidth (const juce::String& text)
@@ -2746,15 +2772,18 @@ private:
         const auto left = rowArea.getX(), top = rowArea.getY();
         const auto stringPanel = juce::Rectangle<int> (left, top, pitchColumn(), physTopH + panelGap + physBottomH);
         const auto rightX = left + pitchColumn() + panelGap, rightW = rowArea.getWidth() - pitchColumn() - panelGap;
-        const auto toneW = 195, resW = 175, smallW = embedded ? 72 : 85;
+        const auto toneW = embedded ? 186 : 195, resW = embedded ? 160 : 175, smallW = embedded ? 96 : 85;
         const auto exciterW = rightW - toneW - resW - smallW - 3 * panelGap;
         const auto exciterPanel = juce::Rectangle<int> (rightX, top, exciterW, physTopH);
         const auto tonePanel = juce::Rectangle<int> (exciterPanel.getRight() + panelGap, top, toneW, physTopH);
         const auto resPanel = juce::Rectangle<int> (tonePanel.getRight() + panelGap, top, resW, physTopH);
         const auto mixPanel = juce::Rectangle<int> (resPanel.getRight() + panelGap, top, smallW, physTopH);
         const auto lowY = top + physTopH + panelGap;
-        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, pitchColumn(), physBottomH);
-        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, unisonColumn(), physBottomH);
+        // (On PLAY UNISON and MORE hold their dials at one pitch, 64: the unison panel is as wide as menu and four rings need, MORE's as six rings need.)
+        const auto lowUnisonW = embedded ? 292 : unisonColumn(), lowMoreW = embedded ? 361 : 0;
+        const auto lowPitchW = embedded ? rightW - lowUnisonW - lowMoreW - 2 * panelGap : pitchColumn();
+        const auto pitchPanel = juce::Rectangle<int> (rightX, lowY, lowPitchW, physBottomH);
+        const auto unisonPanel = juce::Rectangle<int> (pitchPanel.getRight() + panelGap, lowY, lowUnisonW, physBottomH);
         const auto morePanel = juce::Rectangle<int> (unisonPanel.getRight() + panelGap, lowY, rowArea.getRight() - unisonPanel.getRight() - panelGap, physBottomH);
 
         card.panels.push_back ({ stringPanel, "STRING", electric ? "" : "", tint });
@@ -2807,11 +2836,11 @@ private:
             const auto blockW = count * cell + (slap != nullptr ? slapW : 0);
             const auto pillsW = juce::jmax (60, c.getWidth() - blockW - 7);
             const auto pillsH = pieces.exciterPills.heightFor (pillsW);
-            const auto hintH = 15;
+            const auto hintH = embedded ? 22 : 15;
             const auto total = pillsH + 3 + hintH;
             const auto y = c.getY() + juce::jmax (0, (c.getHeight() - total) / 2);
             pieces.exciterPills.setBounds ({ c.getX(), y, pillsW, pillsH });
-            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), 2, true });
+            card.labels.push_back ({ { c.getX(), y + pillsH + 3, pillsW, hintH }, physicalHint (index), 2, true, embedded ? 9.0f : 0.0f });
             auto x = c.getRight() - blockW;
             const auto knobY = middle (c, cellH);
             for (auto* knob : exciterKnobs)
@@ -2918,6 +2947,15 @@ private:
             {
                 const auto gapW = n > 1 ? juce::jmax (0, (c.getWidth() - n * knobCell) / (n - 1)) : 0;
                 auto x = c.getX() + (n > 1 ? 0 : (c.getWidth() - knobCell) / 2);
+                if (embedded && n > 1)
+                {
+                    // Ring to ring across the panel, the first ring at its left edge and the last at its right.
+                    const auto pitch = (float) (c.getWidth() - mainDial) / (float) (n - 1);
+                    for (int i = 0; i < n; ++i)
+                        placeKnob (*moreKnobs[(size_t) i], c.getX() + juce::roundToInt ((float) mainDial * 0.5f + (float) i * pitch - (float) knobCell * 0.5f), y, knobCell, mainDial);
+                    pieces.status.setBounds (card.statusArea);
+                    return;
+                }
                 for (auto* knob : moreKnobs)
                 {
                     placeKnob (*knob, x, y, knobCell, mainDial);
@@ -3026,10 +3064,10 @@ private:
                 const auto raised = readFloat (prefix + "_unison") > 1.5f;
                 const auto knobX = c.getRight() - (raised ? knobCell + 7 : 0);
                 const auto room = knobX - c.getX() - (raised ? 7 : 0);
-                const auto graphW = juce::jmax (40, room * 60 / 100), graphH = c.getHeight();
+                const auto graphW = juce::jmax (40, room * 50 / 100), graphH = c.getHeight();
                 const auto hintX = c.getX() + graphW + 8, hintW = knobX - hintX - (raised ? 7 : 0);
                 pieces.opEnvGraph.setBounds ({ c.getX(), middle (c, graphH), graphW, graphH });
-                card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true });
+                card.labels.push_back ({ { hintX, c.getY() + 2, hintW, c.getHeight() - 4 }, "The operator's own envelope: its level over the note.", 4, true, embedded ? 10.5f : 0.0f });
                 if (raised)
                     placeKnob (osc.unison, c.getRight() - knobCell, middle (c, cellH), knobCell, mainDial);
             }
@@ -3236,7 +3274,7 @@ private:
         const auto tint = oscColour (index);
         const auto inner = card.bounds.reduced (1);
         const auto rowArea = inner.withTrimmedTop (cardHeaderHeight).reduced (cardPad, 0).withTrimmedBottom (cardPad);
-        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth(), 156, 200);
+        const auto cols = columnsFor (card.bounds.getX(), card.bounds.getWidth());
         const auto panelRect = [&] (int column) { return juce::Rectangle<int> (cols.x[column], rowArea.getY(), cols.w[column], rowArea.getHeight()); };
         const auto addPanel = [&] (int column, const juce::String& title) { card.panels.push_back ({ panelRect (column), title, {}, tint }); return panelContent (panelRect (column)); };
         const auto middle = [] (juce::Rectangle<int> area, int height) { return area.getY() + (area.getHeight() - height) / 2; };
@@ -3314,25 +3352,17 @@ private:
             pieces.outBar.setBounds ({ c.getX(), filterY + filterH + 3, c.getWidth(), outH });
         }
 
-        // UNISON: VOICES, DETUNE, BLEND, SPREAD and the grains' STEREO on one row; under them the mode
-        // menu and the spread picture on another (condensed: the cloud takes the width).
+        // UNISON: the mode menu and VOICES, DETUNE, BLEND, SPREAD and the grains' STEREO on one row (the
+        // wavetable card's unison panel); the spread picture under them.
         {
             const auto c = addPanel (3, "UNISON");
-            const auto rowH = juce::jmax (menuH, spreadH);
-            const auto top = middle (c, cellH + 4 + rowH);
-            const auto uniCell = c.getWidth() / 5;
-            auto x = c.getX();
-            for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.grainSpread })
-            {
-                placeKnob (*knob, x, top, uniCell, mainDial);
-                x += uniCell;
-            }
-            const auto lowerY = top + cellH + 4;
-            osc.uniMode.setBounds ({ c.getX(), lowerY + (rowH - menuH) / 2, 55, menuH });
-            const auto labelX = c.getX() + 55 + 6;
+            const auto top = middle (c, cellH + 4 + spreadH);
+            osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
+            placeEvenDials (c, top, 55, { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.grainSpread }, mainDial);
+            const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
-            card.labels.push_back ({ { labelX, lowerY, labelW, spreadH }, "SPREAD" });
-            pieces.spreadView.setBounds ({ labelX + labelW, lowerY, c.getRight() - labelX - labelW, spreadH });
+            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
+            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
         }
 
         pieces.status.setBounds (card.statusArea);
@@ -3579,8 +3609,8 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         for (const auto& label : card.labels)
         {
-            g.setFont (label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
-            IlanaTheme::drawFitted (g, label.text, label.area, label.hint ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
+            g.setFont (label.size > 0.0f ? IlanaTheme::font (label.size) : label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+            IlanaTheme::drawFitted (g, label.text, label.area, label.hint && label.size <= 0.0f ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
         }
     }
 
@@ -4823,6 +4853,12 @@ public:
     static constexpr float maximumContentScale = 1.3f, minimumVirtualWidth = 930.0f;
     // PLAY's copy keeps its cards at their drawn size (the bands under them are not scaled).
     void setMaximumScale (float scale) { maxScale = scale; }
+    // PLAY draws its own thin scroll bar over the cards' side margin, so the columns stand where they do without one.
+    void setOverlayScroll (bool overlay)
+    {
+        overlayScroll = overlay;
+        setScrollBarsShown (! overlay, false);
+    }
 
     void resized() override
     {
@@ -4853,12 +4889,22 @@ public:
 
             const auto needed = page->getMinimumHeight();
             const auto scrolls = needed > getHeight();
-            page->setSize (juce::jmax (1, getWidth() - (scrolls ? getScrollBarThickness() : 0)),
+            page->setSize (juce::jmax (1, getWidth() - (scrolls && ! overlayScroll ? getScrollBarThickness() : 0)),
                            juce::jmax (getHeight(), needed));
         }
     }
 
+    std::function<void()> onViewMoved;
+
+    void visibleAreaChanged (const juce::Rectangle<int>& area) override
+    {
+        juce::Viewport::visibleAreaChanged (area);
+        if (onViewMoved)
+            onViewMoved();
+    }
+
 private:
     float maxScale = maximumContentScale;
+    bool overlayScroll = false;
 };
 } // namespace

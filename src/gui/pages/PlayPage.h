@@ -768,6 +768,7 @@ public:
 };
 
 class PlayPage : public juce::Component,
+                 private juce::ScrollBar::Listener,
                  private juce::Timer
 {
 public:
@@ -777,7 +778,12 @@ public:
         if (auto* page = oscView.getPage())
             page->setEmbedded (true);
         oscView.setMaximumScale (1.0f);
+        oscView.setOverlayScroll (true);
+        oscView.onViewMoved = [this] { syncOscBar(); };
         addAndMakeVisible (oscView);
+        oscBar.setAutoHide (false);
+        oscBar.addListener (this);
+        addChildComponent (oscBar);
 
         auto& state = p.apvts;
         const auto knob = [&] (const juce::String& id, const juce::String& label, juce::Colour colour)
@@ -939,22 +945,6 @@ public:
         g.setColour (subColour().withAlpha (0.0f));
     }
 
-    // A card cut by the bottom of the scrolling OSC area fades out over its last rows, so it never butts the module bands.
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        auto* page = oscView.getViewedComponent();
-        if (page == nullptr || page->getHeight() - oscView.getViewPositionY() <= oscView.getHeight() + 1)
-            return;
-
-        const auto fade = oscView.getBounds().removeFromBottom (18).withTrimmedRight (oscView.getScrollBarThickness());
-        juce::ColourGradient gradient (IlanaTheme::Ui::bg.withAlpha (0.0f), 0.0f, (float) fade.getY(),
-                                       IlanaTheme::Ui::bg, 0.0f, (float) fade.getBottom() - 9.0f, false);
-        g.setGradientFill (gradient);
-        g.fillRect (fade);
-        g.setColour (IlanaTheme::Ui::bg);
-        g.fillRect (fade.withTop (fade.getBottom() - 9));
-    }
-
     void resized() override
     {
         auto area = getLocalBounds().reduced (sideMargin, 0);
@@ -963,9 +953,11 @@ public:
         const auto bottom = area.getBottom() - bottomMargin;
         const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
-        const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
+        const auto oscMin = oscView.getPage() != nullptr ? juce::jmin (oscView.getPage()->getReferenceHeight(), oscView.getPage()->getMinimumHeight()) : 0;
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
         oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, bandsTop)));
+        oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, bandsTop - 8));
+        syncOscBar();
 
         // The filters need little height; the envelope and LFO pictures take the rest (ilana: they were too tiny).
         const auto band1Height = juce::jlimit (minBand, 84, bandsHeight - gap - 90);
@@ -998,7 +990,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 35, filterCell = 33, westCell = 31;
-    static constexpr int minBand = 62, maxBand = 96;
+    static constexpr int minBand = 62, maxBand = 112;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -1009,18 +1001,28 @@ private:
     void timerCallback() override
     {
         operatorFilterOff = operatorVoiceFilterOff (processorRef);
-        if (const auto scrolled = oscView.getViewPositionY(); scrolled != lastOscScroll)
-        {
-            lastOscScroll = scrolled;
-            repaint (oscView.getBounds());
-        }
         for (auto& card : filters)
             card.display->setVoiceOff (operatorFilterOff);
         effectRules.apply();
     }
 
     bool operatorFilterOff = false;
-    int lastOscScroll = 0;
+
+    // The OSC area's own scroll bar (thin, over the cards' side margin), shown only while the cards overflow it.
+    void syncOscBar()
+    {
+        auto* page = oscView.getViewedComponent();
+        if (page == nullptr)
+            return;
+        oscBar.setRangeLimits (0.0, (double) page->getHeight());
+        oscBar.setCurrentRange ((double) oscView.getViewPositionY(), (double) oscView.getHeight());
+        oscBar.setVisible (page->getHeight() > oscView.getHeight() + 1);
+    }
+
+    void scrollBarMoved (juce::ScrollBar*, double newStart) override
+    {
+        oscView.setViewPosition (0, juce::roundToInt (newStart));
+    }
 
     int readInt (const juce::String& id) const
     {
@@ -1034,7 +1036,7 @@ private:
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = page->getReferenceHeight();
+            oscHeight = juce::jmin (page->getReferenceHeight(), page->getMinimumHeight());
         return pageHeight - bottomMargin - oscHeight;
     }
 
@@ -1261,6 +1263,7 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
     OscPageViewport oscView;
+    juce::ScrollBar oscBar { true };
     SourceCarouselCard envelopeCard, lfoCard;
     std::array<FilterCard, 2> filters;
     std::array<juce::Rectangle<int>, 2> filterCardBounds;

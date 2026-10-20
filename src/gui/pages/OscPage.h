@@ -3297,7 +3297,7 @@ private:
         {
             const auto c = addPanel (topRect (2), "MIX");
             const auto mixGap = extra / 3;
-            const auto top = middle (c, cellH + 3 + mixGap + filterH + 3 + mixGap + outH);
+            const auto top = middle (c, cellH + 3 + mixGap + filterH + 3 + mixGap + outH) + (extra > 0 ? 3 : 0);
             placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
@@ -3313,7 +3313,8 @@ private:
         {
             const auto c = addPanel (topRect (3), "UNISON");
             const auto spreadBig = spreadH + extra / 2;
-            const auto top = middle (c, cellH + 4 + spreadBig);
+            const auto spreadDrop = extra > 0 ? 6 : 0; // (the slider as far from the names above as from the panel's foot)
+            const auto top = middle (c, cellH + 4 + spreadDrop + spreadBig);
             osc.uniMode.setBounds ({ c.getX(), top + 4, 55, menuH });
             auto x = c.getX() + 55 + 3;
             const auto uniCell = (c.getRight() - x) / 4;
@@ -3322,7 +3323,7 @@ private:
                 placeKnob (*knob, x, top, uniCell, mainDial);
                 x += uniCell;
             }
-            const auto spreadY = top + cellH + 4;
+            const auto spreadY = top + cellH + 4 + spreadDrop;
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadBig }, "SPREAD" });
             pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadBig });

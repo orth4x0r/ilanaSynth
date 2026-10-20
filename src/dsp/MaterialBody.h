@@ -38,9 +38,9 @@ public:
         const auto extent = std::clamp (size, 0.0f, 1.0f);
         const auto life = std::clamp (decay, 0.0f, 1.0f);
         activeModes = quality <= 0 ? 4 : quality == 1 ? 6 : 8;
-        // (A fixed-pitch body, the guitar, ignores the note: SIZE scales its modes by up to an octave either way.)
-        const auto pitch = shape.fixedPitch ? std::clamp ((double) shape.ratio[0] * std::exp2 ((0.5 - extent) * 2.0), 25.0, sampleRate * 0.4)
-                                            : std::clamp (noteHz * std::exp2 ((0.5 - extent) * 2.0), 25.0, sampleRate * 0.4);
+        // (A fixed-pitch body, the guitar, ignores the note: SIZE tunes its modes in whole semitones, up to an octave either way; the note-following bodies snap the same way.)
+        const auto pitch = shape.fixedPitch ? std::clamp ((double) shape.ratio[0] * std::exp2 (std::round ((0.5 - extent) * 24.0) / 12.0), 25.0, sampleRate * 0.4)
+                                            : std::clamp (noteHz * std::exp2 (std::round ((0.5 - extent) * 24.0) / 12.0), 25.0, sampleRate * 0.4);
         const auto seconds = 0.08 + 7.92 * (double) life * (double) life;
         const auto metal = std::clamp ((colour - 0.15f) / 0.55f, 0.0f, 1.0f);
         const auto glass = std::clamp ((colour - 0.8f) / 0.2f, 0.0f, 1.0f);

@@ -1932,7 +1932,7 @@ private:
     static constexpr int sideMargin = 7, topMargin = 7, bottomMargin = 7, gap = 6;
     static constexpr int cardHeaderHeight = 23, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
-    static constexpr int stripRowGap = 7;
+    static constexpr int stripRowGap = 5;
     static constexpr int cardPad = 5, panelGap = 4, panelTop = 5, panelTitleH = 12, panelTail = 4;
     static constexpr int pitchW = 160, mixW = 164, unisonW = 270;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
@@ -2836,19 +2836,15 @@ private:
             const auto top = middle (c, cellH + 4 + spreadH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 55 : 52;
-            // (The six cells are as wide as their names plus one shared gap, so the names stand evenly apart.)
-            const juce::StringArray names { "VOICES", "DETUNE", "BLEND", "SPREAD", "FRAME \xc2\xb1", "WARP \xc2\xb1" };
-            const auto nameFont = juce::Font (IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * (float) mainDial / 26.0f), true));
-            std::vector<float> nameW;
+            // (Each cell is its name plus one shared gap, so the names stand evenly apart.)
+            // (The names' drawn widths, measured; one gap of about 6 between them, the group ending at the panel's edge.)
+            const std::array<float, 6> nameW { 25.5f, 27.0f, 21.5f, 27.5f, 28.5f, 25.5f };
             auto namesTotal = 0.0f;
-            for (const auto& name : names)
-            {
-                nameW.push_back (juce::GlyphArrangement::getStringWidth (nameFont, juce::String::fromUTF8 (name.toRawUTF8())));
-                namesTotal += nameW.back();
-            }
+            for (const auto width : nameW)
+                namesTotal += width;
             const auto room = (float) (c.getWidth() - menuW - 3);
-            const auto shared = juce::jmax (2.0f, (room - namesTotal) / 6.0f);
-            auto xf = (float) (c.getX() + menuW + 3);
+            const auto shared = juce::jlimit (2.0f, 6.0f, (room - namesTotal) / 6.0f);
+            auto xf = (float) c.getRight() - (namesTotal + shared * 6.0f);
             osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
             {
                 auto i = 0;
@@ -3905,7 +3901,7 @@ private:
             const auto board = panelAt (1, 1, rowBY, {}, grey);
             placeStripSwitch (sbOn, board, "SOUNDBOARD");
             // (The model menu is bare like PLAY's BODY menu.)
-            placeStripRow (board, { { &sbModel, 50 }, { &sbSize, 32 }, { &sbTone, 32 }, { &sbMix, 32 } });
+            placeStripRow (board, { { &sbModel, 47 }, { &sbSize, 32 }, { &sbTone, 32 }, { &sbMix, 32 } });
             const auto keys = panelAt (2, 3, rowBY, "KEYS", accent);
             placeStripRow (keys, { { &stretch, 62 }, { &pedalRes, 62 }, { &mechKey, 62 }, { &mechDamper, 62 }, { &mechPedal, 62 } });
         }

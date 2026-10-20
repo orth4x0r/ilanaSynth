@@ -1809,7 +1809,21 @@ public:
     {
         laidOutScale = IlanaTheme::uiScaleRef();
         layoutPage();
+
+        // (On the OSC tab which off cards fold depends on the height: the cards' controls follow when that changes.)
+        if (! embedded && foldBits() != lastFoldBits)
+            updateModeVisibility();
     }
+
+    int foldBits() const
+    {
+        auto bits = 0;
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            if (isFolded (osc))
+                bits |= 1 << osc;
+        return bits;
+    }
+    int lastFoldBits = -1;
 
     // The oscillator the UI test or the FM page's links pick: its card is
     // scrolled into view.
@@ -1923,9 +1937,9 @@ private:
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10 + KnobControl::packedValueLine, knobCell = 35, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 10 + KnobControl::packedValueLine, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 18, stripDialBase = 24, stripPanelBase = 52 + KnobControl::packedValueLine + 2, stripMaxBonus = 14;
+    static constexpr int addRowHeight = 18, stripDialBase = 24, stripPanelBase = 52 + KnobControl::packedValueLine - 3, stripMaxBonus = 14;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2285,7 +2299,9 @@ private:
     // PLAY already folds the same way). The switch opens it again.
     static constexpr int foldedCardHeight = cardHeaderHeight + 2;
     // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
-    bool isFolded (int osc) const { return embedded ? foldsForRoom (osc) : isOff (osc); }
+    // (On the OSC tab a switched-off oscillator folds only while the page lacks the room for it, the others and the VOICE strip:
+    // the room holds real controls, not a gap, ilana 2026-10-20.)
+    bool isFolded (int osc) const { return embedded ? foldsForRoom (osc) : isOff (osc) && foldsForRoom (osc); }
 
     // (Embedded on PLAY the cards share the room three wavetable cards take. Where a taller one (a sample, a string) does
     // not leave it, the others fold to their headers: the one the user opened (a click on a folded header) first, then the
@@ -2295,16 +2311,16 @@ private:
     bool foldsForRoom (int osc) const
     {
         auto shown = shownList();
-        if (shown.size() > (size_t) embeddedAddRowBelow)
+        if (embedded && shown.size() > (size_t) embeddedAddRowBelow)
             shown.resize ((size_t) embeddedAddRowBelow);
         if (std::find (shown.begin(), shown.end(), osc) == shown.end())
             return false;
 
         std::vector<int> heights;
         for (const auto each : shown)
-            heights.push_back (panelCardHeight (each));
+            heights.push_back (embedded ? panelCardHeight (each) : minimumOpenHeight (each));
 
-        const auto room = getReferenceHeight();
+        const auto room = embedded ? getReferenceHeight() : getHeight();
         if (contentHeight (heights) <= room)
             return false;
 
@@ -2384,9 +2400,11 @@ private:
     // What a card needs at least, by what it holds.
     int minimumCardHeight (int osc) const
     {
-        if (isFolded (osc))
-            return foldedCardHeight;
+        return isFolded (osc) ? foldedCardHeight : minimumOpenHeight (osc);
+    }
 
+    int minimumOpenHeight (int osc) const
+    {
         if (usesPanels (kindOf (osc)))
             return panelCardHeight (osc);
 
@@ -2724,7 +2742,7 @@ private:
         {
             const auto c = addPanel (0, "WAVE");
             // (On PLAY the picture's own frame slider sets FRAME, so the dial is gone and the picture takes its place, ilana 2026-10-20.)
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + 56, c.getHeight());
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 10), c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
@@ -2758,7 +2776,7 @@ private:
             placeKnob (first, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
-            osc.tune.setBounds ({ tuneX, top + (mainDial - menuH) / 2 + 4, c.getRight() - tuneX, menuH });
+            osc.tune.setBounds ({ tuneX, top + (cellH - menuH) / 2, c.getRight() - tuneX, menuH });
             const auto lower = top + cellH + 3;
             if (readChoice (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_scale") != 0)
             {
@@ -2783,7 +2801,7 @@ private:
             placeKnob (osc.level, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.pan, c.getX() + knobCell, top, knobCell, mainDial);
             const auto envX = c.getX() + 2 * knobCell + 3;
-            osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
+            osc.ampEnv.setBounds ({ envX, top + (cellH - menuH) / 2, c.getRight() - envX, menuH });
             auto filterY = top + cellH + 3;
             const auto labelW = 28;
             if (embedded)
@@ -2802,8 +2820,8 @@ private:
             {
                 // (The OSC tab's header has no room to spare, the card has: FILTER stays under the dials. The five segments take 5 px
                 // more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
-                card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
-                pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
+                card.labels.push_back ({ { c.getX(), filterY, labelW, filterH }, "FILTER" });
+                pieces.routeBar.setBounds ({ c.getX() + labelW, filterY, c.getWidth() - labelW + 3, filterH });
                 filterY += filterH + 3;
             }
             pieces.outBar.setBounds ({ c.getX(), filterY, c.getWidth(), outH });
@@ -2818,12 +2836,17 @@ private:
             const auto menuW = embedded ? 55 : 52;
             // (The six dials share what the menu leaves, at most 37 each: the names keep 20 px apart.)
             const auto cell = juce::jlimit (33, 37, (c.getWidth() - menuW - 3) / 6);
-            osc.uniMode.setBounds ({ c.getX(), top + (mainDial - menuH) / 2 + 4, menuW, menuH });
+            osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
             auto x = c.getX() + menuW + 3;
+            // (FRAME ± and WARP ± are the two longest names: their cells take 6 px more of the room the others leave, so every
+            // name keeps about the same space beside it.)
+            const auto spare = juce::jmax (0, c.getWidth() - menuW - 3 - 6 * cell);
+            const auto wide = juce::jmin (6, spare / 2);
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {
-                placeKnob (*knob, x, top, cell, mainDial);
-                x += cell;
+                const auto last = knob == &osc.uniFrame || knob == &osc.uniWarp;
+                placeKnob (*knob, x, top, last ? cell + wide : cell - wide / 2, mainDial);
+                x += last ? cell + wide : cell - wide / 2;
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
@@ -3813,8 +3836,9 @@ private:
         auto used = 0;
         for (const auto& entry : entries)
             used += entry.width;
-        const auto each = (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size());
-        auto x = (float) c.getX() + each * 0.5f;
+        // (At most 28 px between controls, the group centred: a wide panel's controls stand together on the grid, not 290 px apart.)
+        const auto each = juce::jmin (28.0f, (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size()));
+        auto x = (float) c.getX() + ((float) juce::jmax (0, c.getWidth() - used) - each * (float) entries.size()) * 0.5f + each * 0.5f;
         const auto cellH = stripDialSize() + nameLine;
         for (const auto& entry : entries)
         {
@@ -4533,6 +4557,7 @@ private:
                                             : juce::String ("MORE ") + juce::String::fromUTF8 ("\xe2\x96\xbe"));
 
         updateTabItems();
+        lastFoldBits = foldBits();
         shownKey = layoutKey();
         getProperties().set ("caption", OscRole::describeLong (processorRef, selected)); // for the UI test
         resized();

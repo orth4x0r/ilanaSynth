@@ -8593,6 +8593,29 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_BARMOD: PLAY with modulation on the filter bars (LFO 1 into Filter 1's cutoff and reso, the amp envelope
+    // into Filter 2's cutoff): barmod-0/1.png a few frames apart (the live stretch moves), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_BARMOD", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        processor.assignModSlot ((int) Mod::Source::Lfo1, (int) Mod::Destination::Filter1Cutoff, 0.35f);
+        processor.assignModSlot ((int) Mod::Source::Lfo1, (int) Mod::Destination::Filter1Reso, 0.2f);
+        processor.assignModSlot ((int) Mod::Source::Lfo2, (int) Mod::Destination::Filter1Cutoff, -0.25f);
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        pages->showPage ("MAIN");
+        settle (500);
+        for (int i = 0; i < 2; ++i)
+        {
+            save (*editor, outDir.getChildFile ("barmod-" + juce::String (i) + ".png"));
+            settle (350);
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_FMCABLES: the FM matrix with three routes (OSC 2 into OSC 1, OSC 1 into
     // OSC 2, noise into OSC 2 and OSC 1): the cables under the frosted cells, three frames
     // apart (the pulses run); fmcables-0/1/2.png, then stop.

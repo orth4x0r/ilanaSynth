@@ -1228,7 +1228,7 @@ private:
             const auto subRight = x + colourInk;
             x += colourInk + gapInk;
             const auto noiseLeft = x;
-            noiseType->setBounds ({ x, knobY + (int) dialSize / 2 - menuHeight / 2, menuWidth, menuHeight });
+            noiseType->setBounds ({ x, knobY + 5, menuWidth, menuHeight });
             x += menuWidth + gapInk;
             knobAt (*noiseLevel, x - (cell - ringWidth) / 2);
             const auto right = x + ringWidth;

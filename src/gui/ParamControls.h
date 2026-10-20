@@ -1565,7 +1565,8 @@ public:
     // colour, what it adds now brighter with a white dot), the name at the left and the value (number big, unit small) at the right.
     void paintBar (juce::Graphics& g)
     {
-        const auto alpha = isEnabled() ? 1.0f : 0.5f;
+        // (A bar the page has dimmed, like MORPH on a model without one, reads as off: its text goes quieter than the dimming alone.)
+        const auto alpha = (isEnabled() ? 1.0f : 0.5f) * (getAlpha() < 0.99f ? 0.72f : 1.0f);
         const auto box = getLocalBounds().toFloat().reduced (0.5f);
         const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId);
         const auto share = (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()));

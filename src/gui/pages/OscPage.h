@@ -2849,12 +2849,15 @@ private:
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 50 : 48;
             // (Six equal cells between the menu and the panel's edge: the rings stand one pitch apart, the margins even.)
-            osc.uniMode.setBounds ({ c.getX() + 1, top + (cellH - menuH) / 2, menuW, menuH });
-            const auto cellsLeft = c.getX() + menuW + 3;
-            const auto pitchU = (float) (c.getRight() - cellsLeft) / 6.0f;
+            // (PLAY's rings are two units larger: the group takes 3 units of the panel's side margins, so the pitch grows to 36 and the
+            // rings keep 8 px between them; the margins stay equal.)
+            const auto start = c.getX() + (embedded ? -2 : 1), end = c.getRight() + (embedded ? 3 : 1);
+            osc.uniMode.setBounds ({ start, top + (cellH - menuH) / 2, menuW, menuH });
+            const auto cellsLeft = start + menuW + 3;
+            const auto pitchU = (float) (end - cellsLeft) / 6.0f;
             auto i = 0;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
-                placeKnob (*knob, cellsLeft + 1 + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), dial);
+                placeKnob (*knob, cellsLeft + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), dial);
             const auto spreadY = top + cellH + 2;
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });

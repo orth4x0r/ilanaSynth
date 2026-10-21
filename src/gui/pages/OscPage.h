@@ -1936,8 +1936,10 @@ private:
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
-    static constexpr int pitchW = 153, mixW = 162, unisonW = 274;
+    static constexpr int pitchW = 153, mixW = 164, unisonW = 274;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
+    // PLAY draws at scale 2 where the OSC tab draws near 2.3: its dials are two units larger, so the rings read as large.
+    int wavetableDial() const { return embedded ? 32 : mainDial; }
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
     static constexpr int mainDial = 30, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
@@ -2396,7 +2398,7 @@ private:
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
         // (The MIX column's dial row with its value line and name, then OUT under it, is the tallest; on PLAY the FILTER route sits in the header.)
-        const auto content = std::max ({ rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), embedded ? embeddedColumnContent : 0, mainDial + nameLine + 2 + menuH + 6 });
+        const auto content = std::max ({ rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), embedded ? embeddedColumnContent : 0, wavetableDial() + nameLine + 2 + menuH + 6 });
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardBottomPad + 1;
     }
 
@@ -2729,6 +2731,7 @@ private:
     void layoutWavetablePanels (CardGeometry& card)
     {
         const auto index = card.osc;
+        const auto dial = wavetableDial();
         auto& osc = *controls[(size_t) index];
         auto& pieces = *aux[(size_t) index];
         const auto tint = oscColour (index);
@@ -2747,10 +2750,11 @@ private:
             const auto c = addPanel (0, "WAVE");
             // (On PLAY the picture's own frame slider sets FRAME, so the dial is gone and the picture takes its place, ilana 2026-10-20.)
             auto pictureWidth = juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 10);
-            // (The menus' column and its AMT rings take 142 units at most; what is left over past them goes to the picture, so the
-            // margin at the column's right is no wider than the picture's at the left.)
-            const auto leftOver = c.getWidth() - pictureWidth - 7 - (112 + 3 + ampCell);
-            pictureWidth += juce::jmax (0, leftOver - 4);
+            // (The menus' column and its AMT rings take 142 units at most. What is left over past them goes to the picture, and the
+            // column stands 4 units further right, so the margin past the AMT rings is as wide as the picture's at the left.)
+            const auto columnW = juce::jmax (0, c.getWidth() - pictureWidth - 7);
+            const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
+            pictureWidth += juce::jmax (0, columnW - (comboW + 3 + ampCell)) + 4;
             const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), pictureWidth, c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
@@ -2759,9 +2763,7 @@ private:
             osc.frame.setBounds ({});
 
             const auto columnX = picture.getRight() + 7;
-            const auto columnW = juce::jmax (0, c.getRight() - columnX);
             const auto rows = 2 + effectiveExtraWarps (index);
-            const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
             ComboControl* menus[] { &osc.warp, &osc.spectral, &osc.warp2, &osc.pdEnv };
             KnobControl* amounts[] { &osc.warpAmt, &osc.spectralAmt, &osc.warp2Amt, &osc.pdEnvAmt };
             auto y = middle (c, waveContentHeight (index));
@@ -2778,12 +2780,12 @@ private:
         // PITCH
         {
             const auto c = addPanel (1, "PITCH");
-            const auto cellH = mainDial + nameLine;
+            const auto cellH = dial + nameLine;
             const auto top = middle (c, cellH + 2 + menuH);
             const auto tuning = OscRole::tuning (processorRef, index);
             KnobControl& first = tuning == OscTuning::Ratio ? osc.ratio : tuning == OscTuning::Fixed ? osc.fixedHz : osc.semi;
-            placeKnob (first, c.getX(), top, knobCell, mainDial);
-            placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
+            placeKnob (first, c.getX(), top, knobCell, dial);
+            placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, dial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
             osc.tune.setBounds ({ tuneX, top + (cellH - menuH) / 2, c.getRight() - tuneX, menuH });
             const auto lower = top + cellH + 2;
@@ -2805,11 +2807,11 @@ private:
         // MIX
         {
             const auto c = addPanel (2, "MIX");
-            const auto cellH = mainDial + nameLine;
+            const auto cellH = dial + nameLine;
             const auto top = middle (c, cellH + 2 + menuH);
             // (The ENV menu keeps the room its "ENV" word needs: the two dials' cells are 37, rings 8 px apart.)
-            placeKnob (osc.level, c.getX(), top, 37, mainDial);
-            placeKnob (osc.pan, c.getX() + 37, top, 37, mainDial);
+            placeKnob (osc.level, c.getX(), top, 37, dial);
+            placeKnob (osc.pan, c.getX() + 37, top, 37, dial);
             const auto envX = c.getX() + 2 * 37 + 3;
             osc.ampEnv.setBounds ({ envX, top + (cellH - menuH) / 2, c.getRight() - envX, menuH });
             auto filterY = top + cellH + 2;
@@ -2842,17 +2844,17 @@ private:
         // UNISON
         {
             const auto c = addPanel (3, "UNISON");
-            const auto cellH = mainDial + nameLine;
+            const auto cellH = dial + nameLine;
             const auto top = middle (c, cellH + 2 + menuH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
             const auto menuW = embedded ? 50 : 48;
             // (Six equal cells between the menu and the panel's edge: the rings stand one pitch apart, the margins even.)
-            osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
+            osc.uniMode.setBounds ({ c.getX() + 1, top + (cellH - menuH) / 2, menuW, menuH });
             const auto cellsLeft = c.getX() + menuW + 3;
             const auto pitchU = (float) (c.getRight() - cellsLeft) / 6.0f;
             auto i = 0;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
-                placeKnob (*knob, cellsLeft + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), mainDial);
+                placeKnob (*knob, cellsLeft + 1 + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), dial);
             const auto spreadY = top + cellH + 2;
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });
@@ -3911,7 +3913,7 @@ private:
 
         const auto legatoW = 72, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4")) + 4;
         placeStripRow (panelAt (0, 0, rowAY, "VOICE", accent),
-                       { { voiceMode.get(), 69 }, { nullptr, 6 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } }, stripPitch, false, false, -1);
+                       { { voiceMode.get(), 69 }, { nullptr, 6 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } }, stripPitch, false, false, -2);
         placeStripRow (panelAt (1, 1, rowAY, "STEREO", accent), { { voiceSpread.get(), knobCell }, { unisonRandom.get(), knobCell }, { drift.get(), knobCell } });
         placeStripRow (panelAt (2, 2, rowAY, "NOISE", accent), { { noiseStrip.get(), knobCell }, { noiseColourStrip.get(), knobCell } }, stripPitch, true);
         {

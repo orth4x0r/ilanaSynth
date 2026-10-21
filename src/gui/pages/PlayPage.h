@@ -1222,7 +1222,7 @@ private:
             // (Margins 2 per half and gaps 2 between a half's controls: 4 margins + 3 gaps.)
             const auto room = (edge - inset - halvesGap) - subInk - noiseInk;
             const auto g = juce::jmax (2, room / 7);
-            auto x = inset + g;
+            auto x = inset + g - 2;
             auto stack = juce::Rectangle<int> (x, knobY + 5, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));
             stack.removeFromTop (3);
@@ -1231,8 +1231,9 @@ private:
             knobAt (*subLevel, x - (cell - ringWidth) / 2);
             x += ringWidth + g;
             knobAt (*noiseColour, x - (cell - colourInk) / 2);
-            const auto subEnd = x + colourInk + g;
-            x = subEnd + halvesGap + g + 3;
+            // (SUB's controls stand 2 units left of their even place, the picture's half is not moved.)
+            const auto subEnd = x + 2 + colourInk + g;
+            x = subEnd + halvesGap + g + 1;
             noiseType->setBounds ({ x, knobY + 5, menuWidth, menuHeight });
             x += menuWidth + g;
             knobAt (*noiseLevel, x - (cell - ringWidth) / 2);

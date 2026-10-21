@@ -1932,15 +1932,15 @@ private:
     static constexpr int sideMargin = 7, topMargin = 5, bottomMargin = 5, gap = 4;
     static constexpr int cardHeaderHeight = 22, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
-    static constexpr int stripRowGap = 3, stripPitch = 41, keysPitch = 62;
+    static constexpr int stripRowGap = 5, stripPitch = 41, keysPitch = 62;
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
-    static constexpr int pitchW = 155, mixW = 158, unisonW = 280;
+    static constexpr int pitchW = 153, mixW = 158, unisonW = 280;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 32, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 34, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 14, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 13, stripDialBase = 38, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 0;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
@@ -3832,7 +3832,7 @@ private:
     // Controls spread over a panel with equal space around each, centred in its content.
     // The strips' controls stand on one pitch (a knob's cell is `pitch` wide, a menu keeps its width), the group centred in the
     // panel; a switch stands at the panel's right edge, so LEGATO and MANUAL share one column.
-    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, bool spread = false, bool flushLeft = false) const
+    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, bool spread = false, bool toLabel = false) const
     {
         // (One px lower than the centre: the title keeps clear of the rings.)
         auto c = panelContent (panel);
@@ -3843,7 +3843,7 @@ private:
                 toggleEntry = &entry;
         auto area = c;
         if (toggleEntry != nullptr)
-            area.removeFromRight (toggleEntry->width + 9);
+            area.removeFromRight (toggleEntry->width + (toLabel ? 2 : 9));
         const auto widthOf = [&] (const StripEntry& entry) { return dynamic_cast<KnobControl*> (entry.item) != nullptr ? pitch : entry.width; };
         auto used = 0;
         for (const auto& entry : entries)
@@ -3855,7 +3855,7 @@ private:
             if (&entry != toggleEntry && entry.item != nullptr)
                 ++count;
         const auto between = spread ? juce::jmax (0, (area.getWidth() - used) / (count + 1)) : 0;
-        auto x = area.getX() + (flushLeft ? 3 : spread ? between : juce::jmax (0, area.getWidth() - used) / 2);
+        auto x = area.getX() + (spread ? between : juce::jmax (0, area.getWidth() - used) / 2);
         // (The first row's knobs carry units (ms, st): the unit stands under the number there, two value lines.)
         const auto valueLine = panel.getY() == stripArea.getY() ? KnobControl::packedValueLine2 : KnobControl::packedValueLine;
         const auto cellH = stripDialSize() + 10 + valueLine;

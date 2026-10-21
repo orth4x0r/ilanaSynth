@@ -438,7 +438,7 @@ private:
         }
 
         // RATE, SMOOTH, START as dials; SYNC / RETRIG / KEY over SHAPE and the "Drives" chip in a column at their right.
-        auto x = controls.getX() + 5;
+        auto x = controls.getX() + 6;
         place (rate->getRateKnob(), x);
         rate->matchBounds();
         x += cell;
@@ -1214,34 +1214,33 @@ private:
             const auto menuHeight = 16;
             const auto knobY = body.getBottom() - controlsHeight;
             const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, controlsHeight })); };
-            // One row at one gap: SUB's wave menu over its octave pills, LEVEL, COLOUR, then NOISE's colour menu and LEVEL.
+            // Each half's controls stand centred under its own picture: SUB's wave menu over its octave pills, LEVEL, COLOUR; NOISE's
+            // colour menu and LEVEL; the margin inside a half and the gaps between its controls are one size.
             const auto menuWidth = 50, ringWidth = (int) dialSize, colourInk = 30;
-            const auto ink = 2 * menuWidth + 2 * ringWidth + colourInk;
-            const auto gapInk = juce::jmax (2, (body.getWidth() - ink) / 6);
-            auto x = body.getX() + gapInk;
-            const auto subLeft = x;
+            const auto inset = subNoiseBounds.getX() + 7, edge = subNoiseBounds.getRight() - 7, halvesGap = 4;
+            const auto subInk = menuWidth + ringWidth + colourInk, noiseInk = menuWidth + ringWidth;
+            // (Margins 2 per half and gaps 2 between a half's controls: 4 margins + 3 gaps.)
+            const auto room = (edge - inset - halvesGap) - subInk - noiseInk;
+            const auto g = juce::jmax (2, room / 7);
+            auto x = inset + g;
             auto stack = juce::Rectangle<int> (x, knobY + 5, menuWidth, menuHeight * 2 + 3);
             subShape->setBounds (stack.removeFromTop (menuHeight));
             stack.removeFromTop (3);
             subOctave->setBounds (stack);
-            x += menuWidth + gapInk;
+            x += menuWidth + g;
             knobAt (*subLevel, x - (cell - ringWidth) / 2);
-            x += ringWidth + gapInk;
+            x += ringWidth + g;
             knobAt (*noiseColour, x - (cell - colourInk) / 2);
-            const auto subRight = x + colourInk;
-            x += colourInk + gapInk;
-            const auto noiseLeft = x;
+            const auto subEnd = x + colourInk + g;
+            x = subEnd + halvesGap + g;
             noiseType->setBounds ({ x, knobY + 5, menuWidth, menuHeight });
-            x += menuWidth + gapInk;
+            x += menuWidth + g;
             knobAt (*noiseLevel, x - (cell - ringWidth) / 2);
-            const auto right = x + ringWidth;
             // The live strips over their halves, as BODY's over its dials.
             const auto top = subNoiseBounds.getY() + headerHeight + 3;
             const auto stripH = juce::jmax (8, knobY - 3 - top);
-            const auto middle = (subRight + noiseLeft) / 2, inset = subNoiseBounds.getX() + 7, edge = subNoiseBounds.getRight() - 7;
-            juce::ignoreUnused (subLeft, right);
-            subWave->setBounds ({ inset, top, middle - 2 - inset, stripH });
-            noiseBand->setBounds ({ middle + 2, top, edge - middle - 2, stripH });
+            subWave->setBounds ({ inset, top, subEnd - inset, stripH });
+            noiseBand->setBounds ({ subEnd + halvesGap, top, edge - subEnd - halvesGap, stripH });
         }
     }
 

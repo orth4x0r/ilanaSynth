@@ -243,9 +243,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         expect (add == nullptr && level3 != nullptr && knobFor (osc3 + "_level") != nullptr,
                 "PLAY: three oscillator cards (OSC 3 shown, dimmed while off), no add row with every slot taken");
         expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
-                    && centreX (knobFor ("osc1_semi")) == centreX (knobFor ("osc2_semi"))
-                    && centreX (knobFor ("osc1_frame")) == centreX (knobFor ("osc2_frame")),
-                "PLAY: SEMI, LEVEL, FRAME in the same columns on every wavetable card");
+                    && centreX (knobFor ("osc1_semi")) == centreX (knobFor ("osc2_semi")),
+                "PLAY: SEMI, LEVEL in the same columns on every wavetable card");
         // SUB and NOISE: two cards, each with its own ON switch, VOLUME knob
         // and controls (SUB: wave menu, octave, COLOUR; NOISE: six types).
         {
@@ -397,7 +396,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("OSC");
     settle (400);
     {
-        auto* frame = knobFor ("osc1_frame");
+        auto* frame = knobFor ("osc1_semi");
         auto* unison = knobFor ("osc1_unison");
         const auto spread = frame != nullptr && unison != nullptr
                                 ? editor.getLocalArea (unison, unison->getLocalBounds()).getY() - editor.getLocalArea (frame, frame->getLocalBounds()).getY()
@@ -2946,15 +2945,14 @@ int runUiTests()
         set ("osc1_warp", 0.0f);
         set ("osc1_warp2", 0.0f);
         settle (300);
-        const auto drawnBefore = visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt");
+        const auto drawnBefore = visibleKnob ("osc1_warp2_amt");
         set ("osc1_warp", (float) Warp::PdSaw);
         settle (300);
         set ("osc1_warp2", 1.0f);
-        set ("osc1_pd_env", 1.0f);
         settle (300);
         // (Review 23: the extra stages sit behind + WARP until they are in use.)
-        expect (! drawnBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
-                "OSC 1 shows its PD chain row (second stage and warp envelope) once the stages are in use");
+        expect (! drawnBefore && visibleKnob ("osc1_warp2_amt"),
+                "OSC 1 shows its PD chain row (the second stage) once the stages are in use");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
         // the oscillator's card).
@@ -3669,6 +3667,9 @@ int runUiTests()
         processor.loadFactoryPreset (0);
         pages->showPage ("MAIN");
         settle (100);
+        // (Init carries the two cutoff routes that replaced its ENV AMOUNT knob; the starters want an empty matrix.)
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            processor.clearModSlot (slot);
         pages->showPage ("MATRIX");
         settle (300);
 

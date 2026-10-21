@@ -32,7 +32,7 @@ public:
           followsTheme (followsThemeIn)
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse).\n"
-                    "Drag the dot on the attack, decay or release to curve that segment alone (CURVE curves all three).\n"
+                    "Drag the dot on the attack, decay or release to curve that segment.\n"
                     "Double-click a handle or a dot to reset it. Esc cancels a drag.\n"
                     "Each stage gets room by the square root of its time; the ruler under the graph gives the time since "
                     "the note started, up to KEY UP (the release's own time is on its knob). The dot is the last note played.");

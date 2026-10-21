@@ -32,14 +32,12 @@ public:
           cutoff (p.apvts, prefix + "_cutoff", "CUTOFF", colourIn, false),
           reso (p.apvts, prefix + "_reso", "RESO", colourIn, false),
           drive (p.apvts, prefix + "_drive", "DRIVE", colourIn, false),
-          env (p.apvts, prefix + "_env", "ENV AMT", colourIn, false),
           key (p.apvts, prefix + "_keytrack", "KEY TRK", colourIn, false),
-          fm (p.apvts, prefix + "_fm", "AUDIO FM", colourIn, false),
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
-        addAll (*this, picker, slope, cutoff, reso, drive, env, key, fm, morph);
+        addAll (*this, picker, slope, cutoff, reso, drive, key, morph);
         panels[index == 1 ? 0 : 1] = this;
-        for (auto* knob : { &cutoff, &reso, &drive, &env, &key, &fm, &morph })
+        for (auto* knob : { &cutoff, &reso, &drive, &key, &morph })
             knob->setSizeRole (38);
 
         // Filter 2 stays open (20 kHz) on almost every patch: its switch says
@@ -98,7 +96,7 @@ public:
     void resized() override
     {
         // The design's matched card: a 30 px header (title, F2's switch), then
-        // the type menu with the slope pills, then the six knobs.
+        // the type menu with the slope pills, then the four knobs.
         auto header = getLocalBounds().reduced (10, 0).removeFromTop (headerHeight);
         if (prefix == "f2")
         {
@@ -112,10 +110,10 @@ public:
         slope.setBounds (row.removeFromLeft (104).withSizeKeepingCentre (104, 24));
         area.removeFromTop (6);
 
-        std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &env, &key, &fm };
+        std::vector<juce::Component*> knobs { &cutoff, &reso, &drive, &key };
 
-        // (Each card spreads its own knobs across the whole card: seven columns
-        // while it has a MORPH, else six. ilana 2026-10-15: FILTER 2 stays six
+        // (Each card spreads its own knobs across the whole card: five columns
+        // while it has a MORPH, else four. ilana 2026-10-15: FILTER 2 stays four
         // wide when FILTER 1 gets a MORPH, so it leaves no empty slot.)
         if (morph.isVisible())
             knobs.push_back (&morph);
@@ -234,7 +232,7 @@ private:
     juce::Colour colour;
     FilterTypePicker picker;
     SlopeSwitch slope;
-    KnobControl cutoff, reso, drive, env, key, fm, morph;
+    KnobControl cutoff, reso, drive, key, morph;
     juce::TextButton f2Switch;
     float rememberedCutoff = 8000.0f;
     int type = -1;

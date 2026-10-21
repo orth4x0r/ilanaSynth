@@ -1012,7 +1012,6 @@ class OscPage : public juce::Component,
               mode (state, prefix + "_mode", ""),
               table (state, prefix + "_table", "TABLE"),
               excite (state, prefix + "_excite", "EXCITE"),
-              frame (state, prefix + "_frame", "FRAME"),
               level (state, prefix + "_level", "LEVEL"),
               pan (state, prefix + "_pan", "PAN"),
               semi (state, prefix + "_semi", "SEMI"),
@@ -1064,9 +1063,7 @@ class OscPage : public juce::Component,
               grainSpread (state, prefix + "_grain_spread", "STEREO"),
               grainLive (state, prefix + "_grain_live", "LIVE"),
               warp2 (state, prefix + "_warp2", "WARP 2"),
-              pdEnv (state, prefix + "_pd_env", "WARP ENV"),
               warp2Amt (state, prefix + "_warp2_amt", "WARP 2 AMT"),
-              pdEnvAmt (state, prefix + "_pd_env_amt", "ENV AMT"),
               tune (state, prefix + "_tune", "TUNING"),
               ratio (state, prefix + "_ratio", "RATIO"),
               fixedHz (state, prefix + "_fixed_hz", "FIXED"),
@@ -1078,7 +1075,7 @@ class OscPage : public juce::Component,
         // Every knob in the oscillator's own colour, as on PLAY.
         void setColour (juce::Colour colour)
         {
-            for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &pdEnvAmt, &frame, &level, &pan, &semi, &fine, &unison, &detune, &spread,
+            for (auto* knob : { &egOut, &trim, &feedback, &ratio, &fixedHz, &warp2Amt, &level, &pan, &semi, &fine, &unison, &detune, &spread,
                                 &stringDecay, &stringDamp, &stringSustain, &sampleStart, &sampleEnd, &sampleFadeIn,
                                 &sampleLoopXfade, &sampleStartRandom, &sampleRoot, &sampleFadeOut, &sampleBpm, &warpAmt, &uniBlend, &uniFrame, &uniWarp, &spectralAmt, &grainPosition, &grainScan, &grainSize,
                                 &grainDensity, &grainSpray, &grainPitch, &grainSpread })
@@ -1088,9 +1085,9 @@ class OscPage : public juce::Component,
         ToggleControl on, sampleTuned, sampleLoop, sampleReverse, sampleLoopOwn, sampleSnap;
         ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral, scale, scaleRoot;
         // M6: the PD chain's second stage and the warp (DCW) envelope.
-        ComboControl warp2, pdEnv;
-        KnobControl warp2Amt, pdEnvAmt;
-        KnobControl frame, level, pan, semi, fine, unison, detune, spread;
+        ComboControl warp2;
+        KnobControl warp2Amt;
+        KnobControl level, pan, semi, fine, unison, detune, spread;
         KnobControl stringDecay, stringDamp, stringSustain;
         KnobControl sampleStart, sampleEnd, sampleFadeIn, sampleFadeOut, sampleLoopXfade, sampleRoot;
         // Step 40: the sample follows the host tempo.
@@ -1227,9 +1224,9 @@ public:
             addChildComponents (osc.grainPosition, osc.grainScan, osc.grainFreeze, osc.grainSize, osc.grainDensity,
                                 osc.grainSpray, osc.grainPitch, osc.grainSpread, osc.grainLive,
                                 osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode, osc.scale, osc.scaleRoot,
-                                osc.warpAmt, osc.uniBlend, osc.uniFrame, osc.uniWarp, osc.warp2, osc.pdEnv, osc.warp2Amt, osc.pdEnvAmt);
+                                osc.warpAmt, osc.uniBlend, osc.uniFrame, osc.uniWarp, osc.warp2, osc.warp2Amt);
             addChildComponents (osc.on, osc.mode, osc.table, osc.excite,
-                                osc.frame, osc.level, osc.pan, osc.semi, osc.fine,
+                                osc.level, osc.pan, osc.semi, osc.fine,
                                 osc.unison, osc.detune, osc.spread, osc.stringDecay,
                                 osc.stringDamp, osc.stringSustain, osc.sampleTuned,
                                 osc.sampleLoop, osc.sampleReverse, osc.sampleLoopOwn, osc.sampleSnap, osc.sampleLoopXfade, osc.sampleStart,
@@ -1249,7 +1246,7 @@ public:
             // of the dial, menus 18 px high under a small name.
             for (auto* knob : cardKnobs (osc))
                 knob->setInlineKnob (true);
-            for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
+            for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
                                 &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
                                 &osc.samplePlayback, &osc.sampleQuality })
                 menu->setCompactLayout (true);
@@ -1265,14 +1262,12 @@ public:
             osc.warpAmt.setLabelText ("AMT");
             osc.warp2Amt.setLabelText ("AMT");
             osc.spectralAmt.setLabelText ("AMT");
-            osc.pdEnvAmt.setLabelText ("AMT");
             osc.unison.setLabelText ("VOICES");
             osc.uniMode.setLabelText ("MODE");
 
             // An amount whose stage is Off keeps its place and shows a faded dash.
             osc.warpAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_warp") == 0; });
             osc.warp2Amt.setDashWhen ([this, prefix] { return readChoice (prefix + "_warp2") == 0; });
-            osc.pdEnvAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_pd_env") == 0; });
             osc.spectralAmt.setDashWhen ([this, prefix] { return readChoice (prefix + "_spectral") == 0; });
             // The sample's BPM counts only when SYNC asks for it (a length
             // gives the tempo itself).
@@ -1373,11 +1368,11 @@ public:
             };
             addChildComponent (card.exciterPills);
             card.addWarp.setText ("+ WARP");
-            card.addWarp.setTooltip ("Add another warp stage: WARP 2, then WARP ENV (the stages run one after another)");
+            card.addWarp.setTooltip ("Add another warp stage: WARP 2 (the stages run one after another)");
             card.addWarp.onClick = [this, i]
             {
                 auto& extra = aux[(size_t) i]->extraWarps;
-                extra = juce::jmin (2, juce::jmax (extra, effectiveExtraWarps (i)) + 1);
+                extra = juce::jmin (1, juce::jmax (extra, effectiveExtraWarps (i)) + 1);
                 updateModeVisibility();
                 updateEnabled();
             };
@@ -1895,7 +1890,7 @@ public:
     }
 
 private:
-    static constexpr const char* listenedSuffixes[] { "_mode", "_on", "_excite", "_warp", "_warp2", "_pd_env", "_spectral", "_tune", "_amp_env" };
+    static constexpr const char* listenedSuffixes[] { "_mode", "_on", "_excite", "_warp", "_warp2", "_spectral", "_tune", "_amp_env" };
     static constexpr const char* listenedIds[] { "sym_on", "sym_manual", "sym_count", "sb_on", "subosc_on", "noise_level", "voice_mode" };
 
     template <typename... Components>
@@ -1923,7 +1918,7 @@ private:
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 29, ampDial = 20, frameDial = 44, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 29, ampDial = 20, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
@@ -1972,7 +1967,6 @@ private:
                 // (Panels, review 23: the cells below are only the list of what shows;
                 // layoutWavetablePanels places them; the table's menu is the header's.)
                 add (osc.table, 0, 0);
-                add (osc.frame, 0, 0);
                 add (osc.warp, 0, 0);
                 add (osc.warpAmt, 0, 0);
                 add (osc.spectral, 0, 0);
@@ -1981,11 +1975,6 @@ private:
                 {
                     add (osc.warp2, 0, 0);
                     add (osc.warp2Amt, 0, 0);
-                }
-                if (effectiveExtraWarps (index) >= 2)
-                {
-                    add (osc.pdEnv, 0, 0);
-                    add (osc.pdEnvAmt, 0, 0);
                 }
                 add (osc.level, 1, 0);
                 add (osc.pan, 1, 0);
@@ -2044,10 +2033,9 @@ private:
                     add (osc.uniBlend, 3, 0);
                     add (osc.spread, 3, 0);
                     const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
-                                                                            { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
+                                                                            { &osc.spectral, &osc.spectralAmt } };
                     for (const auto& [menu, amount] : shapers)
-                        if (readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2"
-                                                                : menu == &osc.spectral ? "_spectral" : "_pd_env")) != 0)
+                        if (readChoice (prefix + juce::String (menu == &osc.warp ? "_warp" : menu == &osc.warp2 ? "_warp2" : "_spectral")) != 0)
                         {
                             add (*menu, 3, 0);
                             add (*amount, 3, 0);
@@ -2184,7 +2172,7 @@ private:
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
             auto third = readFloat (prefix + "_unison") > 1.5f;
-            for (const auto* stage : { "_warp", "_warp2", "_spectral", "_pd_env" })
+            for (const auto* stage : { "_warp", "_warp2", "_spectral" })
                 third = third || readChoice (prefix + stage) != 0;
             return third ? 3 : 2;
         }
@@ -2343,7 +2331,7 @@ private:
     int effectiveExtraWarps (int osc) const
     {
         const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
-        const auto needed = readChoice (prefix + "_pd_env") != 0 ? 2 : readChoice (prefix + "_warp2") != 0 ? 1 : 0;
+        const auto needed = readChoice (prefix + "_warp2") != 0 ? 1 : 0;
         return juce::jmax (needed, aux[(size_t) osc]->extraWarps);
     }
 
@@ -2722,20 +2710,18 @@ private:
         // WAVE
         {
             const auto c = addPanel (0, "WAVE");
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2), c.getHeight());
+            // (The picture takes the column FRAME's dial had: dragging across it scrubs the frame.)
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (juce::jmin (180, c.getWidth() / 2) + 7 + 49, c.getHeight() * 29 / 10), c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
 
-            const auto frameCell = juce::Rectangle<int> (picture.getRight() + 7, 0, 49, frameDial + nameLine).withY (middle (c, frameDial + nameLine));
-            placeKnob (osc.frame, frameCell.getX(), frameCell.getY(), frameCell.getWidth(), frameDial);
-
-            const auto columnX = frameCell.getRight() + 7;
+            const auto columnX = picture.getRight() + 7;
             const auto columnW = juce::jmax (0, c.getRight() - columnX);
             const auto rows = 2 + effectiveExtraWarps (index);
             const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
-            ComboControl* menus[] { &osc.warp, &osc.spectral, &osc.warp2, &osc.pdEnv };
-            KnobControl* amounts[] { &osc.warpAmt, &osc.spectralAmt, &osc.warp2Amt, &osc.pdEnvAmt };
+            ComboControl* menus[] { &osc.warp, &osc.spectral, &osc.warp2 };
+            KnobControl* amounts[] { &osc.warpAmt, &osc.spectralAmt, &osc.warp2Amt };
             auto y = middle (c, waveContentHeight (index));
             for (int r = 0; r < rows; ++r)
             {
@@ -2744,7 +2730,7 @@ private:
                 placeKnob (*amounts[r], columnX + comboW + 3, y + 1, ampCell, warpDial());
                 y += warpRowH() + 1;
             }
-            pieces.addWarp.setBounds (rows < 4 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
+            pieces.addWarp.setBounds (rows < 3 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
         }
 
         // PITCH
@@ -3171,10 +3157,10 @@ private:
                 placeEvenDials (c, knobY, 55, { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread }, mainDial);
                 const auto lowerY = knobY + cellH + 4;
                 const std::pair<ComboControl*, KnobControl*> shapers[] { { &osc.warp, &osc.warpAmt }, { &osc.warp2, &osc.warp2Amt },
-                                                                        { &osc.spectral, &osc.spectralAmt }, { &osc.pdEnv, &osc.pdEnvAmt } };
-                const juce::StringArray stages { "_warp", "_warp2", "_spectral", "_pd_env" };
+                                                                        { &osc.spectral, &osc.spectralAmt } };
+                const juce::StringArray stages { "_warp", "_warp2", "_spectral" };
                 auto inUse = 0;
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 3; ++i)
                     inUse += readChoice (prefix + stages[i]) != 0 ? 1 : 0;
                 if (inUse == 0)
                 {
@@ -3185,7 +3171,7 @@ private:
                 {
                     const auto columnW = (c.getWidth() - 4 * (inUse - 1)) / inUse;
                     auto used = 0;
-                    for (int i = 0; i < 4; ++i)
+                    for (int i = 0; i < 3; ++i)
                         if (readChoice (prefix + stages[i]) != 0)
                         {
                             const auto x = c.getX() + used * (columnW + 4);
@@ -3941,7 +3927,7 @@ private:
         juce::TextButton prevTable { juce::String::fromUTF8 ("\xe2\x80\xb9") }, nextTable { juce::String::fromUTF8 ("\xe2\x80\xba") };
         PackedChip addWarp;
         PillWrap exciterPills;
-        int extraWarps = 0; // 0..2 of WARP 2 and WARP ENV shown beyond WARP and SPECTRAL
+        int extraWarps = 0; // 0..1 of WARP 2 shown beyond WARP and SPECTRAL
         SampleNameBox sampleNameButton;
         BarSliderControl xfadeBar; // the sample's CROSSFADE, a row of the toggle list
         juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
@@ -3950,11 +3936,11 @@ private:
     // Every knob a card can show, for the one inline style.
     static std::vector<KnobControl*> cardKnobs (OscControls& osc)
     {
-        return { &osc.frame, &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
+        return { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleStartRandom, &osc.sampleRoot, &osc.sampleBpm, &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
-                 &osc.grainSpread, &osc.warp2Amt, &osc.pdEnvAmt, &osc.ratio, &osc.fixedHz, &osc.egOut,
+                 &osc.grainSpread, &osc.warp2Amt, &osc.ratio, &osc.fixedHz, &osc.egOut,
                  &osc.trim, &osc.feedback };
     }
 
@@ -4279,13 +4265,13 @@ private:
         auto& phys = *physical[(size_t) i];
         auto& pieces = *aux[(size_t) i];
         return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.mode, &osc.table,
-                 &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral, &osc.frame,
+                 &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
                  &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleSync, &osc.sampleBpm, &osc.sampleStretch, &osc.samplePlayback, &osc.samplePingPong, &osc.sampleStartRandom, &osc.sampleStartSafe, &osc.sampleQuality,
                  &osc.warpAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spectralAmt,
                  &osc.grainPosition, &osc.grainScan, &osc.grainFreeze, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
-                 &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.pdEnv, &osc.warp2Amt, &osc.pdEnvAmt,
+                 &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.warp2Amt,
                  &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback, &osc.feedbackType,
                  &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
@@ -4322,11 +4308,10 @@ private:
         osc.fixedHz.setPackedValueRoom (embedded && panels ? 12 : 0);
         osc.grainScan.setPackedValueRoom (embedded && panels ? 12 : 0);
         osc.grainSize.setPackedValueRoom (embedded && panels ? 12 : 0);
-        osc.frame.setPackedDial (panels ? (float) frameDial : 0.0f);
-        for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.pdEnvAmt })
+        for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt })
             knob->setPackedDial (panels ? (float) ampDial : 0.0f);
 
-        for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.pdEnv, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode, &osc.feedbackType, &osc.sampleSync, &osc.sampleStretch, &osc.samplePlayback, &osc.sampleQuality })
+        for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode, &osc.feedbackType, &osc.sampleSync, &osc.sampleStretch, &osc.samplePlayback, &osc.sampleQuality })
             menu->setPackedMenu (panels);
         osc.table.setPackedMenu (kind == Kind::wavetable || kind == Kind::fm);
         waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
@@ -4426,7 +4411,7 @@ private:
             pieces.nextTable.setVisible (wavetableCard);
             pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
             pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
-            pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 2);
+            pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 1);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
@@ -4582,7 +4567,7 @@ private:
                                &physicalControls.fbGain, &physicalControls.fbDistance }, enabled);
 
             auto& osc = *controls[(size_t) index];
-            setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.frame, &osc.level,
+            setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.level,
                                &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune,
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade, &osc.sampleRoot,
@@ -4592,7 +4577,7 @@ private:
                                &osc.grainPosition, &osc.grainScan, &osc.grainFreeze, &osc.grainSize, &osc.grainDensity,
                                &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.grainLive,
                                &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.ampEnv,
-                               &osc.warp2, &osc.warp2Amt, &osc.pdEnv, &osc.pdEnvAmt,
+                               &osc.warp2, &osc.warp2Amt,
                                &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback,
                                &osc.feedbackType }, enabled);
 
@@ -4601,7 +4586,6 @@ private:
             if (enabled)
             {
                 osc.warp2Amt.setAlpha (readChoice (prefix + "_warp2") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
-                osc.pdEnvAmt.setAlpha (readChoice (prefix + "_pd_env") > 0 ? 1.0f : IlanaTheme::dimmedAlpha);
 
                 // A string or exciter knob the exciter in use ignores dims too.
                 if (readChoice (prefix + "_mode") == 1)
@@ -4614,7 +4598,7 @@ private:
                 }
             }
 
-            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.pdEnvAmt, &osc.spectralAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spread })
+            for (auto* knob : { &osc.warpAmt, &osc.warp2Amt, &osc.spectralAmt, &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.spread })
                 knob->refreshValueText();
 
             // A switched-off oscillator dims in place, the same size.

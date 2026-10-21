@@ -924,7 +924,7 @@ private:
 
         // Number the rows as shown, and mark repeated source / destination
         // pairs (older patches can have them; both rows still play).
-        std::map<std::pair<int, int>, std::vector<int>> pairs;
+        std::map<std::tuple<int, int, int>, std::vector<int>> pairs; // source, destination, via
         auto anyVia = false;
 
         for (size_t i = 0; i < used.size(); ++i)
@@ -933,7 +933,7 @@ private:
             anyVia = anyVia || slot.aux != Mod::Source::None;
 
             if (slot.source != Mod::Source::None && slot.destination != 0)
-                pairs[{ (int) slot.source, slot.destination }].push_back ((int) i + 1);
+                pairs[{ (int) slot.source, slot.destination, (int) slot.aux }].push_back ((int) i + 1);
         }
 
         auto duplicates = 0;
@@ -943,7 +943,7 @@ private:
             const auto slot = processorRef.readModSlot (used[i]);
             juce::StringArray others;
 
-            if (const auto found = pairs.find ({ (int) slot.source, slot.destination }); found != pairs.end() && slot.destination != 0)
+            if (const auto found = pairs.find ({ (int) slot.source, slot.destination, (int) slot.aux }); found != pairs.end() && slot.destination != 0)
                 for (const auto number : found->second)
                     if (number != (int) i + 1)
                         others.add (juce::String (number));

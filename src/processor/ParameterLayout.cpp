@@ -268,7 +268,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("f1_cutoff", "F1 Cutoff", 20.0f, 20000.0f, 12000.0f, 0.25f);
     addFloat ("f1_reso", "F1 Reso", 0.0f, 1.0f, 0.25f);
     addFloat ("f1_drive", "F1 Drive", 1.0f, 10.0f, 1.5f);
-    addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 1.5f);
+    addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 0.0f); // (1.5 before the knob went: see migrateFilterEnvAmounts)
     addFloat ("f1_keytrack", "F1 Key Track", -1.0f, 1.0f, 0.0f);
     addFloat ("f1_morph", "F1 Morph", 0.0f, 1.0f, 0.0f);
 

@@ -1087,6 +1087,30 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                                     entry.second = value;
                         });
 
+    // The recipes set ENV AMOUNT (Filter 1's default was 1.5 octaves), TENSION
+    // and WARP ENV; they are now matrix routes and curves with the same sound.
+    {
+        const auto find = [&values] (const juce::String& id) -> std::pair<juce::String, float>*
+        {
+            for (auto& entry : values)
+                if (entry.first == id)
+                    return &entry;
+            return nullptr;
+        };
+        migrateRedundantKnobs ([&find] (const juce::String& id, float fallback)
+                                 {
+                                     const auto* entry = find (id);
+                                     return entry != nullptr ? entry->second : fallback;
+                                 },
+                                 [&find, &values] (const juce::String& id, float value)
+                                 {
+                                     if (auto* entry = find (id))
+                                         entry->second = value;
+                                     else
+                                         values.push_back ({ id, value });
+                                 });
+    }
+
     // Its operators (a wavetable tuned by ratio or fixed Hz, or on the
     // Operator EG) load as FM / DX7, which renders the same.
     {

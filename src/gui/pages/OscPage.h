@@ -1932,15 +1932,15 @@ private:
     static constexpr int sideMargin = 7, topMargin = 5, bottomMargin = 5, gap = 4;
     static constexpr int cardHeaderHeight = 22, compactCardMin = 118, compactCardMax = 130;
     // The packed cards' panels (wavetable, physical), in units: the mockup's css px / 1.5.
-    static constexpr int stripRowGap = 5, stripPitch = 41, keysPitch = 62;
+    static constexpr int stripRowGap = 4, stripPitch = 41, keysPitch = 62;
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
-    static constexpr int pitchW = 153, mixW = 158, unisonW = 280;
+    static constexpr int pitchW = 153, mixW = 162, unisonW = 274;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
     int pitchColumn() const { return embedded ? 175 : pitchW; }
     int unisonColumn() const { return embedded ? 275 : unisonW; }
-    static constexpr int mainDial = 34, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
+    static constexpr int mainDial = 30, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 14, outH = 12, spreadH = 17;
     static constexpr int addRowHeight = 13, stripDialBase = 38, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 0;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
@@ -2396,7 +2396,7 @@ private:
 
         const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
         // (The MIX column's dial row with its value line and name, then OUT under it, is the tallest; on PLAY the FILTER route sits in the header.)
-        const auto content = std::max ({ rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), embedded ? embeddedColumnContent : 0, mainDial + nameLine + 2 + outH });
+        const auto content = std::max ({ rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0), embedded ? embeddedColumnContent : 0, mainDial + nameLine + 2 + menuH + 6 });
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardBottomPad + 1;
     }
 
@@ -2746,7 +2746,12 @@ private:
         {
             const auto c = addPanel (0, "WAVE");
             // (On PLAY the picture's own frame slider sets FRAME, so the dial is gone and the picture takes its place, ilana 2026-10-20.)
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 10), c.getHeight());
+            auto pictureWidth = juce::jmin (180, c.getWidth() / 2) + (embedded ? 56 : 10);
+            // (The menus' column and its AMT rings take 142 units at most; what is left over past them goes to the picture, so the
+            // margin at the column's right is no wider than the picture's at the left.)
+            const auto leftOver = c.getWidth() - pictureWidth - 7 - (112 + 3 + ampCell);
+            pictureWidth += juce::jmax (0, leftOver - 4);
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), pictureWidth, c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});
@@ -2774,14 +2779,14 @@ private:
         {
             const auto c = addPanel (1, "PITCH");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 1 + menuH);
+            const auto top = middle (c, cellH + 2 + menuH);
             const auto tuning = OscRole::tuning (processorRef, index);
             KnobControl& first = tuning == OscTuning::Ratio ? osc.ratio : tuning == OscTuning::Fixed ? osc.fixedHz : osc.semi;
             placeKnob (first, c.getX(), top, knobCell, mainDial);
             placeKnob (osc.fine, c.getX() + knobCell, top, knobCell, mainDial);
             const auto tuneX = c.getX() + 2 * knobCell + 3;
             osc.tune.setBounds ({ tuneX, top + (cellH - menuH) / 2, c.getRight() - tuneX, menuH });
-            const auto lower = top + cellH + (embedded ? 1 : 2);
+            const auto lower = top + cellH + 2;
             if (readChoice (juce::String (OscillatorIds::prefixes[(size_t) index]) + "_scale") != 0)
             {
                 const auto rootW = 36, free = c.getWidth() - rootW - 8;
@@ -2801,13 +2806,13 @@ private:
         {
             const auto c = addPanel (2, "MIX");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 1 + menuH);
-            // (The ENV menu keeps the room its "ENV" word needs: the two dials' cells are 34.)
-            placeKnob (osc.level, c.getX(), top, 34, mainDial);
-            placeKnob (osc.pan, c.getX() + 34, top, 34, mainDial);
-            const auto envX = c.getX() + 2 * 34 + 3;
+            const auto top = middle (c, cellH + 2 + menuH);
+            // (The ENV menu keeps the room its "ENV" word needs: the two dials' cells are 37, rings 8 px apart.)
+            placeKnob (osc.level, c.getX(), top, 37, mainDial);
+            placeKnob (osc.pan, c.getX() + 37, top, 37, mainDial);
+            const auto envX = c.getX() + 2 * 37 + 3;
             osc.ampEnv.setBounds ({ envX, top + (cellH - menuH) / 2, c.getRight() - envX, menuH });
-            auto filterY = top + cellH + (embedded ? 1 : 2);
+            auto filterY = top + cellH + 2;
             const auto labelW = 28;
             if (true)
             {
@@ -2838,17 +2843,17 @@ private:
         {
             const auto c = addPanel (3, "UNISON");
             const auto cellH = mainDial + nameLine;
-            const auto top = middle (c, cellH + 1 + menuH);
+            const auto top = middle (c, cellH + 2 + menuH);
             // (On PLAY the menu keeps the approved 55 px of the PLAY picture, v26.)
-            const auto menuW = embedded ? 55 : 52;
+            const auto menuW = embedded ? 50 : 48;
             // (Six equal cells between the menu and the panel's edge: the rings stand one pitch apart, the margins even.)
-            osc.uniMode.setBounds ({ c.getX() + 2, top + (cellH - menuH) / 2, menuW, menuH });
+            osc.uniMode.setBounds ({ c.getX(), top + (cellH - menuH) / 2, menuW, menuH });
             const auto cellsLeft = c.getX() + menuW + 3;
             const auto pitchU = (float) (c.getRight() - cellsLeft) / 6.0f;
             auto i = 0;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
-                placeKnob (*knob, cellsLeft + 2 + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), mainDial);
-            const auto spreadY = top + cellH + (embedded ? 1 : 2);
+                placeKnob (*knob, cellsLeft + juce::roundToInt ((float) i++ * pitchU), top, juce::roundToInt (pitchU), mainDial);
+            const auto spreadY = top + cellH + 2;
             const auto labelW = 36;
             card.labels.push_back ({ { c.getX(), spreadY, labelW, menuH }, "SPREAD" });
             pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, menuH });
@@ -3832,7 +3837,7 @@ private:
     // Controls spread over a panel with equal space around each, centred in its content.
     // The strips' controls stand on one pitch (a knob's cell is `pitch` wide, a menu keeps its width), the group centred in the
     // panel; a switch stands at the panel's right edge, so LEGATO and MANUAL share one column.
-    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, bool spread = false, bool toLabel = false) const
+    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, bool spread = false, bool toLabel = false, int nudge = 0) const
     {
         // (One px lower than the centre: the title keeps clear of the rings.)
         auto c = panelContent (panel);
@@ -3855,7 +3860,7 @@ private:
             if (&entry != toggleEntry && entry.item != nullptr)
                 ++count;
         const auto between = spread ? juce::jmax (0, (area.getWidth() - used) / (count + 1)) : 0;
-        auto x = area.getX() + (spread ? between : juce::jmax (0, area.getWidth() - used) / 2);
+        auto x = area.getX() + nudge + (spread ? between : juce::jmax (0, area.getWidth() - used) / 2);
         // (The first row's knobs carry units (ms, st): the unit stands under the number there, two value lines.)
         const auto valueLine = panel.getY() == stripArea.getY() ? KnobControl::packedValueLine2 : KnobControl::packedValueLine;
         const auto cellH = stripDialSize() + 10 + valueLine;
@@ -3906,7 +3911,7 @@ private:
 
         const auto legatoW = 72, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4")) + 4;
         placeStripRow (panelAt (0, 0, rowAY, "VOICE", accent),
-                       { { voiceMode.get(), 69 }, { nullptr, 6 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } });
+                       { { voiceMode.get(), 69 }, { nullptr, 6 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } }, stripPitch, false, false, -1);
         placeStripRow (panelAt (1, 1, rowAY, "STEREO", accent), { { voiceSpread.get(), knobCell }, { unisonRandom.get(), knobCell }, { drift.get(), knobCell } });
         placeStripRow (panelAt (2, 2, rowAY, "NOISE", accent), { { noiseStrip.get(), knobCell }, { noiseColourStrip.get(), knobCell } }, stripPitch, true);
         {
@@ -3919,7 +3924,7 @@ private:
             // the strings' six tuning notes take a third row of their own while MANUAL is on.)
             const auto strings = panelAt (0, 0, rowBY, {}, grey);
             placeStripSwitch (symOn, strings, "STRINGS");
-            placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell }, { &symManual, legatoW } }, stripPitch, false, true);
+            placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell }, { &symManual, legatoW } }, stripPitch, false, true, 1);
             const auto board = panelAt (1, 1, rowBY, {}, grey);
             placeStripSwitch (sbOn, board, "SOUNDBOARD");
             // (The model menu is bare like PLAY's BODY menu.)

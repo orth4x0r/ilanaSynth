@@ -1203,7 +1203,7 @@ private:
             auto knobArea = body.removeFromBottom (controlsHeight);
             body.removeFromBottom (3);
             bodyDisplay->setBounds (body);
-            placeKnobRow (knobArea, pointers (bodyKnobs));
+            placeKnobRow (knobArea.translated (1, 0), pointers (bodyKnobs));
         }
 
         {
@@ -1232,7 +1232,7 @@ private:
             x += ringWidth + g;
             knobAt (*noiseColour, x - (cell - colourInk) / 2);
             const auto subEnd = x + colourInk + g;
-            x = subEnd + halvesGap + g;
+            x = subEnd + halvesGap + g + 3;
             noiseType->setBounds ({ x, knobY + 5, menuWidth, menuHeight });
             x += menuWidth + g;
             knobAt (*noiseLevel, x - (cell - ringWidth) / 2);

@@ -397,12 +397,41 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             const auto bounds = area (wave);
             tallest = juce::jmax (tallest, bounds.getHeight());
             const auto ratio = (float) bounds.getWidth() / (float) juce::jmax (1, bounds.getHeight());
-            squarish = squarish && ratio > 0.9f && ratio < 3.0f && bounds.getWidth() >= 140; // wide and big: the picture gets the room (ilana, 2026-10-05)
+            squarish = squarish && ratio > 0.9f && ratio < 3.8f && bounds.getWidth() >= 140; // wide and big: the picture gets the room (ilana, 2026-10-05; no FRAME dial, 2026-10-21: "close the gap")
             shape << bounds.getWidth() << "x" << bounds.getHeight() << " ";
         }
         expect (! shownWaves().empty() && tallest <= 200 && squarish, "PLAY's oscillator pictures are wide, at least 140 px and no taller than 200 px (" + shape + ")");
 
         // (The approved PLAY has no PATCH tile or growing strips: its bands fill the page, checked by the dead-area test.)
+    }
+
+    // A modulation source dropped on an oscillator's wave picture routes it to that FRAME (the knob is gone from PLAY).
+    {
+        loadNamed ("Init");
+        editor.showPage ("MAIN");
+        settle (300);
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            processor.clearModSlot (slot);
+        auto waves = shownWaves();
+        const auto lfo = (int) Mod::Source::Lfo1;
+        juce::DragAndDropTarget::SourceDetails details ("modsource:" + juce::String (lfo), &editor, {});
+        auto routedTo = [&] (int destination)
+        {
+            auto count = 0;
+            for (int slot = 0; slot < Mod::maxSlots; ++slot)
+                count += (int) processor.readModSlot (slot).source == lfo && processor.readModSlot (slot).destination == destination ? 1 : 0;
+            return count;
+        };
+        const auto interested = ! waves.empty() && waves.front()->isInterestedInDragSource (details);
+        if (! waves.empty())
+        {
+            waves.front()->itemDropped (details);
+            waves.front()->itemDropped (details);
+        }
+        expect (interested && routedTo ((int) Mod::Destination::Osc1Frame) == 1,
+                "a source dropped on OSC 1's wave picture routes to its FRAME, once (" + juce::String (routedTo ((int) Mod::Destination::Osc1Frame)) + " routes)");
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            processor.clearModSlot (slot);
     }
 
     // V10-8: a value keeps its unit's space in a DX7 voice's strips (nothing

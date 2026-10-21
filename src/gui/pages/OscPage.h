@@ -3919,7 +3919,7 @@ private:
         {
             const auto sub = panelAt (3, 3, rowAY, {}, accent);
             placeStripSwitch (*subOscOn, sub, "SUB");
-            placeStripRow (sub, { { &subShape, 75 }, { subOscLevel.get(), knobCell }, { &subOctave, 67 } }, stripPitch, true);
+            placeStripRow (sub, { { &subShape, 75 }, { subOscLevel.get(), knobCell }, { &subOctave, 67 } }, stripPitch, true, false, 2);
         }
         {
             // (The second row: the strings with their MANUAL switch, the soundboard, and the keys' extras over the last two columns;
@@ -4396,7 +4396,7 @@ private:
                             &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.egOut, &osc.sampleStart, &osc.sampleEnd,
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
-            knob->setPackedDial (panels ? (float) mainDial : 0.0f);
+            knob->setPackedDial (panels ? (float) (kind == Kind::wavetable ? wavetableDial() : mainDial) : 0.0f);
         // (Every card's dial keeps the unit under the number: two value lines, ilana's PLAY rule.)
         for (auto* knob : { &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.ratio, &osc.fixedHz, &osc.unison, &osc.detune, &osc.spread,
                             &osc.uniBlend, &osc.uniFrame, &osc.uniWarp, &osc.egOut, &osc.sampleStart, &osc.sampleEnd,
@@ -4404,7 +4404,7 @@ private:
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread, &osc.feedback })
             knob->setValueLine (KnobControl::packedValueLine2);
         // (VOICES keeps the PLAY picture's full dial too, v26; the OSC tab's wavetable card draws it smaller.)
-        osc.unison.setPackedDial (panels ? (float) mainDial : 0.0f);
+        osc.unison.setPackedDial (panels ? (float) (kind == Kind::wavetable ? wavetableDial() : mainDial) : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
         // (On PLAY the unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every PLAY dial,

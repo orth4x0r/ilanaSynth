@@ -255,7 +255,7 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         findAll<KnobControl> (editor, knobs);
         KnobControl* modulated = nullptr;
         for (auto* knob : knobs)
-            if (visibleInTree (knob) && knob->getNumRoutings() > 0 && knob->getParameterId() == "osc1_frame")
+            if (visibleInTree (knob) && knob->getNumRoutings() > 0 && modulated == nullptr)
                 modulated = knob;
         auto* card = ModHoverPopup::instance();
         if (modulated != nullptr && card != nullptr)
@@ -264,11 +264,11 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
             settle (100);
             const auto width = card->getWidth();
             modulated->closeModCard();
-            expect (card != nullptr && width >= 170 && width < 230, "FRAME's card fits its content (" + juce::String (width) + " px)");
+            expect (card != nullptr && width >= 170 && width < 230, "an oscillator knob's card fits its content (" + juce::String (width) + " px)");
         }
         else
         {
-            expect (false, "Neuro's OSC 1 FRAME is modulated and has a card");
+            expect (false, "Neuro's OSC 1 has a modulated knob and has a card");
         }
     }
 

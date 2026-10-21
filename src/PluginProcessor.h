@@ -361,6 +361,25 @@ public:
                                    const std::function<void (const juce::String&, float)>& set);
     static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
                                      const std::function<void (const juce::String&, float)>& set);
+    // ENV AMOUNT and the filter envelope's VELOCITY knob are gone: the matrix
+    // does their job. A patch that sets Filter 1's or Filter 2's ENV AMOUNT
+    // gets matrix routes with the same sound (FILTER ENV to the cutoff, and
+    // the same again via VELOCITY for the share Filter 1's VELOCITY knob gave
+    // to velocity) and the knob goes to 0. Returns how many filters moved.
+    // A patch with no free slots keeps its amount (it still plays, unseen).
+    static int migrateFilterEnvAmounts (const std::function<float (const juce::String&, float)>& get,
+                                        const std::function<void (const juce::String&, float)>& set);
+    // An envelope's TENSION knob is gone: it was added to the attack, decay
+    // and release curves (the dots on the graph), so it moves into them.
+    static int migrateEnvelopeTension (const std::function<float (const juce::String&, float)>& get,
+                                       const std::function<void (const juce::String&, float)>& set);
+    // An oscillator's WARP ENV and its ENV AMT are gone: the matrix routes
+    // that envelope to the oscillator's warp amounts instead.
+    static int migrateWarpEnvelopes (const std::function<float (const juce::String&, float)>& get,
+                                     const std::function<void (const juce::String&, float)>& set);
+    // All three, for a patch from before the knobs went.
+    static void migrateRedundantKnobs (const std::function<float (const juce::String&, float)>& get,
+                                       const std::function<void (const juce::String&, float)>& set);
     // The same on the live parameters (after a bounce or a factory preset).
     void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);

@@ -194,11 +194,11 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* cutoff = knobFor ("f2_cutoff");
         expect (reso != nullptr && cutoff != nullptr && reso->getAlpha() < 0.7f && cutoff->getAlpha() > 0.99f,
                 "FILTER: an open Filter 2 dims its card but not CUTOFF");
-        // P-3: with no MORPH on either card both have six columns, so a knob sits at the same place in both.
+        // P-3: with no MORPH on either card both have four columns, so a knob sits at the same place in both.
         {
             auto sameColumns = true;
             juce::String where;
-            for (const char* name : { "reso", "drive", "env", "keytrack", "fm" })
+            for (const char* name : { "reso", "drive", "keytrack" })
             {
                 auto* one = knobFor (juce::String ("f1_") + name);
                 auto* two = knobFor (juce::String ("f2_") + name);
@@ -210,16 +210,16 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
             }
             expect (sameColumns, "FILTER: F1 and F2 knobs share their columns (" + where + ")");
         }
-        // ilana 2026-10-15: a MORPH on FILTER 1 gives its card seven columns, but
-        // FILTER 2 keeps spreading its own six across its whole card.
+        // ilana 2026-10-15: a MORPH on FILTER 1 gives its card five columns, but
+        // FILTER 2 keeps spreading its own four across its whole card.
         {
-            auto* before = knobFor ("f2_fm");
-            const auto fmX = before != nullptr ? before->getX() : -1;
+            auto* before = knobFor ("f2_keytrack");
+            const auto keyX = before != nullptr ? before->getX() : -1;
             setParam ("f1_type", (float) FilterType::VowelMorph);
             settle (400);
-            auto* after = knobFor ("f2_fm");
+            auto* after = knobFor ("f2_keytrack");
             auto* morph1 = knobFor ("f1_morph");
-            expect (morph1 != nullptr && morph1->isVisible() && after != nullptr && std::abs (after->getX() - fmX) <= 1,
+            expect (morph1 != nullptr && morph1->isVisible() && after != nullptr && std::abs (after->getX() - keyX) <= 1,
                     "FILTER: a MORPH on Filter 1 leaves Filter 2's knobs where they were");
             setParam ("f1_type", 0.0f);
             settle (300);

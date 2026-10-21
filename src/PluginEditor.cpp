@@ -3084,7 +3084,6 @@ void IlanaSynthAudioProcessorEditor::randomizeGroup (int group)
         setValue ("f1_type", (float) types[random.nextInt (6)]);
         setValue ("f1_cutoff", randomRange (200.0f, 8000.0f));
         setValue ("f1_reso", randomRange (0.0f, 0.6f));
-        setValue ("f1_env", randomRange (-1.0f, 3.0f));
         setValue ("res_on", random.nextFloat() < 0.25f ? 1.0f : 0.0f);
     }
     else if (group == 4)

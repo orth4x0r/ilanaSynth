@@ -373,7 +373,7 @@ private:
             display->setHandlesOnHover (true);
             graph = std::move (display);
             for (const auto& [suffix, label] : { std::pair<const char*, const char*> { "_delay", "DELAY" }, { "_attack", "ATTACK" }, { "_hold", "HOLD" },
-                                                 { "_decay", "DECAY" }, { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" }, { "_curve", "CURVE" } })
+                                                 { "_decay", "DECAY" }, { "_sustain", "SUSTAIN" }, { "_release", "RELEASE" } })
                 dial (prefix + suffix, label);
         }
         else
@@ -417,7 +417,7 @@ private:
         const auto cell = kind == Kind::envelope ? 36 : 34;
         // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
         const auto lfoColumn = 91;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
+        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 6 * cell - 3)
                                                         : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 9);
         graph->setBounds (body.removeFromLeft (graphWidth));
         // (The LFO's graph keeps its size; the buttons' column takes its width from the two gaps beside the knobs, which stay equal.)
@@ -817,7 +817,7 @@ public:
             return control;
         };
 
-        // The filters: type and slope in the header, the response and six knobs.
+        // The filters: type and slope in the header, the response and four knobs.
         for (int f = 0; f < 2; ++f)
         {
             const juce::String prefix (f == 0 ? "f1" : "f2");
@@ -847,7 +847,7 @@ public:
             addAndMakeVisible (*card.slope);
             effectRules.add (*card.slope, [this, f] { return filterHasSlope (f); }, "this filter type has no slope");
             for (const auto& spec : { std::pair<const char*, const char*> { "_cutoff", "CUTOFF" }, { "_reso", "RESO" }, { "_drive", "DRIVE" },
-                                      { "_env", "ENV AMOUNT" }, { "_keytrack", "KEY TRACK" }, { "_fm", "AUDIO FM" } })
+                                      { "_keytrack", "KEY TRACK" } })
             {
                 card.knobs.push_back (knob (prefix + spec.first, spec.second, colour));
                 card.knobs.back()->setPackedNameWrap (true);

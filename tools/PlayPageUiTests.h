@@ -101,5 +101,26 @@ void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                 break;
             }
     }
+    // The number inside a dial keeps its share of the dial when the window zooms (it was a fixed size, so Live's
+    // 200 % window, a second after it opened at design size, shrank it to a quarter of the dial).
+    {
+        const auto shareAt = [&] (int width, const char* id)
+        {
+            editor.setSize (width, width * 720 / 1060);
+            settle (300);
+            for (auto* knob : knobs)
+                if (knob->getParameterId() == id && knob->isPacked())
+                    return knob->packedNumberDevicePx() / knob->packedDialDevicePx();
+            return -1.0f;
+        };
+        for (const auto* id : { "f1_cutoff", "west_fold" })
+        {
+            const auto small = shareAt (1060, id), big = shareAt (2120, id);
+            expect (small > 0.2f && big > 0.2f && std::abs (big - small) < 0.06f,
+                    juce::String ("PLAY: ") + id + "'s number keeps its share of the dial from 100 % to 200 % (" + juce::String (small, 3) + " vs " + juce::String (big, 3) + ")");
+        }
+        editor.setSize (1060, 720);
+        settle (300);
+    }
     expect (uneven.isEmpty(), "PLAY: every card's ink has equal left and right margins, within 2 px (" + uneven + ")");
 }

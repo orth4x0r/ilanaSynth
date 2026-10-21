@@ -210,8 +210,15 @@ def mutate(parent, mates, category, rng):
     return params, macros, curves, schema
 
 
+WINNERS = Path("/mnt/project-files/ilanasynth/search-winners")
+
+
 def seed_parents():
     out = []
+    if (WINNERS / "pack.json").exists():  # round 2: her Keep votes on the search winners are parents too
+        for p in json.load(open(WINNERS / "pack.json")):
+            if p.get("vote") == "Keep":
+                out.append((WINNERS / p["preset"], p["category"]))
     for pid in KEPT:
         info = next(p for p in json.load(open(PACK / "pack.json")) if p["id"] == pid)
         out.append((PACK / info["preset"], info["category"]))
@@ -223,6 +230,8 @@ def seed_parents():
 
 
 def cmd_run(args):
+    global QD
+    QD = GEN / args.out
     defaults = pg.read_defaults()
     pg.DEFAULTS.update(defaults)
     rng = random.Random(args.seed)
@@ -286,6 +295,7 @@ if __name__ == "__main__":
     run.add_argument("--gens", type=int, default=6)
     run.add_argument("--per", type=int, default=40)
     run.add_argument("--seed", type=int, default=1)
+    run.add_argument("--out", default="qd", help="folder under build/gen for this run's archive")
     sub.add_parser("status")
     a = ap.parse_args()
     {"run": cmd_run, "status": cmd_status}[a.cmd](a)

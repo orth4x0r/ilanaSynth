@@ -1222,7 +1222,8 @@ public:
         {
             juce::Path dotted;
             const float dashes[] { 1.0f, lineWidth * 1.15f };
-            juce::PathStrokeType (lineWidth * 0.85f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createDashedStroke (dotted, backgroundArc, dashes, 2);
+            // (The dotted track keeps the solid one's width, so an idle ring is as wide as a live one.)
+            juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createDashedStroke (dotted, backgroundArc, dashes, 2);
             g.fillPath (dotted);
         }
         else

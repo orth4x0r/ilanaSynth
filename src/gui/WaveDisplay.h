@@ -34,6 +34,7 @@ inline std::function<void (int, std::function<bool (const juce::File&)>)>& sampl
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
                     public juce::FileDragAndDropTarget,
+                    public juce::DragAndDropTarget,
                     private IlanaAnim::FrameTimer
 {
 public:
@@ -1036,6 +1037,46 @@ public:
         return extension == ".wav" || extension == ".aif" || extension == ".aiff"
                || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a"
                || extension == ".sf2" || extension == ".sfz";
+    }
+
+    // A modulation source dropped on the picture routes it to this oscillator's FRAME (the knob that used to sit beside it).
+    bool isInterestedInDragSource (const SourceDetails& details) override
+    {
+        return details.description.toString().startsWith ("modsource:") && frameDestination() != Mod::Destination::None && isTableMode();
+    }
+
+    void itemDragEnter (const SourceDetails&) override
+    {
+        sampleDragHover = true;
+        repaint();
+    }
+
+    void itemDragExit (const SourceDetails&) override
+    {
+        sampleDragHover = false;
+        repaint();
+    }
+
+    void itemDropped (const SourceDetails& details) override
+    {
+        sampleDragHover = false;
+        const auto source = details.description.toString().fromFirstOccurrenceOf ("modsource:", false, false).getIntValue();
+        const auto destination = (int) frameDestination();
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto existing = processorRef.readModSlot (slot);
+            if ((int) existing.source == source && existing.destination == destination && existing.aux == Mod::Source::None)
+            {
+                FloatingNote::show (*this, Mod::getSourceNames()[source] + " already drives FRAME (row " + juce::String (slot + 1) + " on MATRIX)");
+                repaint();
+                return;
+            }
+        }
+
+        processorRef.performEdit ("Add modulation", [this, source, destination] { processorRef.assignModSlot (source, destination, 0.35f); });
+        FloatingNote::show (*this, Mod::getSourceNames()[source] + " now drives FRAME");
+        repaint();
     }
 
     void fileDragEnter (const juce::StringArray&, int, int) override

@@ -2710,8 +2710,10 @@ private:
         // WAVE
         {
             const auto c = addPanel (0, "WAVE");
-            // (The picture takes the column FRAME's dial had: dragging across it scrubs the frame.)
-            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmin (juce::jmin (180, c.getWidth() / 2) + 7 + 49, c.getHeight() * 29 / 10), c.getHeight());
+            // (The warp menus and their rings keep their size at the panel's right edge; the picture takes everything left of them,
+            // so no empty tail is left where FRAME's dial was. Dragging across the picture scrubs the frame.)
+            const auto controlsW = 112 + 3 + ampCell;
+            const auto picture = juce::Rectangle<int> (c.getX(), c.getY(), juce::jmax (juce::jmin (180, c.getWidth() / 2), c.getWidth() - 7 - controlsW), c.getHeight());
             waveDisplay (index).setBounds (picture);
             for (auto& item : scrubbers)
                 item.setBounds ({});

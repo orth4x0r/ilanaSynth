@@ -1936,13 +1936,13 @@ private:
     // (The tallest column of a PLAY card: dial, two value lines and the name, then the SCALE / CHORD row.)
     static constexpr int embeddedColumnContent = 28 + 9 + KnobControl::packedValueLine2 + 1 + 16;
     static constexpr int cardPad = 5, cardBottomPad = 2, panelGap = 4, panelTop = 4, panelTitleH = 12, panelTail = 2;
-    static constexpr int pitchW = 166, mixW = 170, unisonW = 288;
+    static constexpr int pitchW = 156, mixW = 158, unisonW = 280;
     // On PLAY (approved mockup fit8, v26) the PITCH and UNISON columns keep their wider widths; WAVE takes the difference.
-    int pitchColumn() const { return embedded ? 181 : pitchW; }
-    int unisonColumn() const { return embedded ? 293 : unisonW; }
-    static constexpr int mainDial = 28, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
+    int pitchColumn() const { return embedded ? 171 : pitchW; }
+    int unisonColumn() const { return embedded ? 285 : unisonW; }
+    static constexpr int mainDial = 31, ampDial = 20, frameDial = 44, nameLine = 9 + KnobControl::packedValueLine2, knobCell = 38, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 14, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 13, stripDialBase = 35, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 0;
+    static constexpr int addRowHeight = 13, stripDialBase = 38, stripPanelBase = 20 + stripDialBase + 10 + KnobControl::packedValueLine + 2, stripRowAExtra = KnobControl::packedValueLine2 - KnobControl::packedValueLine, stripMaxBonus = 0;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -3831,7 +3831,7 @@ private:
     // Controls spread over a panel with equal space around each, centred in its content.
     // The strips' controls stand on one pitch (a knob's cell is `pitch` wide, a menu keeps its width), the group centred in the
     // panel; a switch stands at the panel's right edge, so LEGATO and MANUAL share one column.
-    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, int shift = 0) const
+    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries, int pitch = stripPitch, bool spread = false) const
     {
         // (One px lower than the centre: the title keeps clear of the rings.)
         auto c = panelContent (panel);
@@ -3842,13 +3842,19 @@ private:
                 toggleEntry = &entry;
         auto area = c;
         if (toggleEntry != nullptr)
-            area.removeFromRight (toggleEntry->width - 1);
+            area.removeFromRight (toggleEntry->width + 9);
         const auto widthOf = [&] (const StripEntry& entry) { return dynamic_cast<KnobControl*> (entry.item) != nullptr ? pitch : entry.width; };
         auto used = 0;
         for (const auto& entry : entries)
             if (&entry != toggleEntry)
                 used += widthOf (entry);
-        auto x = area.getX() + juce::jmax (0, area.getWidth() - used) / 2 + shift;
+        // (`spread`: equal space between the controls and at both ends, so a sparse panel has no empty tail.)
+        auto count = 0;
+        for (const auto& entry : entries)
+            if (&entry != toggleEntry && entry.item != nullptr)
+                ++count;
+        const auto between = spread ? juce::jmax (0, (area.getWidth() - used) / (count + 1)) : 0;
+        auto x = area.getX() + (spread ? between : juce::jmax (0, area.getWidth() - used) / 2);
         // (The first row's knobs carry units (ms, st): the unit stands under the number there, two value lines.)
         const auto valueLine = panel.getY() == stripArea.getY() ? KnobControl::packedValueLine2 : KnobControl::packedValueLine;
         const auto cellH = stripDialSize() + 10 + valueLine;
@@ -3860,6 +3866,11 @@ private:
                 continue;
             }
             const auto width = widthOf (entry);
+            if (entry.item == nullptr)
+            {
+                x += width;
+                continue;
+            }
             if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
             {
                 knob->setValueLine (valueLine);
@@ -3867,7 +3878,7 @@ private:
             }
             else
                 entry.item->setBounds ({ x, c.getY() + (c.getHeight() - cellH) / 2 + (stripDialSize() - menuH) / 2, width, menuH });
-            x += width;
+            x += width + between;
         }
     }
 
@@ -3894,13 +3905,13 @@ private:
 
         const auto legatoW = 72, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4")) + 4;
         placeStripRow (panelAt (0, 0, rowAY, "VOICE", accent),
-                       { { voiceMode.get(), 69 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } }, stripPitch, 4);
+                       { { voiceMode.get(), 69 }, { nullptr, 7 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } });
         placeStripRow (panelAt (1, 1, rowAY, "STEREO", accent), { { voiceSpread.get(), knobCell }, { unisonRandom.get(), knobCell }, { drift.get(), knobCell } });
-        placeStripRow (panelAt (2, 2, rowAY, "NOISE", accent), { { noiseStrip.get(), knobCell }, { noiseColourStrip.get(), knobCell } });
+        placeStripRow (panelAt (2, 2, rowAY, "NOISE", accent), { { noiseStrip.get(), knobCell }, { noiseColourStrip.get(), knobCell } }, stripPitch, true);
         {
             const auto sub = panelAt (3, 3, rowAY, {}, accent);
             placeStripSwitch (*subOscOn, sub, "SUB");
-            placeStripRow (sub, { { &subShape, 75 }, { subOscLevel.get(), knobCell }, { &subOctave, 67 } });
+            placeStripRow (sub, { { &subShape, 75 }, { subOscLevel.get(), knobCell }, { &subOctave, 67 } }, stripPitch, true);
         }
         {
             // (The second row: the strings with their MANUAL switch, the soundboard, and the keys' extras over the last two columns;
@@ -3915,7 +3926,7 @@ private:
             sbModel.setBounds ({ board.getRight() - 6 - 52, board.getY() + 4, 52, panelTitleH });
             placeStripRow (board, { { &sbSize, 0 }, { &sbTone, 0 }, { &sbMix, 0 } });
             const auto keys = panelAt (2, 3, rowBY, "KEYS", accent);
-            placeStripRow (keys, { { &stretch, 0 }, { &pedalRes, 0 }, { &mechKey, 0 }, { &mechDamper, 0 }, { &mechPedal, 0 } }, keysPitch);
+            placeStripRow (keys, { { &stretch, 0 }, { &pedalRes, 0 }, { &mechKey, 0 }, { &mechDamper, 0 }, { &mechPedal, 0 } }, keysPitch, true);
         }
 
         if (readBool ("sym_manual"))

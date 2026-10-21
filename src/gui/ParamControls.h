@@ -1658,7 +1658,8 @@ public:
         {
             // A bar tall enough for it writes the number big and its unit under it at the right, as the dials do.
             const auto numberH = (float) packedValueLine;
-            const auto top = inner.getY() + (inner.getHeight() - numberH - (unit.isEmpty() ? 0.0f : 10.0f)) * 0.5f;
+            // (Centred on the whole bar, the modulation lane included: the lane is a quiet 4 px, so the stack sits a little low.)
+            const auto top = inner.getY() + 1.0f + (inner.getHeight() - numberH - (unit.isEmpty() ? 0.0f : 10.0f)) * 0.5f;
             g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (alpha));
             g.setFont (numberFont);
             g.drawText (text, juce::Rectangle<float> (right - numberW - 1.0f, top, numberW + 1.0f, numberH), juce::Justification::centredRight, false);

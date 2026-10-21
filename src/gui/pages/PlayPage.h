@@ -413,27 +413,22 @@ private:
         if (graph == nullptr)
             return;
 
-        // (Equal above and below the graph, and at both sides: the envelope's last dial and the LFO's buttons end as far from the card as the graph starts.)
+        // The graph takes the card's top at its full width, the dials (and the LFO's switches) one row under it, the same
+        // gap above and below the row, the same margin at both sides.
         auto body = getLocalBounds().withTrimmedTop (headerHeight).reduced (7, 3);
-        body.setRight (body.getRight() + (kind == Kind::envelope ? 4 : 0));
-        // (The LFO's three dials sit in 34 px cells so its pills keep their padding; the graph keeps its size.)
         const auto cell = 38;
-        // The graphs take every pixel the knobs and the controls leave, the card's full height (bigger than mockup fit8's, ilana 2026-10-19).
-        const auto lfoColumn = 91;
-        const auto graphWidth = kind == Kind::envelope ? juce::jmax (60, body.getWidth() - 7 * cell - 3)
-                                                        : juce::jmax (50, body.getWidth() - 3 * cell - lfoColumn - 9);
-        graph->setBounds (body.removeFromLeft (graphWidth));
-        // (The LFO's graph keeps its size; the buttons' column takes its width from the two gaps beside the knobs, which stay equal.)
-        const auto gap = kind == Kind::envelope ? 3 : 1;
-        body.removeFromLeft (gap);
+        const auto controlsHeight = (int) dialSize + 10 + KnobControl::packedValueLine2;
+        auto controls = body.removeFromBottom (controlsHeight);
+        body.removeFromBottom (3);
+        graph->setBounds (body);
         const auto place = [&] (KnobControl& knob, int x)
         {
-            knob.setBounds (KnobControl::packedBoundsFor ({ x, body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine2) / 2, cell, (int) dialSize + 10 + KnobControl::packedValueLine2 }));
+            knob.setBounds (KnobControl::packedBoundsFor ({ x, controls.getY(), cell, controlsHeight }));
         };
 
         if (kind == Kind::envelope)
         {
-            auto x = body.getX() + (body.getWidth() - (int) knobs.size() * cell) / 2;
+            auto x = controls.getX() + (controls.getWidth() - (int) knobs.size() * cell) / 2;
             for (auto& knob : knobs)
             {
                 place (*knob, x);
@@ -442,8 +437,8 @@ private:
             return;
         }
 
-        // RATE, SMOOTH, START as knobs; SYNC / RETRIG / KEY over SHAPE in a column.
-        auto x = body.getX();
+        // RATE, SMOOTH, START as dials; SYNC / RETRIG / KEY over SHAPE and the "Drives" chip in a column at their right.
+        auto x = controls.getX();
         place (rate->getRateKnob(), x);
         rate->matchBounds();
         x += cell;
@@ -452,12 +447,11 @@ private:
             place (*knob, x);
             x += cell;
         }
-        // The column runs the graph's full height: three rows, the same height, the leftover pixels shared by the two gaps,
-        // so the top row starts where the graph starts and the chip ends where it ends.
-        auto column = body.withTrimmedLeft (x - body.getX() + gap);
+        const auto gap = 6;
+        auto column = controls.withTrimmedLeft (x - controls.getX() + gap);
         // (Gaps near 9: the first one that lets the three rows come out whole, so rows and gaps are each equal.)
         auto gapA = 9;
-        for (const auto candidate : { 9, 8, 10, 7, 11, 6, 12 })
+        for (const auto candidate : { 4, 3, 5, 6, 2 })
             if ((column.getHeight() - 2 * candidate) % 3 == 0)
             {
                 gapA = candidate;
@@ -470,8 +464,6 @@ private:
         // Three pills at one gap (each draws 1 px inside its bounds, so the row reaches 1 px past the column on both sides).
         const auto count = juce::jmax (1, (int) toggles.size());
         const auto across = switches.getWidth() + 2;
-        // One gap between the pills (2 design px, each pill also draws 1 px inside its bounds); the padding each side of every word is the same on all
-        // three and takes the rest, so the row ends flush with the column on both edges (no under 4 design px of padding at the 8.5 text).
         auto textTotal = 0.0f;
         for (auto& toggle : toggles)
             textTotal += toggle->textWidth();
@@ -988,15 +980,14 @@ public:
         syncOscBar();
 
         auto y = oscNeed;
-        const auto nextRow = [&]
+        const auto nextRow = [&] (int height)
         {
-            const juce::Rectangle<int> row (area.getX(), y, area.getWidth(), bandRowHeight);
-            y += bandRowHeight + bandGap;
+            const juce::Rectangle<int> row (area.getX(), y, area.getWidth(), height);
+            y += height + bandGap;
             return row;
         };
-        layoutBand1 (nextRow());
-        layoutBandWest (nextRow());
-        layoutBand2 (nextRow());
+        layoutBand1 (nextRow (rowAHeight));
+        layoutBand2 (nextRow (rowBHeight));
 
         // The cards' rectangles, for the layout tests' margin scan (x, y, width, height; name).
         juce::String cards;
@@ -1023,7 +1014,10 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 38, filterCell = 36, westCell = 38;
-    static constexpr int bandRowHeight = 137, bandGap = 3;
+    static constexpr int bandGap = 3, barRowHeight = 35, graphHeight = 110;
+    // Row A: header, the picture, the three bar rows (the dials' block under West Coast's curve); row B: header, the picture, one dial row.
+    static constexpr int rowAHeight = headerHeight + 3 + graphHeight + 3 + 3 * barRowHeight + 2 * 3 + 3;
+    static constexpr int rowBHeight = headerHeight + 3 + graphHeight + 3 + 28 + 10 + KnobControl::packedValueLine2 + 3;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -1068,7 +1062,7 @@ private:
 public:
     int getRequiredHeight() const
     {
-        return oscCardsHeight() + 3 * bandRowHeight + 2 * bandGap + bottomMargin;
+        return oscCardsHeight() + rowAHeight + rowBHeight + bandGap + bottomMargin;
     }
 
 private:
@@ -1129,15 +1123,19 @@ private:
         return juce::Rectangle<int> (30, 17).withCentre ({ card.getRight() - 6 - 15, card.getY() + headerHeight / 2 });
     }
 
+    // Row A: FILTER 1, FILTER 2 and WEST COAST. The pictures take the card's top (full width, the filters' 110 high),
+    // the bars or dials what is under them.
     void layoutBand1 (juce::Rectangle<int> band)
     {
-        const auto total = band.getWidth() - hGap;
+        const auto total = band.getWidth() - 2 * hGap;
+        const auto filterWidth = juce::roundToInt ((float) total * 0.35f);
         auto row = band;
         for (int f = 0; f < 2; ++f)
         {
-            filterCardBounds[(size_t) f] = row.removeFromLeft (f == 0 ? total / 2 : total - total / 2);
+            filterCardBounds[(size_t) f] = row.removeFromLeft (filterWidth);
             row.removeFromLeft (hGap);
         }
+        westBounds = row;
 
         for (int f = 0; f < 2; ++f)
         {
@@ -1150,39 +1148,17 @@ private:
             parts.slope->setBounds ({ x, centre - 8, 44, 16 });
             parts.morph->setBounds ({ card.getRight() - 5 - 106, centre - 8, 106, 17 });
 
-            // (The graph's edge is 5 from the card on the left; the last dial's ring is 5 from it on the right.)
+            // (The graph's edge is 5 from the card at both sides, as the bars'.)
             auto body = card.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
-            const auto barsWidth = 125, columnGap = 4;
-            auto barArea = body.removeFromRight (2 * barsWidth + columnGap);
-            parts.display->setBounds (body.withTrimmedRight (4));
-            // (Two columns of three equal rows, as tall as the graph: the card's body from top to bottom.)
-            const auto rowGap = 3, rowH = (barArea.getHeight() - 2 * rowGap) / 3;
+            const auto rowGap = 3, barsHeight = 3 * barRowHeight + 2 * rowGap, columnGap = 4;
+            auto barArea = body.removeFromBottom (barsHeight);
+            body.removeFromBottom (3);
+            parts.display->setBounds (body);
+            const auto barsWidth = (barArea.getWidth() - columnGap) / 2;
             for (size_t i = 0; i < parts.bars.size(); ++i)
-                parts.bars[i]->setBounds (barArea.getX() + (int) (i / 3) * (barsWidth + columnGap), barArea.getY() + (int) (i % 3) * (rowH + rowGap), barsWidth, rowH);
+                parts.bars[i]->setBounds (barArea.getX() + (int) (i / 3) * (barsWidth + columnGap), barArea.getY() + (int) (i % 3) * (barRowHeight + rowGap),
+                                          (i / 3) == 0 ? barsWidth : barArea.getWidth() - barsWidth - columnGap, barRowHeight);
         }
-    }
-
-    void layoutBand2 (juce::Rectangle<int> band)
-    {
-        const auto total = band.getWidth() - hGap;
-        auto row = band;
-        envelopeCard.setBounds (row.removeFromLeft (total / 2));
-        row.removeFromLeft (hGap);
-        lfoCard.setBounds (row);
-    }
-
-    // WEST COAST, BODY and SUB / NOISE in one row.
-    void layoutBandWest (juce::Rectangle<int> band)
-    {
-        const auto total = band.getWidth() - 2 * hGap;
-        const auto westWidth = juce::roundToInt ((float) total * 0.40f);
-        const auto bodyWidth = juce::roundToInt ((float) total * 0.20f);
-        auto row = band;
-        westBounds = row.removeFromLeft (westWidth);
-        row.removeFromLeft (hGap);
-        bodyBounds = row.removeFromLeft (bodyWidth);
-        row.removeFromLeft (hGap);
-        subNoiseBounds = row;
 
         {
             const auto centre = westBounds.getY() + headerHeight / 2;
@@ -1192,24 +1168,42 @@ private:
             x += 52 + 2;
             // (As wide as "After Filters" needs, not stretched to the switch.)
             westPosition->setBounds ({ x, centre - 8, juce::jmin (84, juce::jmax (40, westBounds.getRight() - 6 - 30 - 2 - x)), 16 });
-            // The picture at the left, the seven knobs at a 33 pitch to its right.
-            auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (1).reduced (0, 3);
-            const auto knobsWidth = (int) westKnobs.size() * westCell;
-            westDisplay->setBounds (body.removeFromLeft (body.getWidth() - knobsWidth - 5));
-            placeKnobRow (body, pointers (westKnobs), westCell, 9);
+            // The curve over the seven dials, the dials' block centred in the card's width.
+            auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
+            const auto knobsHeight = (int) dialSize + 10 + KnobControl::packedValueLine + 9;
+            auto knobArea = body.removeFromBottom (knobsHeight);
+            body.removeFromBottom (3);
+            westDisplay->setBounds (body);
+            placeKnobRow (knobArea, pointers (westKnobs), westCell, 9);
         }
+    }
 
+    // Row B: ENVELOPE, LFO, BODY and SUB / NOISE.
+    void layoutBand2 (juce::Rectangle<int> band)
+    {
+        const auto total = band.getWidth() - 3 * hGap;
+        const auto envWidth = juce::roundToInt ((float) total * 0.3594f);
+        const auto lfoWidth = juce::roundToInt ((float) total * 0.2895f);
+        const auto bodyWidth = juce::roundToInt ((float) total * 0.1180f);
+        auto row = band;
+        envelopeCard.setBounds (row.removeFromLeft (envWidth));
+        row.removeFromLeft (hGap);
+        lfoCard.setBounds (row.removeFromLeft (lfoWidth));
+        row.removeFromLeft (hGap);
+        bodyBounds = row.removeFromLeft (bodyWidth);
+        row.removeFromLeft (hGap);
+        subNoiseBounds = row;
+
+        const auto controlsHeight = (int) dialSize + 10 + KnobControl::packedValueLine;
         {
             const auto centre = bodyBounds.getY() + headerHeight / 2;
             const auto menuX = bodyBounds.getX() + 23 + titleWidth ("BODY") + 4;
-            // (The menu is as wide as its longest word needs, like the other header menus, not stretched to the card's edge.)
             bodyType->setBounds ({ menuX, centre - 8, juce::jmin (juce::jmax (36, bodyBounds.getRight() - 7 - menuX), 66), 16 });
-            const auto body = bodyOf (bodyBounds).translated (3, 0);
-            placeKnobRow (body, pointers (bodyKnobs));
-            // The resonance picture takes the strip above the dials, the dials staying level with their neighbours'.
-            const auto dialTop = body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2;
-            const auto top = bodyBounds.getY() + headerHeight + 3;
-            bodyDisplay->setBounds (juce::Rectangle<int> (bodyOf (bodyBounds).getX(), top, bodyOf (bodyBounds).getWidth(), juce::jmax (8, dialTop - 3 - top)));
+            auto body = bodyOf (bodyBounds);
+            auto knobArea = body.removeFromBottom (controlsHeight);
+            body.removeFromBottom (3);
+            bodyDisplay->setBounds (body);
+            placeKnobRow (knobArea.translated (3, 0), pointers (bodyKnobs));
         }
 
         {
@@ -1218,13 +1212,10 @@ private:
             noiseOn->setBounds (juce::Rectangle<int> (66, 17).withCentre ({ subNoiseBounds.getRight() - 6 - 33, centre }));
             subOn->setBounds (juce::Rectangle<int> (54, 17).withCentre ({ noiseOn->getX() - 4 - 27, centre }));
             const auto menuHeight = 16;
-            const auto knobY = body.getY() + (body.getHeight() - (int) dialSize - 10 - KnobControl::packedValueLine) / 2;
-            const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, (int) dialSize + 10 + KnobControl::packedValueLine })); };
+            const auto knobY = body.getBottom() - controlsHeight;
+            const auto knobAt = [&] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, knobY, cell, controlsHeight })); };
             // One row at one gap: SUB's wave menu over its octave pills, LEVEL, COLOUR, then NOISE's colour menu and LEVEL.
-            // Both menus are the same size and sit on the dials' middle; the gaps are measured between what is drawn
-            // (a menu's edges, a dial's ring, COLOUR's name), the same between every pair and at both ends.
             const auto menuWidth = 50, ringWidth = (int) dialSize, colourInk = 30;
-            body = subNoiseBounds.withTrimmedTop (headerHeight).reduced (8, 3);
             const auto ink = 2 * menuWidth + 2 * ringWidth + colourInk;
             const auto gapInk = juce::jmax (2, (body.getWidth() - ink) / 6);
             auto x = body.getX() + gapInk;

@@ -438,7 +438,7 @@ private:
         }
 
         // RATE, SMOOTH, START as dials; SYNC / RETRIG / KEY over SHAPE and the "Drives" chip in a column at their right.
-        auto x = controls.getX();
+        auto x = controls.getX() + 5;
         place (rate->getRateKnob(), x);
         rate->matchBounds();
         x += cell;
@@ -1014,7 +1014,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cardPad = 7, cell = 38, filterCell = 36, westCell = 38;
-    static constexpr int bandGap = 3, barRowHeight = 35, graphHeight = 110;
+    static constexpr int bandGap = 2, barRowHeight = 35, graphHeight = 110;
     // Row A: header, the picture, the three bar rows (the dials' block under West Coast's curve); row B: header, the picture, one dial row.
     static constexpr int rowAHeight = headerHeight + 3 + graphHeight + 3 + 3 * barRowHeight + 2 * 3 + 3;
     static constexpr int rowBHeight = headerHeight + 3 + graphHeight + 3 + 28 + 10 + KnobControl::packedValueLine2 + 3;
@@ -1170,11 +1170,11 @@ private:
             westPosition->setBounds ({ x, centre - 8, juce::jmin (84, juce::jmax (40, westBounds.getRight() - 6 - 30 - 2 - x)), 16 });
             // The curve over the seven dials, the dials' block centred in the card's width.
             auto body = westBounds.withTrimmedTop (headerHeight).withTrimmedLeft (5).withTrimmedRight (5).reduced (0, 3);
-            const auto knobsHeight = (int) dialSize + 10 + KnobControl::packedValueLine + 9;
+            const auto knobsHeight = (int) dialSize + 10 + KnobControl::packedValueLine;
             auto knobArea = body.removeFromBottom (knobsHeight);
             body.removeFromBottom (3);
             westDisplay->setBounds (body);
-            placeKnobRow (knobArea, pointers (westKnobs), westCell, 9);
+            placeKnobRow (knobArea, pointers (westKnobs), westCell);
         }
     }
 
@@ -1203,7 +1203,7 @@ private:
             auto knobArea = body.removeFromBottom (controlsHeight);
             body.removeFromBottom (3);
             bodyDisplay->setBounds (body);
-            placeKnobRow (knobArea.translated (3, 0), pointers (bodyKnobs));
+            placeKnobRow (knobArea, pointers (bodyKnobs));
         }
 
         {
@@ -1238,8 +1238,10 @@ private:
             // The live strips over their halves, as BODY's over its dials.
             const auto top = subNoiseBounds.getY() + headerHeight + 3;
             const auto stripH = juce::jmax (8, knobY - 3 - top);
-            subWave->setBounds ({ subLeft, top, subRight - subLeft, stripH });
-            noiseBand->setBounds ({ noiseLeft, top, right - noiseLeft, stripH });
+            const auto middle = (subRight + noiseLeft) / 2, inset = subNoiseBounds.getX() + 7, edge = subNoiseBounds.getRight() - 7;
+            juce::ignoreUnused (subLeft, right);
+            subWave->setBounds ({ inset, top, middle - 2 - inset, stripH });
+            noiseBand->setBounds ({ middle + 2, top, edge - middle - 2, stripH });
         }
     }
 

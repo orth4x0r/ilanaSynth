@@ -1143,7 +1143,7 @@ public:
     // font(), so it holds the 10 px screen floor at every zoom; the name Label
     // and the slider's text box stay empty and hidden.
     static constexpr int packedPadX = 3, packedPadTop = 6;
-    static constexpr float kPackedValueSize = 6.1f;
+    static constexpr float kPackedValueScale = 0.37f; // number height / dial size
 
     void setPackedDial (float dial)
     {
@@ -1162,6 +1162,10 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    // The packed number's height on screen in device pixels, and the dial's (a layout test's measure:
+    // the number keeps its share of the dial at every zoom).
+    float packedNumberDevicePx() const { return IlanaTheme::font (packedD * kPackedValueScale, true, true).getHeight() * IlanaTheme::uiScaleRef(); }
+    float packedDialDevicePx() const { return packedD * IlanaTheme::uiScaleRef(); }
     // A packed name too wide for its cell breaks at its first space onto a second line ("KEY" over "TRACK"),
     // in full words; the cell the page gives the knob must leave the room (about 9 px under the name).
     void setPackedNameWrap (bool wrap)
@@ -1454,54 +1458,31 @@ public:
         auto& mutableSlider = const_cast<KnobSlider&> (slider);
         auto value = mutableSlider.getTextFromValue (mutableSlider.getValue());
         const auto inner = knobBounds.toFloat().reduced (packedD * 0.1f);
-        // (A bigger dial carries a bigger number.)
-        const auto valueHeight = juce::jlimit (6.6f, 9.0f, packedD * 0.31f);
-        const auto valueFont = [valueHeight] (const juce::String& text) { return IlanaTheme::font (text.length() > 4 ? valueHeight * 0.88f : valueHeight, true, true); };
-
-        // PLAY's dials (setPackedValueRoom): the number on top in one size, its unit under it in one smaller
-        // size ("300" over "ms"); a value with no unit stays on one line, four characters at most so it keeps
-        // clear of the ring: "100%", "x1.0", "+1.5". The name under the dial says what it is.
+        // The number in one size for a dial of this size, as big as the ring holds (a unit or a % goes on a
+        // second, smaller line under it: "300" over "ms", "80" over "%"; a value with no unit stays on one
+        // line, four characters at most so it keeps clear of the ring: "x1.0", "+1.5"). The name under the dial
+        // says what it is.
         auto unit = juce::String();
-        if (packedValueRoom > 0)
+        if (value.endsWithChar ('%'))
         {
-            if (value.containsChar (' '))
-            {
-                unit = value.fromLastOccurrenceOf (" ", false, false);
-                value = value.upToLastOccurrenceOf (" ", false, false);
-                // ("20.0" kHz is "20": a whole number needs no decimal; a long unit word, "stages", is the name's job.)
-                if (unit == "kHz" && value.endsWith (".0"))
-                    value = value.dropLastCharacters (2);
-                if (unit.length() > 3)
-                    unit = {};
-            }
-            if (value.length() > 4 && value.containsChar ('.') && ! value.endsWithChar ('%'))
-                value = value.dropLastCharacters (value.length() - 4).trimCharactersAtEnd (".");
-            if (unit.isEmpty() && value.length() > 4 && value.endsWithChar ('%'))
-                value = value.dropLastCharacters (1);
-            // (At a small zoom the type holds its screen floor: "100%" then loses its sign, never its size.)
-            if (unit.isEmpty() && value.endsWithChar ('%') && juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (kPackedValueSize, true, false).withKerningFactor (-0.08f)), value) > inner.getWidth() + 0.5f)
-                value = value.dropLastCharacters (1);
-        }
-        else
-        {
-        // ("20.00 kHz" is "20 kHz": a whole number needs no decimals.)
-        const auto room = (float) packedValueRoom;
-        // (A long unit word, "2 stages", never gets the extra room: only "kHz", "ms", "oct".)
-        const auto longUnit = value.containsChar (' ') && value.fromLastOccurrenceOf (" ", false, false).length() > 3;
-        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + (longUnit ? 0.0f : room) + 0.5f && value.containsChar (' '))
-            value = value.upToLastOccurrenceOf (" ", false, false);
-        // (Under the floor at a small zoom even "100%" is wider than the dial: the number alone.)
-        if (juce::GlyphArrangement::getStringWidth (juce::Font (valueFont (value)), value) > inner.getWidth() + 2.5f && value.endsWithChar ('%'))
+            unit = "%";
             value = value.dropLastCharacters (1);
         }
+        else if (value.containsChar (' '))
+        {
+            unit = value.fromLastOccurrenceOf (" ", false, false);
+            value = value.upToLastOccurrenceOf (" ", false, false);
+            // ("20.0" kHz is "20": a whole number needs no decimal; a long unit word, "stages", is the name's job.)
+            if (unit == "kHz" && value.endsWith (".0"))
+                value = value.dropLastCharacters (2);
+            if (unit.length() > 3)
+                unit = {};
+        }
+        if (value.length() > 4 && value.containsChar ('.'))
+            value = value.dropLastCharacters (value.length() - 4).trimCharactersAtEnd (".");
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        // ("100%" is the one value as wide as the ring's inside: proportional digits, a touch tighter, keep it clear of the ring
-        // on every card; every other value keeps the tabular digits and the normal spacing so a point never meets a digit.)
-        const auto widest = value.length() >= 4 && value.endsWithChar ('%') && value.initialSectionContainingOnly ("0123456789").length() == value.length() - 1;
-        auto drawn = packedValueRoom > 0 ? IlanaTheme::font (kPackedValueSize, true, ! widest) : valueFont (value);
-        if (widest)
-            drawn = IlanaTheme::font (drawn.getHeight(), true, false).withKerningFactor (packedValueRoom > 0 ? -0.11f : -0.08f);
+        const auto drawn = IlanaTheme::font (packedD * kPackedValueScale, true, true);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {

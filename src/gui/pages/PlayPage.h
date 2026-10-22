@@ -1043,7 +1043,7 @@ private:
 
     void scrollBarMoved (juce::ScrollBar*, double newStart) override
     {
-        oscView.setViewPosition (0, oscView.snapToCard (juce::roundToInt (newStart)));
+        oscView.jumpTo (juce::roundToInt (newStart));
     }
 
     int readInt (const juce::String& id) const

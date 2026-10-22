@@ -2946,13 +2946,24 @@ int runUiTests()
         set ("osc1_warp2", 0.0f);
         settle (300);
         const auto drawnBefore = visibleKnob ("osc1_warp2_amt");
+        const auto boundsOf = [&] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == id)
+                    return knob->getScreenBounds();
+            return juce::Rectangle<int>();
+        };
+        const auto ringBefore = boundsOf ("osc1_warp2_amt");
         set ("osc1_warp", (float) Warp::PdSaw);
         settle (300);
         set ("osc1_warp2", 1.0f);
         settle (300);
-        // (Review 23: the extra stages sit behind + WARP until they are in use.)
-        expect (! drawnBefore && visibleKnob ("osc1_warp2_amt"),
-                "OSC 1 shows its PD chain row (the second stage) once the stages are in use");
+        // (2026-10-22: WARP 2 always has its row, so picking it never changes the card's height.)
+        expect (drawnBefore && visibleKnob ("osc1_warp2_amt")
+                    && boundsOf ("osc1_warp2_amt") == ringBefore,
+                "OSC 1 shows its WARP 2 row while Off, and picking a stage keeps the card's height");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
         // the oscillator's card).
@@ -3644,7 +3655,7 @@ int runUiTests()
         settle (100);
     }
 
-    // Init puts the modules back to three each and forgets the old patch's
+    // Init puts the modules back to two oscillators and three envelopes and LFOs, and forgets the old patch's
     // macro CCs and drawn LFO shapes.
     {
         using M = IlanaSynthAudioProcessor::Module;
@@ -3655,8 +3666,8 @@ int runUiTests()
         processor.loadFactoryPreset (0);
         settle (100);
         expect (! processor.isOscillatorShown (4) && ! processor.isLfoShown (8)
-                    && ! processor.isRevealed (M::Envelope, 9) && processor.isOscillatorShown (2),
-                "Init shows three oscillators, LFOs and envelopes again");
+                    && ! processor.isRevealed (M::Envelope, 9) && processor.isOscillatorShown (1) && ! processor.isOscillatorShown (2),
+                "Init shows two oscillators and three LFOs and envelopes again");
         expect (std::abs (processor.getLfoCustomPoint (0, 3) - 0.9f) > 0.1f && processor.getMacroCc (0) == 20,
                 "Init resets drawn LFO shapes and macro CCs");
     }

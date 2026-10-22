@@ -1365,21 +1365,11 @@ public:
                 updateEnabled();
             };
             addChildComponent (card.exciterPills);
-            card.addWarp.setText ("+ WARP");
-            card.addWarp.setTooltip ("Add another warp stage: WARP 2 (the stages run one after another)");
-            card.addWarp.onClick = [this, i]
-            {
-                auto& extra = aux[(size_t) i]->extraWarps;
-                extra = juce::jmin (1, juce::jmax (extra, effectiveExtraWarps (i)) + 1);
-                updateModeVisibility();
-                updateEnabled();
-            };
             addChildComponent (card.typeBar);
             addChildComponent (card.routeBar);
             addChildComponent (card.outBar);
             addChildComponent (card.prevTable);
             addChildComponent (card.nextTable);
-            addChildComponent (card.addWarp);
 
             addChildComponent (waveDisplay (i));
             scrubbers[(size_t) i].setColour (oscColour (i));
@@ -1763,15 +1753,6 @@ public:
 
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
     // card (a sample, a string) never squeezes the bands: the oscillator area scrolls instead.
-    // Where each card begins (PLAY's scroll steps by card).
-    std::vector<int> getCardTops() const
-    {
-        std::vector<int> tops;
-        for (const auto& card : cards)
-            tops.push_back (juce::jmax (0, card.bounds.getY() - topNow()));
-        return tops;
-    }
-
     int getReferenceHeight() const
     {
         // (Sized by the wavetable card PLAY's bands were approved under, 28 px warp rows and 12 px chip: the OSC tab's
@@ -1950,11 +1931,8 @@ private:
                 add (osc.warpAmt, 0, 0);
                 add (osc.spectral, 0, 0);
                 add (osc.spectralAmt, 0, 0);
-                if (effectiveExtraWarps (index) >= 1)
-                {
-                    add (osc.warp2, 0, 0);
-                    add (osc.warp2Amt, 0, 0);
-                }
+                add (osc.warp2, 0, 0);
+                add (osc.warp2Amt, 0, 0);
                 add (osc.level, 1, 0);
                 add (osc.pan, 1, 0);
                 add (osc.tune, 1, 0);
@@ -2265,35 +2243,20 @@ private:
     std::vector<CardGeometry> cards;
     juce::Rectangle<int> stripArea, addArea;
 
-    // A switched-off oscillator folds to its header (review 21: two greyed
-    // 190 px cards hid the VOICE strip and the sampler rows below them, and
-    // PLAY already folds the same way). The switch opens it again.
-    static constexpr int foldedCardHeight = cardHeaderHeight + 2;
-    // (Embedded on PLAY every oscillator keeps its whole card, dimmed while off: the page is three cards over two bands.)
-    // (On PLAY every oscillator keeps its whole card, dimmed while off; no card folds to make room for another:
-    // the cards keep one height each and the area scrolls, ilana 2026-10-21.)
-    bool isFolded (int osc) const { return ! embedded && isOff (osc); }
+    // (A switched-off oscillator keeps its whole card, dimmed, on both tabs; no card folds, the page scrolls
+    // instead: ilana 2026-10-21 "dont fold ... just let me scroll", 2026-10-22 "yeah, dim".)
 
     // The kinds drawn as panels (WAVE, PITCH, MIX, UNISON...): the others keep the grid.
     static bool usesPanels (Kind kind) { return kind == Kind::wavetable || kind == Kind::physical || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain; }
-
-    // WARP and SPECTRAL always; WARP 2 and WARP ENV once added (+ WARP) or in use.
-    int effectiveExtraWarps (int osc) const
-    {
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
-        const auto needed = readChoice (prefix + "_warp2") != 0 ? 1 : 0;
-        return juce::jmax (needed, aux[(size_t) osc]->extraWarps);
-    }
 
     int warpRowH() const { return ampRowH; }
     int warpChipH() const { return chipH; }
     int warpDial() const { return ampDial; }
 
-    int waveContentHeight (int osc) const
-    {
-        const auto rows = 2 + effectiveExtraWarps (osc);
-        return rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
-    }
+    // A wavetable card always shows WARP, SPECTRAL and WARP 2 (Off until picked), so adding a stage never
+    // changes the card's height (ilana 2026-10-22: "adding warp 2 changes the size of the osc").
+    static constexpr int wavetableWarpRows = 3;
+    int waveContentHeight() const { return wavetableWarpRows * warpRowH() + (wavetableWarpRows - 1); }
 
     static constexpr int physTopH = 80, physBottomH = 61, sampleTopH = 96, sampleBottomH = 65, grainH = 111;
 
@@ -2312,17 +2275,14 @@ private:
         if (kindOf (osc) == Kind::grain)
             return 1 + cardHeaderHeight + grainH + cardPad + 1;
 
-        const auto rows = kindOf (osc) == Kind::live || kindOf (osc) == Kind::fm || kindOf (osc) == Kind::grain ? 2 : 2 + effectiveExtraWarps (osc);
-        const auto content = rows * warpRowH() + (rows - 1) + (rows < 4 ? 3 + warpChipH() : 0);
+        // (A live or FM / DX7 card keeps its two warp rows and the chip line under them.)
+        const auto content = kindOf (osc) == Kind::wavetable ? waveContentHeight() : 2 * warpRowH() + 1 + 3 + warpChipH();
         return 1 + cardHeaderHeight + panelTop + panelTitleH + content + panelTail + 1 + cardPad + 1;
     }
 
     // What a card needs at least, by what it holds.
     int minimumCardHeight (int osc) const
     {
-        if (isFolded (osc))
-            return foldedCardHeight;
-
         if (usesPanels (kindOf (osc)))
             return panelCardHeight (osc);
 
@@ -2341,9 +2301,6 @@ private:
     // What a compact card grows to with spare height.
     int maximumCardHeight (int osc) const
     {
-        if (isFolded (osc))
-            return foldedCardHeight;
-
         if (usesPanels (kindOf (osc)))
             return panelCardHeight (osc);
 
@@ -2412,8 +2369,6 @@ private:
             for (size_t i = 0; i < shown.size(); ++i)
             {
                 const auto kind = kindOf (shown[i]);
-                if (isFolded (shown[i]))
-                    continue;
                 if (kind == Kind::sample)
                     continue;
                 if (kind != Kind::live)
@@ -2647,11 +2602,11 @@ private:
 
             const auto columnX = picture.getRight() + 7;
             const auto columnW = juce::jmax (0, c.getRight() - columnX);
-            const auto rows = 2 + effectiveExtraWarps (index);
+            const auto rows = wavetableWarpRows;
             const auto comboW = juce::jmax (40, juce::jmin (112, columnW - ampCell - 3));
             ComboControl* menus[] { &osc.warp, &osc.spectral, &osc.warp2 };
             KnobControl* amounts[] { &osc.warpAmt, &osc.spectralAmt, &osc.warp2Amt };
-            auto y = middle (c, waveContentHeight (index));
+            auto y = middle (c, waveContentHeight());
             for (int r = 0; r < rows; ++r)
             {
                 menus[r]->setBounds ({ columnX, y + (warpRowH() - menuH) / 2, comboW, menuH });
@@ -2659,7 +2614,6 @@ private:
                 placeKnob (*amounts[r], columnX + comboW + 3, y + 1, ampCell, warpDial());
                 y += warpRowH() + 1;
             }
-            pieces.addWarp.setBounds (rows < 3 ? juce::Rectangle<int> (columnX, y + 2, juce::jmin (columnW, pieces.addWarp.preferredWidth()), warpChipH()) : juce::Rectangle<int>());
         }
 
         // PITCH
@@ -3291,15 +3245,6 @@ private:
 
         layoutCardHeader (card);
 
-        if (isFolded (index))
-        {
-            card.rows = 0;
-            card.hintArea = {};
-            card.separatorY.clear();
-            pieces.status.setBounds ({});
-            return;
-        }
-
         if (usesPanels (card.kind))
         {
             if (card.kind == Kind::physical)
@@ -3405,24 +3350,14 @@ private:
             g.beginTransparencyLayer (0.55f);
 
         IlanaTheme::paintCard (g, card.bounds.toFloat(), 10.0f, tint);
-        if (! isFolded (index))
-        {
-            g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
-            g.fillRect (juce::Rectangle<int> (card.bounds.getX() + 1, card.header.getBottom() - 1, card.bounds.getWidth() - 2, 1));
-        }
+        g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
+        g.fillRect (juce::Rectangle<int> (card.bounds.getX() + 1, card.header.getBottom() - 1, card.bounds.getWidth() - 2, 1));
 
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 14.0f, (float) centre }, tint);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (10.0f, true));
         IlanaTheme::drawFitted (g, "OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 23, centre - 9, 38, 18), juce::Justification::centredLeft, 1);
-
-        if (isFolded (index))
-        {
-            if (off)
-                g.endTransparencyLayer();
-            return;
-        }
 
         if (usesPanels (card.kind))
         {
@@ -3702,9 +3637,7 @@ private:
         SegmentBar typeBar, routeBar;
         OscStatusView outBar;
         juce::TextButton prevTable { juce::String::fromUTF8 ("\xe2\x80\xb9") }, nextTable { juce::String::fromUTF8 ("\xe2\x80\xba") };
-        PackedChip addWarp;
         IconPicker exciterPills; // (the exciter types as small icons, the name on hover)
-        int extraWarps = 0; // 0..1 of WARP 2 shown beyond WARP and SPECTRAL
         SampleNameBox sampleNameButton;
         BarSliderControl xfadeBar; // the sample's CROSSFADE, a row of the toggle list
         juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
@@ -4056,7 +3989,7 @@ private:
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
                  &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton, &pieces.sampleNameButton,
-                 &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.addWarp, &pieces.exciterPills,
+                 &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.exciterPills,
                  &phys.resAmount, &phys.resOn, &phys.resBoard };
     }
 
@@ -4188,7 +4121,6 @@ private:
             pieces.nextTable.setVisible (wavetableCard);
             pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
             pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
-            pieces.addWarp.setVisible (wavetableCard && effectiveExtraWarps (index) < 1);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
@@ -4233,29 +4165,10 @@ private:
             pieces.opEnvGraph.setSource (prefix, oscColour (index));
             pieces.partials.setVisible (kind == Kind::physical && ! electric);
             pieces.status.setVisible (true);
-            pieces.xfadeBar.setVisible (kind == Kind::sample && ! isFolded (index));
+            pieces.xfadeBar.setVisible (kind == Kind::sample);
             pieces.xfadeBar.setAlpha (readFloat (prefix + "_sample_loop") > 0.5f ? 1.0f : 0.45f);
             pieces.spreadView.setVisible (kind != Kind::live && kind != Kind::physical && (kind != Kind::fm || ! opEnv));
 
-            // A folded card shows its header only.
-            if (isFolded (index))
-            {
-                for (const auto& slot : slotsFor (index))
-                    slot.item->setVisible (false);
-                wave.setVisible (false);
-                pieces.stringView.setVisible (false);
-                pieces.opEnvGraph.setVisible (false);
-                pieces.partials.setVisible (false);
-                pieces.status.setVisible (false);
-                pieces.xfadeBar.setVisible (false);
-                pieces.spreadView.setVisible (false);
-                pieces.routeBar.setVisible (false);
-                pieces.outBar.setVisible (false);
-                pieces.addWarp.setVisible (false);
-                pieces.prevTable.setVisible (false);
-                pieces.nextTable.setVisible (false);
-                pieces.exciterPills.setVisible (false);
-            }
         }
 
         // The strip.
@@ -4703,7 +4616,7 @@ private:
 
 // The OSC page scrolls only when the card's rows cannot fit at their
 // smallest.
-class OscPageViewport : public juce::Viewport
+class OscPageViewport : public juce::Viewport, private juce::Timer
 {
 public:
     explicit OscPageViewport (IlanaSynthAudioProcessor& processor)
@@ -4750,7 +4663,9 @@ public:
                 }
             }
 
-            page->setTransform (juce::AffineTransform::scale (chosen));
+            chosenScale = chosen;
+            stopTimer();
+            setOvershoot (0.0f);
 
             if (chosen > 1.0f)
             {
@@ -4767,67 +4682,46 @@ public:
 
     std::function<void()> onViewMoved;
 
-    // PLAY's wheel moves the cards one at a time (a card's top to the view's top), never through one.
+    // The wheel glides: each notch adds to a target the view eases toward, and a hard scroll past either end
+    // runs a little over and springs back (ilana 2026-10-22: "smooooth scroll ... bouncing back a bit").
     void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
     {
         auto* page = getPage();
-        if (! overlayScroll || page == nullptr)
+        const auto maxY = (float) maxScroll();
+        if (page == nullptr || maxY <= 0.0f || wheel.deltaY == 0.0f)
         {
             juce::Viewport::mouseWheelMove (event, wheel);
             return;
         }
 
-        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
-        const auto now = juce::Time::getMillisecondCounter();
-        if (maxY == 0 || wheel.deltaY == 0.0f || now - lastWheel < 140)
-            return;
-        lastWheel = now;
+        if (! isTimerRunning())
+            current = target = (float) getViewPositionY();
 
-        const auto here = getViewPositionY();
-        const auto tops = page->getCardTops();
-        auto target = here;
-        if (wheel.deltaY < 0.0f)
-        {
-            for (const auto top : tops)
-                if (top > here + 1)
-                {
-                    target = juce::jmin (top, maxY);
-                    break;
-                }
-        }
-        else
-        {
-            for (auto it = tops.rbegin(); it != tops.rend(); ++it)
-                if (*it < here - 1)
-                {
-                    target = *it;
-                    break;
-                }
-        }
-        setViewPosition (0, target);
+        target -= wheel.deltaY * wheelPixels;
+        // (Past an end the target goes on at a third of the pace, and never more than overshootMax over.)
+        if (target < 0.0f)
+            target = juce::jmax (-overshootMax, target * 0.35f);
+        else if (target > maxY)
+            target = juce::jmin (maxY + overshootMax, maxY + (target - maxY) * 0.35f);
+        lastWheel = juce::Time::getMillisecondCounter();
+        startTimerHz (60);
     }
 
-    // The nearest card top a drag of the bar lands on.
-    int snapToCard (int position) const
+    // Moves the view straight to a place (the scroll bar, a card brought into view), stopping any glide.
+    void jumpTo (int y)
     {
-        auto* page = getPage();
-        if (page == nullptr)
-            return position;
-        const auto maxY = juce::jmax (0, page->getHeight() - getHeight());
-        auto best = juce::jmin (position, maxY);
-        auto distance = 1 << 30;
-        for (const auto top : page->getCardTops())
-            if (const auto candidate = juce::jmin (top, maxY); std::abs (candidate - position) < distance)
-            {
-                distance = std::abs (candidate - position);
-                best = candidate;
-            }
-        return best;
+        stopTimer();
+        setOvershoot (0.0f);
+        current = target = (float) juce::jlimit (0, maxScroll(), y);
+        setViewPosition (0, (int) current);
     }
 
     void visibleAreaChanged (const juce::Rectangle<int>& area) override
     {
         juce::Viewport::visibleAreaChanged (area);
+        // (Moved by something else, its own scroll bar or a card brought into view: the glide starts from there.)
+        if (! gliding && ! isTimerRunning())
+            current = target = (float) area.getY();
         if (onViewMoved)
             onViewMoved();
     }
@@ -4835,8 +4729,46 @@ public:
 private:
     // (1: the cards keep one size on every tab and with any number of oscillators, ilana 2026-10-21; the page
     // scrolls instead of shrinking or growing.)
-    float maxScale = 1.0f;
+    float maxScale = 1.0f, chosenScale = 1.0f;
     bool overlayScroll = false;
     juce::uint32 lastWheel = 0;
+
+    static constexpr float wheelPixels = 150.0f, overshootMax = 44.0f;
+    float current = 0.0f, target = 0.0f, overshoot = 0.0f;
+    bool gliding = false;
+
+    int maxScroll() const
+    {
+        const auto* page = getPage();
+        return page == nullptr ? 0 : juce::jmax (0, juce::roundToInt ((float) page->getHeight() * chosenScale) - getHeight());
+    }
+
+    // The part of the glide past an end: the page is drawn that far over, the view itself stays at its end.
+    void setOvershoot (float pixels)
+    {
+        overshoot = pixels;
+        if (auto* page = getPage())
+            page->setTransform (juce::AffineTransform::scale (chosenScale).translated (0.0f, -overshoot));
+    }
+
+    void timerCallback() override
+    {
+        const auto maxY = (float) maxScroll();
+        // (Once the wheel rests, a target past an end springs back to it.)
+        if (juce::Time::getMillisecondCounter() - lastWheel > 90)
+            target = juce::jlimit (0.0f, maxY, target);
+
+        current += (target - current) * 0.22f;
+        if (std::abs (target - current) < 0.5f)
+        {
+            current = target;
+            stopTimer();
+        }
+
+        const auto inside = juce::jlimit (0.0f, maxY, current);
+        const juce::ScopedValueSetter<bool> moving (gliding, true);
+        setOvershoot (current - inside);
+        setViewPosition (0, juce::roundToInt (inside));
+    }
 };
 } // namespace

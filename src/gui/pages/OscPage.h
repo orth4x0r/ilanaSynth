@@ -1758,8 +1758,7 @@ public:
     }
 
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
-    // card (a sample, a string) never squeezes the bands: an off oscillator folds to its header for the room, and
-    // only when that is not enough does the area scroll.
+    // card (a sample, a string) never squeezes the bands: the oscillator area scrolls instead.
     // Where each card begins (PLAY's scroll steps by card).
     std::vector<int> getCardTops() const
     {
@@ -1771,7 +1770,9 @@ public:
 
     int getReferenceHeight() const
     {
-        const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * warpRowH() + 1 + 3 + warpChipH()) + panelTail + 1 + cardPad + 1;
+        // (Sized by the wavetable card PLAY's bands were approved under, 28 px warp rows and 12 px chip: the OSC tab's
+        // cards are 6 px taller, and the oscillators scroll that little rather than the bands shrinking, ilana 2026-10-22.)
+        const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * 28 + 1 + 3 + 12) + panelTail + 1 + cardPad + 1;
         std::vector<int> heights;
         // (Never more than the three cards PLAY shows at once: a fourth operator and beyond scroll.)
         for (const auto osc : shownList())

@@ -786,6 +786,7 @@ public:
           ampVel (p.apvts, "amp_velocity", "VELOCITY", modSourceColour ((int) Mod::Source::AmpEnv), false),
           feA (p.apvts, "fe_attack", "ATTACK"), feD (p.apvts, "fe_decay", "DECAY"),
           feS (p.apvts, "fe_sustain", "SUSTAIN"), feR (p.apvts, "fe_release", "RELEASE"),
+          feVel (p.apvts, "filter_velocity", "VELOCITY"),
           f2A (p.apvts, "f2e_attack", "ATTACK"), f2D (p.apvts, "f2e_decay", "DECAY"),
           f2S (p.apvts, "f2e_sustain", "SUSTAIN"), f2R (p.apvts, "f2e_release", "RELEASE"),
           f2Vel (p.apvts, "f2e_velocity", "VELOCITY", IlanaTheme::envIdentityColour (2), false),
@@ -860,13 +861,13 @@ public:
 
         addAll (*this, ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display,
                 ampA, ampD, ampS, ampR, ampVel,
-                feA, feD, feS, feR,
+                feA, feD, feS, feR, feVel,
                 f2A, f2D, f2S, f2R, f2Vel,
                 meA, meD, meS, meR, meVel,
                 e4A, e4D, e4S, e4R, e4Vel);
 
         units.push_back ({ &ampDisplay, { &ampA, &ampD, &ampS, &ampR, &ampVel } });
-        units.push_back ({ &feDisplay, { &feA, &feD, &feS, &feR } });
+        units.push_back ({ &feDisplay, { &feA, &feD, &feS, &feR, &feVel } });
         units.push_back ({ &f2eDisplay, { &f2A, &f2D, &f2S, &f2R, &f2Vel } });
         units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, &meVel } });
         units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, &e4Vel } });
@@ -1186,7 +1187,7 @@ private:
     bool ampWasUsed = true;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
     KnobControl ampA, ampD, ampS, ampR, ampVel;
-    KnobControl feA, feD, feS, feR;
+    KnobControl feA, feD, feS, feR, feVel;
     KnobControl f2A, f2D, f2S, f2R, f2Vel;
     KnobControl meA, meD, meS, meR, meVel;
     KnobControl e4A, e4D, e4S, e4R, e4Vel;

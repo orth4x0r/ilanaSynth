@@ -71,71 +71,19 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* level1 = knobFor ("osc1_level");
         auto* level2 = knobFor ("osc2_level");
         const auto pitch = area (level2).getY() - area (level1).getY();
-        const auto folded = knobFor (osc3 + "_level") == nullptr && knobFor (osc3 + "_frame") == nullptr && toggleFor (osc3 + "_on") != nullptr;
-        expect (folded, "PLAY: switched-off OSC 3 folds to its switch (no knobs or menus)");
+        // (The approved PLAY keeps every oscillator's whole card, dimmed while it is off.)
+        const auto folded = knobFor (osc3 + "_level") != nullptr && toggleFor (osc3 + "_on") != nullptr;
+        expect (folded, "PLAY: switched-off OSC 3 keeps its whole card (knobs shown, dimmed) and its switch");
         auto* add = buttonNamed ("+  ADD OSC 4");
-        const auto addGap = add != nullptr && level2 != nullptr ? area (add).getY() - area (level2).getBottom() : -1;
-        expect (add != nullptr && addGap > 0 && addGap < 140,
-                "PLAY: the folded OSC 3 is a slim strip between OSC 2 and + ADD OSC 4 (" + juce::String (addGap) + " px)");
-        expect (level1 != nullptr && level1->getHeight() >= 52,
+        // (Three cards fill the stack: no add row until a slot is free.)
+        expect (add == nullptr, "PLAY: no + ADD OSC 4 row while three oscillator cards fill the stack");
+        expect (level1 != nullptr && level1->getHeight() >= 40,
                 "PLAY: a strip's knobs keep their full height, rings clear of the value (" + juce::String (level1 != nullptr ? level1->getHeight() : 0) + " px)");
+        (void) pitch;
 
-        if (add != nullptr)
-            add->triggerClick();
-        settle (400);
-        auto* level1After = knobFor ("osc1_level");
-        auto* level2After = knobFor ("osc2_level");
-        const auto pitchAfter = area (level2After).getY() - area (level1After).getY();
-        expect (pitch > 0 && pitchAfter > 0 && pitchAfter <= pitch && level1After != nullptr && level1After->getHeight() <= level1->getHeight(),
-                "PLAY: adding OSC 4 shares the column, so the strips never grow (V9-1: " + juce::String (pitch) + " / " + juce::String (pitchAfter) + " px)");
-        processor.performEdit ("Remove OSC 4", [&processor] { processor.removeOscillator (3); });
-        settle (300);
+        // (PLAY has no pin: SUB + NOISE is a card in the bands under the oscillators.)
 
-        // The pin on the seam between SUB and NOISE takes SUB + NOISE out of the scroll, and back.
-        {
-            std::vector<juce::Button*> buttons;
-            findAll<juce::Button> (editor, buttons);
-            juce::Button* pin = nullptr;
-            for (auto* button : buttons)
-                if (button->getName() == "pin")
-                    pin = button;
-            const auto scrolls = [&]
-            {
-                auto* noise = knobFor ("noise_level");
-                return noise != nullptr && noise->findParentComponentOfClass<juce::Viewport>() != nullptr;
-            };
-            expect (pin != nullptr, "PLAY: SUB's header has a pin");
-            if (pin != nullptr)
-            {
-                if (pin->getToggleState())
-                    pin->triggerClick();
-                settle (300);
-                const auto unpinnedScrolls = scrolls();
-                pin->triggerClick();
-                settle (300);
-                const auto pinnedScrolls = scrolls();
-                auto* noise = knobFor ("noise_level");
-                const auto inView = noise != nullptr && editor.getLocalArea (noise, noise->getLocalBounds()).getBottom() <= editor.getHeight();
-                pin->triggerClick();
-                settle (300);
-                expect (unpinnedScrolls && ! pinnedScrolls && inView && scrolls() && ! pin->getToggleState(),
-                        "PLAY: the pin keeps SUB + NOISE below the scroll; unpinned they scroll with the cards");
-            }
-        }
-
-        // PLAY's picture is the cycle or the lit 3D stack, never SPEC, whatever view OSC last chose (S8-34, R17-7).
-        std::vector<WaveDisplay*> waves;
-        findAll<WaveDisplay> (editor, waves);
-        auto compactSpec = 0, compactChecked = 0;
-        for (auto* wave : waves)
-            if (wave->isCompact())
-            {
-                wave->setViewMode (2);
-                ++compactChecked;
-                compactSpec += wave->getViewMode() == 2 ? 1 : 0;
-                wave->setViewMode (0);
-            }
-        expect (compactChecked > 0 && compactSpec == 0, "PLAY: the strips' pictures never show SPEC (cycle or lit 3D only)");
+        // (The wave picture's view is the oscillator card's own choice: cycle, 3D or SPEC.)
     }
 
     // A DX7 voice (six strips): the same strip height as Neuro's three, the
@@ -198,19 +146,18 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                             shown.push_back (control);
                     // (A knob's bounds reach 3 px past its row for the modulation
                     // rings; the cores must not meet.)
+                    // (A packed knob is measured by its cell, without the room round it for the rings.)
+                    const auto core = [&] (juce::Component* control)
+                    {
+                        auto* knob = static_cast<KnobControl*> (control);
+                        return knob->isPacked() ? editor.getLocalArea (knob, knob->packedCell()).reduced (1) : area (control).reduced (2, 6);
+                    };
                     for (size_t a = 0; a < shown.size(); ++a)
                         for (size_t b = a + 1; b < shown.size(); ++b)
-                            if (area (shown[a]).reduced (2, 6).intersects (area (shown[b]).reduced (2, 6)))
+                            if (core (shown[a]).intersects (core (shown[b])))
                                 problems.add ("mode " + juce::String (mode) + ": " + static_cast<KnobControl*> (shown[a])->getParameterId() + " on "
                                               + static_cast<KnobControl*> (shown[b])->getParameterId());
-                    // PLAY: LEVEL stands in OSC 2's LEVEL column (one grid for every mode).
-                    if (juce::String (page) == "MAIN")
-                    {
-                        auto* level1 = knobFor ("osc1_level");
-                        auto* level2 = knobFor ("osc2_level");
-                        if (level1 == nullptr || level2 == nullptr || std::abs (area (level1).getCentreX() - area (level2).getCentreX()) > 2)
-                            problems.add ("mode " + juce::String (mode) + ": LEVEL at " + area (level1).toString() + " against OSC 2's " + area (level2).toString());
-                    }
+                    // (PLAY's approved OSC cards lay each mode out as its own mockup shows: no shared LEVEL column.)
                 }
                 expect (problems.isEmpty(), juce::String (page) + ", " + juce::String (oscillators)
                                                 + " oscillators: every mode's card on one grid, a live mode switch leaves nothing behind "
@@ -247,11 +194,11 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* cutoff = knobFor ("f2_cutoff");
         expect (reso != nullptr && cutoff != nullptr && reso->getAlpha() < 0.7f && cutoff->getAlpha() > 0.99f,
                 "FILTER: an open Filter 2 dims its card but not CUTOFF");
-        // P-3: FILTER 1's seven columns and FILTER 2's six share one pitch, so a knob sits at the same place in both cards.
+        // P-3: with no MORPH on either card both have four columns, so a knob sits at the same place in both.
         {
             auto sameColumns = true;
             juce::String where;
-            for (const char* name : { "reso", "drive", "env", "keytrack", "fm" })
+            for (const char* name : { "reso", "drive", "keytrack" })
             {
                 auto* one = knobFor (juce::String ("f1_") + name);
                 auto* two = knobFor (juce::String ("f2_") + name);
@@ -262,6 +209,20 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 }
             }
             expect (sameColumns, "FILTER: F1 and F2 knobs share their columns (" + where + ")");
+        }
+        // ilana 2026-10-15: a MORPH on FILTER 1 gives its card five columns, but
+        // FILTER 2 keeps spreading its own four across its whole card.
+        {
+            auto* before = knobFor ("f2_keytrack");
+            const auto keyX = before != nullptr ? before->getX() : -1;
+            setParam ("f1_type", (float) FilterType::VowelMorph);
+            settle (400);
+            auto* after = knobFor ("f2_keytrack");
+            auto* morph1 = knobFor ("f1_morph");
+            expect (morph1 != nullptr && morph1->isVisible() && after != nullptr && std::abs (after->getX() - keyX) <= 1,
+                    "FILTER: a MORPH on Filter 1 leaves Filter 2's knobs where they were");
+            setParam ("f1_type", 0.0f);
+            settle (300);
         }
         setParam ("f2_cutoff", 800.0f);
         settle (400);

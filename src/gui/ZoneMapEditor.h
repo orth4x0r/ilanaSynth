@@ -638,7 +638,7 @@ private:
         {
             const auto& z = zones[(size_t) selected];
             const auto to = juce::String (" to ");
-            keysField.setText (noteName (z.loKey) + to + noteName (z.hiKey));
+            keysField.setText (z.loKey == z.hiKey ? noteName (z.loKey) : noteName (z.loKey) + to + noteName (z.hiKey)); // (one key: "C1", not "C1 to C1")
             velocityField.setText (juce::String (z.loVel) + to + juce::String (z.hiVel));
             rootField.setText (rootText (z.rootNote));
             levelField.setText (juce::String (juce::Decibels::gainToDecibels (z.gain, -100.0f), 1) + " dB");
@@ -965,12 +965,15 @@ private:
             g.fillRect (keyX (key), map.getY(), 1.0f, map.getHeight());
         }
         // Velocity lines.
-        for (const auto velocity : { 32, 64, 96 })
+        // (1 and 127 end the axis, so the whole range reads; the top one is written under its line.)
+        for (const auto velocity : { 1, 32, 64, 96, 127 })
         {
+            const auto edge = velocity == 127;
             g.setColour (juce::Colours::white.withAlpha (0.05f));
             g.fillRect (map.getX(), velocityY (velocity), map.getWidth(), 1.0f);
             g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
-            g.drawText (juce::String (velocity), juce::Rectangle<float> (map.getX() + 3.0f, velocityY (velocity) - 13.0f, 30.0f, 13.0f),
+            g.drawText (juce::String (velocity),
+                        juce::Rectangle<float> (map.getX() + 3.0f, edge ? velocityY (velocity) + 1.0f : velocityY (velocity) - 13.0f, 30.0f, 13.0f),
                         juce::Justification::centredLeft, false);
         }
 

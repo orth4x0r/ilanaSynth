@@ -22,7 +22,7 @@ HOLD, TOTAL = 1.5, 3.5
 # knob -> (parameter suffix, extra settings)
 KNOBS = {
     'decay': ('string_decay', ''), 'damp': ('string_damp', ''), 'sustain': ('string_sustain', ''),
-    'stiff': ('string_stiffness', ''), 'register': ('register', ''), 'damper': ('damper', ''),
+    'stiff': ('string_stiffness', ''), 'register': ('register', ''), 'damper': ('damper', 'subosc_on=0'),
     'couple1': ('couple', ''), 'couple3': ('couple', 'osc1_unison=3'),
     'buzz': ('bridge_buzz', ''), 'rattle': ('fret_rattle', ''),
     'position': ('string_excite_pos', ''), 'hardness': ('string_pick_hardness', ''),
@@ -30,7 +30,7 @@ KNOBS = {
     'hammer': ('hammer_hard', ''), 'bowpress': ('bow_pressure', ''), 'bowspeed': ('bow_speed', ''),
     'epdist': ('ep_distance', ''), 'epoffset': ('ep_position', ''),
     'fbgain': ('fb_gain', 'osc1_string_sustain=0.6'), 'fbdist': ('fb_distance', 'osc1_string_sustain=0.6'),
-    'damperL': ('damper', 'amp_release=5'), 'registerHi': ('register', 'osc1_string_stiffness=0.3'),
+    'damperL': ('damper', 'amp_release=5;subosc_on=0'), 'registerHi': ('register', 'osc1_string_stiffness=0.3'),
 }
 BASE = {'osc1_unison': 1}
 
@@ -68,7 +68,8 @@ def read(path):
     x = np.where(x >= 1 << 23, x - (1 << 24), x)
     return x / float(1 << 23)
 
-SEGS = [(0.0, 0.15), (0.15, HOLD), (HOLD, TOTAL)]
+# (the first 30 ms apart: a pick's hardness or a slap lives in the attack, which the 150 ms segment dilutes)
+SEGS = [(0.0, 0.03), (0.03, 0.15), (0.15, HOLD), (HOLD, TOTAL)]
 EDGES = 1000 * 2.0 ** (np.arange(-10, 14) / 3.0 * 1.0)  # 1/3 octave from ~100 Hz
 EDGES = 100 * 2.0 ** (np.arange(0, 8) / 1.0)
 
@@ -92,6 +93,11 @@ FRAME = 0.1
 def envelope(x):
     n = int(FRAME * SR)
     return np.array([10 * np.log10(np.mean(x[i:i + n] ** 2) + 1e-12) for i in range(0, len(x) - n, n)])
+
+def attack(x):
+    """Level in dB of twelve 5 ms frames from the note start (a slap or a pick's hardness is heard here, not in 100 ms frames)."""
+    n = int(0.005 * SR)
+    return np.array([10 * np.log10(np.mean(x[i * n:(i + 1) * n] ** 2) + 1e-12) for i in range(12)])
 
 def stretch(x, note):
     """Mean deviation in cents of partials 2..6 from exact harmonics (0.1-1.2 s)."""
@@ -165,6 +171,8 @@ def report(out):
         live = (er > -75) | (et > -75)
         env = float(np.max(np.abs(er - et)[live])) if live.any() else 0.0
         envn = float(np.max(np.abs(er - ep)[live])) if live.any() else 0.0
+        ar, at, ap = attack(xr), attack(xt), attack(xp)
+        atk = float(np.max(np.abs(ar - at)) - np.max(np.abs(ar - ap))) if ar.max() > -60 else 0.0
         st = abs(stretch(xt, note) - stretch(xr, note))
         hm = harm_dist(harmonics(xr, note), harmonics(xt, note)) - harm_dist(harmonics(xr, note), harmonics(xp, note))
         # worst segment, minus the noise floor
@@ -172,23 +180,23 @@ def report(out):
         lvl = max(abs(x) - abs(y) for x, y in zip(lv, nlv))
         rows.append((EXCITES[ex], NOTES[note], knob, round(max(sp), 1), round(max(nsp), 1),
                      round(effect, 1), round(max(abs(x) for x in lv), 1), round(lvl, 1), silent,
-                     round(env - envn, 1), round(st, 1), round(hm, 1)))
+                     round(env - envn, 1), round(st, 1), round(hm, 1), round(atk, 1)))
     with open(f'{out}/audit.csv', 'w', newline='') as f:
         w = csv.writer(f)
-        w.writerow(['exciter', 'note', 'knob', 'spec_db', 'noise_db', 'effect_db', 'level_db', 'level_eff_db', 'silent', 'env_db', 'stretch_cents', 'harm_db'])
+        w.writerow(['exciter', 'note', 'knob', 'spec_db', 'noise_db', 'effect_db', 'level_db', 'level_eff_db', 'silent', 'env_db', 'stretch_cents', 'harm_db', 'atk_db'])
         w.writerows(rows)
     return rows
 
 def table(out):
     rows = list(csv.DictReader(open(f'{out}/audit.csv')))
     exs = [e for e in EXCITES.values() if any(r['exciter'] == e for r in rows)]
-    print('score = max(spectral, envelope, harmonic-pattern dB, stretch cents / 8), at C2/C4/C6; <3 dead, 3-6 weak, >6 clear')
+    print('score = max(spectral, envelope, harmonic-pattern, attack-level dB, stretch cents / 8), at C2/C4/C6; <3 dead, 3-6 weak, >6 clear')
     print('%-10s' % 'knob' + ''.join('%-13s' % e for e in exs))
     for k in [k for k in KNOBS if any(r['knob'] == k for r in rows)]:
         line = '%-10s' % k
         for e in exs:
             v = [r for r in rows if r['knob'] == k and r['exciter'] == e]
-            sc = [max(float(r['effect_db']), float(r['env_db']), float(r['harm_db']), float(r['stretch_cents']) / 8) for r in v]
+            sc = [max(float(r['effect_db']), float(r['env_db']), float(r['harm_db']), float(r['stretch_cents']) / 8, float(r.get('atk_db', 0) or 0)) for r in v]
             line += '%-13s' % ('/'.join('%.0f' % x for x in sc) if sc else '-')
         print(line)
 

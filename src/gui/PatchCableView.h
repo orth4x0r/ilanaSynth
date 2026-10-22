@@ -17,7 +17,9 @@
 //
 //   drag from an output port     a new cable; drop it on an input port
 //   drag from an input port      picks up the newest cable into it, so it can
-//                                be moved to another input or dropped off
+//                                be moved to another input or dropped off; a
+//                                port with no cable starts one backwards:
+//                                drop it on an output port (ilana 2026-10-15)
 //   drag a node                  moves it on the 10 px grid
 //   click a cable or node        selects it; Delete or Backspace removes it
 //   right-click                  a cable: remove, its gain, its loop delay;
@@ -156,6 +158,29 @@ public:
         origin = viewArea().getCentre() - content.getCentre();
         origin = { std::round (origin.x / grid) * grid, std::round (origin.y / grid) * grid };
         repaint();
+    }
+
+    // The graph point under a point of this view (view pixels).
+    juce::Point<float> graphPointAt (juce::Point<float> viewPosition) const { return viewPosition / zoom - origin; }
+
+    // Picks a box up as if it had been pressed on: the mouse events that follow
+    // (mouseDrag, mouseUp, forwarded by the owner) drag it, and it drops into a
+    // cable like any other. For the owner's row of effects to drag from.
+    bool beginNodeDrag (PatchGraph::NodeId id)
+    {
+        const auto* node = graph.find (id);
+        if (node == nullptr || node->isFixed() || (movable && ! movable (*node)))
+            return false;
+        finishGlide();
+        selectedNode = id;
+        selectedCable = -1;
+        drag = {};
+        drag.kind = DragKind::node;
+        drag.node = id;
+        drag.grabOffset = { nodeWidth * 0.5f, nodeHeight * 0.5f };
+        drag.start = { node->x, node->y };
+        repaint();
+        return true;
     }
 
     // Zoom: the whole view drawn larger (1 = design size). Positions in the
@@ -306,6 +331,11 @@ public:
     // cable any box that isn't a fixed one or another source of modulation.
     PatchGraph::Port dropTargetAt (juce::Point<float> position) const
     {
+        if (drag.reverse)
+        {
+            const auto out = portAt (position, false);
+            return out.node != drag.from.node ? out : PatchGraph::Port();
+        }
         const auto* from = graph.find (drag.from.node);
         if (from != nullptr && isModSource && isModSource (*from))
         {
@@ -406,12 +436,12 @@ public:
 
         if (drag.kind == DragKind::cable)
         {
-            const auto from = portPosition (drag.from, false);
+            const auto from = portPosition (drag.from, drag.reverse);
             const auto* source = graph.find (drag.from.node);
             const auto colour = source != nullptr ? colourFor (*source) : Ui::text2;
             g.setColour (colour.withAlpha (0.9f));
             const auto pending = swings.find (pendingKey);
-            g.strokePath (cablePath (from, drag.mouse, false, pending != swings.end() ? pending->second.offset : juce::Point<float>()), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (cablePath (drag.reverse ? drag.mouse : from, drag.reverse ? from : drag.mouse, false, pending != swings.end() ? pending->second.offset : juce::Point<float>()), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
         g.addTransform (juce::AffineTransform::scale (1.0f / zoom));
@@ -490,6 +520,8 @@ public:
                     startCableDrag (cables[(size_t) c].from, c, position);
                     return;
                 }
+            startCableDrag (in, -1, position);
+            drag.reverse = true;
             return;
         }
 
@@ -942,7 +974,7 @@ public:
         if (drag.kind == DragKind::cable)
         {
             auto swing = swings.count (pendingKey) ? swings[pendingKey] : Swing();
-            active |= stepSwing (swing, portPosition (drag.from, false), drag.mouse, dt);
+            active |= drag.reverse ? stepSwing (swing, drag.mouse, portPosition (drag.from, true), dt) : stepSwing (swing, portPosition (drag.from, false), drag.mouse, dt);
             next[pendingKey] = swing;
         }
         const auto wasMoving = std::any_of (swings.begin(), swings.end(), [] (const auto& entry) { return entry.second.moving(); });
@@ -1405,6 +1437,7 @@ private:
         PatchGraph::NodeId node = 0;
         juce::Point<float> grabOffset;
         bool moved = false;
+        bool reverse = false; // a new cable dragged from an input port to an output port (from is the input)
         PatchGraph::Port from;
         int pickedCable = -1; // a cable lifted off an input port, or -1 for a new one
         float pickedGain = 1.0f;
@@ -1465,6 +1498,17 @@ private:
 
     void finishCableDrag (PatchGraph::Port to)
     {
+        // Dragged backwards, from an input port: the port it lands on is the cable's source.
+        if (drag.reverse)
+        {
+            if (to.node == 0)
+                return;
+            const auto input = drag.from;
+            drag.reverse = false;
+            drag.from = to;
+            to = input;
+        }
+
         if (acceptGraph)
         {
             // The edit on a copy first: refused, nothing changes.
@@ -1830,8 +1874,8 @@ private:
             for (const auto& cable : graph.cables())
                 connected = connected || (input ? cable.to == port && ! isModCable (cable) : cable.from == port);
             const auto* dragFrom = graph.find (drag.from.node);
-            const auto target = drag.kind == DragKind::cable && input && portAt (drag.mouse, true) == port
-                                && ! (isModSource && dragFrom != nullptr && isModSource (*dragFrom));
+            const auto target = drag.kind == DragKind::cable && input != drag.reverse && portAt (drag.mouse, input) == port
+                                && (drag.reverse ? port.node != drag.from.node : ! (isModSource && dragFrom != nullptr && isModSource (*dragFrom)));
             // (A port under the pointer grows a little: it can be grabbed.)
             const auto hovered = drag.kind == DragKind::none && hoverPort == port && hoverInput == input;
             const auto radius = portRadius + (target || hovered ? 1.5f : 0.0f);

@@ -106,7 +106,7 @@ public:
     // The tiles' own names: short enough for a 64 px tile at full size.
     static juce::StringArray getShortShapeNames()
     {
-        return { "Line", "Invert", "Ease in", "Ease out", "S-curve", "Dead", "Peak", "Steps 4", "Gate" };
+        return { "Line", "Invert", "Ease in", "Ease out", "S-bend", "Dead", "Peak", "Steps 4", "Gate" };
     }
 
     static LfoCurve shape (int index)

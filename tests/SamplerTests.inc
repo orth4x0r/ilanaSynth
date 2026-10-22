@@ -249,6 +249,25 @@ void runSamplePlaybackModeTest()
     const auto held = renderNote (processor, 4, 120);
     check (held[30] > 0.01f && held[80] > 0.01f, "One Shot: the sample keeps playing after the key is let go");
     check (held[110] < 1.0e-4f, "One Shot: the voice ends once the sample has played (" + juce::String (held[110], 6) + ")");
+
+    // Granular has no PLAYBACK row, and its cloud never plays the sample to
+    // an end: a One Shot left over from Sample mode must not hold its
+    // release (the hidden sample players never advanced, so the note rang
+    // on after the key forever).
+    auto longTone = std::make_shared<SampleData>();
+    longTone->sampleRate = 48000.0;
+    longTone->buffer = MultiSampleLab::sine (220.0, 48000.0, 48000 * 3);
+    processor.setUserSample (0, longTone, {});
+    samplerSet (processor, "osc1_mode", 3.0f);
+    for (const auto playback : { 0.0f, 1.0f, 2.0f })
+    {
+        samplerSet (processor, "osc1_sample_playback", playback);
+        const auto grains = renderNote (processor, 20, 120);
+        check (grains[10] > 0.01f, "Granular sounds while the key is held (PLAYBACK " + juce::String (playback, 0) + ")");
+        check (grains[60] < 1.0e-4f && grains[110] < 1.0e-4f,
+               "Granular stops after the key is let go (PLAYBACK " + juce::String (playback, 0) + ", "
+                   + juce::String (grains[60], 6) + ")");
+    }
 }
 
 // Step 34: the loop turns at its ends instead of jumping back.
@@ -401,6 +420,30 @@ void runSampleQualityTest()
     const auto edges = runPlayer (*bright, [] (SamplePlayer::Params& p) { p.quality = 3; p.reverse = true; }, 30000, -1, 3.9);
     check (std::all_of (edges.out.begin(), edges.out.end(), [] (float v) { return std::isfinite (v) && std::abs (v) < 2.0f; }),
            "the quality reads stay finite at the sample's edges");
+
+    // Through the whole voice: QUALITY changes how the sample is read, never its pitch.
+    {
+        const auto folder = scratchFolder ("ilana-sampler-quality");
+        const auto wav = folder.getChildFile ("c4.wav");
+        MultiSampleLab::writeWav (wav, MultiSampleLab::sine (261.6255653005986, 48000.0, 48000), 48000.0);
+        for (const int note : { 60, 72, 84 })
+        {
+            const auto expected = 261.6255653005986 * std::pow (2.0, (note - 60) / 12.0);
+            for (int quality = 0; quality <= 3; ++quality)
+            {
+                IlanaSynthAudioProcessor processor;
+                MultiSampleLab::setUp (processor);
+                processor.loadUserSample (0, wav, true);
+                samplerSet (processor, "osc1_sample_quality", (float) quality);
+                const auto out = MultiSampleLab::play (processor, note, 20);
+                const std::vector<float> tail (out.begin() + 2048, out.end());
+                const auto hz = MultiSampleLab::sineFrequency (tail, 48000.0);
+                check (std::abs (hz / expected - 1.0) < 0.01,
+                       "quality " + juce::String (quality) + " keeps the pitch of note " + juce::String (note)
+                           + " (" + juce::String (hz, 1) + " Hz, wanted " + juce::String (expected, 1) + ")");
+            }
+        }
+    }
 }
 
 // Step 36: the zone map: silence outside the zones, edits that survive a

@@ -2,6 +2,7 @@
 // TableTest.cpp; ILANA_AIRWINDOWS_TEST=1 runs these alone.
 
 #include "dsp/airwindows/AirwindowsModule.h"
+#include "dsp/airwindows/DelaySync.h"
 
 namespace AirwindowsTests
 {
@@ -326,6 +327,109 @@ void runSlotTests()
     check (same, "Airwindows: a patch without the module renders as before (bit for bit)");
 }
 
+// AW Delay's tempo sync (airwindows/DelaySync.h): each echo with a time knob
+// lands where the knob it is given says, at 44.1, 48 and 96 kHz; StarChild2
+// has none; in a slot, SYNC is off in a fresh patch and on moves the echo.
+void runDelaySyncTests()
+{
+    // The first echo of an impulse (after the dry click): its start in seconds.
+    const auto firstEcho = [] (int algorithm, double rate, double seconds)
+    {
+        const auto& info = airwindows::registry()[(size_t) algorithm];
+        const juce::String name (info.name);
+        auto instance = info.create();
+        instance->prepare (rate);
+        std::array<float, 5> knobs {};
+        for (int k = 0; k < info.numKnobs; ++k)
+            knobs[(size_t) k] = info.knobs[k].defaultValue;
+        if (name == "TapeDelay2" || name == "PitchDelay")
+            knobs[1] = 0.0f; // no regen: one echo
+        if (name == "PurestEcho")
+            knobs = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }; // only the full-time tap
+        if (name == "Doublelay")
+            knobs = { 0.5f, 0.0f, 0.0f, 0.0f, 1.0f }; // no detune, no feedback, all wet
+        for (int k = 0; k < 5; ++k)
+            if (airwindows::delaysync::isTimeKnob (algorithm, k))
+                knobs[(size_t) k] = airwindows::delaysync::knobFor (algorithm, seconds, rate);
+        for (int k = 0; k < info.numKnobs; ++k)
+            instance->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (knobs[(size_t) k]));
+
+        const auto total = (int) (rate * (seconds + 0.5));
+        std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
+        for (int i = 0; i < 32; ++i)
+            left[(size_t) i] = right[(size_t) i] = 0.8f;
+        for (int start = 0; start < total; start += block)
+            instance->process (left.data() + start, right.data() + start, std::min (block, total - start));
+
+        const auto skip = (int) (rate * 0.03);
+        auto peak = 0.0f;
+        for (int i = skip; i < total; ++i)
+            peak = std::max (peak, std::abs (left[(size_t) i]) + std::abs (right[(size_t) i]));
+        for (int i = skip; i < total; ++i)
+            if (std::abs (left[(size_t) i]) + std::abs (right[(size_t) i]) > peak * 0.25f)
+                return i / rate;
+        return -1.0;
+    };
+
+    juce::StringArray off;
+    for (int a = 0; a < airwindows::count(); ++a)
+    {
+        if (! airwindows::delaysync::hasTime (a))
+            continue;
+        const juce::String name (airwindows::registry()[(size_t) a].name);
+        // (PurestEcho's loop is samples, not seconds: 0.34 s at 96 kHz.)
+        const std::vector<double> times = name == "PurestEcho" ? std::vector<double> { 0.1, 0.25 } : std::vector<double> { 0.125, 0.5, 0.9 };
+        for (const auto rate : { 44100.0, 48000.0, 96000.0 })
+            for (const auto seconds : times)
+            {
+                const auto heard = firstEcho (a, rate, seconds);
+                if (std::abs (heard - seconds) > 0.004 + seconds * 0.02)
+                    off.add (name + " " + juce::String (rate / 1000.0, 1) + "k " + juce::String (seconds, 3) + " s -> " + juce::String (heard, 4));
+            }
+    }
+    check (off.isEmpty(), "AW Delay sync: each echo lands on the synced time (" + off.joinIntoString (", ") + ")");
+
+    auto starChildHasTime = false, starChildFound = false;
+    for (int a = 0; a < airwindows::count(); ++a)
+        if (juce::String (airwindows::registry()[(size_t) a].name) == "StarChild2")
+        {
+            starChildFound = true;
+            starChildHasTime = airwindows::delaysync::hasTime (a);
+        }
+    check (starChildFound && ! starChildHasTime, "AW Delay sync: StarChild2 has no time knob to sync");
+
+    // In a slot: off by default, so an AW Delay renders as before; on, the echo moves.
+    const auto awDelayType = [] {
+        for (int c = 0; c < (int) airwindows::categoryModules().size(); ++c)
+            if (juce::String (airwindows::categoryModules()[(size_t) c].id) == "awdelay")
+                return airwindows::firstCategoryFxType + c;
+        return -1;
+    }();
+    const auto render = [awDelayType] (int sync)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.assignFxSlot (1, awDelayType);
+        setParam (processor, "fx_awdelay_algo", 0.0f); // TapeDelay2
+        setParam (processor, "fx_awdelay_p1", 1.0f);
+        if (sync >= 0)
+            setParam (processor, "fx_awdelay_sync", (float) sync);
+        return renderNote (processor);
+    };
+    IlanaSynthAudioProcessor fresh;
+    check (fresh.apvts.getRawParameterValue ("fx_awdelay_sync")->load() < 0.5f
+               && (int) fresh.apvts.getRawParameterValue ("fx_awdelay_div")->load() == 3,
+           "AW Delay sync: off in a fresh patch, DIV 1/8");
+    const auto untouched = render (-1), syncedOff = render (0), syncedOn = render (1);
+    auto same = untouched.size() == syncedOff.size(), moved = false;
+    for (size_t i = 0; i < untouched.size() && i < syncedOn.size(); ++i)
+    {
+        same = same && untouched[i] == syncedOff[i];
+        moved = moved || std::abs (untouched[i] - syncedOn[i]) > 1.0e-3f;
+    }
+    check (awDelayType > 0 && same, "AW Delay sync: SYNC off renders bit for bit as before");
+    check (moved, "AW Delay sync: SYNC on changes the echo");
+}
+
 // ILANA_AW_PROBE=<name>: that algorithm's peaks with each knob at 0 and 1
 // in turn (the others at their defaults), for each input.
 void probe (const juce::String& name)
@@ -377,4 +481,5 @@ void runAirwindowsTests()
     AirwindowsTests::runAlgorithmTests();
     AirwindowsTests::runResetTest();
     AirwindowsTests::runSlotTests();
+    AirwindowsTests::runDelaySyncTests();
 }

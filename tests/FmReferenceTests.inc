@@ -844,7 +844,7 @@ void runM6PhaseDistortionTests()
 
     // Old patches: warp modes keep their indices; PD extras default off.
     check (Warp::getNames()[9] == "Ring" && Warp::getNames()[10] == "PD Saw" && Warp::getNames()[16] == "Formant"
-               && Warp::getNames()[17] == "Squeeze" && Warp::Count == 18,
+               && Warp::getNames()[17] == "Squeeze" && Warp::getNames()[18] == "FM Noise" && Warp::Count == 19,
            "PD warps are appended after the existing warp modes");
     check (processor.apvts.getRawParameterValue ("osc1_warp2")->load() == 0.0f
                && processor.apvts.getRawParameterValue ("osc1_pd_env")->load() == 0.0f

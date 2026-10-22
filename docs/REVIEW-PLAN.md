@@ -59,7 +59,7 @@ First job in the cloud: build on Linux, run the gate, make a Linux fingerprint b
 ## Content in the repo
 - `content/samples/`: 365 CC0 samples from VCSL (0.76 GB), by category, 48 kHz 24-bit. The synth looks in
   `~/Documents/ilanaSynth Samples`: copy or symlink `content/samples` there.
-- `content/wavetables/`: 147 AKWF tables (CC0). Link to `~/Documents/ilanaSynth Wavetables`.
+- `content/wavetables/`: 147 AKWF tables (CC0) plus 568 human-made tables in `Surge Packs/` (see its SOURCES.md; personal use). Link to `~/Documents/ilanaSynth Wavetables`.
 - `tools/build_content.py` rebuilds both from their sources.
 - `content/analysis/`: the critic's `report.csv`/`index.csv`, CLAP embeddings (`clap_embeddings.npy`)
   and reports for our library (`critic-v4`) and the references (`critic-refs` = 57 Vital presets,
@@ -469,3 +469,7 @@ A. **Shared patch-graph foundation** (**DONE**, PR #56; no ID of its own; needed
    **Rules when it starts:** new presets are appended, so no existing preset changes sound.
    Size: content only. Touches `src/PresetVoicing.h` and `src/PresetPackM10.h` (the Euclid Trance Gate and the new presets), with level tuning. Judged by ilana's ear.
    Order 35, any time in parallel. Why here: content only and appended, so it can run whenever; it goes last so ilana judges the presets on the final engine.
+
+**Deferred until her quota reset (ilana, 2026-10-15; restarted 2026-10-18, one PR each, each needs her "go"):** (1) effect carousel under the FX patcher (**built 2026-10-18**, see HANDOFF), (2) more human-made wavetables and unlimited user wavetable slots (**built 2026-10-18**: 256 slots, LIBRARY menu, 568 Surge pack tables), (3) FX LFO SMOOTH, RETRIG and drawn shapes (**built 2026-10-18**), (4) free reordering of Filter 1, Filter 2 and the physical-model body on the PATCH tab (voice-chain patching like the FX patcher) (**built 2026-10-18**: the body is a fourth cable stage, BODY; see HANDOFF).
+
+**Planned with ilana first, not started: physical modelling overhaul (ilana, 2026-10-16).** Make the physical models sound closer to a real instrument. Her direction: keep or reduce the number of visible physical controls, but every control must be easy to hear when changed (wider ranges, retuned curves). Planned with her 2026-10-19 in three phases (plan: Claude Doc in the project). **Phase 1, audible knobs: built 2026-10-19** (see HANDOFF; awaits her go). Phase 2 (fit to real recordings, her blind A/B votes) and Phase 3 (missing real-instrument behaviour) are not started until she answers the plan's four questions.

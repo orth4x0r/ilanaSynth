@@ -256,7 +256,11 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                                 // (A solid thing the user can point at: not an overlay or a picture that lets clicks through.)
                                 if (! isLeaf (later) || later->getAlpha() < 0.1f || ! takesClicks (later) || later->isParentOf (painter))
                                     continue;
-                                if (const auto area = editor.getLocalArea (later, later->getLocalBounds()); area.reduced (1).intersects (rect.reduced (1)))
+                                // (What of the later component shows: scrolled out of a viewport it covers nothing.)
+                                auto laterShown = editor.getLocalArea (later, later->getLocalBounds());
+                                for (auto* parent = later->getParentComponent(); parent != nullptr && parent != &editor; parent = parent->getParentComponent())
+                                    laterShown = laterShown.getIntersection (editor.getLocalArea (parent, parent->getLocalBounds()));
+                                if (const auto area = editor.getLocalArea (later, later->getLocalBounds()); laterShown.reduced (1).intersects (rect.reduced (1)))
                                 {
                                     const auto key = juce::String (preset) + (small ? " 75% " : " ") + page + ": '" + text + "' under "
                                                      + juce::String (typeid (*later).name())

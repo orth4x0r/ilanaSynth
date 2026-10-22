@@ -18,6 +18,158 @@ void runContinuousTest()
     check (worst < 1.0e-4f, "cutoff is continuous (worst error " + juce::String (worst * 100.0f, 4) + " %)");
 }
 
+// ilana 2026-10-21: ENV AMOUNT, the filter envelope's VELOCITY, envelope
+// TENSION and WARP ENV are gone; a patch that set them moves them into matrix
+// routes and curves.
+void runRedundantKnobsMigrationTest()
+{
+    using Source = Mod::Source;
+    std::map<juce::String, float> values;
+    const auto get = [&values] (const juce::String& id, float fallback)
+    {
+        const auto found = values.find (id);
+        return found != values.end() ? found->second : fallback;
+    };
+    const auto set = [&values] (const juce::String& id, float value) { values[id] = value; };
+    const auto destinations = Mod::getDestinationNames();
+    const auto near = [] (float a, float b) { return std::abs (a - b) < 1.0e-5f; };
+
+    // Filter 1: 2 octaves at the default 50 % VELOCITY: one route, the knob stays (it scales the FILTER ENV source now).
+    values = { { "f1_env", 2.0f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (near (get ("f1_env", 9.0f), 0.0f), "migration: Filter 1 ENV AMOUNT goes to 0");
+    check ((int) get ("mod1_src", 0.0f) == (int) Source::FilterEnv && (int) get ("mod1_dst", 0.0f) == destinations.indexOf ("Filter1 Cutoff")
+               && near (get ("mod1_amt", 0.0f), 2.0f / 6.0f) && (int) get ("mod1_aux", 9.0f) == 0 && values.count ("mod2_src") == 0
+               && near (get ("filter_velocity", 9.0f), 0.5f),
+           "migration: Filter 1's amount is one FILTER ENV to cutoff route and VELOCITY stays 50 %");
+
+    // A recipe that never stored Filter 1's amount had the old default, 1.5, and the old velocity default, 0.5.
+    values.clear();
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check ((int) get ("mod1_src", 0.0f) == (int) Source::FilterEnv && near (get ("mod1_amt", 0.0f), 1.5f / 6.0f) && near (get ("filter_velocity", 9.0f), 0.5f),
+           "migration: an unset Filter 1 amount counts as 1.5 octaves at 50 % velocity");
+
+    // A patch with its own FILTER ENV routes (never velocity scaled) keeps them as they were: the share is a second route.
+    values = { { "f1_env", 2.0f }, { "mod5_src", 4.0f }, { "mod5_dst", 3.0f }, { "mod5_amt", 0.3f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check ((int) get ("mod1_src", 0.0f) == (int) Source::FilterEnv && near (get ("mod1_amt", 0.0f), 2.0f * 0.5f / 6.0f)
+               && (int) get ("mod2_aux", 0.0f) == (int) Source::Velocity && near (get ("mod2_amt", 0.0f), 2.0f * 0.5f / 6.0f)
+               && near (get ("filter_velocity", 9.0f), 0.0f),
+           "migration: with other FILTER ENV routes the velocity share is a second route via VELOCITY and the knob goes to 0");
+
+    // No amount to carry: the stored VELOCITY must not start scaling the patch's own FILTER ENV routes.
+    values = { { "f1_env", 0.0f }, { "filter_velocity", 0.8f }, { "mod5_src", 4.0f }, { "mod5_dst", 3.0f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (near (get ("filter_velocity", 9.0f), 0.0f), "migration: VELOCITY goes to 0 when there is no amount to fold it into");
+
+    // Filter 2: its source carries its own velocity (its knob); the shared VELOCITY share is a second route.
+    values = { { "f1_env", 0.0f }, { "f2_env", -3.0f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check ((int) get ("mod1_src", 0.0f) == (int) Source::FilterEnv2 && (int) get ("mod1_dst", 0.0f) == destinations.indexOf ("Filter2 Cutoff")
+               && near (get ("mod1_amt", 0.0f), -0.25f) && (int) get ("mod2_src", 0.0f) == (int) Source::FilterEnv2
+               && (int) get ("mod2_aux", 0.0f) == (int) Source::Velocity && near (get ("mod2_amt", 0.0f), -0.25f),
+           "migration: Filter 2's amount is a FILTER ENV 2 route plus its velocity share");
+
+    // Slots already in use are skipped; a patch with none free keeps its amount.
+    values = { { "f1_env", 2.0f }, { "mod1_src", 8.0f }, { "mod1_dst", 3.0f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check ((int) get ("mod2_src", 0.0f) == (int) Source::FilterEnv, "migration: a used slot is not overwritten");
+    values.clear();
+    values["f1_env"] = 2.0f;
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+    {
+        values["mod" + juce::String (slot) + "_src"] = 8.0f;
+        values["mod" + juce::String (slot) + "_dst"] = 3.0f;
+    }
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (near (get ("f1_env", 0.0f), 2.0f), "migration: with no free slot the amount stays");
+
+    // Tension joins each segment's own curve, clamped like the envelope did.
+    values = { { "f1_env", 0.0f }, { "amp_curve", 0.4f }, { "amp_acurve", 0.8f }, { "amp_dcurve", -0.1f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (near (get ("amp_curve", 9.0f), 0.0f) && near (get ("amp_acurve", 0.0f), 1.0f) && near (get ("amp_dcurve", 0.0f), 0.3f)
+               && near (get ("amp_rcurve", 0.0f), 0.4f),
+           "migration: TENSION moves into the attack, decay and release curves");
+
+    // WARP ENV: the envelope to both warp stages at ENV AMT.
+    values = { { "f1_env", 0.0f }, { "osc1_pd_env", 4.0f }, { "osc1_pd_env_amt", 0.8f }, { "osc1_warp", 13.0f }, { "osc1_warp2", 8.0f } };
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (near (get ("osc1_pd_env", 9.0f), 0.0f) && (int) get ("mod1_src", 0.0f) == (int) Source::ModEnv
+               && (int) get ("mod1_dst", 0.0f) == destinations.indexOf ("Osc1 Warp") && near (get ("mod1_amt", 0.0f), 0.8f)
+               && (int) get ("mod2_src", 0.0f) == (int) Source::ModEnv && (int) get ("mod2_dst", 0.0f) == destinations.indexOf ("Osc1 Warp 2")
+               && near (get ("mod2_amt", 0.0f), 0.8f),
+           "migration: WARP ENV becomes one route per warp stage");
+    check (destinations.indexOf ("Osc1 Warp") > 0 && destinations.indexOf ("Osc1 Warp 2") > 0, "migration: the warp destinations exist");
+
+    // Running it again changes nothing.
+    const auto before = values;
+    IlanaSynthAudioProcessor::migrateRedundantKnobs (get, set);
+    check (values == before, "migration: a second run changes nothing");
+}
+
+// The FILTER ENV VELOCITY knob scales the envelope source; one route with it sounds like the old amount with its velocity share.
+void runFilterEnvVelocityTest()
+{
+    const auto render = [] (bool oldAmount, int velocity)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "f1_cutoff", 700.0f);
+        setParam (processor, "f1_reso", 0.2f);
+        setParam (processor, "filter_velocity", 0.5f);
+        setParam (processor, "fe_decay", 0.3f);
+        setParam (processor, "fe_sustain", 0.2f);
+        if (oldAmount)
+        {
+            setParam (processor, "f1_env", 2.0f);
+        }
+        else
+        {
+            setParam (processor, "f1_env", 0.0f);
+            setParam (processor, "mod1_src", (float) Mod::Source::FilterEnv);
+            setParam (processor, "mod1_dst", (float) (int) Mod::Destination::Filter1Cutoff);
+            setParam (processor, "mod1_amt", 2.0f / 6.0f);
+        }
+        processor.prepareToPlay (48000.0, 512);
+        std::vector<float> samples;
+        auto centroid = 0.0;
+        renderPeakAndCentroid (processor, 48, 30, centroid, &samples, velocity);
+        return samples;
+    };
+
+    for (const auto velocity : { 30, 127 })
+    {
+        const auto oldWay = render (true, velocity), newWay = render (false, velocity);
+        auto worst = 0.0f, peak = 0.0f;
+        for (size_t i = 0; i < oldWay.size() && i < newWay.size(); ++i)
+        {
+            worst = juce::jmax (worst, std::abs (oldWay[i] - newWay[i]));
+            peak = juce::jmax (peak, std::abs (oldWay[i]));
+        }
+        check (peak > 0.01f && worst < 1.0e-3f * peak,
+               "FILTER ENV VELOCITY: one route plus the knob sounds like the old amount at velocity " + juce::String (velocity) + " (worst " + juce::String (worst, 6) + ", peak " + juce::String (peak, 3) + ")");
+    }
+
+    // The knob is what makes a soft note duller.
+    const auto soft = [] (float knob)
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "f1_cutoff", 500.0f);
+        setParam (processor, "f1_env", 0.0f);
+        setParam (processor, "filter_velocity", knob);
+        setParam (processor, "mod1_src", (float) Mod::Source::FilterEnv);
+        setParam (processor, "mod1_dst", (float) (int) Mod::Destination::Filter1Cutoff);
+        setParam (processor, "mod1_amt", 0.5f);
+        processor.prepareToPlay (48000.0, 512);
+        auto centroid = 0.0;
+        renderPeakAndCentroid (processor, 48, 30, centroid, nullptr, 25);
+        return centroid;
+    };
+    const auto without = soft (0.0f), with = soft (1.0f);
+    check (with < without * 0.9, "FILTER ENV VELOCITY: a soft note opens the filter less with the knob up (" + juce::String (without, 0) + " -> " + juce::String (with, 0) + " Hz)");
+}
+
 // E-12: changing the oversampling re-prepares the voices, which cuts every
 // note. The keys still held are played again; a key let go before the change
 // is not, and the notes still end when their keys are let go.
@@ -1065,6 +1217,8 @@ void runTests()
     timedRun ("Polish::runPatchCutTest", [] { runPatchCutTest(); });
     timedRun ("Polish::runOversamplingKeysTest", [] { runOversamplingKeysTest(); });
     timedRun ("Polish::runStatePresetTest", [] { runStatePresetTest(); });
+    timedRun ("Polish::runRedundantKnobsMigrationTest", [] { runRedundantKnobsMigrationTest(); });
+    timedRun ("Polish::runFilterEnvVelocityTest", [] { runFilterEnvVelocityTest(); });
 }
 } // namespace Polish
 

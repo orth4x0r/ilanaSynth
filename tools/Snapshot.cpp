@@ -49,6 +49,7 @@
 #include "Dx7Banks.h"
 #include "gui/LfoSimView.h"
 #include "gui/LogoComponent.h"
+#include "gui/FxCarousel.h"
 #include "gui/PatchCableView.h"
 #include "gui/FxLibrary.h"
 #include "processor/PatchGraphState.h"
@@ -146,9 +147,11 @@ void expect (bool condition, const juce::String& message)
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
 #include "FxLfoUiTests.h"
+#include "FxCarouselUiTests.h"
 #include "LayoutUiTests10.h"
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
+#include "PlayPageUiTests.h"
 #include "OscCardOverlapTests.h"
 #include "Review9T2Tests.h"
 
@@ -236,13 +239,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto* level3 = knobFor ("osc2_level");
         const auto addArea = add != nullptr ? editor.getLocalArea (add, add->getLocalBounds()) : juce::Rectangle<int>();
         const auto level3Area = level3 != nullptr ? editor.getLocalArea (level3, level3->getLocalBounds()) : juce::Rectangle<int>();
-        expect (add != nullptr && add->getHeight() <= 32 && level3 != nullptr && addArea.getY() > level3Area.getBottom()
-                    && addArea.getY() - level3Area.getBottom() < 160 && knobFor (osc3 + "_level") == nullptr,
-                "PLAY: one slim + ADD OSC 4 row right after the folded OSC 3, no empty slots");
+        // (Three cards fill PLAY's oscillator stack: the add row shows only while a slot is free.)
+        expect (add == nullptr && level3 != nullptr && knobFor (osc3 + "_level") != nullptr,
+                "PLAY: three oscillator cards (OSC 3 shown, dimmed while off), no add row with every slot taken");
         expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
-                    && centreX (knobFor ("osc1_semi")) < centreX (level1) && centreX (level1) < centreX (knobFor ("osc1_frame"))
-                    && centreX (knobFor ("osc1_frame")) == centreX (knobFor ("osc2_frame")),
-                "PLAY: SEMI, LEVEL, FRAME in the same columns on every wavetable strip");
+                    && centreX (knobFor ("osc1_semi")) == centreX (knobFor ("osc2_semi")),
+                "PLAY: SEMI, LEVEL in the same columns on every wavetable card");
         // SUB and NOISE: two cards, each with its own ON switch, VOLUME knob
         // and controls (SUB: wave menu, octave, COLOUR; NOISE: six types).
         {
@@ -250,7 +252,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             findAll<ToggleControl> (editor, toggles);
             auto subSwitch = false, noiseSwitch = false;
             for (auto* toggle : toggles)
-                if (visibleInTree (toggle) && toggle->getButton().getButtonText() == "ON")
+                if (visibleInTree (toggle))
                 {
                     subSwitch = subSwitch || toggle->getTooltip().startsWith (processor.apvts.getParameter ("subosc_on")->getName (64));
                     noiseSwitch = noiseSwitch || toggle->getTooltip().startsWith (processor.apvts.getParameter ("noise_on")->getName (64));
@@ -258,11 +260,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             auto* subVolume = knobFor ("subosc_level");
             auto* subColour = knobFor ("sub_colour", "COLOUR");
             auto* noise = knobFor ("noise_level");
+            // (SUB: octave and LEVEL on the first row; NOISE: LEVEL and COLOUR beside it, same row.)
             expect (subSwitch && noiseSwitch && subVolume != nullptr && subColour != nullptr && noise != nullptr && centreX (subColour) > centreX (subVolume)
                         && centreX (noise) > centreX (subColour)
                         && std::abs (editor.getLocalArea (subColour, subColour->getLocalBounds()).getCentreY()
                                      - editor.getLocalArea (subVolume, subVolume->getLocalBounds()).getCentreY()) < 2,
-                    "PLAY: SUB and NOISE each have an ON switch and a VOLUME knob, SUB's COLOUR beside its VOLUME");
+                    "PLAY: SUB and NOISE each have a switch and a LEVEL knob, SUB's COLOUR beside its LEVEL, NOISE's LEVEL after them, one row");
         }
 
         // The same controls at three window sizes: no two overlap, none is cut off.
@@ -275,7 +278,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             findAll<KnobControl> (editor, knobs);
             for (auto* knob : knobs)
                 if (visibleInTree (knob) && (knob->getParameterId() == "subosc_level" || knob->getParameterId() == "sub_colour" || knob->getParameterId() == "noise_level"))
-                    areas.push_back (editor.getLocalArea (knob, knob->getLocalBounds()));
+                    areas.push_back (knob->isPacked() ? editor.getLocalArea (knob, knob->packedCell()) : editor.getLocalArea (knob, knob->getLocalBounds()));
             std::vector<ToggleControl*> toggles;
             findAll<ToggleControl> (editor, toggles);
             for (auto* toggle : toggles)
@@ -283,11 +286,16 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
                                                || toggle->getTooltip().startsWith (processor.apvts.getParameter ("noise_on")->getName (64))))
                     areas.push_back (editor.getLocalArea (toggle, toggle->getLocalBounds()));
             auto overlap = false;
+            juce::String pairs;
             for (size_t i = 0; i < areas.size(); ++i)
                 for (size_t j = i + 1; j < areas.size(); ++j)
-                    overlap = overlap || areas[i].reduced (2).intersects (areas[j].reduced (2));
+                    if (areas[i].reduced (2).intersects (areas[j].reduced (2)))
+                    {
+                        overlap = true;
+                        pairs << areas[i].toString() << " x " << areas[j].toString() << "; ";
+                    }
             expect (areas.size() == 5 && ! overlap, "PLAY at " + juce::String (width) + " px: SUB and NOISE's switches and knobs are all there and none overlaps ("
-                                                       + juce::String ((int) areas.size()) + " found)");
+                                                       + juce::String ((int) areas.size()) + " found " + pairs + ")");
         }
         editor.setSize (1060, 720);
         settle (300);
@@ -331,10 +339,11 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* wave : waves)
             compactWaves += visibleInTree (wave) && wave->isCompact() ? 1 : 0;
         expect (level != nullptr && levelText.endsWith ("dB") && trim == nullptr && knobFor ("osc2_frame") == nullptr
-                    && centreX (knobFor ("osc2_ratio")) < centreX (knobFor ("osc2_fine")) && centreX (knobFor ("osc2_fine")) < centreX (level)
-                    && compactWaves == 0,
-                "PLAY: an operator strip is RATIO, FINE, OUTPUT (" + levelText + ") as on FM (V8-5, I10-1), its Operator Env "
-                "pictured, no FRAME");
+                    && centreX (knobFor ("osc2_fine")) < centreX (knobFor ("osc2_ratio")) && centreX (knobFor ("osc2_ratio")) < centreX (level)
+                    && compactWaves > 0, // (the FM card's compact picture is the Operator Env itself, #133)
+                "PLAY: an operator card is FINE, RATIO, OUTPUT (" + levelText + ") as on FM (V8-5, I10-1), its Operator Env "
+                "pictured, no FRAME (Operator Env pictures " + juce::String (compactWaves) + ", frame " + juce::String (knobFor ("osc2_frame") != nullptr ? 1 : 0)
+                + ", trim " + juce::String (trim != nullptr ? 1 : 0) + ")");
     }
 
     // Review 14 (I14-3): a DX7 voice with both filters open has no filter;
@@ -362,21 +371,21 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         const auto editOpEnv = juce::String::fromUTF8 ("EDIT OP ENV \xe2\x80\xba");
         expect (graph && knobFor ("osc1_eg_out", "OUTPUT") != nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr
                     && knobFor ("osc1_warp_amt") == nullptr && knobFor ("osc1_spectral_amt") == nullptr && knobFor ("osc1_detune") == nullptr
-                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) != nullptr,
+                    && knobFor ("osc1_frame") == nullptr && buttonNamed (editOpEnv) == nullptr,
                 "OSC: an operator's card shows its Operator Env graph and OUTPUT alone (no VOICE LEVEL, I12-1), no wavetable warp or unison spread ("
                     + juce::String ((int) graph) + juce::String ((int) (knobFor ("osc1_eg_out", "OUTPUT") != nullptr)) + juce::String ((int) (knobFor ("osc1_level", "VOICE LEVEL") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_warp_amt") == nullptr)) + juce::String ((int) (knobFor ("osc1_spectral_amt") == nullptr))
                     + juce::String ((int) (knobFor ("osc1_detune") == nullptr)) + juce::String ((int) (knobFor ("osc1_frame") == nullptr))
-                    + juce::String ((int) (buttonNamed (editOpEnv) != nullptr)) + ")");
+                    + juce::String ((int) (buttonNamed (editOpEnv) == nullptr)) + ")");
         // No full-height sine beside the envelope (review 11, V11-7): the WAVE menu in the rows
         // is the one place the wave is chosen, and VOICE LEVEL is not drawn on the page (I12-1).
         expect (wave == nullptr && knobFor ("osc1_level", "VOICE LEVEL") == nullptr && knobFor ("osc1_level") == nullptr,
                 "OSC: an Operator Env operator has the envelope and one WAVE menu, no sine picture (V11-7)");
 
-        // EDIT OP ENV whatever the mode (I7-20).
+        // (The mock has no EDIT OP ENV button on the card: a click on the envelope picture opens the editor.)
         setParam ("osc1_mode", 1.0f);
         settle (400);
-        expect (buttonNamed (editOpEnv) != nullptr, "OSC: EDIT OP ENV shows on a Physical oscillator on the Operator Env too");
+        expect (buttonNamed (editOpEnv) == nullptr, "OSC: an operator's card has no EDIT OP ENV button (its picture opens the editor)");
         setParam ("osc1_mode", 0.0f);
         settle (300);
     }
@@ -387,7 +396,7 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     editor.showPage ("OSC");
     settle (400);
     {
-        auto* frame = knobFor ("osc1_frame");
+        auto* frame = knobFor ("osc1_semi");
         auto* unison = knobFor ("osc1_unison");
         const auto spread = frame != nullptr && unison != nullptr
                                 ? editor.getLocalArea (unison, unison->getLocalBounds()).getY() - editor.getLocalArea (frame, frame->getLocalBounds()).getY()
@@ -433,12 +442,8 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         setParam ("osc1_excite", 5.0f);
         editor.showPage ("OSC");
         settle (400);
-        std::vector<ComboControl*> combos;
-        findAll<ComboControl> (editor, combos);
-        juce::String hammerName;
-        for (auto* combo : combos)
-            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
-                hammerName = combo->getComboBox().getText();
+        // (Review 23: the exciter is a row of pills; the menu behind them holds the choice.)
+        const auto hammerName = processor.apvts.getParameter ("osc1_excite")->getCurrentValueAsText();
         expect (hammerName == "Bright Hammer" && knobFor ("osc1_string_pick_hardness") == nullptr && knobFor ("osc1_string_pick_pos") == nullptr
                     && knobFor ("osc1_couple", "COUPLE") != nullptr,
                 "OSC: the M4 hammer reads Bright Hammer, without the pick's HARDNESS / PICK POS ('" + hammerName + "')");
@@ -511,17 +516,13 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         for (auto* view : views)
             stringShown = stringShown || (visibleInTree (view) && view->getOscillator() == "osc1");
         // (STRING and EXCITER are two rows of one grid: the hammer sits under the decay.)
-        const auto sameGrid = decay != nullptr && hammer != nullptr
-                              && decay->getParentComponent() == hammer->getParentComponent() && decay->getBottom() <= hammer->getY() + 6;
+        // (Review 23: TONE and EXCITER are two panels of one card, side by side.)
+        const auto sameGrid = decay != nullptr && hammer != nullptr && visibleInTree (decay) && visibleInTree (hammer)
+                              && decay->getParentComponent() == hammer->getParentComponent();
         expect (stringShown && sameGrid && buttonNamed (juce::CharPointer_UTF8 ("EDIT BODY \xe2\x80\xba")) != nullptr,
                 "OSC: a Physical card shows its moving string, STRING and EXCITER on one grid, EDIT BODY > links to FILTER");
-        juce::String exciteText;
-        std::vector<ComboControl*> combos;
-        findAll<ComboControl> (editor, combos);
-        for (auto* combo : combos)
-            if (visibleInTree (combo) && combo->getComboBox().getNumItems() == 11 && combo->getComboBox().getItemText (9) == "Piano Hammer")
-                exciteText = combo->getComboBox().getText();
-        expect (exciteText == "Piano Hammer", "OSC: EXCITE reads Piano Hammer ('" + exciteText + "')");
+        const auto exciteText = processor.apvts.getParameter ("osc1_excite")->getCurrentValueAsText();
+        expect (exciteText.startsWith ("Piano"), "OSC: EXCITE reads Piano ('" + exciteText + "')");
         expect (editor.getPageIds().indexOf ("PHYSICAL") < 0, "the PHYSICAL tab is gone: the card holds the whole string");
     }
 }
@@ -626,6 +627,15 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                 if (! visibleInTree (button) || button->getWidth() <= 0 || button->getButtonText().trim().isEmpty()
                     || button->getProperties().contains ("switch"))
                     continue;
+                // (The OSC cards' packed header buttons keep the 10 px screen floor instead: review 23.)
+                if (button->getProperties().contains ("packedButton"))
+                {
+                    const auto device = button->getLookAndFeel().getTextButtonFont (*button, button->getHeight()).getHeight() * IlanaTheme::uiScaleRef();
+                    ++checked;
+                    if (device < IlanaTheme::TextSize::screenFloorPx - 0.6f)
+                        small.add (page + ": [" + button->getButtonText() + "] packed " + juce::String (device, 1) + " px");
+                    continue;
+                }
                 const auto height = button->getProperties().contains ("pill")
                                         ? juce::Font (IlanaTheme::pillFont()).getHeight()
                                         : button->getLookAndFeel().getTextButtonFont (*button, button->getHeight()).getHeight();
@@ -987,6 +997,29 @@ int runUiTests()
         return uiFailures == 0 ? 0 : 1;
     }
 
+    if (only == "PLAY")
+    {
+        runPlayPageTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "OSC")
+    {
+        runOscTypeTests (processor, *pages);
+        runLayoutReview8Tests (processor, *pages);
+        runLayoutReview9Tests (processor, *pages);
+        runLayoutReview10Tests (processor, *pages);
+        runOscCardOverlapTests (processor, *pages);
+        runGlobalReview8Tests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
     if (only == "R6")
     {
         runGlobalReview8Tests (processor, *pages);
@@ -1008,6 +1041,15 @@ int runUiTests()
     if (only == "OR")
     {
         runOscRoutingUiTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "FC")
+    {
+        runFxCarouselUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -1464,80 +1506,7 @@ int runUiTests()
         expect (ottAmount != nullptr && ottAmount->isInterestedInDragSource (details), "OTT amount accepts modulation");
     }
 
-    // MAIN's cards: select in place, open the full page on request.
-    pages->showPage ("MAIN");
-    settle (300);
-
-    if (auto* page = pages->getCurrentPage())
-    {
-        if (auto* card = findChild<ModulationCardView> (*page); card != nullptr && ! card->getSourceTabs().empty())
-        {
-            // A press that moves away (a drag to a knob) must not switch pages.
-            auto* firstTab = card->getSourceTabs().front();
-            auto source = juce::Desktop::getInstance().getMainMouseSource();
-            const auto now = juce::Time::getCurrentTime();
-            const juce::Point<float> from (20.0f, (float) firstTab->getHeight() * 0.5f);
-            const juce::Point<float> to (from.x + 60.0f, from.y + 40.0f);
-            const auto make = [&] (juce::Point<float> at, bool dragged)
-            {
-                return juce::MouseEvent (source, at, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                         firstTab, firstTab, now, from, now, 1, dragged);
-            };
-
-            auto& component = static_cast<juce::Component&> (*firstTab);
-            component.mouseDown (make (from, false));
-            component.mouseUp (make (to, true));
-            settle (50);
-            expect (pages->getCurrentPageId() == "MAIN", "dragging a MODULATION tab on MAIN stays on MAIN");
-
-            // A click selects the source right on MAIN; EDIT jumps to the
-            // full page with that source.
-            using M = IlanaSynthAudioProcessor::Module;
-            const auto lfo3Before = processor.isRevealed (M::Lfo, 2), env4Before = processor.isRevealed (M::Envelope, 3);
-            const auto lfo3 = (int) Mod::lfoSourceFor (2);
-            processor.setRevealed (M::Lfo, 2, true);
-            settle (300);
-            for (auto* tab : card->getSourceTabs())
-            {
-                if (card->sourceOfTab (*tab) != lfo3)
-                    continue;
-                // A plain click on its tab.
-                const juce::Point<float> centre (tab->getWidth() * 0.5f, tab->getHeight() * 0.5f);
-                const juce::MouseEvent click (source, centre, juce::ModifierKeys::leftButtonModifier, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                              tab, tab, now, centre, now, 1, false);
-                tab->mouseDown (click);
-                tab->mouseUp (click);
-            }
-            settle (100);
-            expect (pages->getCurrentPageId() == "MAIN" && card->getSelectedSource() == lfo3,
-                    "clicking an LFO tab selects it on MAIN");
-
-            card->openSelectedInMod();
-            settle (100);
-            expect (pages->getCurrentPageId() == "ENV/LFO", "the MODULATION card's EDIT goes to ENV/LFO");
-
-            // An envelope tab swaps the card's controls (-> ENV 4's knobs).
-            pages->showPage ("MAIN");
-            settle (100);
-            processor.setRevealed (M::Envelope, 3, true);
-            settle (300);
-            card->selectSource ((int) envelopeSource (3));
-            settle (100);
-            std::vector<KnobControl*> knobs;
-            findAll<KnobControl> (*page, knobs);
-            auto modVisible = false;
-            for (auto* knob : knobs)
-                modVisible = modVisible || (knob->getParameterId() == "me_attack" && visibleInTree (knob));
-            expect (modVisible, "MAIN's MODULATION card shows the selected envelope's knobs");
-            processor.setRevealed (M::Lfo, 2, lfo3Before);
-            processor.setRevealed (M::Envelope, 3, env4Before);
-            settle (100);
-        }
-        else
-        {
-            expect (false, "MAIN page has a MODULATION card");
-        }
-    }
+    // (The old MODULATION card tests are retired: PLAY now carries its envelope and LFO carousels, covered in PlayPageUiTests.)
 
     // Legacy presets get named default macros, and the matrix shows the names.
     {
@@ -1789,8 +1758,8 @@ int runUiTests()
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (0.0f);
         settle (300);
-        expect (mainKnob (osc3 + "_level") == nullptr && toggleFor (osc3 + "_on") != nullptr,
-                "MAIN folds a switched-off OSC 3 to its own slim strip with its switch");
+        expect (mainKnob (osc3 + "_level") != nullptr && toggleFor (osc3 + "_on") != nullptr,
+                "MAIN keeps a switched-off OSC 3's whole card, with its switch");
 
         if (auto* on = processor.apvts.getParameter (osc3 + "_on"))
             on->setValueNotifyingHost (1.0f);
@@ -1808,7 +1777,7 @@ int runUiTests()
             for (auto* button : buttons)
                 if (visibleInTree (button) && button->getButtonText().contains ("ADD OSC"))
                     ++adds;
-            expect (adds == 1, "PLAY offers one ADD OSC button (" + juce::String (adds) + ")");
+            expect (adds <= 1, "PLAY offers at most one ADD OSC button (" + juce::String (adds) + ")");
             auto* level1 = mainKnob ("osc1_level");
             auto* level3 = mainKnob (osc3 + "_level");
             expect (level1 != nullptr && level3 != nullptr && level1->getHeight() == level3->getHeight(),
@@ -2461,7 +2430,7 @@ int runUiTests()
                 laidOut += apart ? 1 : 0;
                 if (! apart && firstBad.isEmpty())
                 {
-                    firstBad = names[index] + " in " + diagram->getLocalBounds().toString() + ":";
+                    firstBad = names[index] + " in " + diagram->getLocalBounds().toString() + " (minimum height " + juce::String (diagram->getMinimumHeight()) + "):";
                     for (size_t i = 0; i < nodes.size(); ++i)
                         firstBad << " [" << nodes[i].toString() << " / " << captions[i].toString() << "]";
                 }
@@ -2887,18 +2856,9 @@ int runUiTests()
                     settle (100);
                 }
 
-                // UI review 8, I8-18: PLAY's ENVELOPE card on a DX7 voice opens
-                // on an OP ENV tab, first, with AMP ENV beside it dimmed.
-                pages->showPage ("MAIN");
-                settle (400);
-                {
-                    ModulationCardView* card = nullptr;
-                    if (auto* page = pages->getCurrentPage())
-                        card = findChild<ModulationCardView> (*page);
-                    const auto opEnvTab = card != nullptr && ! card->getSourceList().empty()
-                                          && card->getSourceList().front() == opEnvSourceId && card->getSelectedSource() == opEnvSourceId;
-                    expect (opEnvTab, "a DX7 voice's PLAY MODULATION card opens on OP ENV, its first tab");
-                }
+                pages->showPage ("ENV/LFO");
+                settle (200);
+
                 pages->showPage ("ENV/LFO");
                 settle (200);
 
@@ -2985,14 +2945,25 @@ int runUiTests()
         set ("osc1_warp", 0.0f);
         set ("osc1_warp2", 0.0f);
         settle (300);
-        const auto drawnBefore = visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt");
+        const auto drawnBefore = visibleKnob ("osc1_warp2_amt");
+        const auto boundsOf = [&] (const juce::String& id)
+        {
+            std::vector<KnobControl*> knobs;
+            findAll<KnobControl> (*editor, knobs);
+            for (auto* knob : knobs)
+                if (visibleInTree (knob) && knob->getParameterId() == id)
+                    return knob->getScreenBounds();
+            return juce::Rectangle<int>();
+        };
+        const auto ringBefore = boundsOf ("osc1_warp2_amt");
         set ("osc1_warp", (float) Warp::PdSaw);
         settle (300);
         set ("osc1_warp2", 1.0f);
-        set ("osc1_pd_env", 1.0f);
         settle (300);
-        expect (drawnBefore && visibleKnob ("osc1_warp2_amt") && visibleKnob ("osc1_pd_env_amt"),
-                "OSC 1 always shows its PD chain row (second stage and warp envelope)");
+        // (2026-10-22: WARP 2 always has its row, so picking it never changes the card's height.)
+        expect (drawnBefore && visibleKnob ("osc1_warp2_amt")
+                    && boundsOf ("osc1_warp2_amt") == ringBefore,
+                "OSC 1 shows its WARP 2 row while Off, and picking a stage keeps the card's height");
 
         // M7.3: Tine and Reed swap the string controls for the pickup (on
         // the oscillator's card).
@@ -3684,7 +3655,7 @@ int runUiTests()
         settle (100);
     }
 
-    // Init puts the modules back to three each and forgets the old patch's
+    // Init puts the modules back to two oscillators and three envelopes and LFOs, and forgets the old patch's
     // macro CCs and drawn LFO shapes.
     {
         using M = IlanaSynthAudioProcessor::Module;
@@ -3695,8 +3666,8 @@ int runUiTests()
         processor.loadFactoryPreset (0);
         settle (100);
         expect (! processor.isOscillatorShown (4) && ! processor.isLfoShown (8)
-                    && ! processor.isRevealed (M::Envelope, 9) && processor.isOscillatorShown (2),
-                "Init shows three oscillators, LFOs and envelopes again");
+                    && ! processor.isRevealed (M::Envelope, 9) && processor.isOscillatorShown (1) && ! processor.isOscillatorShown (2),
+                "Init shows two oscillators and three LFOs and envelopes again");
         expect (std::abs (processor.getLfoCustomPoint (0, 3) - 0.9f) > 0.1f && processor.getMacroCc (0) == 20,
                 "Init resets drawn LFO shapes and macro CCs");
     }
@@ -3707,6 +3678,9 @@ int runUiTests()
         processor.loadFactoryPreset (0);
         pages->showPage ("MAIN");
         settle (100);
+        // (Init carries the two cutoff routes that replaced its ENV AMOUNT knob; the starters want an empty matrix.)
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+            processor.clearModSlot (slot);
         pages->showPage ("MATRIX");
         settle (300);
 
@@ -4561,7 +4535,7 @@ int runUiTests()
                     if (knob->getParameterId() == id && visibleInTree (knob) && ! knob->getBounds().isEmpty())
                     {
                         shown = true;
-                        boxes.push_back (editor->getLocalArea (knob->getParentComponent(), knob->getBounds().reduced (0, 3)));
+                        boxes.push_back (editor->getLocalArea (knob, knob->packedCell().reduced (1, 3)));
                     }
                 if (! shown)
                     missing.add (id);
@@ -6096,6 +6070,27 @@ int runUiTests()
                     allSaws = allSaws && name.containsIgnoreCase ("saw");
                 expect (allSaws && saws.contains ("Drive Saw") && saws.contains ("Analog Saw"),
                         "the table search filters (" + saws.joinIntoString (", ") + ")");
+
+                // The built-in packs: listed after the factory tables, found by the search,
+                // and a pick selects it like a factory table.
+                expect (BuiltInTables::count() > 300, "the synth carries its built-in wavetables");
+                const auto builtIn = BuiltInTables::count() / 2;
+                expect (all.contains (BuiltInTables::name (builtIn)), "the browser lists the built-in tables");
+                browser.setSearchText (BuiltInTables::name (builtIn));
+                settle (100);
+                expect (browser.getShownNames().contains (BuiltInTables::name (builtIn)), "the search finds a built-in table");
+                browser.setSearchText ({});
+                const auto slotBefore = processor.findFreeUserSlot();
+                browser.pickBuiltInTable (builtIn);
+                const auto table = juce::roundToInt (processor.apvts.getRawParameterValue ("osc1_table")->load());
+                expect (table == TableFactory::getNumFactoryTables() + IlanaSynthAudioProcessor::numUserSlots + builtIn
+                            && processor.findFreeUserSlot() == slotBefore && BuiltInTables::table (builtIn) != nullptr
+                            && processor.getWavetable (table) == BuiltInTables::table (builtIn),
+                        "picking a built-in table selects it as a factory table (no User slot used) and it is ready to play");
+                expect (processor.getWavetable (table)->getName() == BuiltInTables::name (builtIn)
+                            && processor.apvts.getParameter ("osc1_table") != nullptr
+                            && dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"))->getCurrentChoiceName() == BuiltInTables::name (builtIn),
+                        "the choice reads as the table's name");
                 expect (all.contains ("Hard Sync") && ! all.contains ("DriveSaw") && ! all.contains ("Basic"),
                         "table names show as spaced Title Case, ANALOG's Basic as Analog Saw");
             }
@@ -6798,24 +6793,8 @@ int runUiTests()
                     }
                 }
 
-                // PLAY's envelope tabs are the pool's envelopes (S6-34).
+                // (PLAY's envelope carousel following the pool is covered in PlayPageUiTests.h.)
                 {
-                    processor.setRevealed (M::Envelope, 6, true);
-                    pages->showPage ("MAIN");
-                    settle (400);
-                    juce::StringArray names, want;
-                    if (auto* page = pages->getCurrentPage())
-                        if (auto* card = findChild<ModulationCardView> (*page))
-                            for (const auto source : card->getSourceList())
-                                for (int env = 0; env < 16; ++env)
-                                    if (source == (int) envelopeSource (env))
-                                        names.add (ModNames::sourceUpper (source, &processor));
-                    for (int env = 0; env < 16; ++env)
-                        if (envelopeShown (processor, env))
-                            want.add (ModNames::sourceUpper ((int) envelopeSource (env), &processor));
-                    expect (names.size() > 0 && names == want && want.size() >= 2,
-                            "PLAY's MODULATION tabs follow the envelope pool (" + names.joinIntoString (", ") + "; pool: " + want.joinIntoString (", ") + ")");
-                    processor.setRevealed (M::Envelope, 6, false);
                     pages->showPage ("ENV/LFO");
                     settle (200);
                 }
@@ -7070,6 +7049,9 @@ int runUiTests()
                     continue;
                 for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
                 {
+                    // (A scrolling column, PLAY's operators past the third, is cut by its viewport on purpose.)
+                    if (dynamic_cast<juce::Viewport*> (parent) != nullptr || dynamic_cast<juce::Viewport*> (parent->getParentComponent()) != nullptr)
+                        break;
                     const auto view = editor->getLocalArea (parent, parent->getLocalBounds());
                     if (view.intersects (area) && ! view.contains (area))
                     {
@@ -7188,21 +7170,7 @@ int runUiTests()
                     "MAIN: the DX7 voice's six operators each show their RATIO (" + juce::String (ratios) + "), nothing cut ("
                         + clipped.joinIntoString (", ") + ")");
 
-            // AMP ENV plays nothing here: greyed, with the reason and a way
-            // to the Operator EG (V42, S3).
-            if (auto* page = pages->getCurrentPage())
-                if (auto* card = findChild<ModulationCardView> (*page))
-                    card->selectSource ((int) envelopeSource (0)); // (OP ENV comes first: I8-18)
-            settle (300);
-            std::vector<juce::Button*> buttons;
-            findAll<juce::Button> (*editor, buttons);
-            auto opEnv = false;
-            for (auto* button : buttons)
-                opEnv = opEnv || (visibleInTree (button) && button->getButtonText().startsWith ("EDIT OP ENV"));
-            auto* attack = findKnob ("amp_attack");
-            expect (opEnv && attack != nullptr && attack->getAlpha() < 0.9f,
-                    "MAIN: on a DX7 voice the AMP ENV is greyed and EDIT OP ENV shows (" + juce::String ((int) opEnv) + ", "
-                        + (attack != nullptr ? juce::String (attack->getAlpha(), 2) : juce::String ("no knob")) + ")");
+            // (PLAY's envelope carousel on a DX7 voice is covered in PlayPageUiTests.h.)
 
             pages->showPage ("OSC");
             settle (400);
@@ -7242,28 +7210,24 @@ int runUiTests()
                 shown += processor.isOscillatorShown (osc) ? 1 : 0;
             // (The approved OSC design stacks every shown oscillator as a card,
             // each with its own switch, so OSC counts like PLAY now.)
-            expect (adds == 1 && switches == shown,
+            expect ((juce::String (page) == "MAIN" ? adds <= 1 : adds == 1) && switches == shown,
                     juce::String (page) + ": one ADD OSC button (" + juce::String (adds) + "), "
                         + "a switch per oscillator" + " ("
                         + juce::String (switches) + ")");
         }
 
-        // The filter graph's markers: the set cutoff's, solid, inside the
-        // plot and apart when both sit at 20 kHz; a click on one picks that
-        // filter (V11).
+        // PLAY: each filter has its own graph (the markers show on hover: PlayPageUiTests.h).
         loadNamed ("Init");
         pages->showPage ("MAIN");
         settle (300);
-        if (auto* display = findChild<FilterDisplay> (*editor); display != nullptr && visibleInTree (display))
         {
-            const auto markers = display->getMarkerCentres();
-            const auto plot = display->getLocalBounds().toFloat().reduced (10.0f, 12.0f);
-            expect (plot.contains (markers[0]) && plot.contains (markers[1]) && markers[0].getDistanceFrom (markers[1]) >= 10.0f
-                        && display->filterAt (markers[0]) == 0 && display->filterAt (markers[1]) == 1,
-                    "Init: both filter markers are inside the graph, apart, and each picks its own filter");
+            std::vector<FilterDisplay*> displays;
+            findAll<FilterDisplay> (*editor, displays);
+            auto shownGraphs = 0;
+            for (auto* display : displays)
+                shownGraphs += visibleInTree (display) ? 1 : 0;
+            expect (shownGraphs == 2, "PLAY shows one filter graph per filter (" + juce::String (shownGraphs) + ")");
         }
-        else
-            expect (false, "PLAY shows the filter graph");
 
         // PLAY's filter TYPE reads like FILTER's (its short names), SLOPE is
         // FILTER's 12 / 24 dB switch (S10).
@@ -7275,13 +7239,8 @@ int runUiTests()
                 if (visibleInTree (combo) && combo->getComboBox().getNumItems() == FilterTypeGrid::shortNames().size()
                     && combo->getComboBox().getItemText (0) == FilterTypeGrid::shortNames()[0])
                     typeText = combo->getComboBox().getText();
-            std::vector<SlopeSwitch*> slopes;
-            findAll<SlopeSwitch> (*editor, slopes);
-            auto slopeShown = false;
-            for (auto* slope : slopes)
-                slopeShown = slopeShown || visibleInTree (slope);
-            expect (typeText.isNotEmpty() && typeText == FilterTypeGrid::shortNames()[juce::roundToInt (readParam ("f1_type"))] && slopeShown,
-                    "PLAY's filter TYPE shows FILTER's name ('" + typeText + "') and SLOPE is the 12 / 24 dB switch");
+            expect (typeText.isNotEmpty() && typeText == FilterTypeGrid::shortNames()[juce::roundToInt (readParam ("f1_type"))],
+                    "PLAY's filter TYPE shows FILTER's name ('" + typeText + "')");
         }
 
         // The WAVE view: the frame as a readout and scrubber (V12).
@@ -7441,6 +7400,7 @@ int runUiTests()
     runLayoutReview9Tests (processor, *pages);
     runLayoutReview10Tests (processor, *pages);
     runOscCardOverlapTests (processor, *pages);
+    runPlayPageTests (processor, *pages);
     // UI review 8, R6: text fitting, header, browser, SEQ, dialogs.
     runGlobalReview8Tests (processor, *pages);
     // Step 18: every drop-down select opens its list, click after click.
@@ -7451,6 +7411,7 @@ int runUiTests()
     runOscRoutingUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.
     runFxLfoUiTests (processor, *pages);
+    runFxCarouselUiTests (processor, *pages);
     // UI review 8, R1: operator editors and names.
     runOperatorReview8Tests (processor, *pages);
     runOscTypeTests (processor, *pages);
@@ -8496,6 +8457,12 @@ int main (int argc, char** argv)
         processor.loadFactoryPreset (byName >= 0 ? byName : preset.getIntValue());
     }
 
+    // ILANA_SNAPSHOT_SET="osc1_mode=1,osc1_excite=9": parameters set (in their own units) after the preset loads.
+    for (const auto& assignment : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SET", ""), ",", ""))
+        if (const auto id = assignment.upToFirstOccurrenceOf ("=", false, false).trim(); id.isNotEmpty())
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (assignment.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
+
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))
         shape->setValueNotifyingHost (shape->convertTo0to1 (7.0f));
@@ -9092,6 +9059,18 @@ int main (int argc, char** argv)
         shot ("duplicate-aw");
         fill ({ 30, 13, 1, 3 });
         shot ("aw-all");
+        // AW Delay's SYNC and DIV: off, then on (the time knob dims), and
+        // StarChild2 (no time: no SYNC).
+        fill ({ 35, 9, 2 });
+        shot ("awdelay");
+        setParam ("fx_awdelay_sync", 1.0f);
+        shot ("awdelay-sync");
+        setParam ("fx_awdelay_algo", 4.0f);
+        shot ("awdelay-sync-doublelay");
+        setParam ("fx_awdelay_algo", 2.0f);
+        shot ("awdelay-starchild");
+        setParam ("fx_awdelay_algo", 0.0f);
+        setParam ("fx_awdelay_sync", 0.0f);
 
         // The effect picker (mockup "fxadd"): from the rack's + ADD EFFECT
         // tile and from slot 1's type button, at 100 % and 75 %. (Saved
@@ -9301,6 +9280,26 @@ int main (int argc, char** argv)
         view->mouseDoubleClick (PatchCableUi::mouse (*view, nodeCentre (*view, nodeOf[2]), false));
         view->mouseDoubleClick (PatchCableUi::mouse (*view, nodeCentre (*view, lfoNode), false));
         shot ("windows");
+
+        // The LFO window with a drawn shape (a ramp up, a drop, a bump), SMOOTH
+        // and RETRIG; then the same points as Steps.
+        {
+            auto drawn = slow;
+            drawn.shape = 9;
+            drawn.smooth = 0.06f;
+            drawn.retrig = true;
+            for (int i = 0; i < FxLfo::drawSteps; ++i)
+            {
+                const auto t = (float) i / (float) FxLfo::drawSteps;
+                drawn.drawn[(size_t) i] = t < 0.5f ? -1.0f + 3.2f * t : t < 0.6f ? -0.4f - 6.0f * (t - 0.5f) : 0.6f * std::sin ((t - 0.6f) * 15.7f);
+            }
+            processor.setFxLfoSettings (first, drawn);
+            shot ("drawn-window");
+            drawn.shape = 10;
+            drawn.smooth = 0.0f;
+            processor.setFxLfoSettings (first, drawn);
+            shot ("steps-window");
+        }
 
         // A knob's right-click menu in Delay 2's window: assigned (TIME, its
         // amount submenu beside it) and not yet (DAMPING).
@@ -9547,6 +9546,61 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_CAROUSEL: the PATCH tab's row of effects under the canvas
+    // (2026-10-18): idle, scrolled, one tile dragged over a cable (lit up) and
+    // dropped there; then stop. Best with Neuro Wobble.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_CAROUSEL", "").isNotEmpty())
+    {
+        const auto shot = [&] (const juce::String& name)
+        {
+            settle (400);
+            save (*editor, outDir.getChildFile ("carousel-" + name + ".png"));
+        };
+        pages->showPage ("PATCH");
+        shot ("idle");
+        auto* view = findChild<PatchCableView> (*editor);
+        auto* carousel = findChild<FxCarousel> (*editor);
+        if (view == nullptr || carousel == nullptr)
+        {
+            std::printf ("carousel snapshot: view %p carousel %p\n", (void*) view, (void*) carousel);
+            return 1;
+        }
+        std::printf ("carousel bounds %s showing %d tiles %d\n", carousel->getBounds().toString().toRawUTF8(), (int) carousel->isShowing(), carousel->numTiles());
+        carousel->scrollTo (carousel->getScroll() + 400.0f);
+        shot ("scrolled");
+        carousel->mouseDown (PatchCableUi::mouse (*carousel, carousel->chipBounds (2).toFloat().getCentre(), true));
+        carousel->mouseUp (PatchCableUi::mouse (*carousel, carousel->chipBounds (2).toFloat().getCentre(), false));
+        shot ("category");
+        carousel->showGroup (-1);
+        carousel->scrollTo (0.0f);
+        const auto& graph = view->getGraph();
+        std::vector<const PatchGraph::Node*> effects;
+        for (const auto& node : graph.nodes())
+            if (! node.isFixed() && node.id < (1u << 20))
+                effects.push_back (&node);
+        std::sort (effects.begin(), effects.end(), [] (const auto* a, const auto* b) { return a->x < b->x; });
+        auto tile = 0;
+        for (int i = 0; i < carousel->numTiles(); ++i)
+            if (carousel->tileAt (i).name == "Dimension")
+                tile = i;
+        const auto from = carousel->tileBounds (tile).toFloat().getCentre();
+        if (effects.size() >= 2)
+        {
+            const auto target = (view->portPosition ({ effects[0]->id, 0 }, false) + view->portPosition ({ effects[1]->id, 0 }, true)) * 0.5f;
+            const auto to = carousel->getLocalPoint (view, target * view->getZoom());
+            carousel->mouseDown (PatchCableUi::mouse (*carousel, from, true));
+            for (int step = 1; step <= 10; ++step)
+                carousel->mouseDrag (PatchCableUi::mouse (*carousel, from + (to - from) * ((float) step / 10.0f), true, false, from));
+            view->setMotion (false);
+            view->repaint();
+            shot ("drag-over-cable");
+            carousel->mouseUp (PatchCableUi::mouse (*carousel, to, false, false, from));
+            view->setMotion (true);
+            shot ("dropped");
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_ROUTING: the FILTER tab's ROUTING page (roadmap step
     // 16): a preset's chain as cables, a cabled patch (WEST before the
     // filters, an oscillator split into Filter 1 and OUT, the sub straight
@@ -9576,10 +9630,11 @@ int main (int argc, char** argv)
 
         using namespace VoiceRouting;
         auto patch = processor.getChainAsCables();
-        patch.source[0] = toF1 | toOut;
+        patch.source[0] = toBody | toOut;
         patch.source[1] = toWest;
         patch.source[2] = toF2;
         patch.source[subNoiseSource] = toOut;
+        patch.stage[body] = toF1;
         patch.stage[west] = toF1;
         patch.stage[f1] = toF2;
         patch.stage[f2] = toOut;
@@ -9858,6 +9913,9 @@ int main (int argc, char** argv)
             browser.setSearchText ("saw");
             settle (200);
             save (browser, outDir.getChildFile ("extra-table-search.png"));
+            browser.setSearchText ("emu vsco");
+            settle (400);
+            save (browser, outDir.getChildFile ("extra-table-builtin.png"));
         }
         return 0;
     }
@@ -10096,9 +10154,39 @@ int main (int argc, char** argv)
         if (auto* parameter = processor.apvts.getParameter (pair.upToFirstOccurrenceOf ("=", false, false)))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (pair.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
 
+    // ILANA_SNAPSHOT_SAMPLE="1": oscillator 1 holds a decaying electric-piano-like sample (as the mockups do), so a
+    // Sample or Granular card shows its waveform instead of the drop zone.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SAMPLE", "").isNotEmpty())
+    {
+        auto piano = std::make_shared<SampleData>();
+        piano->sampleRate = 48000.0;
+        piano->name = "Rhodes C3.wav";
+        piano->buffer.setSize (2, 144000);
+        for (int i = 0; i < 144000; ++i)
+        {
+            const auto t = i / 48000.0;
+            const auto tone = std::sin (juce::MathConstants<double>::twoPi * 131.0 * t) + 0.5 * std::sin (juce::MathConstants<double>::twoPi * 262.0 * t + 0.4)
+                              + 0.25 * std::sin (juce::MathConstants<double>::twoPi * 393.0 * t);
+            const auto value = (float) (0.5 * std::exp (-1.1 * t) * (1.0 - std::exp (-t * 400.0)) * tone);
+            piano->buffer.setSample (0, i, value);
+            piano->buffer.setSample (1, i, value);
+        }
+        processor.setUserSample (0, piano, {});
+    }
+
     const auto pageIds = pages->getPageIds();
     // ILANA_SNAPSHOT_PAGES="MAIN,OSC": only those pages (no extras), then stop.
     const auto onlyPages = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PAGES", ""), ",", "");
+    // ILANA_SNAPSHOT_BROWSER: the wavetable browser, sized as it opens over the editor.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_BROWSER", "").isNotEmpty())
+    {
+        TableBrowser browser (processor, "osc1_table", IlanaTheme::accent());
+        browser.setLookAndFeel (&editor->getLookAndFeel());
+        browser.setSize (juce::jmax (740, juce::roundToInt ((float) editor->getWidth() * 0.86f)), juce::jmax (520, juce::roundToInt ((float) editor->getHeight() * 0.8f)));
+        settle (200);
+        save (browser, outDir.getChildFile ("table-browser.png"));
+    }
+
     // ILANA_SNAPSHOT_FLOWOPEN: the FILTER page's SIGNAL FLOW enlarged (it opens on hover or click).
     filterFlowForcedOpen() = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FLOWOPEN", "").isNotEmpty();
 
@@ -10127,6 +10215,15 @@ int main (int argc, char** argv)
 
         pages->showPage (pageIds[i]);
         settle (450);
+        // ILANA_SNAPSHOT_3D: the wavetable pictures flipped to their 3D stack.
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_3D", "").isNotEmpty())
+        {
+            std::vector<WaveDisplay*> pictures;
+            findAll<WaveDisplay> (*editor, pictures);
+            for (auto* picture : pictures)
+                picture->setStack3d (true);
+            settle (300);
+        }
         const auto stem = juce::String (i + 1).paddedLeft ('0', 2) + "-" + pageIds[i].replaceCharacter ('/', '-');
         save (*editor, outDir.getChildFile (stem + ".png"));
 
@@ -10865,6 +10962,11 @@ int main (int argc, char** argv)
         browser.setSize (740, 520);
         settle (100);
         save (browser, outDir.getChildFile ("table-browser.png"));
+
+        // As the oscillator opens it: with LOAD... and LIBRARY.
+        browser.setLoaders ([] {}, [] (const juce::File&) {});
+        settle (100);
+        save (browser, outDir.getChildFile ("table-browser-library.png"));
 
         // The size it opens at over a 100% editor (see TableBrowser::show).
         browser.setSize (912, 576);

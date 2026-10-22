@@ -62,7 +62,7 @@ class IlanaSynthAudioProcessor : public juce::AudioProcessor,
 
 public:
     // M7.4: 16 patch tables (was 4 user slots; the choices were appended).
-    static constexpr int numUserSlots = 16;
+    static constexpr int numUserSlots = 256; // patch tables; the editor lists only the ones in use
     static constexpr int numFxSlots = 10;
     // Tests: keep the effects running through silence (no rack sleep).
     inline static bool disableFxSleep = false;
@@ -300,6 +300,8 @@ public:
     juce::String getPresetCategory() const { return apvts.state.getProperty ("presetCategory").toString(); }
     juce::String getPresetTags() const { return apvts.state.getProperty ("presetTags").toString(); }
     void loadFactoryPreset (int index);
+    // Builds the built-in wavetables the oscillators have chosen (message thread).
+    void ensureBuiltInTables();
     // The critic's trims (src/PresetTrims.h) for a factory preset: its level,
     // and the depth of its macros' routings. ILANA_NO_TRIMS turns them off
     // (for the tuning tool's own renders).
@@ -359,6 +361,25 @@ public:
                                    const std::function<void (const juce::String&, float)>& set);
     static int migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
                                      const std::function<void (const juce::String&, float)>& set);
+    // ENV AMOUNT and the filter envelope's VELOCITY knob are gone: the matrix
+    // does their job. A patch that sets Filter 1's or Filter 2's ENV AMOUNT
+    // gets matrix routes with the same sound (FILTER ENV to the cutoff, and
+    // the same again via VELOCITY for the share Filter 1's VELOCITY knob gave
+    // to velocity) and the knob goes to 0. Returns how many filters moved.
+    // A patch with no free slots keeps its amount (it still plays, unseen).
+    static int migrateFilterEnvAmounts (const std::function<float (const juce::String&, float)>& get,
+                                        const std::function<void (const juce::String&, float)>& set);
+    // An envelope's TENSION knob is gone: it was added to the attack, decay
+    // and release curves (the dots on the graph), so it moves into them.
+    static int migrateEnvelopeTension (const std::function<float (const juce::String&, float)>& get,
+                                       const std::function<void (const juce::String&, float)>& set);
+    // An oscillator's WARP ENV and its ENV AMT are gone: the matrix routes
+    // that envelope to the oscillator's warp amounts instead.
+    static int migrateWarpEnvelopes (const std::function<float (const juce::String&, float)>& get,
+                                     const std::function<void (const juce::String&, float)>& set);
+    // All three, for a patch from before the knobs went.
+    static void migrateRedundantKnobs (const std::function<float (const juce::String&, float)>& get,
+                                       const std::function<void (const juce::String&, float)>& set);
     // The same on the live parameters (after a bounce or a factory preset).
     void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);
@@ -532,6 +553,9 @@ public:
     // shows a module that is in use.
     enum class Module { Oscillator = 0, Envelope, Lfo };
     static constexpr int defaultRevealMask = 0b111;
+    // A new patch (Init) shows OSC 1 and 2, so PLAY's oscillators fit without scrolling; OSC 3 shows once it
+    // is added or switched on (ilana 2026-10-22). A saved state and the other factory presets keep theirs.
+    static constexpr int newPatchOscRevealMask = 0b011;
     bool isRevealed (Module kind, int index) const
     {
         return ((revealMasks[(size_t) kind].load() >> index) & 1) != 0;
@@ -601,6 +625,7 @@ public:
     // M7.4 patch tables (message thread). setUserTable builds the table from
     // the doc and swaps it in; the doc is saved with the patch.
     bool setUserTable (int slot, const WavetableDoc& doc);
+    // Gives a slot its default table back (what a listen in the table browser leaves behind).
     // The slot's doc; a slot never edited gives its default (factory) table.
     WavetableDoc getUserTableDoc (int slot) const;
     // The same doc by identity (null: default), for the wavetable editor to
@@ -1424,7 +1449,7 @@ private:
     std::array<std::atomic<float>, 16> envMonitorStageStarts {};
     std::array<std::atomic<float>, 80> envMonitorSeconds {};
     std::atomic<int> noteSerial { 0 };
-    std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
+    std::array<std::atomic<int>, 3> revealMasks { newPatchOscRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
 
     struct ParamEpoch : juce::AudioProcessorParameter::Listener
@@ -1555,6 +1580,8 @@ private:
     // skipped for longer than the longest delay memory starts it empty.
     std::array<bool, (size_t) numFxSlots> fxSlotLive {}, fxSlotFaded {};
     std::array<std::int64_t, (size_t) numFxSlots> fxSlotLastRun {};
+    // The effect a slot ran last block (0: none), so a change of type crossfades from the old one.
+    std::array<int, (size_t) numFxSlots> fxSlotPrevType {};
     std::int64_t fxClock = 0; // samples the rack has run (processEffects)
     int fxBlockLength = 0;
     BlockRamp masterRamp;
@@ -1565,10 +1592,11 @@ private:
             ramp.reset();
         fxSlotLive.fill (false);
         fxSlotFaded.fill (false);
+        fxSlotPrevType.fill (0);
         masterRamp.reset();
     }
 
-    juce::AudioBuffer<float> fxScratch;
+    juce::AudioBuffer<float> fxScratch, fxScratchOld;
     // Roadmap step 17: the effects' memory lives in engines (FxEngine.h).
     // fxMain is the rack's shared one (one set per effect type, as always);
     // a slot that is its own instance of an effect runs on its own engine.
@@ -1623,6 +1651,7 @@ private:
     std::array<std::atomic<float>, FxLfo::maxLfos> fxLfoShownValue {}, fxLfoShownPhase {};
     double fxLfoLastPpq = -1.0;
     juce::int64 fxLfoSamplesSincePpq = 0;
+    unsigned fxLfoLastNoteCount = 0; // noteOnCount at the last chunk (RETRIG)
     bool fxLfoRunning = false;
     void advanceFxLfos (const FxLfoProgram& program, int numSamples);
     void processEffectsNow (juce::AudioBuffer<float>& buffer);
@@ -1687,7 +1716,7 @@ private:
     const VoiceRouting::Table& currentRoutingTable();
     ParamRef routeCablesRef { "route_cables" };
     std::array<ParamRef, VoiceRouting::numCableParams> cableRefs { "cable_osc1", "cable_osc2", "cable_osc3", "cable_osc4", "cable_osc5",
-                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west" };
+                                                                   "cable_osc6", "cable_subnoise", "cable_f1", "cable_f2", "cable_west", "cable_body" };
     VoiceRouting::Table routingTable;
     std::uint64_t routingSignature = ~(std::uint64_t) 0;
     struct FxSlotTypeListener : juce::AudioProcessorParameter::Listener

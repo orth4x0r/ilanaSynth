@@ -8,9 +8,11 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/airwindows/Categories.h"
+#include "../dsp/airwindows/DelaySync.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 #include "DisplayStyle.h"
+#include "ParamInfo.h"
 
 // The small picture on an FX card, one per effect family, drawn from the
 // module's parameters (and its live gain reduction where the processor
@@ -137,6 +139,19 @@ private:
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();
         return 0.0f;
+    }
+
+    // An Airwindows knob as the effect runs it (algorithm: its registry
+    // index): AW Delay's time knobs follow the tempo while its SYNC is on.
+    float airwindowsKnob (const juce::String& prefix, int algorithm, int knob, double rate) const
+    {
+        if (prefix == "fx_awdelay" && param ("fx_awdelay_sync") > 0.5f && airwindows::delaysync::isTimeKnob (algorithm, knob))
+        {
+            static const double divisionBeats[] { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 0.75, 0.375 };
+            const auto beats = divisionBeats[juce::jlimit (0, 10, (int) param ("fx_awdelay_div"))];
+            return airwindows::delaysync::knobFor (algorithm, 60.0 / juce::jmax (1.0, processorRef.getCurrentBpm()) * beats, rate);
+        }
+        return param (prefix + "_p" + juce::String (knob + 1));
     }
 
     // ---- Shared drawing ----
@@ -1252,7 +1267,7 @@ private:
             impulseSeconds = seconds;
             run->prepare (rate);
             for (int k = 0; k < info.numKnobs; ++k)
-                run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
+                run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (airwindowsKnob (prefix, index, k, rate)));
 
             const auto total = (int) (rate * seconds);
             std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
@@ -1457,7 +1472,7 @@ private:
         const auto y = right.getY() - 2.0f;
         g.setColour (colour.withAlpha (0.6f));
         g.drawLine (toX (0.0f), y, toX (delay), y, 1.0f);
-        paintCaption (g, "EAR TO EAR", juce::String (delay, 1) + " ms");
+        paintCaption (g, "EAR TO EAR", describeValue ("fx_haas_delay", delay)); // the knob's own text
     }
 
     void paintStutter (juce::Graphics& g)
@@ -1534,7 +1549,7 @@ private:
         if (plot.getHeight() > 30.0f)
         {
             for (const auto s : { 1.0f, 2.0f, 3.0f })
-                paintTick (g, juce::String ((int) s) + " s", juce::Rectangle<float> (toX (s) + 2.0f, plot.getBottom() - 11.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
+                paintTick (g, juce::String ((int) s) + " s", juce::Rectangle<float> (toX (s) + 2.0f, plot.getY() + 1.0f, 24.0f, 10.0f), juce::Justification::centredLeft);
             paintTick (g, "100%", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getY(), 26.0f, 10.0f), juce::Justification::centredLeft);
             paintTick (g, "0", juce::Rectangle<float> (plot.getX() + 2.0f, plot.getBottom() - 11.0f, 10.0f, 10.0f), juce::Justification::centredLeft);
         }
@@ -1546,7 +1561,8 @@ private:
         speed.lineTo (toX (juce::jmin (window, 0.4f + stop)), bottom);
         speed.lineTo (plot.getRight() - 2.0f, bottom);
         strokeCurve (g, speed, plot, bottom);
-        paintCaption (g, "TAPE SPEED", juce::String (stop, 2) + " s " + juce::String::fromUTF8 ("\xc2\xb7") + " " + juce::String (juce::roundToInt (mix * 100.0f)) + "%" + (armed ? "  STOPPED" : juce::String()));
+        const auto stopText = describeValue ("fx_tape_stop_time", stop); // the knob's own text
+        paintCaption (g, "TAPE SPEED", stopText + " " + juce::String::fromUTF8 ("\xc2\xb7") + " " + juce::String (juce::roundToInt (mix * 100.0f)) + "%" + (armed ? "  STOPPED" : juce::String()));
     }
 
     void paintTilt (juce::Graphics& g)
@@ -1800,7 +1816,7 @@ private:
         g.fillRect (juce::Rectangle<float> (plot.getWidth(), 1.0f).withPosition (plot.getX(), plot.getBottom() - 1.0f));
         if (plot.getHeight() > 30.0f)
             for (const auto& tick : { std::pair<float, const char*> { 1000.0f, "1 kHz" }, { 2000.0f, "2 kHz" } })
-                paintTick (g, tick.second, juce::Rectangle<float> (toX (tick.first) + 2.0f, plot.getBottom() - 11.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
+                paintTick (g, tick.second, juce::Rectangle<float> (toX (tick.first) + 2.0f, plot.getY() + 1.0f, 34.0f, 10.0f), juce::Justification::centredLeft);
         // A harmonic series, and the same lines moved by the same number of Hz (no longer in tune with each other).
         for (int k = 1; k <= 12; ++k)
         {
@@ -1816,7 +1832,7 @@ private:
             bar ((float) k * 220.0f, IlanaTheme::Ui::text3.withAlpha (0.5f));
             bar ((float) k * 220.0f + shift, colour);
         }
-        paintCaption (g, "PARTIALS (GREY) MOVED", signedText (shift, 0, " Hz"));
+        paintCaption (g, "PARTIALS (GREY) MOVED", (shift > 0.0f ? "+" : "") + describeValue ("fx_shifter_shift", shift));
     }
 
     void paintRingMod (juce::Graphics& g)
@@ -2004,6 +2020,12 @@ private:
                     mixIn (param (prefix + "_mix"));
                     for (int k = 1; k <= airwindows::Module::numKnobs; ++k)
                         mixIn (param (prefix + "_p" + juce::String (k)));
+                    if (prefix == "fx_awdelay")
+                    {
+                        mixIn (param ("fx_awdelay_sync"));
+                        mixIn (param ("fx_awdelay_div"));
+                        mixIn ((float) processorRef.getCurrentBpm());
+                    }
                 }
                 break;
             case Kind::freeze: mixIn (param ("fx_freeze_on")); break;

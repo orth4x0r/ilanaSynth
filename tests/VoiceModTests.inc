@@ -321,6 +321,24 @@ void runWarpTests()
                "warp " + names[mode] + " adds harmonics to a sine (centroid " + juce::String (plainCentroid, 0)
                    + " -> " + juce::String (centroid, 0) + " Hz, peak " + juce::String (peak, 2) + ")");
     }
+
+    // FM Noise listens to the NOISE card's generator even with its switch off and
+    // its level at zero (nothing of the noise itself is heard).
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 8.0f);
+        setParam (processor, "f1_cutoff", 20000.0f);
+        setParam (processor, "noise_on", 0.0f);
+        setParam (processor, "noise_level", 0.0f);
+        setParam (processor, "osc1_warp", (float) Warp::NoiseFm);
+        setParam (processor, "osc1_warp_amt", 0.7f);
+        processor.prepareToPlay (48000.0, 512);
+        double centroid = 0.0;
+        renderPeakAndCentroid (processor, 45, 40, centroid);
+        check (centroid > plainCentroid * 1.15, "FM Noise works with the NOISE switch off (centroid "
+                                                   + juce::String (plainCentroid, 0) + " -> " + juce::String (centroid, 0) + " Hz)");
+    }
 }
 
 void runPerVoiceSpectralTest()

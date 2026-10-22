@@ -27,7 +27,7 @@ public:
           crushBits (p.apvts, "fx_crush_bits", "BITS"),
           crushDown (p.apvts, "fx_crush_down", "DOWN"),
           crushMix (p.apvts, "fx_crush_mix", "MIX"),
-          compThreshold (p.apvts, "fx_comp_threshold", "THRESH"),
+          compThreshold (p.apvts, "fx_comp_threshold", "THRESHOLD"),
           compRatio (p.apvts, "fx_comp_ratio", "RATIO"),
           compAttack (p.apvts, "fx_comp_attack", "ATTACK"),
           compRelease (p.apvts, "fx_comp_release", "RELEASE"),
@@ -227,7 +227,15 @@ public:
             for (int k = 0; k < airwindows::Module::numKnobs; ++k)
                 controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
             controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
+            // AW Delay: SYNC and DIV, as the main Delay's.
+            if (juce::String (airwindows::categoryModules()[(size_t) c].id) == "awdelay")
+            {
+                controls.sync = std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC");
+                controls.div = std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV");
+            }
             std::vector<juce::Component*> group { controls.algo.get() };
+            if (controls.sync != nullptr)
+                group.insert (group.end(), { controls.sync.get(), controls.div.get() });
             for (auto& knob : controls.knobs)
                 group.push_back (knob.get());
             group.push_back (controls.mix.get());
@@ -764,8 +772,12 @@ public:
                     const auto perRow = juce::jmax (1, std::min ({ 4, (int) offered.size(), (width + gap) / (minWidth + gap) }));
                     const auto room = stackArea.getBottom() - addTile.getBottom() - suggestCaptionHeight;
                     const auto rows = (int) offered.size() > perRow ? juce::jlimit (1, 2, (room + gap) / (suggestMinHeight + gap)) : 1;
-                    const auto count = juce::jmin ((int) offered.size(), perRow * rows);
-                    const auto tileHeight = juce::jlimit (suggestMinHeight, suggestMaxHeight, (room - gap * (rows - 1)) / rows);
+                    auto count = juce::jmin ((int) offered.size(), perRow * rows);
+                    // (Whole rows only: seven tiles left a hole at the end of the second row, review 21.)
+                    if (count > perRow && count % perRow != 0)
+                        count -= count % perRow;
+                    // (One row takes the height two would, so a rack with four suggestions leaves no black band under them, review 22.)
+                    const auto tileHeight = juce::jlimit (suggestMinHeight, rows == 1 ? suggestMaxHeight * 2 : suggestMaxHeight, (room - gap * (rows - 1)) / rows);
                     suggestCaption = { left, addTile.getBottom() + 6, width, suggestCaptionHeight - 6 };
                     const auto top = addTile.getBottom() + suggestCaptionHeight;
                     for (int i = 0; i < count; ++i)
@@ -1276,7 +1288,7 @@ private:
     {
         if (patcherOn)
             return "The cables on PATCH decide what feeds what.";
-        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Series: each effect feeds the next one.";
+        return parallelRouting ? "Parallel: every effect hears the input, and the outputs are summed." : "Effects run top to bottom. ROUTING ON PATCH rewires them.";
     }
 
     void chainABChanged()
@@ -1364,9 +1376,7 @@ private:
             auto& card = instanceCards[(size_t) slot];
             if (! wanted[(size_t) slot] && card.shadow != nullptr)
             {
-                if (displays[(size_t) slot] != nullptr)
-                    displays[(size_t) slot]->setValueSource (nullptr);
-                card = {};
+                dropInstanceCard (slot);
                 continue;
             }
             card.visible = wanted[(size_t) slot];
@@ -1383,8 +1393,8 @@ private:
 
     void buildInstanceCard (int slot, int type, const FxPatchData::Patch& patch)
     {
+        dropInstanceCard (slot);
         auto& card = instanceCards[(size_t) slot];
-        card = {};
         std::vector<juce::String> ids;
         for (const auto& entry : patch.slots[(size_t) slot].values)
             ids.push_back (entry.first);
@@ -1479,7 +1489,8 @@ private:
             if (isAirwindowsType (type) && ! item->isVisible())
                 continue;
 
-            if (toggle != nullptr && toggle->isSwitch() && found == nullptr)
+            // (AW Delay's SYNC is a setting beside its DIV, not the card's switch.)
+            if (toggle != nullptr && toggle->isSwitch() && found == nullptr && toggle->getParameterId() != "fx_awdelay_sync")
                 found = toggle;
             else
                 items.push_back (item);
@@ -2005,7 +2016,7 @@ private:
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            g.drawText ("these slots work on the middle or the sides of the stereo image; the rest passes around them",
+            g.drawText ("These slots work on the middle or the sides of the stereo image; the rest passes around them",
                         heading.withTrimmedLeft (150).withTrimmedRight (14), juce::Justification::centredLeft, true);
         }
     }
@@ -2641,15 +2652,16 @@ private:
     // An instance whose card isn't in front gets controls of its own, the
     // same classes as the type's, on a shadow of its settings
     // (FxInstanceControls.h), so its card looks and works like any other.
-    struct InstanceCard
-    {
-        std::unique_ptr<FxInstance::Shadow> shadow;
-        std::vector<std::unique_ptr<juce::Component>> controls;
-        std::vector<juce::Component*> group; // as slotGroups[type], in its order
-        std::vector<juce::Component*> originals; // the type's control each one copies
-        bool visible = false;
-    };
+    using InstanceCard = FxInstance::Card;
     std::array<InstanceCard, IlanaSynthAudioProcessor::numFxSlots> instanceCards;
+
+    // Takes a slot's instance card down: its picture stops reading the shadow, then the card goes (controls first).
+    void dropInstanceCard (int slot)
+    {
+        if (displays[(size_t) slot] != nullptr)
+            displays[(size_t) slot]->setValueSource (nullptr);
+        instanceCards[(size_t) slot].clear();
+    }
 
     // The module's own on parameter, where it has one.
     static const char* enableParamFor (int type)
@@ -2735,6 +2747,24 @@ private:
                 {
                     const auto synced = delaySynced();
                     if (((item == &delayTime || item == &delayTimeR) && synced) || (item == &delayDiv && ! synced))
+                        itemAlpha = IlanaTheme::dimmedAlpha;
+                }
+
+                // So do AW Delay's time knobs and DIV (its card's own SYNC).
+                if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0 && ! off && awCategories[(size_t) c].sync != nullptr)
+                {
+                    auto synced = false;
+                    for (auto* other : group)
+                        if (auto* sync = dynamic_cast<ToggleControl*> (other); sync != nullptr && sync->getParameterId() == "fx_awdelay_sync")
+                            synced = sync->getButton().getToggleState();
+                    const auto algorithm = airwindows::categoryModules()[(size_t) c].algorithms[(size_t) categoryChoice (c)];
+                    auto isTime = false;
+                    if (auto* knob = dynamic_cast<KnobControl*> (item))
+                        for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+                            if (knob->getParameterId() == "fx_awdelay_p" + juce::String (k + 1))
+                                isTime = airwindows::delaysync::isTimeKnob (algorithm, k);
+                    const auto isDiv = dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == "fx_awdelay_div";
+                    if ((isTime && synced) || (isDiv && ! synced))
                         itemAlpha = IlanaTheme::dimmedAlpha;
                 }
 
@@ -3106,6 +3136,8 @@ private:
         std::unique_ptr<ComboControl> algo;
         std::array<std::unique_ptr<KnobControl>, airwindows::Module::numKnobs> knobs;
         std::unique_ptr<KnobControl> mix;
+        std::unique_ptr<ToggleControl> sync; // AW Delay only
+        std::unique_ptr<ComboControl> div;
     };
     std::vector<AwCategoryControls> awCategories;
 
@@ -3136,6 +3168,14 @@ private:
                 setAirwindowsUnit (*controls.knobs[(size_t) k], info, k);
             }
             controls.knobs[(size_t) k]->setVisible (loaded && used);
+        }
+
+        // (StarChild2 has no time to sync.)
+        if (controls.sync != nullptr)
+        {
+            const auto syncs = loaded && airwindows::delaysync::hasTime (category.algorithms[(size_t) categoryChoice (c)]);
+            controls.sync->setVisible (syncs);
+            controls.div->setVisible (syncs);
         }
 
         controls.algo->getComboBox().setTooltip (airwindowsTooltip (info));

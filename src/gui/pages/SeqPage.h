@@ -8,7 +8,7 @@ class SeqPage : public juce::Component,
                 private juce::Timer
 {
 public:
-    // The page is shown in two places: its step LFOs and MSEG under MOD,
+    // The page is shown in two places: its step LFOs under MOD,
     // its note generators (arp, Euclid, prob seq, generate) as SEQ.
     enum class Part { modulators, notes };
 
@@ -16,10 +16,6 @@ public:
         : part (partIn),
           step1 (p, 0, IlanaTheme::accent(), true),
           step2 (p, 1, juce::Colour (0xff35c8ff)),
-          mseg (p),
-          msegLoop (p.apvts, "mseg_loop", "LOOP"),
-          msegRate (p.apvts, "mseg_rate", "RATE", msegColour(), false),
-          clockDiv (p.apvts, "clock_div", "S&H CLOCK", msegColour(), false),
           processorRef (p),
           arpLanes (p, arpColour()),
           arpMode (p.apvts, "arp_mode", "MODE"),
@@ -167,10 +163,8 @@ public:
         showLfo (0, 0);
         showLfo (1, 1);
 
-        msegLoop.showAsSwitch();
         genSnap.showAsSwitch();
-        addAll (*this, mseg, msegLoop, msegRate, clockDiv,
-                arpLanes, arpMode, arpDiv, arpOctaves, arpGate);
+        addAll (*this, arpLanes, arpMode, arpDiv, arpOctaves, arpGate);
 
         // Open on whichever part of the card is switched on.
         engineTabs.setSelected (readOn ("pseq_on") ? 2 : readOn ("euc_on") ? 1 : readOn ("clip_on") ? 3 : 0, false);
@@ -179,7 +173,7 @@ public:
 
         if (part == Part::notes)
         {
-            for (auto* control : std::initializer_list<juce::Component*> { &step1, &step2, &mseg, &msegLoop, &msegRate, &clockDiv })
+            for (auto* control : std::initializer_list<juce::Component*> { &step1, &step2 })
                 control->setVisible (false);
 
             for (auto& row : lfoButtons)
@@ -231,7 +225,6 @@ public:
         startTimerHz (8);
     }
 
-    static juce::Colour msegColour() { return juce::Colour (0xffe0e6f0); }
     // Not modulation sources: the accent (a source's colour always means
     // that source).
     static juce::Colour arpColour() { return IlanaTheme::accent(); }
@@ -283,10 +276,6 @@ public:
                                          IlanaSynthAudioProcessor::lfoColour (step1.getLfoIndex()), pillsWidth (0));
             IlanaTheme::paintCardHeader (g, stepTitle2, "STEPS B", stepNote (step2.getLfoIndex()),
                                          IlanaSynthAudioProcessor::lfoColour (step2.getLfoIndex()), pillsWidth (1));
-
-            IlanaTheme::paintCard (g, msegCard.toFloat(), 7.0f, msegColour().withAlpha (0.35f));
-            IlanaTheme::paintCardHeader (g, msegCard.reduced (12, 0).removeFromTop (26), "MSEG",
-                                         "drag points; drag the MSEG chip onto a knob to use it", msegColour(), 0);
             return;
         }
 
@@ -388,7 +377,7 @@ public:
             use.setBounds (header.removeFromRight (useWidth).reduced (0, 3));
         };
 
-        // MOD: the two step rows and the MSEG. SEQ: arp and generate side
+        // MOD: the two step rows. SEQ: arp and generate side
         // by side.
         if (part == Part::notes)
         {
@@ -396,8 +385,8 @@ public:
             return;
         }
 
-        const auto msegHeight = juce::jlimit (170, 260, area.getHeight() * 2 / 5);
-        const auto stepHeight = (area.getHeight() - msegHeight - 16) / 2;
+        // (The patch's MSEG is edited with the LFOs, where it shows while used.)
+        const auto stepHeight = (area.getHeight() - 8) / 2;
 
         auto row = area.removeFromTop (stepHeight);
         stepTitle1 = row.removeFromTop (26).withTrimmedLeft (12);
@@ -405,21 +394,10 @@ public:
         step1.setBounds (row);
 
         area.removeFromTop (8);
-        row = area.removeFromTop (stepHeight);
+        row = area;
         stepTitle2 = row.removeFromTop (26).withTrimmedLeft (12);
         layoutPicker (1, stepTitle2);
         step2.setBounds (row);
-
-        area.removeFromTop (8);
-        msegCard = area;
-
-        auto msegArea = msegCard.reduced (10, 0);
-        msegArea.removeFromTop (26);
-        msegArea.removeFromBottom (8);
-        auto msegControls = msegArea.removeFromRight (juce::jmin (180, msegArea.getWidth() / 3));
-        mseg.setBounds (msegArea.reduced (0, 2));
-        msegLoop.setBounds (msegControls.removeFromTop (40).reduced (8, 4));
-        layoutRow (msegControls, { &msegRate, &clockDiv });
     }
 
     void layoutNotes (juce::Rectangle<int> right)
@@ -504,7 +482,8 @@ public:
                 // (V15-15: the spare height is shared out between the rows, so the column fills
                 // its height instead of leaving a floor above and below.)
                 const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
-                const auto extra = juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount);
+                // (Review 22 #9: at most 8 px each, so STEPS/GATE/OCTAVES/CHANCE stay a compact block, centred.)
+                const auto extra = juce::jmin (8, juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount));
                 column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed + extra * rowCount));
                 menuRowHeight = menuRow + extra;
                 rowHeight += extra;
@@ -998,10 +977,6 @@ private:
 
     Part part;
     StepEditor step1, step2;
-    MsegEditor mseg;
-    ToggleControl msegLoop;
-    KnobControl msegRate;
-    KnobControl clockDiv;
     IlanaSynthAudioProcessor& processorRef;
     ArpLanesEditor arpLanes;
     ComboControl arpMode, arpDiv;
@@ -1035,7 +1010,7 @@ private:
     std::unique_ptr<juce::FileChooser> clipChooser;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
     std::array<juce::TextButton, 2> useButtons;
-    juce::Rectangle<int> stepTitle1, stepTitle2, msegCard, arpCard, generateCard;
+    juce::Rectangle<int> stepTitle1, stepTitle2, arpCard, generateCard;
     EffectRules effectRules { processorRef };
 };
 } // namespace

@@ -34,9 +34,30 @@ inline std::function<void (int, std::function<bool (const juce::File&)>)>& sampl
 class WaveDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
                     public juce::FileDragAndDropTarget,
+                    public juce::DragAndDropTarget,
                     private IlanaAnim::FrameTimer
 {
 public:
+    // The FRAME knob beside the picture says which frame: the card's picture needs no readout of its own.
+    // The 2D / 3D flip a click makes (the snapshot tool and the UI tests set it directly).
+    void setStack3d (bool shouldBe3d) { if (stack3d != shouldBe3d) { stack3d = shouldBe3d; updateViewButtons(); repaint(); } }
+    bool isStack3d() const { return stack3d; }
+    // Where the handle of a FRAME route sits (the picture's own coordinates), for the UI tests: {-1, -1} when there is none.
+    juce::Point<float> frameRouteHandle (int slot) const
+    {
+        if (! frameTrackShown())
+            return { -1.0f, -1.0f };
+
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+
+        for (const auto& route : frameRoutes())
+            if (route.slot == slot)
+                return { track.getX() + track.getWidth() * routeReach (route.data, frame), track.getCentreY() };
+
+        return { -1.0f, -1.0f };
+    }
+    void setFrameReadout (bool shouldShow) { if (frameReadout != shouldShow) { frameReadout = shouldShow; repaint(); } }
     WaveDisplay (IlanaSynthAudioProcessor& processor,
                  juce::String tableIdIn,
                  juce::String frameIdIn,
@@ -74,6 +95,7 @@ public:
         loopOwnId = samplePrefix + "_sample_loop_own";
         loopFromId = samplePrefix + "_sample_loop_start";
         loopToId = samplePrefix + "_sample_loop_end";
+        xfadeId = samplePrefix + "_sample_loop_xfade";
         snapId = samplePrefix + "_sample_snap";
 
         displayedFrame = readValue (frameId);
@@ -248,10 +270,7 @@ public:
 
         // The OSC card's well (design round 2): a quarter grid behind the
         // picture, the picture under the full height (the slim line shows
-        // over its top only while the mouse is on it), and the WAVE view as
-        // the design draws it, the table's frames stacked flat with the one
-        // playing lit.
-        const auto flatStack = slim && shownViewMode() == 0 && ! isStaticTable (processorRef.getWavetable (tableIndex));
+        // over its top only while the mouse is on it).
         if (slim)
         {
             g.setColour (juce::Colours::white.withAlpha (0.05f));
@@ -263,11 +282,7 @@ public:
             plot.removeFromBottom (8.0f); // (the frame's number)
         }
 
-        if (flatStack)
-        {
-            drawFlatStack (g, table, frame, plot);
-        }
-        else if (shownViewMode() == 1)
+        if (shownViewMode() == 1)
         {
             drawWaterfall (g, table, frame, plot);
         }
@@ -368,35 +383,6 @@ public:
         TableBrowser::show (processorRef, tableId, traceColour, *this);
     }
 
-    // The design's 2D well: up to nine of the table's frames as flat lines one
-    // under the other (front to back, top to bottom), faint, and the cycle
-    // playing now lit at its place among them (warped when a warp is on).
-    void drawFlatStack (juce::Graphics& g, const Wavetable* table, float frame, juce::Rectangle<float> plot) const
-    {
-        const auto frameCount = table->getNumFrames();
-        const auto lines = juce::jmin (9, frameCount);
-        const auto amplitude = plot.getHeight() * 0.1f;
-        const auto top = plot.getY() + 1.5f * amplitude, span = plot.getHeight() - 3.0f * amplitude;
-        const auto yFor = [&] (float position) { return top + span * position; };
-
-        for (int i = 0; i < lines; ++i)
-        {
-            const auto position = lines > 1 ? (float) i / (float) (lines - 1) : 0.0f;
-            const auto index = juce::jlimit (0, frameCount - 1, juce::roundToInt (position * (float) (frameCount - 1)));
-            drawFrame (g, table, index, plot, yFor (position), amplitude, juce::Colours::white.withAlpha (0.2f), 1.0f);
-        }
-
-        const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
-        const auto centre = yFor (juce::jlimit (0.0f, 1.0f, frame));
-        if (hasWarp())
-        {
-            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour.withAlpha (0.25f), 1.0f);
-            drawWarpedFrame (g, table, frameIndex, plot, centre, amplitude);
-        }
-        else
-            drawFrame (g, table, frameIndex, plot, centre, amplitude, traceColour, 2.0f);
-    }
-
     // Where the slim line's view chip and arrows sit, for the UI tests.
     juce::Point<float> getSlimTarget (int which) const // 0 view chip, 1 previous, 2 next
     {
@@ -454,7 +440,7 @@ public:
         paintPickerIcon (g);
 
         // The frame the cycle comes from, at the picture's foot.
-        if (table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
+        if (frameReadout && table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table) && shownViewMode() != 2)
         {
             g.setColour (IlanaTheme::Ui::text3);
             g.setFont (font);
@@ -551,6 +537,14 @@ public:
             if (! isTableMode())
                 return;
 
+            if (const auto slot = routeHandleAt (event.position); slot >= 0)
+            {
+                routeDragSlot = slot;
+                processorRef.beginEdit ("Frame modulation depth");
+                setRouteDepthFromX (event.position.x);
+                return;
+            }
+
             processorRef.beginEdit (editName());
             beginGesture (frameId);
 
@@ -562,18 +556,106 @@ public:
 
             dragStartY = event.position.y;
             dragging = true;
-            setFrameFromX (event.position.x);
+            // (A click on a card's small picture flips 2D and 3D, so only a drag moves the frame there.)
+            if (! (compact || slim))
+                setFrameFromX (event.position.x);
             repaint();
             return;
         }
 
-        showSampleMenu (*this);
+        showSampleMenu (*this, sliceAt (event.position));
+    }
+
+    // The slice under the pointer in a sliced sample's picture, else -1.
+    int sliceAt (juce::Point<float> position) const
+    {
+        if (! isSampleMode() || compact || position.y < (float) headerHeight)
+            return -1;
+        const auto* sample = processorRef.getSampleForOsc (oscIndex);
+        if (sample == nullptr || ! sample->isSliced() || sample->sliceStarts.size() < 2)
+            return -1;
+        const auto at = (int) (xToSampleFraction (position.x) * (float) sample->getNumSamples());
+        for (size_t i = 0; i + 1 < sample->sliceStarts.size(); ++i)
+            if (at >= sample->sliceStarts[i] && at < sample->sliceStarts[i + 1])
+                return (int) i;
+        return (int) sample->sliceStarts.size() - 2;
+    }
+
+    // Plays one slice backwards (or forwards again): the zone map's REVERSE,
+    // from the wave itself.
+    void toggleSliceReverse (int slice)
+    {
+        auto zones = processorRef.getSampleZones (oscIndex);
+        for (auto& zone : zones)
+            if (zone.origin == slice)
+            {
+                zone.reverse = ! zone.reverse;
+                const juce::String name = zone.reverse ? "Reverse slice" : "Play slice forwards";
+                processorRef.setSampleZones (oscIndex, std::move (zones), name);
+                repaint();
+                return;
+            }
+    }
+
+    bool sliceIsReversed (int slice) const
+    {
+        for (const auto& zone : processorRef.getSampleZones (oscIndex))
+            if (zone.origin == slice)
+                return zone.reverse;
+        return false;
+    }
+
+    // Roadmap step 32: slices, each on its own key. The choices sit at the top
+    // of the sample menu (and under the card's SLICE button), not in a submenu
+    // of a submenu: by transients, by beat, at markers.
+    void addSliceItems (juce::PopupMenu& menu, int slice)
+    {
+        const auto* shown = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
+        const auto sliceable = shown != nullptr && shown->getNumSamples() > 1 && (shown->zones.empty() || shown->isSliced());
+        const auto slicing = processorRef.getSampleSlices (oscIndex);
+        juce::PopupMenu transientMenu, equalMenu, keyMenu;
+        const auto byTransients = slicing.mode == SampleSlicer::transients;
+
+        if (slice >= 0)
+        {
+            menu.addItem (reverseSliceItem, "Reverse Slice " + juce::String (slice + 1), true, sliceIsReversed (slice));
+            menu.addSeparator();
+        }
+
+        transientMenu.addItem (sliceFewerItem, "Fewer Slices", true, byTransients && slicing.sensitivity < 0.4f);
+        transientMenu.addItem (sliceMediumItem, "Medium", true, byTransients && slicing.sensitivity >= 0.4f && slicing.sensitivity < 0.7f);
+        transientMenu.addItem (sliceMoreItem, "More Slices", true, byTransients && slicing.sensitivity >= 0.7f);
+        menu.addSubMenu ("Slice by Transients", transientMenu, sliceable, nullptr, byTransients);
+        for (const auto parts : { 2, 4, 8, 16, 32, 64 })
+            equalMenu.addItem (sliceEqualItem + parts, juce::String (parts) + " Equal Parts", true,
+                               slicing.mode == SampleSlicer::equal && slicing.count == parts);
+        menu.addSubMenu ("Slice by Beat", equalMenu, sliceable, nullptr, slicing.mode == SampleSlicer::equal);
+        menu.addItem (sliceMarkersItem, "Slice at Markers (double-click the wave to add one, right-click to remove)", sliceable,
+                      slicing.mode == SampleSlicer::markers);
+        for (const auto key : { 24, 36, 48, 60 })
+            keyMenu.addItem (sliceKeyItem + key, juce::MidiMessage::getMidiNoteName (key, true, true, 3), true, slicing.baseKey == key);
+        menu.addSubMenu ("First Slice on Key", keyMenu, sliceable);
+        menu.addItem (sliceOffItem, "Remove Slices", slicing.mode != SampleSlicer::off);
+    }
+
+    // The card's SLICE button: just the slice choices.
+    void showSliceMenu (juce::Component& target)
+    {
+        juce::PopupMenu menu;
+        addSliceItems (menu, -1);
+        juce::Component::SafePointer<WaveDisplay> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                            [safeThis] (int result)
+                            {
+                                if (safeThis != nullptr && result >= sliceItemBase && result < sliceItemBase + 1000)
+                                    safeThis->applySliceMenu (result);
+                            });
     }
 
     // The sample menu: the factory samples, then a file (a sample, or an SF2
     // / SFZ multisample). The display's right-click and the OSC card's LOAD
     // button open it (UI review 7, I7-24).
-    void showSampleMenu (juce::Component& target)
+    void showSampleMenu (juce::Component& target, int slice = -1)
     {
         juce::PopupMenu menu;
         constexpr int loadFileItem = 10000;
@@ -612,30 +694,8 @@ public:
             menu.addSubMenu ("SoundFont Preset", presetMenu);
         }
 
-        // Roadmap step 32: slices, each on its own key.
-        {
-            const auto* shown = isSampleMode() ? processorRef.getSampleForOsc (oscIndex) : nullptr;
-            const auto sliceable = shown != nullptr && shown->getNumSamples() > 1 && (shown->zones.empty() || shown->isSliced());
-            const auto slicing = processorRef.getSampleSlices (oscIndex);
-            juce::PopupMenu sliceMenu, transientMenu, equalMenu, keyMenu;
-            const auto byTransients = slicing.mode == SampleSlicer::transients;
-            transientMenu.addItem (sliceFewerItem, "Fewer Slices", true, byTransients && slicing.sensitivity < 0.4f);
-            transientMenu.addItem (sliceMediumItem, "Medium", true, byTransients && slicing.sensitivity >= 0.4f && slicing.sensitivity < 0.7f);
-            transientMenu.addItem (sliceMoreItem, "More Slices", true, byTransients && slicing.sensitivity >= 0.7f);
-            sliceMenu.addSubMenu ("By Transients", transientMenu, true, nullptr, byTransients);
-            for (const auto parts : { 2, 4, 8, 16, 32, 64 })
-                equalMenu.addItem (sliceEqualItem + parts, juce::String (parts) + " Parts", true,
-                                   slicing.mode == SampleSlicer::equal && slicing.count == parts);
-            sliceMenu.addSubMenu ("Into Equal Parts", equalMenu, true, nullptr, slicing.mode == SampleSlicer::equal);
-            sliceMenu.addItem (sliceMarkersItem, "At Markers (double-click the wave to add one, right-click to remove)", true,
-                               slicing.mode == SampleSlicer::markers);
-            sliceMenu.addSeparator();
-            for (const auto key : { 24, 36, 48, 60 })
-                keyMenu.addItem (sliceKeyItem + key, juce::MidiMessage::getMidiNoteName (key, true, true, 3), true, slicing.baseKey == key);
-            sliceMenu.addSubMenu ("First Slice on Key", keyMenu);
-            sliceMenu.addItem (sliceOffItem, "Remove Slices", slicing.mode != SampleSlicer::off);
-            menu.addSubMenu ("Slice", sliceMenu, sliceable);
-        }
+        menu.addSeparator();
+        addSliceItems (menu, slice);
         menu.addSeparator();
         menu.addSectionHeader ("Factory Samples");
 
@@ -665,7 +725,7 @@ public:
         juce::Component::SafePointer<WaveDisplay> safeThis (this);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
-                            [safeThis, paramId, presets] (int result)
+                            [safeThis, paramId, presets, slice] (int result)
                             {
                                 if (safeThis == nullptr || result <= 0)
                                     return;
@@ -673,6 +733,12 @@ public:
                                 if (result == loadFileItem)
                                 {
                                     safeThis->chooseSampleFile();
+                                    return;
+                                }
+
+                                if (result == reverseSliceItem)
+                                {
+                                    safeThis->toggleSliceReverse (slice);
                                     return;
                                 }
 
@@ -739,6 +805,12 @@ public:
         if (pressInHeader)
             return;
 
+        if (routeDragSlot >= 0)
+        {
+            setRouteDepthFromX (event.position.x);
+            return;
+        }
+
         if (handleDrag != 0)
         {
             setHandleFromX (event.position.x);
@@ -771,12 +843,25 @@ public:
         repaint();
     }
 
-    void mouseUp (const juce::MouseEvent&) override
+    void mouseUp (const juce::MouseEvent& event) override
     {
         stopPreview();
 
         if (std::exchange (pressInHeader, false))
             return;
+
+        if (std::exchange (routeDragSlot, -1) >= 0)
+        {
+            processorRef.endEdit();
+            return;
+        }
+
+        if ((compact || slim) && dragging && isTableMode() && ! subTableMapping && ! event.mouseWasDraggedSinceMouseDown())
+        {
+            stack3d = ! stack3d;
+            updateViewButtons();
+            repaint();
+        }
 
         if (const auto marker = std::exchange (markerDrag, 0); marker > 0)
         {
@@ -946,7 +1031,7 @@ public:
             {
                 const auto key = sample.sliceBaseKey + (int) i;
                 const auto label = juce::String ((int) i + 1)
-                                   + (nextX - x > 56.0f ? " " + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
+                                   + (nextX - x > 62.0f ? juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  ")) + juce::MidiMessage::getMidiNoteName (key, true, true, 3) : juce::String());
                 // On a dark tag, so the label reads over the wave's attack.
                 const auto tagWidth = juce::jmin (nextX - x - 4.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 6.0f);
                 const auto tag = juce::Rectangle<float> (x + 2.0f, plot.getY() + 18.0f, tagWidth, 13.0f);
@@ -974,6 +1059,9 @@ public:
     int getOscIndex() const { return oscIndex; }
     bool isDraggingWarp() const { return dragging && canDragWarp(); }
 
+    // Set by a wavetable oscillator's card: a dropped audio file asks what it is for.
+    std::function<void (const juce::File&)> onWavetableDrop;
+
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
         if (files.size() != 1)
@@ -984,6 +1072,46 @@ public:
         return extension == ".wav" || extension == ".aif" || extension == ".aiff"
                || extension == ".flac" || extension == ".ogg" || extension == ".mp3" || extension == ".m4a"
                || extension == ".sf2" || extension == ".sfz";
+    }
+
+    // A modulation source dropped on the picture routes it to this oscillator's FRAME (the knob that used to sit beside it).
+    bool isInterestedInDragSource (const SourceDetails& details) override
+    {
+        return details.description.toString().startsWith ("modsource:") && frameDestination() != Mod::Destination::None && isTableMode();
+    }
+
+    void itemDragEnter (const SourceDetails&) override
+    {
+        sampleDragHover = true;
+        repaint();
+    }
+
+    void itemDragExit (const SourceDetails&) override
+    {
+        sampleDragHover = false;
+        repaint();
+    }
+
+    void itemDropped (const SourceDetails& details) override
+    {
+        sampleDragHover = false;
+        const auto source = details.description.toString().fromFirstOccurrenceOf ("modsource:", false, false).getIntValue();
+        const auto destination = (int) frameDestination();
+
+        for (int slot = 0; slot < Mod::maxSlots; ++slot)
+        {
+            const auto existing = processorRef.readModSlot (slot);
+            if ((int) existing.source == source && existing.destination == destination && existing.aux == Mod::Source::None)
+            {
+                FloatingNote::show (*this, Mod::getSourceNames()[source] + " already drives FRAME (row " + juce::String (slot + 1) + " on MATRIX)");
+                repaint();
+                return;
+            }
+        }
+
+        processorRef.performEdit ("Add modulation", [this, source, destination] { processorRef.assignModSlot (source, destination, 0.35f); });
+        FloatingNote::show (*this, Mod::getSourceNames()[source] + " now drives FRAME");
+        repaint();
     }
 
     void fileDragEnter (const juce::StringArray&, int, int) override
@@ -1009,6 +1137,15 @@ public:
 
         if (! file.existsAsFile())
             return;
+
+        // A wavetable oscillator asks what the audio is for (wavetable, one
+        // of the make-a-table ways, or a sample); everything else takes it as a sample.
+        const auto soundFont = file.hasFileExtension ("sf2") || file.hasFileExtension ("sfz");
+        if (onWavetableDrop != nullptr && ! soundFont && ! isSampleMode() && modeId.isNotEmpty() && readChoice (modeId) == 0)
+        {
+            onWavetableDrop (file);
+            return;
+        }
 
         loadSampleFile (file);
     }
@@ -1069,6 +1206,9 @@ public:
     }
 
 private:
+    bool frameReadout = true;
+    // A click on a table's picture flips between the classic cycle (2D) and the 3D stack of frames.
+    bool stack3d = false;
     // A table whose frames are all the same cycle (a sine operator's): 3D
     // and a frame readout say nothing about it (UI review 7, V7-31).
     bool isStaticTable (const Wavetable* table) const
@@ -1105,10 +1245,12 @@ private:
         // whose frames differ shows as the lit 3D stack, as Serum 2's and
         // Vital's strips do (UI review 17, R17-7).
         if (compact && ! slim)
-            return ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
+            return stack3d && ! singleCycle && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())) ? 1 : 0;
 
         if (singleCycle)
             return 0;
+        if (slim && stack3d && viewMode == 0 && isTableMode() && ! subTableMapping && ! isStaticTable (processorRef.getWavetable (resolveTableIndex())))
+            return 1;
         if (viewMode == 1 && ! (viewPicked && pickedTable == resolveTableIndex()) && isTableMode() && ! subTableMapping
             && isStaticTable (processorRef.getWavetable (resolveTableIndex())))
             return 0;
@@ -1312,12 +1454,15 @@ private:
     SampleChips sampleChips() const
     {
         const auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
-        const auto height = 16.0f;
+        // (Bigger than they were, 26 x 20: about 11 px of glyph in a 20 x 16
+        // chip was a small target and easy to miss, review 21.)
+        const auto height = juce::jmin (18.0f, header.getHeight());
         const auto y = header.getY() + (header.getHeight() - height) * 0.5f;
         SampleChips chips;
-        chips.play = { header.getRight() - 28.0f, y, 28.0f, height };
-        chips.zoomIn = { chips.play.getX() - 3.0f - 20.0f, y, 20.0f, height };
-        chips.zoomOut = { chips.zoomIn.getX() - 2.0f - 20.0f, y, 20.0f, height };
+        // (Wider again, 30 and 36: the header's height is fixed by the plot below it.)
+        chips.play = { header.getRight() - 36.0f, y, 36.0f, height };
+        chips.zoomIn = { chips.play.getX() - 3.0f - 30.0f, y, 30.0f, height };
+        chips.zoomOut = { chips.zoomIn.getX() - 3.0f - 30.0f, y, 30.0f, height };
         return chips;
     }
 
@@ -1742,7 +1887,7 @@ private:
         // (UI review 7, I7-24).
         // A plain sample shows its map too: one box, every key and velocity
         // (S13-1); granular mode reads a position, not zones.
-        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 96.0f)
+        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 80.0f)
             drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)
@@ -1940,6 +2085,23 @@ private:
                 g.fillRect (juce::Rectangle<float> (startX, plot.getY(), juce::jmax (0.0f, endX - startX), plot.getHeight()));
         }
 
+        // The crossfade at the loop seam: a ramp up to the loop end (its width is what the voice
+        // blends, a half of CROSSFADE of the loop), lit stronger toward the seam.
+        if (loop && ! compact)
+        {
+            const auto share = juce::jlimit (0.0f, 1.0f, readPlain (xfadeId));
+            const auto from = ownLoop ? loopFromX : startX, to = ownLoop ? loopToX : endX;
+            const auto width = share * 0.5f * (to - from);
+            if (width > 1.0f)
+            {
+                const auto zone = reverse ? juce::Rectangle<float> (from, plot.getY(), width, plot.getHeight())
+                                          : juce::Rectangle<float> (to - width, plot.getY(), width, plot.getHeight());
+                g.setGradientFill (juce::ColourGradient (traceColour.withAlpha (reverse ? 0.55f : 0.0f), zone.getX(), 0.0f,
+                                                         traceColour.withAlpha (reverse ? 0.0f : 0.55f), zone.getRight(), 0.0f, false));
+                g.fillRect (zone);
+            }
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.55f));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ startX, centreY }));
         g.fillRect (juce::Rectangle<float> (1.5f, plot.getHeight()).withCentre ({ endX, centreY }));
@@ -2062,7 +2224,7 @@ private:
                                                                                + juce::String::fromUTF8 (sample->isSliced() ? " slices \xc2\xb7 " : " zones \xc2\xb7 ")
                                                                            : juce::String())
                                                  + (reverse ? juce::String::fromUTF8 ("reversed \xc2\xb7 ") : juce::String()) + juce::String (loop ? "loop" : "1-shot"),
-                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String());
+                            chipsWidth, sample->loadWarning.isNotEmpty() ? juce::String ("PARTLY LOADED") : juce::String(), true);
         }
     }
 
@@ -2094,10 +2256,16 @@ private:
         const auto xOf = [&] (int key) { return area.getX() + (float) (key - low) * keyWidth; };
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (int key = low; key <= high; key += 12)
+        // A name every octave when they fit, else every second or fourth, so none runs into the next.
+        const auto nameWidth = (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), "C-2") + 6.0f;
+        const auto stride = juce::jmax (1, (int) std::ceil (nameWidth / juce::jmax (1.0f, 12.0f * keyWidth)));
+        auto octave = 0;
+        for (int key = low; key <= high; key += 12, ++octave)
         {
             g.setColour (juce::Colours::white.withAlpha (0.1f));
             g.fillRect (xOf (key), area.getY(), 1.0f, area.getHeight());
+            if (octave % stride != 0)
+                continue;
             g.setColour (IlanaTheme::Ui::text3);
             g.drawText (juce::MidiMessage::getMidiNoteName (key, true, true, 3), juce::Rectangle<float> (xOf (key) + 2.0f, labels.getY(), 40.0f, labels.getHeight()),
                         juce::Justification::centredLeft, false);
@@ -2175,6 +2343,109 @@ private:
         g.fillRoundedRectangle (track.withWidth (track.getWidth() * position), 1.0f);
         g.setColour (traceColour);
         g.fillRoundedRectangle (juce::Rectangle<float> (10.0f, 4.0f).withCentre ({ track.getX() + track.getWidth() * position, track.getCentreY() }), 2.0f);
+
+        drawFrameRoutes (g, track);
+    }
+
+    // The routes into this oscillator's FRAME: each one a band on the scrubber in its source's colour, reaching as far as
+    // the route's depth moves the frame, with a handle at the far end to drag (ilana, 2026-10-21).
+    struct FrameRoute
+    {
+        int slot = -1;
+        Mod::Slot data;
+    };
+
+    std::vector<FrameRoute> frameRoutes() const
+    {
+        std::vector<FrameRoute> routes;
+        const auto destination = frameDestination();
+
+        if (destination == Mod::Destination::None)
+            return routes;
+
+        for (int slot = 0; slot < Mod::maxSlots && routes.size() < 4; ++slot)
+        {
+            const auto data = processorRef.readModSlot (slot);
+            if (data.source != Mod::Source::None && data.destination == (int) destination && ! data.bypass)
+                routes.push_back ({ slot, data });
+        }
+
+        return routes;
+    }
+
+    // Where the route's far end sits on the frame axis (0..1): the set frame plus or minus its depth.
+    static float routeReach (const Mod::Slot& data, float frame)
+    {
+        const auto reach = data.polarity == Mod::Polarity::Negative ? frame - data.depth
+                           : Mod::isBipolarRoute (data)             ? frame + std::abs (data.depth)
+                                                                    : frame + data.depth;
+        return juce::jlimit (0.0f, 1.0f, reach);
+    }
+
+    juce::Rectangle<float> frameTrack() const
+    {
+        const auto plot = wellArea().reduced (10.0f, compact ? 5.0f : 10.0f);
+        return { plot.getX(), plot.getBottom() - 2.0f, plot.getWidth(), 2.0f };
+    }
+
+    bool frameTrackShown() const
+    {
+        if (! isTableMode() || subTableMapping)
+            return false;
+
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+        return table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table);
+    }
+
+    void drawFrameRoutes (juce::Graphics& g, juce::Rectangle<float> track) const
+    {
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+        const auto xAt = [&track] (float proportion) { return track.getX() + track.getWidth() * proportion; };
+
+        for (const auto& route : frameRoutes())
+        {
+            const auto colour = modSourceColour ((int) route.data.source);
+            const auto reach = routeReach (route.data, frame);
+            const auto low = Mod::isBipolarRoute (route.data) ? juce::jlimit (0.0f, 1.0f, frame - std::abs (route.data.depth)) : juce::jmin (frame, reach);
+            const auto high = Mod::isBipolarRoute (route.data) ? reach : juce::jmax (frame, reach);
+            g.setColour (colour.withAlpha (0.4f));
+            g.fillRoundedRectangle ({ xAt (low), track.getCentreY() - 3.0f, juce::jmax (1.0f, xAt (high) - xAt (low)), 6.0f }, 3.0f);
+            const auto handle = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ xAt (reach), track.getCentreY() });
+            g.setColour (IlanaTheme::Ui::bg);
+            g.fillEllipse (handle.expanded (1.5f));
+            g.setColour (colour);
+            g.fillEllipse (handle);
+        }
+    }
+
+    // The slot whose handle is under the pointer, else -1.
+    int routeHandleAt (juce::Point<float> position) const
+    {
+        if (! frameTrackShown())
+            return -1;
+
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+
+        for (const auto& route : frameRoutes())
+        {
+            const auto x = track.getX() + track.getWidth() * routeReach (route.data, frame);
+            if (std::abs (position.x - x) <= 8.0f && std::abs (position.y - track.getCentreY()) <= 9.0f)
+                return route.slot;
+        }
+
+        return -1;
+    }
+
+    void setRouteDepthFromX (float x)
+    {
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+        const auto data = processorRef.readModSlot (routeDragSlot);
+        const auto along = (x - track.getX()) / juce::jmax (1.0f, track.getWidth()) - frame;
+        const auto depth = data.polarity == Mod::Polarity::Negative ? -along : Mod::isBipolarRoute (data) ? std::abs (along) : along;
+        processorRef.setModSlotValue (routeDragSlot, "amt", juce::jlimit (-1.0f, 1.0f, depth));
+        repaint();
     }
 
     // The parameter with whatever modulates it right now (LFOs, envelopes,
@@ -2343,14 +2614,17 @@ private:
         const auto currentFrame = juce::jlimit (0, numFrames - 1,
                                                 (int) std::round (frame * (float) (numFrames - 1)));
 
+        const auto warped = hasWarp();
+        const auto stages = readWarp();
+
         for (int f = numFrames - 1; f >= 0; --f)
         {
             const auto depth = numFrames > 1 ? (float) f / (float) (numFrames - 1) : 0.0f;
             const auto inset = plot.getWidth() * 0.08f * depth;
             // The front frame's troughs stay inside the plot (on a tall
             // plot a fixed 6 px margin let them run under the frame readout).
-            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.15f) - depth * plot.getHeight() * 0.62f;
-            const auto amplitude = plot.getHeight() * 0.15f * (1.0f - depth * 0.35f);
+            const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.2f) - depth * plot.getHeight() * 0.66f;
+            const auto amplitude = plot.getHeight() * 0.19f * (1.0f - depth * 0.35f);
             const auto* data = table->getFrameData (0, f);
             const auto highlight = f == currentFrame;
 
@@ -2361,7 +2635,8 @@ private:
             for (int x = 0; x < width; x += 2)
             {
                 const auto sampleIndex = juce::jlimit (1, Wavetable::frameSize, x * step + 1);
-                const auto sample = data[sampleIndex];
+                const auto sample = warped ? warpedSampleAt (stages, data, (double) x / (double) juce::jmax (1, width - 1))
+                                           : data[sampleIndex];
                 const auto px = plot.getX() + inset + (float) x;
                 const auto py = baseline - sample * amplitude;
 
@@ -2454,6 +2729,31 @@ private:
         return stages.amount1 > 0.0f || stages.amount2 > 0.0f;
     }
 
+    // A frame's value at a cycle position with the card's warp stages on it (the picture of what the oscillator reads).
+    static float warpedSampleAt (const WarpStages& stages, const float* data, double position)
+    {
+        const auto applyStage = [] (int mode, float amount, double phase, bool& silent, float& gain)
+        {
+            if (amount <= 0.0f)
+                return phase;
+
+            if (Warp::isPhaseDistortion (mode))
+                return Warp::applyPhaseDistortion (mode, amount, phase, gain);
+
+            return Warp::apply (mode, amount, phase, silent);
+        };
+
+        auto silent = false;
+        auto gain = 1.0f, gain2 = 1.0f;
+        auto phase = juce::jlimit (0.0, 0.999999, position);
+        phase = applyStage (stages.mode1, stages.amount1, phase, silent, gain);
+        if (! silent)
+            phase = applyStage (stages.mode2, stages.amount2, phase, silent, gain2);
+
+        const auto index = (int) (phase * (double) Wavetable::frameSize);
+        return silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+    }
+
     void drawWarpedFrame (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot,
                           float centreY, float halfHeight) const
     {
@@ -2466,28 +2766,9 @@ private:
         const auto* data = table->getFrameData (0, frameIndex);
         juce::Path path;
 
-        const auto applyStage = [] (int mode, float amount, double phase, bool& silent, float& gain)
-        {
-            if (amount <= 0.0f)
-                return phase;
-
-            if (Warp::isPhaseDistortion (mode))
-                return Warp::applyPhaseDistortion (mode, amount, phase, gain);
-
-            return Warp::apply (mode, amount, phase, silent);
-        };
-
         for (int x = 0; x < width; ++x)
         {
-            auto silent = false;
-            auto gain = 1.0f, gain2 = 1.0f;
-            auto phase = juce::jlimit (0.0, 0.999999, (double) x / (double) (width - 1));
-            phase = applyStage (stages.mode1, stages.amount1, phase, silent, gain);
-            if (! silent)
-                phase = applyStage (stages.mode2, stages.amount2, phase, silent, gain2);
-
-            const auto index = (int) (phase * (double) Wavetable::frameSize);
-            const auto sample = silent ? 0.0f : data[juce::jlimit (1, Wavetable::frameSize, index + 1)] * gain * gain2;
+            const auto sample = warpedSampleAt (stages, data, (double) x / (double) (width - 1));
             const auto y = centreY - sample * halfHeight;
 
             if (x == 0)
@@ -2568,12 +2849,12 @@ private:
     // A title and a quieter caption in the header line; the caption only
     // where both fit (with a gap).
     void drawHeaderText (juce::Graphics& g, const juce::String& title, const juce::String& caption, float rightReserve = 0.0f,
-                         const juce::String& warning = {}) const
+                         const juce::String& warning = {}, bool largeCaption = false) const
     {
         auto header = getLocalBounds().toFloat().removeFromTop ((float) headerHeight).reduced (4.0f, 0.0f);
         header.removeFromRight (rightReserve);
         const juce::Font titleFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-        const juce::Font captionFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        const juce::Font captionFont (IlanaTheme::font (largeCaption ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::tiny));
         auto titleWidth = juce::GlyphArrangement::getStringWidth (titleFont, title);
         const auto captionWidth = juce::GlyphArrangement::getStringWidth (captionFont, caption);
 
@@ -2599,7 +2880,8 @@ private:
 
         g.setColour (traceColour);
         g.setFont (titleFont);
-        if (warningTagArea.isEmpty())
+        // (A name that would be cut to a stub is left out: the card's header box names the sample.)
+        if (warningTagArea.isEmpty() && titleWidth <= header.getWidth())
             g.drawText (title, header, juce::Justification::centredLeft, true);
 
         if (caption.isNotEmpty() && titleWidth + captionWidth + 14.0f <= header.getWidth())
@@ -2860,13 +3142,15 @@ private:
     juce::uint64 modeEpoch = ~(juce::uint64) 0;
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
+    int routeDragSlot = -1; // the FRAME route whose handle is being dragged
     int oscIndex = 0;
-    juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, snapId;
+    juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, xfadeId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave
     int markerDrag = 0; // step 32: 1.. the slice marker being dragged
     float markerDragFraction = 0.0f;
     static constexpr int sliceItemBase = 30000, sliceOffItem = 30001, sliceMarkersItem = 30002, sliceFewerItem = 30011,
-                         sliceMediumItem = 30012, sliceMoreItem = 30013, sliceEqualItem = 30100, sliceKeyItem = 30300;
+                         sliceMediumItem = 30012, sliceMoreItem = 30013, sliceEqualItem = 30100, sliceKeyItem = 30300,
+                         reverseSliceItem = 30900;
     juce::Colour traceColour;
     bool followsTheme = false;
     mutable juce::Rectangle<float> warningTagArea; // step 43: PARTLY LOADED in the header, for its tooltip

@@ -526,6 +526,7 @@ inline void checkSpectralModulation()
         processor.setNonRealtime (true);
         setParam (processor, "osc1_spectral", 1.0f); // Stretch
         setParam (processor, "osc1_spectral_amt", 0.0f);
+        setParam (processor, "f1_env", 1.5f); // the old default sweep, so the tone is what it was
         setParam (processor, "macro1", macro);
         if (routed)
         {

@@ -270,6 +270,22 @@ inline void runOscRoutingUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         expect (processor.getRoutePatch() == processor.getChainAsCables(), "RESET puts the standard routing back as cables");
     }
 
+    // The physical body is a box too: cabled in front of Filter 1 it sits left of it.
+    {
+        Patch bodyFirst = defaultPatch();
+        bodyFirst.source.fill (toBody);
+        bodyFirst.stage[body] = toF1;
+        processor.performEdit ("test", [&] { processor.setRouteCables (bodyFirst, true); });
+        settle (400);
+        const auto& graph = view->getGraph();
+        const auto* b = nodeNamed (graph, "BODY");
+        const auto* f1 = nodeNamed (graph, "FILTER 1");
+        expect (b != nullptr && f1 != nullptr && b->x < f1->x, "BODY cabled before Filter 1 sits left of it");
+        expect (processor.getRoutePatch() == bodyFirst, "the BODY cables are saved in the parameters");
+        processor.performEdit ("test", [&] { processor.setRouteCables (processor.getChainAsCables(), true); });
+        settle (300);
+    }
+
     // While the rack plays, the page shows the rack as it is, not a graph
     // an earlier patcher session left behind.
     {

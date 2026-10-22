@@ -587,13 +587,13 @@ public:
 
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+        // (Review 22: two plain lines, not three starting with "or".)
         const char* const tips[] {
-            "Drag a source chip from the bar below onto any knob",
-            "or right-click a knob for quick modulation",
-            "or press  + ADD MODULATION  above to build a routing here"
+            "Drag a source chip from the bar below onto any knob,",
+            "right-click a knob for quick modulation, or press  + ADD MODULATION  above"
         };
 
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 2; ++i)
             g.drawText (tips[i], card.withTrimmedTop (136.0f + (float) i * 22.0f).withHeight (20.0f), juce::Justification::centred);
 
         g.setColour (IlanaTheme::Ui::text);
@@ -924,7 +924,7 @@ private:
 
         // Number the rows as shown, and mark repeated source / destination
         // pairs (older patches can have them; both rows still play).
-        std::map<std::pair<int, int>, std::vector<int>> pairs;
+        std::map<std::tuple<int, int, int>, std::vector<int>> pairs; // source, destination, via
         auto anyVia = false;
 
         for (size_t i = 0; i < used.size(); ++i)
@@ -933,7 +933,7 @@ private:
             anyVia = anyVia || slot.aux != Mod::Source::None;
 
             if (slot.source != Mod::Source::None && slot.destination != 0)
-                pairs[{ (int) slot.source, slot.destination }].push_back ((int) i + 1);
+                pairs[{ (int) slot.source, slot.destination, (int) slot.aux }].push_back ((int) i + 1);
         }
 
         auto duplicates = 0;
@@ -943,7 +943,7 @@ private:
             const auto slot = processorRef.readModSlot (used[i]);
             juce::StringArray others;
 
-            if (const auto found = pairs.find ({ (int) slot.source, slot.destination }); found != pairs.end() && slot.destination != 0)
+            if (const auto found = pairs.find ({ (int) slot.source, slot.destination, (int) slot.aux }); found != pairs.end() && slot.destination != 0)
                 for (const auto number : found->second)
                     if (number != (int) i + 1)
                         others.add (juce::String (number));

@@ -41,6 +41,10 @@ public:
                                                            AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
                                                            { return String (roundToInt (v)) + juce::String::fromUTF8 ("\xc2\xb0"); })));
         layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "lfo_polarity", 1 }, "Polarity", StringArray { "Bipolar", "Unipolar" }, 0));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "lfo_smooth", 1 }, "Smooth", NormalisableRange<float> (0.0f, 100.0f, 1.0f), 0.0f,
+                                                           AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+                                                           { return v <= 0.0f ? String ("Off") : String (roundToInt (v)) + "%"; })));
+        layout.add (std::make_unique<AudioParameterBool> (ParameterID { "lfo_retrig", 1 }, "Retrigger", false));
         state = std::make_unique<AudioProcessorValueTreeState> (holder, nullptr, "FxLfo", std::move (layout));
 
         const auto colour = fxLfoColour (id);
@@ -51,14 +55,18 @@ public:
         depth = std::make_unique<KnobControl> (*state, "lfo_depth", "DEPTH", colour, false);
         phase = std::make_unique<KnobControl> (*state, "lfo_phase", "PHASE", colour, false);
         polarity = std::make_unique<ComboControl> (*state, "lfo_polarity", "POLARITY");
-        for (auto* knob : { rate.get(), depth.get(), phase.get() })
+        smooth = std::make_unique<KnobControl> (*state, "lfo_smooth", "SMOOTH", colour, false);
+        retrig = std::make_unique<ToggleControl> (*state, "lfo_retrig", "RETRIG");
+        for (auto* knob : { rate.get(), depth.get(), phase.get(), smooth.get() })
             knob->setInlineKnob (true);
-        shape->setTooltip ("SHAPE: the LFO's wave. Sample & Hold, Smooth Random, Drunk and Chaos are random.");
+        shape->setTooltip ("SHAPE: the LFO's wave. Sample & Hold, Smooth Random, Drunk and Chaos are random. Drawn and Steps are yours: draw on the picture.");
         sync->setTooltip ("SYNC: the rate follows the song's tempo, from 8 bars to 1/32 (with the transport playing, in step with the bar).");
         rate->setTooltip ("RATE: how fast it moves, 0.02 to 20 Hz.");
         division->setTooltip ("RATE: one cycle per this much of the bar.");
         depth->setTooltip ("DEPTH: how far it moves every knob it is assigned to (each knob has its own amount on the cable).");
         phase->setTooltip ("PHASE: where in its cycle it starts (with SYNC, against the bar).");
+        smooth->setTooltip ("SMOOTH: glides the LFO's output, as a fraction of a cycle. Turns Square, Sample & Hold and Steps into slewed curves.");
+        retrig->setTooltip ("RETRIG: every note starts the LFO's cycle again, from PHASE. With SYNC and the transport playing, the bar decides instead.");
         polarity->setTooltip ("POLARITY: Bipolar moves a knob both ways round where it is set; Unipolar moves it one way from there.");
 
         show();
@@ -78,6 +86,8 @@ public:
         depth.reset();
         phase.reset();
         polarity.reset();
+        smooth.reset();
+        retrig.reset();
         if (gestureOpen)
             processorRef.endEdit();
     }
@@ -101,6 +111,8 @@ public:
         set ("lfo_depth", s.depth * 100.0f);
         set ("lfo_phase", s.phase * 360.0f);
         set ("lfo_polarity", s.bipolar ? 0.0f : 1.0f);
+        set ("lfo_smooth", s.smooth * 100.0f);
+        set ("lfo_retrig", s.retrig ? 1.0f : 0.0f);
         shown = s;
     }
 
@@ -111,12 +123,12 @@ public:
     std::vector<juce::Component*> windowItems() const
     {
         return { shape.get(), sync.get(), shown.sync ? (juce::Component*) division.get() : (juce::Component*) rate.get(), depth.get(),
-                 phase.get(), polarity.get() };
+                 smooth.get(), phase.get(), polarity.get(), retrig.get() };
     }
 
     std::vector<juce::Component*> allItems() const
     {
-        return { shape.get(), sync.get(), rate.get(), division.get(), depth.get(), phase.get(), polarity.get() };
+        return { shape.get(), sync.get(), rate.get(), division.get(), depth.get(), phase.get(), polarity.get(), smooth.get(), retrig.get() };
     }
 
     std::function<void()> onLayoutChanged; // SYNC flipped: RATE becomes a menu or a knob
@@ -148,6 +160,9 @@ private:
         s.depth = get ("lfo_depth") / 100.0f;
         s.phase = juce::jlimit (0.0f, 1.0f, get ("lfo_phase") / 360.0f);
         s.bipolar = get ("lfo_polarity") < 0.5f;
+        s.smooth = get ("lfo_smooth") / 100.0f;
+        s.retrig = get ("lfo_retrig") > 0.5f;
+        s.drawn = shown.drawn; // (drawn on the picture, not a control)
         return s.sanitised();
     }
 
@@ -186,8 +201,8 @@ private:
     FxInstance::ShadowProcessor holder;
     std::unique_ptr<juce::AudioProcessorValueTreeState> state;
     std::unique_ptr<ComboControl> shape, division, polarity;
-    std::unique_ptr<ToggleControl> sync;
-    std::unique_ptr<KnobControl> rate, depth, phase;
+    std::unique_ptr<ToggleControl> sync, retrig;
+    std::unique_ptr<KnobControl> rate, depth, phase, smooth;
     FxLfo::Settings shown;
     bool syncing = false, gestureOpen = false;
 };
@@ -196,8 +211,10 @@ private:
 // The wave an LFO box makes: two cycles of its shape in the shared trace
 // style (DisplayStyle.h), DEPTH and POLARITY applied, with a dot riding it.
 // The random shapes show a representative picture, as the LFO page does.
-inline float fxLfoPictureValue (int shape, double phase)
+inline float fxLfoPictureValue (const FxLfo::Settings& settings, int shape, double phase)
 {
+    if (FxLfo::isDrawnShape (shape))
+        return FxLfo::drawnValue (settings.drawn, phase, shape == LfoShapes::Steps);
     if (shape == LfoShapes::SampleHold)
     {
         // (One held value per cycle, as it plays: four cycles shown.)
@@ -209,7 +226,7 @@ inline float fxLfoPictureValue (int shape, double phase)
 }
 
 inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, const FxLfo::Settings& settings, juce::Colour colour,
-                            float livePhase, bool showDot, bool withArea)
+                            float livePhase, bool showDot, bool withArea, bool detailed = false)
 {
     const auto shape = FxLfo::shapeOf (settings.shape);
     const auto cycles = 2.0;
@@ -217,17 +234,99 @@ inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, cons
     const auto half = settings.bipolar ? plot.getHeight() * 0.5f : plot.getHeight();
     const auto yOf = [&] (float shapeValue) { return centreY - FxLfo::output (settings, shapeValue) * half; };
 
+    // SMOOTH glides the wave (as the engine does: a glide of SMOOTH x a cycle), so the
+    // picture shows it: a one-pole over points a pixel apart, run over the cycle before.
+    const auto pixels = juce::jmax (2, (int) plot.getWidth());
+    const auto perPixel = cycles / (double) pixels;
+    const auto glideBy = settings.smooth > 0.0f ? 1.0 - std::exp (-perPixel / (double) settings.smooth) : 1.0;
+    const auto valueAt = [&] (double phase)
+    {
+        if (settings.smooth <= 0.0f)
+            return fxLfoPictureValue (settings, shape, phase);
+        auto glided = (double) fxLfoPictureValue (settings, shape, phase - 1.0);
+        for (int k = (int) ((double) pixels / cycles); k >= 0; --k)
+            glided += ((double) fxLfoPictureValue (settings, shape, phase - (double) k * perPixel) - glided) * glideBy;
+        return (float) glided;
+    };
+
     // The zero line (where the knob is set) under the trace.
     g.setColour (IlanaTheme::Ui::line);
     g.fillRect (plot.getX(), std::round (centreY) - 0.5f, plot.getWidth(), 1.0f);
 
+    // The big picture (the LFO window, as the MOD page's LFO: ilana
+    // 2026-10-15, "visualization parity"): +1 / 0 / -1 against the zero line
+    // with faint rails, the live reading above and the time under it.
+    if (detailed)
+    {
+        const auto tiny = IlanaTheme::font (IlanaTheme::TextSize::tiny);
+        g.setFont (tiny);
+        const auto label = [&] (const juce::String& text, float y)
+        {
+            g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+            g.drawText (text, juce::Rectangle<float> (plot.getX() - 26.0f, y - 6.0f, 22.0f, 12.0f), juce::Justification::centredRight);
+        };
+        const auto rail = [&] (float y)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.fillRect (plot.getX(), std::round (y) - 0.5f, plot.getWidth(), 1.0f);
+        };
+        rail (centreY - half);
+        label ("+1", centreY - half);
+        if (settings.bipolar)
+        {
+            rail (centreY + half);
+            label ("0", centreY);
+            label ("-1", centreY + half);
+        }
+        else
+            label ("0", centreY);
+
+        const auto cycleSeconds = settings.sync ? 0.0 : 1.0 / (double) settings.rateHz;
+        for (int tick = 0; tick <= 4; ++tick)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) tick / 4.0f;
+            juce::String text;
+            if (settings.sync)
+                text = tick == 0 ? juce::String ("0") : tick == 2 ? FxLfo::rateText (settings) : tick == 4 ? "2 x " + FxLfo::rateText (settings) : juce::String();
+            else
+            {
+                const auto ms = cycleSeconds * 2.0 * 1000.0 * (double) tick / 4.0;
+                text = ms >= 1000.0 ? juce::String (ms / 1000.0, 1) + " s" : juce::String (juce::roundToInt (ms)) + " ms";
+            }
+            if (text.isNotEmpty())
+            {
+                g.setColour (IlanaTheme::Ui::text3.withAlpha (0.8f));
+                g.drawText (text, juce::Rectangle<float> (x - 30.0f, plot.getBottom() + 3.0f, 60.0f, 12.0f), juce::Justification::centred);
+            }
+        }
+
+        const auto phase = (double) livePhase;
+        const auto value = FxLfo::output (settings, valueAt (phase));
+        const auto readout = juce::String ("PHASE ") + juce::String (phase - std::floor (phase), 2) + juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  VALUE "))
+                             + (value >= 0.0f ? "+" : "") + juce::String (value, 2);
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+        g.drawText (readout, juce::Rectangle<float> (plot.getX(), plot.getY() - 15.0f, plot.getWidth(), 12.0f), juce::Justification::centredLeft);
+        if (FxLfo::isDrawnShape (shape))
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("DRAW HERE  |  DOUBLE-CLICK RESETS", juce::Rectangle<float> (plot.getX(), plot.getY() - 15.0f, plot.getWidth(), 12.0f),
+                        juce::Justification::centredRight);
+        }
+    }
+
     juce::Path path;
     const auto width = juce::jmax (2, (int) plot.getWidth());
+
+    auto glided = 0.0;
+    if (settings.smooth > 0.0f)
+        glided = (double) valueAt ((double) settings.phase - perPixel);
     for (int x = 0; x <= width; ++x)
     {
         const auto phase = (double) x / (double) width * cycles + (double) settings.phase;
         const auto px = plot.getX() + (float) x * plot.getWidth() / (float) width;
-        const auto py = yOf (fxLfoPictureValue (shape, phase));
+        glided += ((double) fxLfoPictureValue (settings, shape, phase) - glided) * glideBy;
+        const auto py = yOf (settings.smooth > 0.0f ? (float) glided : fxLfoPictureValue (settings, shape, phase));
         if (x == 0)
             path.startNewSubPath (px, py);
         else
@@ -242,7 +341,7 @@ inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, cons
         // The live phase (it already carries PHASE) on the first cycle.
         const auto phase = (double) livePhase;
         const auto x = plot.getX() + (float) (phase - (double) settings.phase - std::floor (phase - (double) settings.phase)) / (float) cycles * plot.getWidth();
-        const auto y = yOf (fxLfoPictureValue (shape, phase));
+        const auto y = yOf (valueAt (phase));
         g.setColour (colour);
         g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ x, y }));
         g.setColour (IlanaTheme::Ui::panel);
@@ -253,19 +352,121 @@ inline void paintFxLfoWave (juce::Graphics& g, juce::Rectangle<float> plot, cons
 class FxLfoDisplay : public juce::Component
 {
 public:
-    FxLfoDisplay (IlanaSynthAudioProcessor& p, const FxLfoControls& c) : processorRef (p), controls (c) {}
+    FxLfoDisplay (IlanaSynthAudioProcessor& p, FxLfoControls& c) : processorRef (p), controls (c) {}
 
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
         IlanaTheme::paintWell (g, bounds, 6.0f);
-        paintFxLfoWave (g, bounds.reduced (10.0f, 8.0f), controls.settings(), fxLfoColour (controls.id), processorRef.getFxLfoPhase (controls.id),
-                        true, true);
+        const auto detailed = bounds.getHeight() >= 100.0f;
+        paintFxLfoWave (g, plotArea(), live.has_value() ? *live : controls.settings(), fxLfoColour (controls.id),
+                        processorRef.getFxLfoPhase (controls.id), true, true, detailed);
+    }
+
+    // Drawn and Steps are drawn on the picture (the big one in the window):
+    // a drag sets the points under the pointer, a double-click gives back the sine.
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! canDraw())
+            return;
+        if (e.getNumberOfClicks() > 1)
+        {
+            auto next = controls.settings();
+            next.drawn = FxLfo::defaultDrawn();
+            processorRef.performEdit (fxLfoName (controls.id) + " drawing", [this, next] { processorRef.setFxLfoSettings (controls.id, next); });
+            controls.show();
+            repaint();
+            return;
+        }
+        processorRef.beginEdit (fxLfoName (controls.id) + " drawing");
+        editing = true;
+        live = controls.settings();
+        lastIndex = -1;
+        drawAt (e.position);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (editing)
+            drawAt (e.position);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! editing)
+            return;
+        editing = false;
+        processorRef.endEdit();
+        live.reset();
+        controls.show();
+        repaint();
+    }
+
+    // (Not drawable: the click goes through to the window or the page under it.)
+    bool hitTest (int x, int y) override { return canDraw() && juce::Component::hitTest (x, y); }
+
+    juce::MouseCursor getMouseCursor() override
+    {
+        return canDraw() ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor;
     }
 
 private:
+    bool canDraw() const { return getHeight() >= 100 && FxLfo::isDrawnShape (FxLfo::shapeOf (controls.settings().shape)); }
+
+    juce::Rectangle<float> plotArea() const
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        return bounds.getHeight() >= 100.0f ? bounds.reduced (34.0f, 8.0f).withTrimmedTop (16.0f).withTrimmedBottom (16.0f)
+                                            : bounds.reduced (10.0f, 8.0f);
+    }
+
+    // The pointer's place as a point of the drawn table and a value, as the picture shows them.
+    void drawAt (juce::Point<float> position)
+    {
+        if (! live.has_value())
+            return;
+        auto& settings = *live;
+        const auto plot = plotArea();
+        const auto cycles = 2.0;
+        const auto stepped = FxLfo::shapeOf (settings.shape) == LfoShapes::Steps;
+        const auto along = juce::jlimit (0.0, 1.0, (double) ((position.x - plot.getX()) / plot.getWidth())) * cycles + (double) settings.phase;
+        const auto tablePhase = along - std::floor (along);
+        const auto index = juce::jlimit (0, FxLfo::drawSteps - 1, stepped ? (int) (tablePhase * FxLfo::drawSteps)
+                                                                         : juce::roundToInt (tablePhase * FxLfo::drawSteps) % FxLfo::drawSteps);
+
+        // Back from the picture to the shape's value: undo POLARITY and DEPTH.
+        const auto centreY = settings.bipolar ? plot.getCentreY() : plot.getBottom();
+        const auto half = settings.bipolar ? plot.getHeight() * 0.5f : plot.getHeight();
+        const auto output = juce::jlimit (-1.0f, 1.0f, (centreY - position.y) / half);
+        const auto depth = juce::jmax (0.05f, settings.depth);
+        const auto value = juce::jlimit (-1.0f, 1.0f, settings.bipolar ? output / depth : 2.0f * output / depth - 1.0f);
+
+        // Every point the pointer passed since the last event (the short way round).
+        auto from = lastIndex < 0 ? index : lastIndex;
+        auto delta = index - from;
+        if (delta > FxLfo::drawSteps / 2)
+            delta -= FxLfo::drawSteps;
+        else if (delta < -FxLfo::drawSteps / 2)
+            delta += FxLfo::drawSteps;
+        const auto steps = std::abs (delta);
+        for (int k = 0; k <= steps; ++k)
+        {
+            const auto at = ((from + (delta < 0 ? -k : k)) % FxLfo::drawSteps + FxLfo::drawSteps) % FxLfo::drawSteps;
+            const auto blend = steps == 0 ? 1.0f : (float) k / (float) steps;
+            settings.drawn[(size_t) at] = lastIndex < 0 ? value : lastValue + (value - lastValue) * blend;
+        }
+        lastIndex = index;
+        lastValue = value;
+        processorRef.setFxLfoSettings (controls.id, settings.sanitised());
+        repaint();
+    }
+
     IlanaSynthAudioProcessor& processorRef;
-    const FxLfoControls& controls;
+    FxLfoControls& controls;
+    std::optional<FxLfo::Settings> live;
+    bool editing = false;
+    int lastIndex = -1;
+    float lastValue = 0.0f;
 };
 
 //==============================================================================
@@ -287,7 +488,7 @@ public:
         for (auto* item : controls.allItems())
             addChildComponent (item);
         controls.onLayoutChanged = [safe = juce::Component::SafePointer<FxLfoWindow> (this)] { if (safe != nullptr) safe->resized(); };
-        const auto rows = 2;
+        const auto rows = 3;
         setSize (3 * cellWidth + 2 * gap + 2 * pad, titleHeight + displayHeight + gap + rows * cellHeight + (rows - 1) * gap + pad);
     }
 
@@ -367,7 +568,7 @@ public:
 
 private:
     // (The effect windows' grid: FxMiniWindow.)
-    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, cellWidth = 116, cellHeight = 44;
+    static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 124, cellWidth = 116, cellHeight = 44;
 
     struct Constrainer : juce::ComponentBoundsConstrainer
     {

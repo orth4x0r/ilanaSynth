@@ -71,9 +71,11 @@ public:
         auto area = compact ? bounds.reduced (8.0f, 8.0f) : bounds.reduced (18.0f, 14.0f);
         // The body a slim band under the string, so the string keeps the
         // room (UI review 7, S7-39).
-        const auto bodyArea = area.removeFromBottom (compact ? juce::jlimit (10.0f, 18.0f, area.getHeight() * 0.2f)
-                                                             : juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
-        area.removeFromBottom (compact ? 4.0f : 8.0f);
+        // (The compact picture, PLAY's, has no band at all while there is no body: the string takes it.)
+        const auto noBandNeeded = compact && ! hasBody();
+        const auto bodyArea = area.removeFromBottom (noBandNeeded ? 0.0f : compact ? juce::jlimit (10.0f, 18.0f, area.getHeight() * 0.2f)
+                                                                                    : juce::jlimit (26.0f, 48.0f, area.getHeight() * 0.16f));
+        area.removeFromBottom (noBandNeeded ? 0.0f : compact ? 4.0f : 8.0f);
         // The page's picture keeps a footer for the string's ruler (A16-4).
         const auto footer = compact ? juce::Rectangle<float>() : area.removeFromBottom (13.0f);
         const auto stringY = area.getCentreY() + area.getHeight() * 0.12f;
@@ -227,7 +229,7 @@ public:
             }
             g.setColour (IlanaTheme::Ui::text2);
         }
-        else
+        else if (! noBandNeeded)
         {
             juce::Path outline;
             outline.addRoundedRectangle (bodyArea, 10.0f);
@@ -291,7 +293,7 @@ private:
 
     juce::String bodyName() const
     {
-        const juce::StringArray bodies { "CLASSIC BODY", "BAR", "PLATE", "BELL", "SHELL" };
+        const juce::StringArray bodies { "CLASSIC BODY", "BAR", "PLATE", "BELL", "SHELL", "GUITAR BODY" };
         const auto type = (int) readGlobal ("body_type");
         if (readGlobal ("sb_on") > 0.5f)
             return readGlobal ("sb_model") > 0.5f ? "SOUNDBOARD (DENSE)" : "SOUNDBOARD";
@@ -433,12 +435,12 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     exciter.push_back ({ "_string_excite_pos", "POSITION" });
 
     if (plucked)
-        exciter.insert (exciter.end(), { { "_string_pick_hardness", "HARDNESS" }, { "_string_pick_pos", "PICK POS" } });
+        exciter.push_back ({ "_string_pick_hardness", "HARDNESS" }); // (PICK POS merged into POSITION)
 
     if (excite == 5 || piano)
         exciter.push_back ({ "_hammer_hard", "HAMMER" });
     else if (excite == 4)
-        exciter.insert (exciter.end(), { { "_bow_pressure", "BOW PRESS" }, { "_bow_speed", "BOW SPEED" } });
+        exciter.insert (exciter.end(), { { "_bow_pressure", "GRIP" }, { "_bow_speed", "SPEED" } });
     else if (excite == 10)
         exciter.insert (exciter.end(), { { "_fb_gain", "AMP GAIN" }, { "_fb_distance", "DISTANCE" } });
 

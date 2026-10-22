@@ -241,10 +241,28 @@ void runM74WavetableEditorTests()
     {
         IlanaSynthAudioProcessor processor;
         auto* table = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table"));
-        check (table != nullptr && table->choices.size() == factoryCount + 16
+        check (table != nullptr && table->choices.size() >= factoryCount + IlanaSynthAudioProcessor::numUserSlots
                    && table->choices[factoryCount] == "User 1" && table->choices[factoryCount + 3] == "User 4"
-                   && table->choices[factoryCount + 15] == "User 16",
-               "16 patch tables: User 5-16 are appended after User 1-4");
+                   && table->choices[factoryCount + 255] == "User 256",
+               "256 patch tables: User 5-256 are appended after User 1-4");
+    }
+
+    // Slots past the old 16: a table in User 200 plays on an oscillator and survives a save and load.
+    {
+        IlanaSynthAudioProcessor processor;
+        auto doc = WavetableDoc::fromFactory (3);
+        doc.name = "High slot";
+        const auto stored = processor.setUserTable (200, doc);
+        if (auto* table = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table")))
+            table->setValueNotifyingHost (table->convertTo0to1 ((float) (factoryCount + 200)));
+        juce::MemoryBlock state;
+        processor.getStateInformation (state);
+        IlanaSynthAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (stored && restored.isUserSlotEdited (200) && ! restored.isUserSlotEdited (199)
+                   && restored.getUserTableDoc (200).name == "High slot"
+                   && restored.getWavetable (factoryCount + 200) != nullptr,
+               "User 200 holds a table and keeps it through a save and load");
     }
 
     // Formulas.

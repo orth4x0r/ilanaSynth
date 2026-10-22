@@ -964,8 +964,21 @@ public:
         }
     }
 
+    // A small pill with just this name (PLAY's carousels): a dot, or the route count, then the name.
+    void setCompactLabel (const juce::String& text)
+    {
+        compactLabel = text;
+        repaint();
+    }
+
     void paint (juce::Graphics& g) override
     {
+        if (compactLabel.isNotEmpty())
+        {
+            paintCompact (g);
+            return;
+        }
+
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
         const auto colour = sourceTabColour (source);
         const auto hot = isMouseOver() || selected;
@@ -1037,10 +1050,34 @@ public:
     }
 
 private:
+    void paintCompact (juce::Graphics& g) const
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto colour = sourceTabColour (source);
+        const auto hot = isMouseOver() || selected;
+        const auto radius = bounds.getHeight() * 0.5f;
+        if (selected)
+        {
+            g.setColour (colour);
+            g.fillRoundedRectangle (bounds, radius);
+        }
+        else
+        {
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, isMouseOver() ? 0.12f : 0.0f));
+            g.fillRoundedRectangle (bounds, radius);
+            g.setColour (colour.withAlpha (0.55f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        }
+        g.setColour (selected ? IlanaTheme::Ui::header : (hot ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2));
+        g.setFont (IlanaTheme::font (8.5f, true));
+        IlanaTheme::drawFitted (g, compactLabel, getLocalBounds().reduced (3, 0), juce::Justification::centred, 1);
+    }
+
     IlanaSynthAudioProcessor& processorRef;
     int source = 0;
     int routes = 0;
     bool selected = false;
+    juce::String compactLabel;
 };
 
 // PLAY's MODULATION card (option 1 of the 2026-10-09 plan, after Serum 2's

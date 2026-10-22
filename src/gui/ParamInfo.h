@@ -377,7 +377,9 @@ inline juce::String noteName (const juce::String&, float value)
 // A ratio as the FM page's diagram and headers write it (review 7, I7-33).
 inline juce::String ratio (const juce::String&, float value)
 {
-    return times() + juce::String (std::round (value * 100.0f) / 100.0f, 2);
+    // (From 10 up a whole number: "x14" fits the packed knob's ring at every zoom.)
+    const auto rounded = std::round (value * 100.0f) / 100.0f;
+    return times() + (rounded < 10.0f ? juce::String (rounded, 2) : juce::String ((int) std::round (value)));
 }
 
 inline juce::String fixedHertz (const juce::String&, float value)
@@ -511,6 +513,8 @@ inline const ValueRow valueRows[] {
     { is ("fx_feedback_tone|fx_flanger_depth|fx_dim_depth|fx_gate_smooth|fx_trem_depth|fx_delay_duck|fx_chorus_depth|fx_delay_wow"
           "|fx_phaser_depth|fx_reverb_size|fx_amp_bass|fx_amp_mid|fx_amp_treble|vec_x|vec_y"), Unit::percent },
     { starts ("fx_taps_step|vec_px|vec_py"), Unit::percent },
+    // (Sampler amounts that read "0" and "0.20" without a unit, review 21.)
+    { ends ("_sample_loop_xfade|_sample_start_rand|_sample_vel_blend"), Unit::percent },
     { ends ("_fb_gain|_fb_distance"), Unit::percent },
 
     { ends ("_pan"), ValueTexts::pan },
@@ -606,11 +610,11 @@ inline const ValueRow valueRows[] {
       Unit::fixed1, " dB" },
     { ends ("_gain").also (starts ("fx_eq_")), Unit::fixed1, " dB" },
 
-    { is ("fx_drive_amount|fx_amp_drive"), Unit::times1 },
+    { is ("fx_drive_amount|fx_amp_drive|fx_filter_drive"), Unit::times1 },
 
     { ends ("_mix|_amount|_level|_width|_spread|_sustain|_velocity|_damping|_feedback|_curve|_frame|_start|_end|_fade_in|_fade_out"),
       Unit::percent },
-    { is ("drift|ring_mod|fm_amount|fm_feedback|fx_fold|res_amount|res_keytrack|fx_tilt|fx_shifter_mix"), Unit::percent },
+    { is ("drift|ring_mod|fm_amount|fm_feedback|fx_fold|res_amount|res_keytrack|fx_tilt|fx_shifter_mix|fx_filter_reso"), Unit::percent },
     { when (isAirwindowsKnob), Unit::percent },
     { is ("noise_level|noise_color|sub_colour|unison_random|voice_spread|body_material|body_size|body_coupling"), Unit::percent },
     { starts ("macro|mseg_level"), Unit::percent },
@@ -794,7 +798,7 @@ inline const HelpRow helpRows[] {
     { ends ("_bow_pressure"), "Bow grip on the string. MPE pressure and channel aftertouch add to it." },
     { ends ("_bow_speed"), "Bow travel speed; changes the sustained tone and scrape." },
     { ends ("_bridge_buzz"), "Nonlinear bridge contact, from clean to sitar-like buzz." },
-    { ends ("_fret_rattle"), "Velocity-scaled fret noise that follows the string. Zero is clean." },
+    { ends ("_fret_rattle"), "Fret noise that follows the string. Faint buzz to loose fret; zero is clean." },
     { osc ("_hammer_hard"), "Hammer felt hardness. Used by the Hammer and Piano exciters. Harder felt and faster keys give a shorter contact and a brighter tone." },
     { is ("in_gain"), "ilanaSynth FX: the input's level into the engine (DRY is not affected)." },
     { is ("in_dry"), "ilanaSynth FX: the untouched input, added back at the end." },
@@ -845,7 +849,7 @@ inline const HelpRow helpRows[] {
     { osc12 ("_semi"), "Pitch offset in semitones. Hard Sync: sync ratio." },
     { osc12 ("_fine"), "Fine pitch offset in cents." },
     { osc12 ("_unison"), "Stacked detuned copies of the oscillator. More = bigger, costlier." },
-    { osc12 ("_detune"), "Unison spread in cents. 20-40 is a classic supersaw." },
+    { osc12 ("_detune"), "Unison spread in cents, up to 200. 20-40 is a classic supersaw; 100+ is a wide, out-of-tune stack." },
     { osc12 ("_spread"), "Stereo spread of the unison stack." },
     { osc12 ("_mode"), "Wavetable, Physical (a string, or the Tine and Reed electric pianos), a sample you drag onto the card, "
       "Granular: a cloud of tiny grains read from that sample (a vocal until you load your own), "
@@ -860,11 +864,11 @@ inline const HelpRow helpRows[] {
     { osc12 ("_string_damp"), "Loop damping: higher is darker and more muted." },
     { osc12 ("_string_sustain"), "Level of the continuous excitation. Not used by Burst, Hammer, Bow or Piano." },
     { ends ("_string_stiffness"), "String stiffness. Higher values push upper harmonics sharp." },
-    { ends ("_string_pickup"), "Pickup position. Move it to change the string's harmonic notches." },
-    { ends ("_string_excite_pos"), "Excitation position on the string. Changes which harmonics ring. Auto (at 0) uses the exciter's natural spot, about an eighth of the string." },
+    { ends ("_string_pickup"), "Pickup position. Move it from the bridge to the middle: the harmonics that have a node under the pickup disappear, so the tone goes from thin and bright to hollow." },
+    { ends ("_string_excite_pos"), "Where the string is plucked. Near the bridge it is bright, towards the middle hollow. Auto (0) uses the exciter's own spot." },
     { ends ("_string_pick_hardness"), "Pick hardness. Harder picks give a brighter attack." },
-    { ends ("_string_pick_pos"), "Where the pick strikes the string. Changes the attack spectrum. Off at 0." },
-    { ends ("_string_slap"), "A 10 ms noise click at each note start, like a pick slapping the string. Louder on hard hits." },
+    { ends ("_string_pick_pos"), "Merged into POSITION: a patch that set it keeps its larger value as the position." },
+    { ends ("_string_slap"), "A slap at each note start: a sharp click and a low knock, as a string hitting the fretboard. Louder on hard hits." },
     { is ("sub_level"), "Oscillator 3 level." },
     { is ("subosc_level"), "Sub oscillator an octave (or two) below the note." },
     { is ("subosc_on"), "Turns the sub oscillator on." },
@@ -1029,9 +1033,9 @@ inline const HelpRow helpRows[] {
     { is ("arp_gate"), "Note length within each step." },
     // BODY
     { is ("res_on"), "Turns the BODY section on. Classic keeps the original three-comb resonator." },
-    { is ("body_type"), "Classic, bar, plate, bell or shell. Material bodies use the oscillator mix as their exciter." },
+    { is ("body_type"), "Classic, bar, plate, bell, shell or guitar. Material bodies use the oscillator mix as their exciter." },
     { is ("body_material"), "Morph from wood through metal to glass: brightness, modal tuning and ring time." },
-    { is ("body_size"), "Larger bodies ring at lower modal frequencies." },
+    { is ("body_size"), "Body tuning in whole semitones; larger rings lower." },
     { is ("body_coupling_mode"), "Direction of energy transfer. String to body, body to string, or between strings." },
     { is ("body_coupling"), "Strength of the selected coupling path." },
     { is ("res_amount"), "Wet amount of the selected body." },
@@ -1049,6 +1053,8 @@ inline const HelpRow helpRows[] {
     { is ("fx_chorus_on|fx_chorus_rate|fx_chorus_depth|fx_chorus_mix"), "Thickening chorus for width." },
     { is ("fx_delay_on|fx_delay_time|fx_delay_sync|fx_delay_div|fx_delay_feedback|fx_delay_damping|fx_delay_pingpong|fx_delay_mix"), "Main delay. Damping darkens repeats." },
     { is ("fx_delay_pitch"), "Pitch-shifts the delay feedback: the Sophie trick." },
+    { is ("fx_awdelay_sync"), "Locks the echo time to the host tempo (the DIV note). StarChild2 has no time to lock. A note longer than the echo can reach stops at its longest time." },
+    { is ("fx_awdelay_div"), "The echo time while SYNC is on, as a note at the host tempo." },
     { is ("fx_delay_wow"), "Tape-style pitch drift of the delay time." },
     { is ("fx_taps_on|fx_taps_pattern|fx_taps_mix"), "Multi-tap rhythmic echoes riding on the delay time." },
     { is ("fx_stutter_on|fx_stutter_div|fx_stutter_mix"), "Loops the current beat-slice. Flip on/off in time for glitches." },
@@ -1065,7 +1071,7 @@ inline const HelpRow helpRows[] {
     { is ("route_cables"), "ROUTING cables (FILTER tab): each oscillator goes where its cables go (Filter 1, Filter 2, WEST, "
       "straight out, or several at once), and the cables between the filters and WEST set their order. "
       "Off: the fixed chain (each oscillator's route, SERIAL / PARALLEL, WEST's position)." },
-    { starts ("cable_"), "Where this oscillator, filter or WEST sends its signal, as the PATCH tab draws it. "
+    { starts ("cable_"), "Where this oscillator, filter, WEST or the physical BODY sends its signal, as the PATCH tab draws it. "
       "Heard only while the ROUTING cables are on." },
     { ends ("_bypass"), "Bypasses this rack slot without losing its settings." },
     { ends ("_solo"), "Solo (wet only): hear just this slot's output." },

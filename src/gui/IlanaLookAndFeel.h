@@ -136,6 +136,9 @@ namespace TextSize
     // pixels (UI review 5 #31, 6 #46): text that would draw smaller is left
     // out (a hint) rather than shrunk. 12 units at 75 % is 9 px, so
     // the smallest sizes grow to 10 px there (UI review 9, V9-26).
+    // The packed OSC panels' button and segment text (review 23's 9.5 px at 1.5x); font() holds the screen floor.
+    inline constexpr float packedTextHeight = 7.8f;
+
     inline constexpr float smallestZoom  = 0.75f;
     inline constexpr float screenFloorPx = 10.0f;
     inline constexpr float zoomFloor     = screenFloorPx / smallestZoom;
@@ -185,6 +188,27 @@ inline float& uiScaleRef()
 {
     static float scale = 1.0f;
     return scale;
+}
+
+// A page that lays text out by its drawn width (the packed cards' buttons, pills and segments)
+// hears when the zoom changes: the floor under the text makes the same words wider at a small zoom.
+struct UiScaleListener
+{
+    virtual ~UiScaleListener() = default;
+    virtual void uiScaleChanged() = 0;
+};
+
+inline std::vector<UiScaleListener*>& uiScaleListeners()
+{
+    static std::vector<UiScaleListener*> listeners;
+    return listeners;
+}
+
+inline void notifyUiScaleListeners()
+{
+    const auto copy = uiScaleListeners();
+    for (auto* listener : copy)
+        listener->uiScaleChanged();
 }
 
 // All UI text should be created through this: a Font constructed from plain
@@ -817,7 +841,7 @@ inline juce::FontOptions pillFont() { return font (TextSize::minInteractive, tru
 // dB, OSC 1 / 2 / 3, ARP / EUCLID, WAVE / SPEC ...). The chosen one is tinted
 // in its colour with a bright edge; the others are quiet.
 inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juce::String& text, juce::Colour colour,
-                       float active, float hover = 0.0f, bool enabled = true)
+                       float active, float hover = 0.0f, bool enabled = true, float fontSize = 0.0f)
 {
     // The component sheet's pill (.pill): ink 3 with a hairline and t2
     // text; chosen, its colour at 22 % over ink 3, a 75 % edge and t1 text.
@@ -831,7 +855,7 @@ inline void paintPill (juce::Graphics& g, juce::Rectangle<float> pill, const juc
     g.drawRoundedRectangle (pill.reduced (0.5f), radius - 0.5f, 1.0f);
 
     g.setColour (Ui::text2.withAlpha (enabled ? 1.0f : 0.5f).interpolatedWith (Ui::text, juce::jmax (active, 0.5f * hover)));
-    g.setFont (pillFont());
+    g.setFont (fontSize > 0.0f ? font (fontSize, true).withKerningFactor (0.08f) : pillFont());
     g.drawText (text, pill, juce::Justification::centred);
 }
 // A card header's "EDIT ›" link (the sheet's .lk): bold caps tracked 0.08 em
@@ -853,6 +877,8 @@ class IlanaLookAndFeel : public juce::LookAndFeel_V4
 public:
     // A select's text (the sheet's 11.5 px).
     static constexpr float selectText = 15.5f;
+    // The packed OSC panels' text (review 23 mockups, drawn at 1.5x: 11.5, 9 and 8.5 px), in units; font() holds the 10 px floor.
+    static constexpr float packedMenuText = 9.0f, packedNameText = 7.5f;
 
     // A button's corners: 8 px at 30 px high, 6 px at 24 (the sheet's .btn and .btn.sm).
     static float buttonRadius (float height) { return juce::jlimit (3.0f, 8.0f, height * 0.26f); }
@@ -980,6 +1006,9 @@ public:
     // neighbours); only shorter boxes go to the interactive floor.
     juce::Font getComboBoxFont (juce::ComboBox& box) override
     {
+        // The OSC cards' packed menus (review 23): 11.5 px at the mockup's scale.
+        if (box.getProperties().getWithDefault ("packedMenu", false))
+            return juce::Font (IlanaTheme::font (packedMenuText));
         // (The sheet's select text is 11.5 px: 15.7 units; boxes under 22 px keep the body size.)
         return juce::Font (IlanaTheme::font (box.getHeight() >= 22 ? selectText : box.getHeight() >= 18 ? IlanaTheme::TextSize::body
                                                                                                           : IlanaTheme::TextSize::minInteractive));
@@ -1005,6 +1034,16 @@ public:
 
     juce::Font getTextButtonFont (juce::TextButton& button, int buttonHeight) override
     {
+        // The OSC cards' header buttons (review 23 mockups, 9.5 px at 1.5x): drawn through
+        // font(), so the 10 px screen floor holds; the UI test checks them against it.
+        if (button.getProperties().contains ("packedButton"))
+        {
+            const auto text = button.getButtonText();
+            if (text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
+                return juce::Font (IlanaTheme::font (10.0f, true));
+            return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f));
+        }
+
         // A lone symbol ("×", "+") is a glyph a third the font's height:
         // draw it larger, so a remove or add button reads as one.
         if (const auto text = button.getButtonText(); text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
@@ -1039,6 +1078,15 @@ public:
     // a square at the left, the value under the middle line.
     juce::Slider::SliderLayout getSliderLayout (juce::Slider& slider) override
     {
+        // A packed dial (review 23): the slider is the dial's square, no text box.
+        if ((float) slider.getProperties().getWithDefault ("packedDial", 0.0f) > 0.0f)
+        {
+            juce::Slider::SliderLayout layout;
+            layout.sliderBounds = slider.getLocalBounds();
+            layout.textBoxBounds = {};
+            return layout;
+        }
+
         if (slider.getProperties().getWithDefault ("inlineKnob", false))
         {
             const auto area = slider.getLocalBounds();
@@ -1138,11 +1186,80 @@ public:
         g.drawText (button.getButtonText(), button.getLocalBounds().withTrimmedLeft (30), juce::Justification::centredLeft);
     }
 
+    // The packed dial (review 23 mockups): a track arc and the value arc, no cap and
+    // no pointer; the value is written inside by the knob. Its arc radius is
+    // KnobControl's packedRadius - 1 (see there).
+    void drawPackedDial (juce::Graphics& g, int x, int y, int width, int height, float targetPos,
+                         float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider)
+    {
+        using namespace IlanaTheme;
+
+        const auto hover = animatedHover (&slider, slider.isMouseOver() || slider.isMouseButtonDown(), 12.0f);
+        auto gliding = false;
+        const auto sliderPos = fadeValue (&slider, 90, targetPos, 20.0f, ! slider.isMouseButtonDown() && IlanaAnim::showing (slider), gliding);
+        if (gliding)
+            slider.repaint();
+
+        const auto area = juce::Rectangle<int> (x, y, width, height).toFloat();
+        const auto centre = area.getCentre();
+        const auto lineWidth = 2.4f;
+        const auto arcRadius = juce::jmax (4.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f - lineWidth * 0.5f - 0.3f);
+        const auto enabled = slider.isEnabled();
+        const auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const auto flare = valueFlare (&slider, targetPos, slider.isMouseOverOrDragging());
+
+        if (slider.hasKeyboardFocus (false))
+        {
+            g.setColour (accent().withAlpha (0.6f));
+            g.drawEllipse (juce::Rectangle<float> (arcRadius * 2.0f + 5.0f, arcRadius * 2.0f + 5.0f).withCentre (centre), 1.2f);
+        }
+
+        const auto stroke = juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+        juce::Path backgroundArc;
+        backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+        g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.05f * hover));
+        if (slider.getProperties().getWithDefault ("notModulatable", false))
+        {
+            juce::Path dotted;
+            const float dashes[] { 1.0f, lineWidth * 1.15f };
+            juce::PathStrokeType (lineWidth * 0.85f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createDashedStroke (dotted, backgroundArc, dashes, 2);
+            g.fillPath (dotted);
+        }
+        else
+        {
+            g.strokePath (backgroundArc, stroke);
+        }
+
+        auto originPos = 0.0f;
+        if (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0)
+            originPos = (float) slider.valueToProportionOfLength (0.0);
+        const auto originAngle = rotaryStartAngle + originPos * (rotaryEndAngle - rotaryStartAngle);
+        const auto fill = enabled ? slider.findColour (juce::Slider::rotarySliderFillColourId) : Ui::text3;
+
+        if (std::abs (sliderPos - originPos) > 0.001f)
+        {
+            juce::Path valueArc;
+            valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
+                                    juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
+            g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
+            g.strokePath (valueArc, stroke);
+        }
+
+        if (flare > 0.01f || (hover > 0.01f && hover < 0.99f))
+            slider.repaint();
+    }
+
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float targetPos, float rotaryStartAngle, float rotaryEndAngle,
                            juce::Slider& slider) override
     {
         using namespace IlanaTheme;
+
+        if ((float) slider.getProperties().getWithDefault ("packedDial", 0.0f) > 0.0f)
+        {
+            drawPackedDial (g, x, y, width, height, targetPos, rotaryStartAngle, rotaryEndAngle, slider);
+            return;
+        }
 
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
         const auto hover = animatedHover (&slider, slider.isMouseOver() || slider.isMouseButtonDown(), 12.0f);
@@ -1274,7 +1391,8 @@ public:
         if (button.getProperties().contains ("pill"))
         {
             paintPill (g, bounds, button.getButtonText(), button.findColour (juce::TextButton::buttonOnColourId).withAlpha (1.0f),
-                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled());
+                       fade (button, 0, button.getToggleState() ? 1.0f : 0.0f), hover, button.isEnabled(),
+                       (float) button.getProperties().getWithDefault ("pillFontSize", 0.0f));
             return;
         }
 
@@ -1292,10 +1410,12 @@ public:
                 const auto on = juce::jlimit (0.0f, 1.0f, amount); // (fades as the switch slides)
                 const auto area = button.getLocalBounds().toFloat();
                 const auto groupColour = juce::Colour ((juce::uint32) (int) button.getProperties()["groupColour"]);
-                IlanaTheme::paintOnDot (g, { area.getX() + 4.0f, area.getCentreY() }, groupColour, on);
+                // (In a packed panel the name is the panel's title: its size, the dot smaller.)
+                const auto packed = button.getProperties().contains ("packedGroup");
+                IlanaTheme::paintOnDot (g, { area.getX() + (packed ? 3.0f : 4.0f), area.getCentreY() }, groupColour, on);
                 g.setColour (groupColour.withAlpha (0.55f + 0.35f * on));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-                IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (13),
+                g.setFont (packed ? IlanaTheme::font (7.6f, true).withKerningFactor (0.13f) : IlanaTheme::font (IlanaTheme::TextSize::label, true));
+                IlanaTheme::drawFitted (g, button.getProperties()["groupText"].toString(), button.getLocalBounds().withTrimmedLeft (packed ? 9 : 13),
                                         juce::Justification::centredLeft, 1);
                 return;
             }
@@ -1387,7 +1507,8 @@ public:
             box.repaint();
         // The component sheet's select (.sel): ink 3, a hairline, 7 px
         // corners, a small t3 chevron 8 px in from the right.
-        const auto radius = juce::jmin (7.0f, bounds.getHeight() * 0.27f);
+        const auto packedBox = (bool) box.getProperties().getWithDefault ("packedMenu", false);
+        const auto radius = packedBox ? 4.0f : juce::jmin (7.0f, bounds.getHeight() * 0.27f);
 
         g.setColour (box.findColour (juce::ComboBox::backgroundColourId).interpolatedWith (Ui::hover, 0.45f * hover));
         g.fillRoundedRectangle (bounds, radius);
@@ -1395,7 +1516,7 @@ public:
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
 
         const auto size = juce::jmin (7.0f, (float) height * 0.28f);
-        const auto c = juce::Point<float> ((float) width - 11.5f, (float) height * 0.5f);
+        const auto c = juce::Point<float> ((float) width - (packedBox ? 8.0f : 11.5f), (float) height * 0.5f);
         juce::Path chevron;
         chevron.startNewSubPath (c.x - size * 0.5f, c.y - size * 0.25f);
         chevron.lineTo (c.x, c.y + size * 0.25f);
@@ -1403,6 +1524,38 @@ public:
         g.setColour (box.findColour (juce::ComboBox::arrowColourId).interpolatedWith (Ui::text, 0.6f * hover)
                         .withMultipliedAlpha (box.isEnabled() ? 1.0f : 0.5f));
         g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // A packed menu (review 23): the name inside, then the value, both painted here
+        // (the box's own label is left empty, the text is the menu's).
+        if (packedBox)
+        {
+            const auto prefixW = comboPrefixWidth (box);
+            const auto textOn = box.isEnabled() ? 1.0f : 0.5f;
+            if (prefixW > 0)
+            {
+                g.setColour (Ui::text3.withMultipliedAlpha (textOn));
+                g.setFont (font (packedNameText, true).withKerningFactor (0.09f));
+                g.drawText (box.getProperties()["textPrefix"].toString(), juce::Rectangle<int> (5, 0, prefixW, height), juce::Justification::centredLeft, false);
+            }
+            const auto value = box.getText();
+            auto textX = 5 + prefixW;
+            // A value that names another oscillator wears that oscillator's dot.
+            if (box.getProperties().contains ("valueDot"))
+            {
+                for (const auto& start : juce::StringArray::fromTokens (box.getProperties()["valueDotPrefixes"].toString(), "|", ""))
+                    if (value.startsWith (start))
+                    {
+                        g.setColour (juce::Colour ((juce::uint32) (int) box.getProperties()["valueDot"]).withMultipliedAlpha (textOn));
+                        g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) textX + 2.5f, (float) height * 0.5f }));
+                        textX += 9;
+                        break;
+                    }
+            }
+            g.setColour ((isPlaceholderValue (value) ? Ui::text3 : Ui::text).withMultipliedAlpha (textOn));
+            g.setFont (font (packedMenuText));
+            IlanaTheme::drawFitted (g, value, juce::Rectangle<int> (textX, 0, juce::jmax (0, width - textX - 15), height), juce::Justification::centredLeft, 1);
+            return;
+        }
 
         // A menu that says what it is: its name in the dim label colour before the value.
         if (const auto prefix = box.getProperties()["textPrefix"].toString(); prefix.isNotEmpty() && comboPrefixWidth (box) > 0)
@@ -1416,6 +1569,13 @@ public:
     static int comboPrefixWidth (const juce::ComboBox& box)
     {
         const auto prefix = box.getProperties()["textPrefix"].toString();
+        if (prefix.isNotEmpty() && (bool) box.getProperties().getWithDefault ("packedMenu", false))
+        {
+            const auto prefixW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameText, true).withKerningFactor (0.09f), prefix) + 5;
+            // (The value comes first: a menu with no room for both drops its name, which the tooltip keeps.)
+            const auto valueW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuText), box.getText()) + 2;
+            return valueW > box.getWidth() - 5 - prefixW - 15 ? 0 : prefixW;
+        }
         // (A menu too narrow for its name and a value drops the name: the 75 % zoom's.)
         if (prefix.isEmpty() || box.getWidth() < 118)
             return 0;
@@ -1424,6 +1584,12 @@ public:
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
     {
+        // (A packed menu paints its own text: drawComboBox.)
+        if (box.getProperties().getWithDefault ("packedMenu", false))
+        {
+            label.setBounds ({});
+            return;
+        }
         const auto shift = comboPrefixWidth (box);
         label.setBounds (4 + shift, 1, box.getWidth() - 23 - shift, box.getHeight() - 2); // (the sheet's 10 px of padding: 4 here, 6 the label's own)
         label.setFont (getComboBoxFont (box));

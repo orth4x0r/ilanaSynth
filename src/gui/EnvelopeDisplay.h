@@ -32,7 +32,7 @@ public:
           followsTheme (followsThemeIn)
     {
         setTooltip ("Drag a handle to set its stage (it follows the mouse).\n"
-                    "Drag the dot on the attack, decay or release to curve that segment alone (CURVE curves all three).\n"
+                    "Drag the dot on the attack, decay or release to curve that segment.\n"
                     "Double-click a handle or a dot to reset it. Esc cancels a drag.\n"
                     "Each stage gets room by the square root of its time; the ruler under the graph gives the time since "
                     "the note started, up to KEY UP (the release's own time is on its knob). The dot is the last note played.");
@@ -107,8 +107,9 @@ public:
 
         // Stage handles.
         const auto handles = stageHandles (geo);
+        const auto showHandles = ! handlesOnHover || isMouseOver() || dragHandle >= 0;
 
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 4 && showHandles; ++i)
         {
             const auto hovered = hoverHandle == i;
 
@@ -128,7 +129,7 @@ public:
         // hovered.
         const auto tensionPoints = tensionHandlePositions (geo);
 
-        for (int segment = 0; segment < 3; ++segment)
+        for (int segment = 0; segment < 3 && showHandles; ++segment)
         {
             const auto& point = tensionPoints[(size_t) segment];
             const auto tensionActive = hoverHandle == firstCurveHandle + segment || dragHandle == firstCurveHandle + segment;
@@ -205,10 +206,13 @@ public:
     static constexpr float rulerHeight = 14.0f;
 
     bool slim = false;
+    bool handlesOnHover = false;
 
 public:
     // PLAY's graph is a slim strip across the card: no time ruler under it.
     void setSlim (bool shouldBeSlim) { slim = shouldBeSlim; repaint(); }
+    // PLAY: the handles show only while the pointer is over the graph.
+    void setHandlesOnHover (bool shouldBe) { handlesOnHover = shouldBe; setRepaintsOnMouseActivity (shouldBe); repaint(); }
 
     juce::Rectangle<float> getPlotArea() const
     {

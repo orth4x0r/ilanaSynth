@@ -2,6 +2,7 @@
 #include "PatchGraphRunner.h"
 #include "PatchGraphState.h"
 #include "../dsp/FastMath.h"
+#include "../dsp/airwindows/DelaySync.h"
 
 // The rack. PATCHER on: the slots as the nodes of the patcher's graph
 // (processEffectsPatched). Otherwise the rack's routing (fx_routing): SERIES,
@@ -70,6 +71,11 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
     const auto ppqNow = ppq + (double) fxLfoSamplesSincePpq / sampleRate * bpm / 60.0;
     fxLfoSamplesSincePpq += numSamples;
 
+    // RETRIG: notes since the last chunk.
+    const auto notes = noteOnCount.load (std::memory_order_relaxed);
+    const auto newNote = notes != fxLfoLastNoteCount;
+    fxLfoLastNoteCount = notes;
+
     std::array<float, FxLfo::maxLfos> outputs {};
     for (int l = 0; l < FxLfo::maxLfos; ++l)
     {
@@ -77,10 +83,6 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
             continue;
         const auto& settings = program.settings[(size_t) l];
         auto& state = fxLfoStates[(size_t) l];
-        const auto shapeValue = state.shapeValue (FxLfo::shapeOf (settings.shape));
-        outputs[(size_t) l] = FxLfo::output (settings, shapeValue);
-        fxLfoShownValue[(size_t) l].store (shapeValue, std::memory_order_relaxed);
-        fxLfoShownPhase[(size_t) l].store ((float) std::fmod (state.phase + settings.phase, 1.0), std::memory_order_relaxed);
 
         double cyclesPerSample = settings.rateHz / sampleRate;
         double synced = -1.0;
@@ -94,6 +96,16 @@ void IlanaSynthAudioProcessor::advanceFxLfos (const FxLfoProgram& program, int n
                 synced = atEnd - std::floor (atEnd);
             }
         }
+
+        // (The bar decides a synced LFO while the transport plays.)
+        if (settings.retrig && newNote && synced < 0.0)
+            state.retrigger (settings);
+
+        const auto shapeValue = state.smooth (settings, state.shapeValue (settings), cyclesPerSample, numSamples, sampleRate);
+        outputs[(size_t) l] = FxLfo::output (settings, shapeValue);
+        fxLfoShownValue[(size_t) l].store (shapeValue, std::memory_order_relaxed);
+        fxLfoShownPhase[(size_t) l].store ((float) std::fmod (state.phase + settings.phase, 1.0), std::memory_order_relaxed);
+
         state.advance (settings, cyclesPerSample, numSamples, synced);
     }
 
@@ -125,6 +137,7 @@ void IlanaSynthAudioProcessor::resetFxLfos()
         fxLfoStates[(size_t) l].reset (l + 1);
     fxLfoLastPpq = -1.0;
     fxLfoSamplesSincePpq = 0;
+    fxLfoLastNoteCount = noteOnCount.load (std::memory_order_relaxed);
 }
 
 float IlanaSynthAudioProcessor::getFxLfoValue (int id) const
@@ -386,6 +399,7 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
             fxSlotIn[(size_t) (slot - 1)].store (fxSlotIn[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
             fxSlotOut[(size_t) (slot - 1)].store (fxSlotOut[(size_t) (slot - 1)].load() * 0.8f + levelIn * 0.2f);
             fxSlotCpu[(size_t) (slot - 1)].store (fxSlotCpu[(size_t) (slot - 1)].load() * 0.9f);
+            fxSlotPrevType[(size_t) (slot - 1)] = type;
             return;
         }
 
@@ -405,15 +419,24 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
         }
         fxSlotLastRun[(size_t) (slot - 1)] = fxClock;
 
+        // A different effect than last block (swapped or chosen while playing):
+        // its wet part fades in as the old one's fades out across this block,
+        // instead of one cutting to the other with a click.
+        const auto previousType = fxSlotPrevType[(size_t) (slot - 1)];
+        fxSlotPrevType[(size_t) (slot - 1)] = type;
+        const auto typeChanged = working && previousType > 0 && previousType != type && band == 0;
+
         if (band > 0 && numChannels == 2)
         {
             processSlotBand (slot - 1, type, band, buffer, solo, blend, blendFrom);
         }
-        else if (solo || blend < 0.999f || blendFrom < 0.999f)
+        else if (solo || typeChanged || blend < 0.999f || blendFrom < 0.999f)
         {
             // (Sized in prepareToPlay; the grow is for a longer block than announced.)
             if (fxScratch.getNumChannels() < numChannels || fxScratch.getNumSamples() < numSamples)
                 fxScratch.setSize (numChannels, numSamples, false, false, true);
+            if (typeChanged && (fxScratchOld.getNumChannels() < numChannels || fxScratchOld.getNumSamples() < numSamples))
+                fxScratchOld.setSize (numChannels, numSamples, false, false, true);
 
             // The effect gets a view of exactly this block (it works on getNumSamples()).
             juce::AudioBuffer<float> scratch (fxScratch.getArrayOfWritePointers(), numChannels, numSamples);
@@ -421,6 +444,20 @@ void IlanaSynthAudioProcessor::runFxSlot (int slot, juce::AudioBuffer<float>& bu
                 scratch.copyFrom (channel, 0, buffer, channel, 0, numSamples);
 
             engineForSlot (slot - 1).processSlot (type, scratch);
+
+            if (typeChanged)
+            {
+                juce::AudioBuffer<float> old (fxScratchOld.getArrayOfWritePointers(), numChannels, numSamples);
+                for (int channel = 0; channel < numChannels; ++channel)
+                    old.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+                engineForSlot (slot - 1).processSlot (previousType, old);
+                for (int channel = 0; channel < numChannels; ++channel)
+                {
+                    scratch.applyGainRamp (channel, 0, numSamples, 0.0f, 1.0f);
+                    scratch.addFromWithRamp (channel, 0, old.getReadPointer (channel), numSamples, 1.0f, 0.0f);
+                }
+                sanitiseBuffer (scratch);
+            }
 
             for (int channel = 0; channel < numChannels; ++channel)
             {
@@ -1831,6 +1868,17 @@ void IlanaSynthAudioProcessor::FxEngine::processAirwindowsCategory (juce::AudioB
     for (size_t knob = 0; knob < knobs.size(); ++knob)
         knobs[knob] = getParam (refs[knob + 1]);
     const auto choice = juce::jlimit (0, (int) info.algorithms.size() - 1, (int) getParam (refs[0]));
+    const auto algorithm = info.algorithms[(size_t) choice];
+
+    // AW Delay with SYNC on: its time knob(s) set from the host's tempo.
+    if (std::strcmp (info.id, "awdelay") == 0 && getParam ("fx_awdelay_sync") > 0.5f)
+    {
+        const auto beats = getSyncDivisionBeats ((int) getParam ("fx_awdelay_div"));
+        const auto seconds = (60.0 / juce::jmax (1.0, currentBpm.load())) * beats;
+        for (int knob = 0; knob < (int) knobs.size(); ++knob)
+            if (airwindows::delaysync::isTimeKnob (algorithm, knob))
+                knobs[(size_t) knob] = airwindows::delaysync::knobFor (algorithm, seconds, currentSampleRate);
+    }
 
     auto* left = buffer.getWritePointer (0);
     auto* right = left;
@@ -1844,7 +1892,7 @@ void IlanaSynthAudioProcessor::FxEngine::processAirwindowsCategory (juce::AudioB
         right = airwindowsMonoRight.data();
     }
 
-    awCategoryModules[(size_t) category].process (left, right, numSamples, info.algorithms[(size_t) choice], knobs,
+    awCategoryModules[(size_t) category].process (left, right, numSamples, algorithm, knobs,
                                                   getParam (refs[6]));
 }
 

@@ -6,6 +6,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("grainPosSchema", 2, nullptr);
     state.setProperty ("stringSchema", 2, nullptr);
+    state.setProperty ("redundantKnobsSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 4, nullptr);
     state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
@@ -575,6 +576,205 @@ int IlanaSynthAudioProcessor::migrateOperatorModes (const std::function<float (c
     return moved;
 }
 
+int IlanaSynthAudioProcessor::migrateFilterEnvAmounts (const std::function<float (const juce::String&, float)>& get,
+                                                       const std::function<void (const juce::String&, float)>& set)
+{
+    using Mod::Destination;
+    using Mod::Source;
+    auto moved = 0;
+
+    // The first slot with no source and no destination.
+    const auto freeSlot = [&get]
+    {
+        for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        {
+            const auto prefix = "mod" + juce::String (slot);
+            if (juce::roundToInt (get (prefix + "_src", 0.0f)) == 0 && juce::roundToInt (get (prefix + "_dst", 0.0f)) == 0)
+                return slot;
+        }
+        return 0;
+    };
+    const auto route = [&] (int slot, Source source, Destination destination, Source via, float amount)
+    {
+        const auto prefix = "mod" + juce::String (slot);
+        set (prefix + "_src", (float) (int) source);
+        set (prefix + "_dst", (float) (int) destination);
+        set (prefix + "_aux", (float) (int) via);
+        set (prefix + "_amt", amount);
+    };
+
+    // VELOCITY (filter_velocity) scaled the amount of both filters' envelopes; it now scales the FILTER ENV source
+    // itself, as the other envelopes' VELOCITY knobs do. So when Filter 1's amount becomes one route, the knob stays
+    // and carries the velocity share; with other FILTER ENV routes already in the patch (they were never scaled) or
+    // no amount to carry, the share is a second route via VELOCITY instead and the knob goes to 0.
+    const auto velocity = juce::jlimit (0.0f, 1.0f, get ("filter_velocity", 0.5f));
+    auto otherFilterEnvRoutes = 0;
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        if (juce::roundToInt (get ("mod" + juce::String (slot) + "_src", 0.0f)) == (int) Source::FilterEnv
+            && juce::roundToInt (get ("mod" + juce::String (slot) + "_dst", 0.0f)) != 0)
+            ++otherFilterEnvRoutes;
+
+    auto keepVelocityKnob = false, leftInPlace = false;
+
+    // (The old default of Filter 1's amount was 1.5 octaves: a patch that
+    // never stored one still had it.) The matrix reaches 6 octaves at 100 %.
+    for (const auto filter : { 1, 2 })
+    {
+        const juce::String prefix (filter == 1 ? "f1" : "f2");
+        const auto octaves = get (prefix + "_env", filter == 1 ? 1.5f : 0.0f);
+
+        if (std::abs (octaves) < 1.0e-6f)
+            continue;
+
+        const auto first = freeSlot();
+        if (first == 0)
+        {
+            leftInPlace = true;
+            continue;
+        }
+
+        const auto source = filter == 1 ? Source::FilterEnv : Source::FilterEnv2;
+        const auto destination = filter == 1 ? Destination::Filter1Cutoff : Destination::Filter2Cutoff;
+
+        if (filter == 1 && otherFilterEnvRoutes == 0)
+        {
+            route (first, source, destination, Source::None, octaves / 6.0f);
+            keepVelocityKnob = true;
+        }
+        else
+        {
+            route (first, source, destination, Source::None, octaves * (1.0f - velocity) / 6.0f);
+
+            if (velocity > 1.0e-6f)
+            {
+                const auto second = freeSlot();
+                if (second == 0)
+                {
+                    // No room for the velocity share: give the first route the
+                    // whole amount rather than lose the sweep.
+                    set ("mod" + juce::String (first) + "_amt", octaves / 6.0f);
+                }
+                else
+                    route (second, source, destination, Source::Velocity, octaves * velocity / 6.0f);
+            }
+        }
+
+        set (prefix + "_env", 0.0f);
+        ++moved;
+    }
+
+    // The knob keeps its value only where it was folded into the one route; anywhere else the routes carry the share
+    // (or a left amount still wants it), so it must not scale the patch's other FILTER ENV routes.
+    if (keepVelocityKnob || leftInPlace)
+        set ("filter_velocity", velocity);
+    else if (velocity > 1.0e-6f)
+        set ("filter_velocity", 0.0f);
+
+    return moved;
+}
+
+int IlanaSynthAudioProcessor::migrateEnvelopeTension (const std::function<float (const juce::String&, float)>& get,
+                                                      const std::function<void (const juce::String&, float)>& set)
+{
+    auto moved = 0;
+    juce::StringArray prefixes { "amp", "fe", "f2e", "me", "e4" };
+    for (int env = 6; env <= 16; ++env)
+        prefixes.add ("env" + juce::String (env));
+
+    for (const auto& prefix : prefixes)
+    {
+        const auto tension = get (prefix + "_curve", 0.0f);
+
+        if (std::abs (tension) < 1.0e-6f)
+            continue;
+
+        // The envelope bent each segment by (TENSION + its own), clamped.
+        for (const auto* segment : { "_acurve", "_dcurve", "_rcurve" })
+            set (prefix + segment, juce::jlimit (-1.0f, 1.0f, get (prefix + segment, 0.0f) + tension));
+
+        set (prefix + "_curve", 0.0f);
+        ++moved;
+    }
+
+    return moved;
+}
+
+int IlanaSynthAudioProcessor::migrateWarpEnvelopes (const std::function<float (const juce::String&, float)>& get,
+                                                    const std::function<void (const juce::String&, float)>& set)
+{
+    using Mod::Source;
+    auto moved = 0;
+    const auto destinations = Mod::getDestinationNames();
+
+    for (int osc = 0; osc < OscillatorIds::count; ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[(size_t) osc]);
+        const auto choice = juce::roundToInt (get (prefix + "_pd_env", 0.0f));
+
+        if (choice <= 0)
+            continue;
+
+        // ENV 1 to ENV 5 are the amp, filter, filter 2, mod and ENV 5 envelopes,
+        // then ENV 6 to 16, then the MSEG.
+        const auto index = choice - 1;
+        const auto source = index == 0 ? Source::AmpEnv : index == 1 ? Source::FilterEnv : index == 2 ? Source::FilterEnv2
+                          : index == 3 ? Source::ModEnv : index == 4 ? Source::Env4
+                          : index <= 15 ? (Source) ((int) Source::Env6 + (index - 5)) : Source::Mseg;
+        const auto amount = get (prefix + "_pd_env_amt", 1.0f);
+        const auto name = "Osc" + juce::String (osc + 1) + " Warp";
+        const auto warpDestination = destinations.indexOf (name);
+        const auto warp2Destination = destinations.indexOf (name + " 2");
+        auto placed = true;
+
+        const auto freeSlot = [&get]
+        {
+            for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+            {
+                const auto slotPrefix = "mod" + juce::String (slot);
+                if (juce::roundToInt (get (slotPrefix + "_src", 0.0f)) == 0 && juce::roundToInt (get (slotPrefix + "_dst", 0.0f)) == 0)
+                    return slot;
+            }
+            return 0;
+        };
+        const auto route = [&] (int destination)
+        {
+            const auto slot = freeSlot();
+            if (slot == 0 || destination < 0)
+                return false;
+            const auto slotPrefix = "mod" + juce::String (slot);
+            set (slotPrefix + "_src", (float) (int) source);
+            set (slotPrefix + "_dst", (float) destination);
+            set (slotPrefix + "_aux", 0.0f);
+            set (slotPrefix + "_amt", amount);
+            return true;
+        };
+
+        // The envelope opened both stages of the chain. A stage that is not
+        // set plays nothing, so it gets no route.
+        if (juce::roundToInt (get (prefix + "_warp", 0.0f)) != 0)
+            placed = route (warpDestination) && placed;
+        if (juce::roundToInt (get (prefix + "_warp2", 0.0f)) != 0)
+            placed = route (warp2Destination) && placed;
+
+        if (! placed)
+            continue; // no free slot: the old settings stay, and still play
+
+        set (prefix + "_pd_env", 0.0f);
+        set (prefix + "_pd_env_amt", 1.0f);
+        ++moved;
+    }
+
+    return moved;
+}
+
+void IlanaSynthAudioProcessor::migrateRedundantKnobs (const std::function<float (const juce::String&, float)>& get,
+                                                      const std::function<void (const juce::String&, float)>& set)
+{
+    migrateFilterEnvAmounts (get, set);
+    migrateEnvelopeTension (get, set);
+    migrateWarpEnvelopes (get, set);
+}
+
 void IlanaSynthAudioProcessor::migrateOperatorModes()
 {
     migrateOperatorModes ([this] (const juce::String& id, float fallback)
@@ -640,6 +840,19 @@ void IlanaSynthAudioProcessor::addOscillator (int index, int mode)
         setOscillatorMode (index, mode);
 
     addOscillator (index);
+}
+
+// Builds the built-in wavetables the oscillators use now, so the first note of
+// a loaded patch plays them (the audio thread would only ask for them).
+void IlanaSynthAudioProcessor::ensureBuiltInTables()
+{
+    if (! juce::MessageManager::existsAndIsCurrentThread())
+        return;
+
+    const auto base = TableFactory::getNumFactoryTables() + numUserSlots;
+    for (const auto& ids : oscCoreIds)
+        if (const auto choice = (int) getRawParam (ids.table); choice >= base)
+            BuiltInTables::build (choice - base);
 }
 
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
@@ -1131,6 +1344,30 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         state.setProperty ("stringSchema", 2, nullptr);
     }
 
+    // A patch saved with an ENV AMOUNT on Filter 1 or 2, an envelope TENSION or
+    // a WARP ENV carries them as matrix routes and curves (the knobs are gone).
+    if ((int) state.getProperty ("redundantKnobsSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateRedundantKnobs ([&find] (const juce::String& id, float fallback)
+                                 {
+                                     const auto child = find (id);
+                                     return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                                 },
+                                 [&find] (const juce::String& id, float value)
+                                 {
+                                     if (auto child = find (id); child.isValid())
+                                         child.setProperty ("value", value, nullptr);
+                                 });
+        state.setProperty ("redundantKnobsSchema", 2, nullptr);
+    }
+
     // An operator saved before the FM / DX7 type loads as one (it renders
     // the same: the type only picks its card).
     {
@@ -1154,6 +1391,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     }
 
     apvts.replaceState (state);
+    ensureBuiltInTables();
     // replaceState emptied the undo history: a gesture still open around this
     // load would add a step that restores only the data (a hybrid patch).
     pendingEditData.reset();

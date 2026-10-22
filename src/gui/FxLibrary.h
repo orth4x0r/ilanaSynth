@@ -4,6 +4,7 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/airwindows/Categories.h"
+#include "../dsp/airwindows/DelaySync.h"
 #include "IlanaLookAndFeel.h"
 #include "FxDisplays.h"
 #include "HeaderWidgets.h"

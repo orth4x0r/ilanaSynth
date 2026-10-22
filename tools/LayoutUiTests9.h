@@ -218,6 +218,10 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // runLayoutReview10Tests.)
                     if (page == "FX")
                         continue;
+                    // (OSC with switched-off oscillators folded keeps the open cards at their
+                    // condensed height; the room below is left empty at ilana's ask, 2026-10-15.)
+                    if (page == "OSC" && (juce::String (preset) == "Init" || juce::String (preset) == "Felt Hammer Board" || juce::String (preset) == "Neuro Wobble"))
+                        continue;
 
                     const auto pageArea = area (shown).reduced (4);
                     const auto snapshot = editor.createComponentSnapshot (pageArea, true, 1.0f);
@@ -324,22 +328,13 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         {
             return texts.size() == 2 && texts[0].startsWith ("+  ADD OSC") && texts[1] == "+  ADD FM / DX7";
         };
-        expect (oscRow (play) && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
+        // (PLAY's three cards leave no free slot, so it has no add row.)
+        expect (play.isEmpty() && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
                 "PLAY, OSC, the matrix and a short FX rack add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }
 
-    // V9-17: PLAY's SUB + NOISE switch has no second "SUB" beside the knob.
-    {
-        editor.showPage ("MAIN");
-        settle (300);
-        std::vector<ToggleControl*> toggles;
-        findAll<ToggleControl> (editor, toggles);
-        auto namedSub = false;
-        for (auto* toggle : toggles)
-            namedSub = namedSub || (visibleInTree (toggle) && toggle->getButton().getButtonText() == "SUB");
-        expect (! namedSub, "PLAY's SUB + NOISE switch is a bare switch, not a second SUB beside the SUB knob");
-    }
+    // (V9-17 is retired: the approved PLAY names its SUB and NOISE switches, as two bare switches.)
 
     // V9-19: the output meter is a readable stereo meter.
     {

@@ -195,9 +195,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, first ? 0.8f : 0.6f);
         addFloat (id ("pan"), name + " Pan", -1.0f, 1.0f, 0.0f);
         addInt (id ("semi"), name + " Semi", -24, 24, 0);
-        addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, first ? 0.0f : -7.0f, 1.0f, 1.0f);
+        addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
         addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
-        addFloat (id ("detune"), name + " Detune", 0.0f, 50.0f, 15.0f);
+        addFloat (id ("detune"), name + " Detune", 0.0f, 200.0f, 15.0f, 0.6f);
         addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);
         addChoice (id ("warp"), name + " Warp", Warp::getNames(), 0);
         addFloat (id ("warp_amt"), name + " Warp Amount", 0.0f, 1.0f, 0.0f);
@@ -236,7 +236,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addInt ("sub_semi", "Osc3 Semi", -24, 24, 0);
     addFloat ("sub_fine", "Osc3 Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
     addInt ("sub_unison", "Osc3 Unison", 1, VoiceParams::maxUnison, 1);
-    addFloat ("sub_detune", "Osc3 Detune", 0.0f, 50.0f, 12.0f);
+    addFloat ("sub_detune", "Osc3 Detune", 0.0f, 200.0f, 12.0f, 0.6f);
     addFloat ("sub_spread", "Osc3 Spread", 0.0f, 1.0f, 0.0f);
     addChoice ("sub_warp", "Osc3 Warp", Warp::getNames(), 0);
     addFloat ("sub_warp_amt", "Osc3 Warp Amount", 0.0f, 1.0f, 0.0f);
@@ -268,7 +268,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("f1_cutoff", "F1 Cutoff", 20.0f, 20000.0f, 12000.0f, 0.25f);
     addFloat ("f1_reso", "F1 Reso", 0.0f, 1.0f, 0.25f);
     addFloat ("f1_drive", "F1 Drive", 1.0f, 10.0f, 1.5f);
-    addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 1.5f);
+    addFloat ("f1_env", "F1 Env", -5.0f, 5.0f, 0.0f); // (1.5 before the knob went: see migrateFilterEnvAmounts)
     addFloat ("f1_keytrack", "F1 Key Track", -1.0f, 1.0f, 0.0f);
     addFloat ("f1_morph", "F1 Morph", 0.0f, 1.0f, 0.0f);
 
@@ -322,7 +322,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
 
     // Global
     addFloat ("amp_velocity", "Amp Velocity", 0.0f, 1.0f, 0.3f);
-    addFloat ("filter_velocity", "Filter Velocity", 0.0f, 1.0f, 0.5f);
+    addFloat ("filter_velocity", "Filter Velocity", 0.0f, 1.0f, 0.0f); // (scales the FILTER ENV source by velocity; the old default 0.5 belonged to the removed ENV AMOUNT)
     addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.13f); // (skew 0.13: 10 ms sits at half the travel; most glides are 0-10 ms, the longer ones effects)
     addFloat ("bend_range", "Bend Range", 0.0f, 24.0f, 2.0f, 1.0f, 1.0f);
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
@@ -364,7 +364,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("res_decay", "Res Decay", 0.0f, 1.0f, 0.7f);
     addFloat ("res_offset", "Res Offset", -12.0f, 12.0f, 0.0f, 1.0f, 1.0f);
     addFloat ("res_keytrack", "Res Key Track", 0.0f, 1.0f, 1.0f);
-    addChoice ("body_type", "Body Type", { "Classic", "Bar", "Plate", "Bell", "Shell" }, 0);
+    addChoice ("body_type", "Body Type", { "Classic", "Bar", "Plate", "Bell", "Shell", "Guitar" }, 0);
     addFloat ("body_material", "Body Material", 0.0f, 1.0f, 0.0f);
     addFloat ("body_size", "Body Size", 0.0f, 1.0f, 0.5f);
     addChoice ("body_coupling_mode", "Body Coupling", { "Off", "String to body", "Body to string", "Strings" }, 0);
@@ -712,7 +712,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addInt (id ("semi"), name + " Semi", -24, 24, 0);
         addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
         addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
-        addFloat (id ("detune"), name + " Detune", 0.0f, 50.0f, 15.0f);
+        addFloat (id ("detune"), name + " Detune", 0.0f, 200.0f, 15.0f, 0.6f);
         addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);
         addChoice (id ("warp"), name + " Warp", Warp::getNames(), 0);
         addFloat (id ("warp_amt"), name + " Warp Amount", 0.0f, 1.0f, 0.0f);
@@ -1180,14 +1180,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addBool ("route_cables", "Routing Cables", false);
     {
         juce::StringArray masks;
-        for (int mask = 0; mask < 16; ++mask)
+        for (int mask = 0; mask < 32; ++mask)
             masks.add (VoiceRouting::maskNames()[mask]);
         const auto defaults = VoiceRouting::defaultPatch();
         for (int source = 0; source < VoiceRouting::numSources; ++source)
-            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks, defaults.source[(size_t) source]);
-        for (int stage = 0; stage < VoiceRouting::numStages; ++stage)
+            addChoice (VoiceRouting::cableParamId (source), VoiceRouting::cableParamName (source), masks,
+                       VoiceRouting::toParamMask (defaults.source[(size_t) source]));
+        // (BODY's cable is appended at the end of the layout.)
+        for (int stage = 0; stage < VoiceRouting::body; ++stage)
             addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + stage), VoiceRouting::cableParamName (VoiceRouting::numSources + stage),
-                       masks, defaults.stage[(size_t) stage]);
+                       masks, VoiceRouting::toParamMask (defaults.stage[(size_t) stage]));
     }
 
     // FX type 42, FILTER (ilana 2026-10-11: feed an effect back into a
@@ -1321,6 +1323,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (prefix + "_sample_round_robin", name + " Round Robin", { "Off", "Cycle", "Random" }, 0);
         addFloat (prefix + "_sample_vel_blend", name + " Velocity Blend", 0.0f, 1.0f, 0.0f);
     }
+
+    // The physical body as a stage of the ROUTING cables (dsp/VoiceRouting.h):
+    // where it goes. Nothing cabled into it, it is the body of every older patch.
+    {
+        juce::StringArray masks;
+        for (int mask = 0; mask < 32; ++mask)
+            masks.add (VoiceRouting::maskNames()[mask]);
+        addChoice (VoiceRouting::cableParamId (VoiceRouting::numSources + VoiceRouting::body),
+                   VoiceRouting::cableParamName (VoiceRouting::numSources + VoiceRouting::body), masks,
+                   VoiceRouting::toParamMask (VoiceRouting::defaultPatch().stage[(size_t) VoiceRouting::body]));
+    }
+
+    // AW Delay (FX type 35) to the host's tempo, as the main Delay's SYNC and
+    // DIV (airwindows/DelaySync.h). Off, as in every older patch.
+    addBool ("fx_awdelay_sync", "AW Delay Sync", false);
+    addChoice ("fx_awdelay_div", "AW Delay Div", getSyncDivisionNames(), 3);
 
     return layout;
 }

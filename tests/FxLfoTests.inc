@@ -83,7 +83,7 @@ void runFxLfoTests()
             settings.rateHz = 7.0f;
             for (int step = 0; step < 4000; ++step)
             {
-                const auto value = FxLfo::output (settings, state.shapeValue (FxLfo::shapeOf (choice)));
+                const auto value = FxLfo::output (settings, state.shapeValue (settings));
                 if (! std::isfinite (value) || std::abs (value) > 1.0f)
                 {
                     wrong.add (FxLfo::shapeNames()[choice]);
@@ -93,6 +93,85 @@ void runFxLfoTests()
             }
         }
         check (wrong.isEmpty(), "every LFO shape stays in -1..1 (" + wrong.joinIntoString (", ") + ")");
+    }
+
+    // Drawn and Steps read the box's own table, PHASE moves where the cycle starts,
+    // SMOOTH glides the output, RETRIG restarts the cycle, and all of them save and load.
+    {
+        FxLfo::Settings drawn;
+        drawn.shape = 9; // Drawn
+        for (int i = 0; i < FxLfo::drawSteps; ++i)
+            drawn.drawn[(size_t) i] = i < FxLfo::drawSteps / 2 ? 1.0f : -1.0f;
+        FxLfo::State state;
+        state.reset (1);
+        state.phase = 0.1;
+        const auto first = state.shapeValue (drawn);
+        state.phase = 0.9;
+        const auto second = state.shapeValue (drawn);
+        check (first > 0.9f && second < -0.9f, "Drawn reads the drawn table across the cycle");
+
+        auto steps = drawn;
+        steps.shape = 10; // Steps
+        state.phase = 0.26;
+        const auto held = state.shapeValue (steps);
+        steps.drawn[8] = 0.25f; // the step 0.25 .. 0.28 sits in
+        const auto changed = state.shapeValue (steps);
+        check (held == 1.0f && changed == 0.25f, "Steps holds each point until the next");
+
+        FxLfo::Settings plain;
+        plain.shape = 2; // Saw Up
+        FxLfo::State early, shifted;
+        early.reset (1);
+        shifted.reset (1);
+        auto moved = plain;
+        moved.phase = 0.5f;
+        early.phase = shifted.phase = 0.0;
+        check (std::abs (early.shapeValue (plain) - (-1.0f)) < 1.0e-4f && std::abs (shifted.shapeValue (moved)) < 1.0e-4f,
+               "PHASE starts the cycle that far in");
+
+        // SMOOTH: a square's jump becomes a glide; 0 leaves it alone.
+        FxLfo::Settings square;
+        square.shape = 4;
+        square.rateHz = 2.0f;
+        FxLfo::State glide;
+        glide.reset (1);
+        square.smooth = 0.0f;
+        const auto before = glide.smooth (square, -1.0f, 2.0 / 48000.0, 128, 48000.0);
+        const auto raw = glide.smooth (square, 1.0f, 2.0 / 48000.0, 128, 48000.0);
+        square.smooth = 0.5f;
+        FxLfo::State slewed;
+        slewed.reset (1);
+        slewed.smooth (square, -1.0f, 2.0 / 48000.0, 128, 48000.0);
+        const auto partway = slewed.smooth (square, 1.0f, 2.0 / 48000.0, 128, 48000.0);
+        check (before == -1.0f && raw == 1.0f && partway > -1.0f && partway < 0.5f, "SMOOTH glides the output and 0 leaves it alone ("
+                                                                                       + juce::String (partway, 4) + ")");
+
+        // RETRIG: the cycle starts again.
+        FxLfo::State run;
+        run.reset (1);
+        run.phase = 0.7;
+        plain.retrig = true;
+        run.retrigger (plain);
+        check (run.phase == 0.0, "RETRIG restarts the cycle");
+
+        // Saved and loaded; an older box (none of these set) saves without them.
+        FxPatchData::Patch patch;
+        FxPatchData::Lfo lfo;
+        lfo.id = 2;
+        lfo.settings = drawn;
+        lfo.settings.smooth = 0.4f;
+        lfo.settings.retrig = true;
+        patch.lfos.push_back (lfo);
+        const auto loaded = FxPatchData::fromValueTree (juce::ValueTree::fromXml (FxPatchData::toValueTree (patch).toXmlString()));
+        check (FxPatchData::samePatch (patch, loaded) && loaded.lfos[0].settings.drawn[3] == 1.0f && loaded.lfos[0].settings.retrig,
+               "drawn points, SMOOTH and RETRIG survive a save and load");
+        FxPatchData::Patch old;
+        FxPatchData::Lfo oldLfo;
+        oldLfo.id = 1;
+        old.lfos.push_back (oldLfo);
+        const auto oldTree = FxPatchData::toValueTree (old).getChildWithName (FxPatchData::lfoTag);
+        check (! oldTree.hasProperty ("smooth") && ! oldTree.hasProperty ("retrig") && ! oldTree.hasProperty ("drawn"),
+               "a box with none of the newer settings saves as it did");
     }
 
     // Two Delays: an LFO cable on the second moves only the second; and

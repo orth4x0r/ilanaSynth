@@ -78,7 +78,7 @@ public:
         for (int osc = 0; osc < OscillatorIds::count; ++osc)
             if (processorRef.isOscillatorShown (osc))
                 chip ("OSC " + juce::String (osc + 1), IlanaTheme::oscColour (osc), read (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") > 0.5f ? 1.0f : 0.45f);
-        chip ("SUB + N", IlanaTheme::accent());
+        chip ("SUB + NOISE", IlanaTheme::accent());
         x += 2.0f;
         arrow();
         chip ("F1", FilterColours::filter (0));
@@ -783,22 +783,19 @@ public:
           e4Display (p, "e4", IlanaTheme::envIdentityColour (4)),
           ampA (p.apvts, "amp_attack", "ATTACK", modSourceColour ((int) Mod::Source::AmpEnv), false), ampD (p.apvts, "amp_decay", "DECAY", modSourceColour ((int) Mod::Source::AmpEnv), false),
           ampS (p.apvts, "amp_sustain", "SUSTAIN", modSourceColour ((int) Mod::Source::AmpEnv), false), ampR (p.apvts, "amp_release", "RELEASE", modSourceColour ((int) Mod::Source::AmpEnv), false),
-          ampVel (p.apvts, "amp_velocity", "VEL", modSourceColour ((int) Mod::Source::AmpEnv), false), ampCurve (p.apvts, "amp_curve", curveLabel, modSourceColour ((int) Mod::Source::AmpEnv), false),
+          ampVel (p.apvts, "amp_velocity", "VELOCITY", modSourceColour ((int) Mod::Source::AmpEnv), false),
           feA (p.apvts, "fe_attack", "ATTACK"), feD (p.apvts, "fe_decay", "DECAY"),
           feS (p.apvts, "fe_sustain", "SUSTAIN"), feR (p.apvts, "fe_release", "RELEASE"),
-          feVel (p.apvts, "filter_velocity", "VEL"), feCurve (p.apvts, "fe_curve", curveLabel, IlanaTheme::envIdentityColour (1), false),
+          feVel (p.apvts, "filter_velocity", "VELOCITY"),
           f2A (p.apvts, "f2e_attack", "ATTACK"), f2D (p.apvts, "f2e_decay", "DECAY"),
           f2S (p.apvts, "f2e_sustain", "SUSTAIN"), f2R (p.apvts, "f2e_release", "RELEASE"),
-          f2Vel (p.apvts, "f2e_velocity", "VEL", IlanaTheme::envIdentityColour (2), false),
-          f2Curve (p.apvts, "f2e_curve", curveLabel, IlanaTheme::envIdentityColour (2), false),
+          f2Vel (p.apvts, "f2e_velocity", "VELOCITY", IlanaTheme::envIdentityColour (2), false),
           meA (p.apvts, "me_attack", "ATTACK"), meD (p.apvts, "me_decay", "DECAY"),
           meS (p.apvts, "me_sustain", "SUSTAIN"), meR (p.apvts, "me_release", "RELEASE"),
-          meVel (p.apvts, "me_velocity", "VEL", IlanaTheme::envIdentityColour (3), false),
-          meCurve (p.apvts, "me_curve", curveLabel, IlanaTheme::envIdentityColour (3), false),
+          meVel (p.apvts, "me_velocity", "VELOCITY", IlanaTheme::envIdentityColour (3), false),
           e4A (p.apvts, "e4_attack", "ATTACK"), e4D (p.apvts, "e4_decay", "DECAY"),
           e4S (p.apvts, "e4_sustain", "SUSTAIN"), e4R (p.apvts, "e4_release", "RELEASE"),
-          e4Vel (p.apvts, "e4_velocity", "VEL", IlanaTheme::envIdentityColour (4), false),
-          e4Curve (p.apvts, "e4_curve", curveLabel, IlanaTheme::envIdentityColour (4), false)
+          e4Vel (p.apvts, "e4_velocity", "VELOCITY", IlanaTheme::envIdentityColour (4), false)
     {
         // One card per envelope in the patch, the Operator Env's two, and a
         // "+" (no 1-16 ruler: UI review 6, V6-8). Past what fits, cards fold
@@ -863,17 +860,17 @@ public:
         addChildComponent (opEditor);
 
         addAll (*this, ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display,
-                ampA, ampD, ampS, ampR, ampVel, ampCurve,
-                feA, feD, feS, feR, feVel, feCurve,
-                f2A, f2D, f2S, f2R, f2Vel, f2Curve,
-                meA, meD, meS, meR, meVel, meCurve,
-                e4A, e4D, e4S, e4R, e4Vel, e4Curve);
+                ampA, ampD, ampS, ampR, ampVel,
+                feA, feD, feS, feR, feVel,
+                f2A, f2D, f2S, f2R, f2Vel,
+                meA, meD, meS, meR, meVel,
+                e4A, e4D, e4S, e4R, e4Vel);
 
-        units.push_back ({ &ampDisplay, { &ampA, &ampD, &ampS, &ampR, &ampVel, &ampCurve } });
-        units.push_back ({ &feDisplay, { &feA, &feD, &feS, &feR, &feVel, &feCurve } });
-        units.push_back ({ &f2eDisplay, { &f2A, &f2D, &f2S, &f2R, &f2Vel, &f2Curve } });
-        units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, &meVel, &meCurve } });
-        units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, &e4Vel, &e4Curve } });
+        units.push_back ({ &ampDisplay, { &ampA, &ampD, &ampS, &ampR, &ampVel } });
+        units.push_back ({ &feDisplay, { &feA, &feD, &feS, &feR, &feVel } });
+        units.push_back ({ &f2eDisplay, { &f2A, &f2D, &f2S, &f2R, &f2Vel } });
+        units.push_back ({ &meDisplay, { &meA, &meD, &meS, &meR, &meVel } });
+        units.push_back ({ &e4Display, { &e4A, &e4D, &e4S, &e4R, &e4Vel } });
 
         // M5 DAHDSR and rate key scaling: a second row on every envelope.
         {
@@ -890,9 +887,9 @@ public:
             ExtraUnit extra;
             extra.display = std::make_unique<EnvelopeDisplay> (p, prefix, colour);
             addChildComponent (*extra.display);
-            const char* const suffixes[] { "attack", "decay", "sustain", "release", "velocity", "curve" };
-            const char* const labels[] { "ATTACK", "DECAY", "SUSTAIN", "RELEASE", "VEL", curveLabel };
-            for (int control = 0; control < 6; ++control)
+            const char* const suffixes[] { "attack", "decay", "sustain", "release", "velocity" };
+            const char* const labels[] { "ATTACK", "DECAY", "SUSTAIN", "RELEASE", "VELOCITY" };
+            for (int control = 0; control < 5; ++control)
             {
                 extra.knobs[(size_t) control] = std::make_unique<KnobControl> (
                     p.apvts, prefix + "_" + suffixes[control], labels[control], colour, false);
@@ -907,15 +904,21 @@ public:
         }
 
         // The knobs in the graph's order, left to right (UI review 8,
-        // V8-18): DELAY, ATTACK, HOLD, DECAY, SUSTAIN, RELEASE, then what
-        // shapes them all: VEL, CURVE (every segment at once; a segment's
-        // dot bends that one alone) and KEY RATE.
+        // V8-18): DELAY, ATTACK, HOLD, DECAY, SUSTAIN, RELEASE, then VEL
+        // (where the envelope has one) and KEY RATE. A segment's curve is
+        // bent by its dot on the graph.
         for (auto& unit : units)
         {
-            // Built as A D S R VEL CURVE, DELAY HOLD KEY RATE.
+            // Built as A D S R [VEL], DELAY HOLD KEY RATE.
             const auto k = unit.knobs;
-            if (k.size() == 9)
-                unit.knobs = { k[6], k[0], k[7], k[1], k[2], k[3], k[4], k[5], k[8] };
+            const auto n = k.size() - 3;
+            if (k.size() >= 7)
+            {
+                unit.knobs = { k[n], k[0], k[n + 1], k[1], k[2], k[3] };
+                for (auto i = (size_t) 4; i < n; ++i)
+                    unit.knobs.push_back (k[i]);
+                unit.knobs.push_back (k[n + 2]);
+            }
         }
 
         selected = juce::jlimit (0, opPitchId, settings.getIntValue ("envSelected", 0));
@@ -967,7 +970,6 @@ public:
 
     // The bend of an envelope's segments has one name everywhere it is
     // set (UI review 6, I6-22): CURVE, as on the LFO and the matrix.
-    static constexpr const char* curveLabel = "CURVE";
 
     // OP ENV and OP PITCH after ENV 1-16.
     static constexpr int opEnvId = 16;
@@ -1102,7 +1104,7 @@ private:
     struct ExtraUnit
     {
         std::unique_ptr<EnvelopeDisplay> display;
-        std::array<std::unique_ptr<KnobControl>, 6> knobs;
+        std::array<std::unique_ptr<KnobControl>, 5> knobs;
     };
     struct Unit
     {
@@ -1184,11 +1186,11 @@ private:
     EffectRules ampRules { processorRef };
     bool ampWasUsed = true;
     EnvelopeDisplay ampDisplay, feDisplay, f2eDisplay, meDisplay, e4Display;
-    KnobControl ampA, ampD, ampS, ampR, ampVel, ampCurve;
-    KnobControl feA, feD, feS, feR, feVel, feCurve;
-    KnobControl f2A, f2D, f2S, f2R, f2Vel, f2Curve;
-    KnobControl meA, meD, meS, meR, meVel, meCurve;
-    KnobControl e4A, e4D, e4S, e4R, e4Vel, e4Curve;
+    KnobControl ampA, ampD, ampS, ampR, ampVel;
+    KnobControl feA, feD, feS, feR, feVel;
+    KnobControl f2A, f2D, f2S, f2R, f2Vel;
+    KnobControl meA, meD, meS, meR, meVel;
+    KnobControl e4A, e4D, e4S, e4R, e4Vel;
     std::vector<Unit> units;
     std::vector<ExtraUnit> extraUnits;
     int selected = 0;
@@ -1983,9 +1985,14 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         if (routes.isEmpty())
         {
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-            IlanaTheme::drawFitted (g, "Nothing yet. Drag this card onto any knob to make it move that knob; every route it drives is listed here, with its depth.",
-                                    compact ? area : area.withTrimmedRight (area.getWidth() / 3), juce::Justification::centredLeft, compact ? 2 : 3);
+            // (A short band holds one short line at a readable size: the long
+            // text shrank to about 6 px under the simulated shapes, review 21.)
+            const auto shortBand = infoArea.getHeight() < 60;
+            g.setFont (IlanaTheme::font (shortBand ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body));
+            IlanaTheme::drawFitted (g, shortBand ? (compact ? "Nothing yet. Drag this card onto any knob to use it." : "Drag this onto any knob.")
+                                                 : "Nothing yet. Drag this card onto any knob to make it move that knob; every route it drives is listed here, with its depth.",
+                                    compact || shortBand ? area : area.withTrimmedRight (area.getWidth() / 3), juce::Justification::centredLeft,
+                                    shortBand ? 1 : 3);
             return;
         }
 

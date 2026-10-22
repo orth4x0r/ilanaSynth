@@ -115,7 +115,7 @@ class FxMiniWindow : public juce::Component
 {
 public:
     FxMiniWindow (IlanaSynthAudioProcessor& p, FxPage& rack, int slotIndex, int fxType, const juce::String& title)
-        : slot (slotIndex), type (fxType), name (title), colour (fxColour (fxType)), power (p, slotIndex), display (p)
+        : slot (slotIndex), type (fxType), processorRef (p), name (title), colour (fxColour (fxType)), power (p, slotIndex), display (p)
     {
         setName ("FX WINDOW " + title); // (the UI test finds it by name)
         constrainer.owner = this;
@@ -183,6 +183,7 @@ public:
         const auto width = juce::jmax (300, columns * cellWidth + (columns - 1) * gap + 2 * pad);
         const auto height = titleHeight + (display.isVisible() ? displayHeight + gap : 0) + rows * cellHeight + (rows - 1) * gap + pad;
         setSize (width, height);
+        updateDimming();
     }
 
     ~FxMiniWindow() override
@@ -242,6 +243,7 @@ public:
     {
         if (shadow != nullptr)
             shadow->refresh();
+        updateDimming();
     }
 
     void paint (juce::Graphics& g) override
@@ -310,6 +312,32 @@ public:
 
 private:
     static constexpr int pad = 12, gap = 8, titleHeight = 40, displayHeight = 64, cellWidth = 116, cellHeight = 44;
+
+    // Dimmed as its RACK card is: everything while the effect is off, and a
+    // control that does nothing in the present settings (FxPage::isIdleControl).
+    void updateDimming()
+    {
+        auto& state = shadow != nullptr ? shadow->getState() : processorRef.apvts;
+        const auto* bypass = processorRef.apvts.getRawParameterValue ("fx_slot" + juce::String (slot + 1) + "_bypass");
+        auto off = bypass != nullptr && bypass->load() > 0.5f;
+        if (const auto* id = FxPage::enableParamFor (type))
+            if (const auto* value = state.getRawParameterValue (id))
+                off = off || value->load() < 0.5f;
+
+        const auto alpha = off ? FilterColours::offAlpha : 1.0f;
+        if (display.getAlpha() != alpha)
+            display.setAlpha (alpha);
+        for (auto& control : controls)
+        {
+            auto itemAlpha = alpha;
+            if (! off && FxPage::isIdleControl (type, FxPage::parameterIdOf (control.get()), state))
+                itemAlpha = IlanaTheme::dimmedAlpha;
+            if (control->getAlpha() != itemAlpha)
+                control->setAlpha (itemAlpha);
+        }
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
 
     struct Constrainer : juce::ComponentBoundsConstrainer
     {

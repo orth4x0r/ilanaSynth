@@ -39,20 +39,22 @@ enum
     // Appended after the PD family: a windowed formant and a centre squeeze.
     Formant,
     Squeeze,
+    // Appended: FM from the Sub / Noise card's noise generator.
+    NoiseFm,
     Count
 };
 
 inline juce::StringArray getNames()
 {
     return { "Off", "Sync", "Bend +", "Bend -", "PWM", "Mirror", "Asym", "Quantize", "FM", "Ring",
-             "PD Saw", "PD Square", "PD Pulse", "PD Res I", "PD Res II", "PD Res III", "Formant", "Squeeze" };
+             "PD Saw", "PD Square", "PD Pulse", "PD Res I", "PD Res II", "PD Res III", "Formant", "Squeeze", "FM Noise" };
 }
 
 inline bool isPhaseWarp (int mode) { return mode >= Sync && mode <= Quantize; }
 inline bool isPhaseDistortion (int mode) { return mode >= PdSaw && mode <= PdRes3; }
 inline bool isResonance (int mode) { return mode >= PdRes1 && mode <= PdRes3; }
 
-// The oscillator applies these itself (FM and Ring need another oscillator).
+// The oscillator applies these itself (FM, Ring and FM Noise need another source).
 inline bool isShaper (int mode) { return mode == Formant || mode == Squeeze; }
 inline bool isOscillatorWarp (int mode) { return isPhaseWarp (mode) || isPhaseDistortion (mode) || isShaper (mode); }
 
@@ -63,6 +65,7 @@ inline juce::StringArray getStageTwoNames()
     auto names = getNames();
     names.removeString ("FM");
     names.removeString ("Ring");
+    names.removeString ("FM Noise");
     return names;
 }
 

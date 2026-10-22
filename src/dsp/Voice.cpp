@@ -579,6 +579,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     noiseGenerator.reset();
     fmNoiseGenerator.reset();
     noiseLow = 0.0f;
+    warpNoiseLow = 0.0f;
     subOscLevelSmooth.setCurrentAndTargetValue (params.subOscLevel);
     subOscEnableSmooth.setCurrentAndTargetValue (params.subOscEnabled ? 1.0f : 0.0f);
 
@@ -1683,6 +1684,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // render exactly as before.
     auto anyAltFeedback = false;
     auto anyNoiseOperator = false;
+    auto anyWarpNoise = false; // an oscillator's WARP is FM Noise
     // The FM cells that involve OSC 4-6. A zero cell adds nothing, so unless
     // the extended cells are modulated only the non-zero ones are summed
     // (in the same order as the full matrix).
@@ -1787,6 +1789,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     {
         anyAltFeedback = anyAltFeedback || (active[osc] && params.oscillators[osc].feedbackType != FmFeedback::Plain);
         anyNoiseOperator = anyNoiseOperator || (active[osc] && params.fmNoise[osc] > 0.0f);
+        anyWarpNoise = anyWarpNoise || (active[osc] && params.oscillators[osc].warpMode == Warp::NoiseFm);
 
         // The other operators that feed it: a silent cell adds an exact zero,
         // so leaving it out of the sum changes nothing.
@@ -2249,7 +2252,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                    || oscEnableSmooth[osc].isSmoothing();
             if (mayRender && (settings.sampleMode || settings.granularMode || settings.liveMode
                               || settings.stringMode
-                              || settings.warpMode == Warp::Fm || settings.warpMode == Warp::Ring))
+                              || settings.warpMode == Warp::Fm || settings.warpMode == Warp::Ring
+                              || settings.warpMode == Warp::NoiseFm))
                 return false;
             numRendering += mayRender ? 1 : 0;
             if (altFeedbackInput[osc] && settings.feedbackType == FmFeedback::Cross)
@@ -3084,6 +3088,21 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 fmInput[osc] += cross[osc];
         }
 
+        // FM Noise: the NOISE card's generator (its type and colour, not its level
+        // or switch). One draw a sample, which the heard noise below reuses.
+        auto warpNoiseDraw = 0.0f, warpNoiseHeard = 0.0f;
+        if (anyWarpNoise)
+        {
+            warpNoiseDraw = noiseGenerator.process (params.noiseType, random.nextFloat() * 2.0f - 1.0f);
+            warpNoiseHeard = warpNoiseDraw;
+
+            if (heardNoiseCoeff < 1.0f)
+            {
+                warpNoiseLow += heardNoiseCoeff * (warpNoiseDraw - warpNoiseLow);
+                warpNoiseHeard = warpNoiseLow * heardNoiseGain;
+            }
+        }
+
         // The noise operator: coloured noise into any oscillator's FM input.
         if (anyNoiseOperator)
         {
@@ -3132,7 +3151,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                                    levelSmooth[osc].getNextValue() + mods[(int) levelDestinations[osc]]);
                 const auto warpSource = osc == 0 ? previousOsc[1] : oscMono[0];
                 const auto phase = fmPhase (fmInput[osc])
-                                   + (settings.warpMode == Warp::Fm ? (double) (warpAmount * warpSource) : 0.0);
+                                   + (settings.warpMode == Warp::Fm ? (double) (warpAmount * warpSource) : 0.0)
+                                   + (settings.warpMode == Warp::NoiseFm ? (double) (warpAmount * warpNoiseHeard) : 0.0);
                 // The Operator EG's pitch envelope and LFO move every ratio
                 // operator it plays (a fixed-frequency one stays put, as on
                 // the DX7).
@@ -3351,7 +3371,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         if (noiseLevel > 0.0f)
         {
-            auto value = noiseGenerator.process (params.noiseType, random.nextFloat() * 2.0f - 1.0f) * noiseLevel * 0.5f
+            auto value = (anyWarpNoise ? warpNoiseDraw : noiseGenerator.process (params.noiseType, random.nextFloat() * 2.0f - 1.0f)) * noiseLevel * 0.5f
                          * (alternateAmpRouting ? ampValue : 1.0f);
             // NOISE COLOUR under white: a one-pole low-pass, part of the
             // lost level made up (white skips it, so older patches are

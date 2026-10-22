@@ -870,6 +870,7 @@ private:
     juce::SmoothedValue<float> frameSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> levelSmooth[VoiceParams::numOscillators];
     juce::SmoothedValue<float> noiseSmooth;
+    float warpNoiseLow = 0.0f; // FM Noise's own copy of that low-pass
     float noiseLow = 0.0f; // the heard noise's low-pass, while NOISE COLOUR is under white
     juce::SmoothedValue<float> noiseEnableSmooth, subOscColourSmooth;
     NoiseColours::Generator noiseGenerator, fmNoiseGenerator;

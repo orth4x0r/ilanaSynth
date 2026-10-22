@@ -458,6 +458,9 @@ inline void groupWarpMenu (ComboControl& control, int osc, std::function<bool (i
     const auto fmText = "FM from OSC " + juce::String (source + 1);
     const auto ringText = "Ring with OSC " + juce::String (source + 1);
 
+    if (box.getNumItems() > Warp::NoiseFm)
+        box.changeItemText (Warp::NoiseFm + 1, "FM from Noise");
+
     if (box.getNumItems() > Warp::Ring)
     {
         box.changeItemText (Warp::Fm + 1, fmText);
@@ -467,7 +470,7 @@ inline void groupWarpMenu (ComboControl& control, int osc, std::function<bool (i
     }
 
     box.getProperties().set ("valueDot", (int) IlanaTheme::oscColour (source).getARGB());
-    box.getProperties().set ("valueDotPrefixes", "FM from|Ring with");
+    box.getProperties().set ("valueDotPrefixes", "FM from OSC|Ring with");
 
     control.setPopupOverride ([combo = &box, source, osc, isShown, fmText, ringText]
     {
@@ -500,6 +503,7 @@ inline void groupWarpMenu (ComboControl& control, int osc, std::function<bool (i
         const auto note = "OSC " + juce::String (source + 1) + arrow + "OSC " + juce::String (osc + 1);
         add (Warp::Fm, fmText, note, isShown (source));
         add (Warp::Ring, ringText, "OSC " + juce::String (source + 1) + juce::String::fromUTF8 (" \xc3\x97 ") + "OSC " + juce::String (osc + 1), isShown (source));
+        add (Warp::NoiseFm, "FM from Noise", "NOISE" + arrow + "OSC " + juce::String (osc + 1));
 
         juce::Component::SafePointer<juce::ComboBox> safe (combo);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (combo), [safe] (int result)

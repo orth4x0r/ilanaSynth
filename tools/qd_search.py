@@ -211,6 +211,7 @@ def mutate(parent, mates, category, rng):
 
 
 WINNERS = Path("/mnt/project-files/ilanasynth/search-winners")
+WINNERS2 = Path("/mnt/project-files/ilanasynth/search-winners-2")
 
 
 def seed_parents():
@@ -222,6 +223,10 @@ def seed_parents():
     for pid in KEPT:
         info = next(p for p in json.load(open(PACK / "pack.json")) if p["id"] == pid)
         out.append((PACK / info["preset"], info["category"]))
+    if (WINNERS2 / "pack.json").exists():  # round 3: the second page's Keep votes too
+        for p in json.load(open(WINNERS2 / "pack.json")):
+            if p.get("vote") == "Keep":
+                out.append((WINNERS2 / p["preset"], p["category"]))
     for f in sorted(glob.glob(str(ROOT / "content" / "user-presets" / "*.ilanapreset"))):
         cat = pg.REF_CATEGORY.get(Path(f).stem)
         if cat in CATEGORIES:

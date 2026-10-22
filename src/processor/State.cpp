@@ -603,6 +603,19 @@ int IlanaSynthAudioProcessor::migrateFilterEnvAmounts (const std::function<float
         set (prefix + "_amt", amount);
     };
 
+    // VELOCITY (filter_velocity) scaled the amount of both filters' envelopes; it now scales the FILTER ENV source
+    // itself, as the other envelopes' VELOCITY knobs do. So when Filter 1's amount becomes one route, the knob stays
+    // and carries the velocity share; with other FILTER ENV routes already in the patch (they were never scaled) or
+    // no amount to carry, the share is a second route via VELOCITY instead and the knob goes to 0.
+    const auto velocity = juce::jlimit (0.0f, 1.0f, get ("filter_velocity", 0.5f));
+    auto otherFilterEnvRoutes = 0;
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+        if (juce::roundToInt (get ("mod" + juce::String (slot) + "_src", 0.0f)) == (int) Source::FilterEnv
+            && juce::roundToInt (get ("mod" + juce::String (slot) + "_dst", 0.0f)) != 0)
+            ++otherFilterEnvRoutes;
+
+    auto keepVelocityKnob = false, leftInPlace = false;
+
     // (The old default of Filter 1's amount was 1.5 octaves: a patch that
     // never stored one still had it.) The matrix reaches 6 octaves at 100 %.
     for (const auto filter : { 1, 2 })
@@ -613,34 +626,49 @@ int IlanaSynthAudioProcessor::migrateFilterEnvAmounts (const std::function<float
         if (std::abs (octaves) < 1.0e-6f)
             continue;
 
-        // Filter 2's envelope source already carries its own velocity share;
-        // Filter 1's amount carried the VELOCITY knob (default 50 %), which
-        // the FILTER ENV source does not.
-        const auto velocityShare = filter == 1 ? juce::jlimit (0.0f, 1.0f, get ("filter_velocity", 0.5f)) : 0.0f;
         const auto first = freeSlot();
         if (first == 0)
+        {
+            leftInPlace = true;
             continue;
+        }
+
         const auto source = filter == 1 ? Source::FilterEnv : Source::FilterEnv2;
         const auto destination = filter == 1 ? Destination::Filter1Cutoff : Destination::Filter2Cutoff;
 
-        route (first, source, destination, Source::None, octaves * (1.0f - velocityShare) / 6.0f);
-
-        if (velocityShare > 1.0e-6f)
+        if (filter == 1 && otherFilterEnvRoutes == 0)
         {
-            const auto second = freeSlot();
-            if (second == 0)
+            route (first, source, destination, Source::None, octaves / 6.0f);
+            keepVelocityKnob = true;
+        }
+        else
+        {
+            route (first, source, destination, Source::None, octaves * (1.0f - velocity) / 6.0f);
+
+            if (velocity > 1.0e-6f)
             {
-                // No room for the velocity share: give the first route the
-                // whole amount rather than lose the sweep.
-                set ("mod" + juce::String (first) + "_amt", octaves / 6.0f);
+                const auto second = freeSlot();
+                if (second == 0)
+                {
+                    // No room for the velocity share: give the first route the
+                    // whole amount rather than lose the sweep.
+                    set ("mod" + juce::String (first) + "_amt", octaves / 6.0f);
+                }
+                else
+                    route (second, source, destination, Source::Velocity, octaves * velocity / 6.0f);
             }
-            else
-                route (second, source, destination, Source::Velocity, octaves * velocityShare / 6.0f);
         }
 
         set (prefix + "_env", 0.0f);
         ++moved;
     }
+
+    // The knob keeps its value only where it was folded into the one route; anywhere else the routes carry the share
+    // (or a left amount still wants it), so it must not scale the patch's other FILTER ENV routes.
+    if (keepVelocityKnob || leftInPlace)
+        set ("filter_velocity", velocity);
+    else if (velocity > 1.0e-6f)
+        set ("filter_velocity", 0.0f);
 
     return moved;
 }

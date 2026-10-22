@@ -734,7 +734,10 @@ void Voice::stopNote (float, bool allowTailOff)
 bool Voice::oneShotPlaying() const
 {
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
-        if (params.oscillators[osc].sampleMode && params.oscillators[osc].samplePlayback == SamplePlayer::oneShot
+        // Granular reads the sample through its cloud, never through these
+        // players, so they would never reach the end and hold the release.
+        if (params.oscillators[osc].sampleMode && ! params.oscillators[osc].granularMode
+            && params.oscillators[osc].samplePlayback == SamplePlayer::oneShot
             && params.oscillatorEnabled[osc])
             for (const auto& player : sampleUnison[osc])
                 if (player.holdsRelease())

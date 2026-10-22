@@ -249,6 +249,25 @@ void runSamplePlaybackModeTest()
     const auto held = renderNote (processor, 4, 120);
     check (held[30] > 0.01f && held[80] > 0.01f, "One Shot: the sample keeps playing after the key is let go");
     check (held[110] < 1.0e-4f, "One Shot: the voice ends once the sample has played (" + juce::String (held[110], 6) + ")");
+
+    // Granular has no PLAYBACK row, and its cloud never plays the sample to
+    // an end: a One Shot left over from Sample mode must not hold its
+    // release (the hidden sample players never advanced, so the note rang
+    // on after the key forever).
+    auto longTone = std::make_shared<SampleData>();
+    longTone->sampleRate = 48000.0;
+    longTone->buffer = MultiSampleLab::sine (220.0, 48000.0, 48000 * 3);
+    processor.setUserSample (0, longTone, {});
+    samplerSet (processor, "osc1_mode", 3.0f);
+    for (const auto playback : { 0.0f, 1.0f, 2.0f })
+    {
+        samplerSet (processor, "osc1_sample_playback", playback);
+        const auto grains = renderNote (processor, 20, 120);
+        check (grains[10] > 0.01f, "Granular sounds while the key is held (PLAYBACK " + juce::String (playback, 0) + ")");
+        check (grains[60] < 1.0e-4f && grains[110] < 1.0e-4f,
+               "Granular stops after the key is let go (PLAYBACK " + juce::String (playback, 0) + ", "
+                   + juce::String (grains[60], 6) + ")");
+    }
 }
 
 // Step 34: the loop turns at its ends instead of jumping back.

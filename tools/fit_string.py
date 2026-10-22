@@ -113,6 +113,29 @@ def partial_decay(x, note):
     return np.array(out)
 
 
+def wobble(x, note):
+    """RMS (dB) of how the fundamental's level wanders around a smooth decay, 0.2-2.4 s:
+    the beating of two string directions that a single loop does not have."""
+    f0 = 440.0 * 2 ** ((note - 69) / 12)
+    ts = np.arange(0.2, 2.4, 0.04)
+    levels = []
+    for t in ts:
+        seg = x[int(t * SR):int((t + 0.12) * SR)]
+        if len(seg) < 1024:
+            return 0.0
+        N = 1 << 15
+        spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), N))
+        f = np.fft.rfftfreq(N, 1 / SR)
+        m = (f > f0 * 0.97) & (f < f0 * 1.03)
+        levels.append(20 * np.log10(spec[m].max() + 1e-9))
+    levels = np.array(levels)
+    keep = levels > levels.max() - 40
+    if keep.sum() < 12:
+        return 0.0
+    t, y = ts[keep], levels[keep]
+    return float(np.std(y - np.polyval(np.polyfit(t, y, 3), t)))
+
+
 def features(x, note):
     x = x / (np.abs(x[:int(0.3 * SR)]).max() + 1e-9)
     b = ka.bands(x)
@@ -120,18 +143,32 @@ def features(x, note):
     shape = np.concatenate([(seg - ref) for seg in b[:3]])
     harm = ka.harmonics(x, note)
     harm = harm - harm.max()
-    return {"bands": shape, "harm": harm, "decay": partial_decay(x, note)}
+    return {"bands": shape, "harm": harm, "decay": partial_decay(x, note), "wobble": wobble(x, note)}
 
 
 def distance(a, b):
     e_bands = np.sqrt(np.mean((np.clip(a["bands"], -80, 0) - np.clip(b["bands"], -80, 0)) ** 2))
     e_harm = np.sqrt(np.mean((np.clip(a["harm"], -60, 0) - np.clip(b["harm"], -60, 0)) ** 2))
     e_decay = np.sqrt(np.mean((a["decay"] - b["decay"]) ** 2))
-    return {"bands": e_bands, "harm": e_harm, "decay": e_decay, "total": e_bands + 0.7 * e_harm + 1.2 * e_decay}
+    e_wobble = abs(a.get("wobble", 0.0) - b.get("wobble", 0.0))
+    return {"bands": e_bands, "harm": e_harm, "decay": e_decay, "wobble": e_wobble,
+            "total": e_bands + 0.7 * e_harm + 1.2 * e_decay + (1.5 * e_wobble if USE_WOBBLE else 0.0)}
+
+
+USE_WOBBLE = False
 
 
 def reference(name):
-    path = os.path.join(OUT, name, "reference.npz")
+    data = _reference(name)
+    for note, r in data.items():
+        if "wobble" not in r["features"]:
+            x = r["audio"] / (np.abs(r["audio"][:int(0.3 * SR)]).max() + 1e-9)
+            r["features"]["wobble"] = wobble(x, note)
+    return data
+
+
+def _reference(name):
+    path = path_cache = os.path.join(OUT, name, "reference.npz")
     if os.path.exists(path):
         z = np.load(path, allow_pickle=True)
         return z["data"].item()
@@ -144,6 +181,21 @@ def reference(name):
         np.savez(path, data=np.array(src, dtype=object))
         return src
     data = {}
+    if "files" in spec:                      # one recorded note per file (the VSCO 2 CE harp and double bass)
+        import wave
+        for note, (path, velocity) in spec["files"].items():
+            w = wave.open(path)
+            raw = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float64) / 32768.0
+            x = to_rate(raw.reshape(-1, w.getnchannels()).mean(axis=1), w.getframerate())
+            peak = np.abs(x[:int(0.3 * SR)]).max()
+            start = int(np.argmax(np.abs(x) > 0.15 * peak))
+            y = x[max(0, start - int(0.002 * SR)):int(8 * SR)]
+            data[note] = {"audio": y, "velocity": velocity}
+        for note in data:
+            data[note]["features"] = features(data[note]["audio"], note)
+        os.makedirs(os.path.dirname(path_cache), exist_ok=True)
+        np.savez(path_cache, data=np.array(data, dtype=object))
+        return data
     want = set(spec["pick"].values())
     for fname, first, count, velocity in spec["runs"]:
         x, rate = read_aiff(os.path.join(ROOT, "build", "reference", name.split("_")[0], fname))
@@ -180,6 +232,29 @@ INSTRUMENTS["guitar_body"] = {**INSTRUMENTS["guitar"],
     "params": [("res_amount", 0.0, 1.0, 0.3), ("res_decay", 0.0, 1.0, 0.3),
                ("body_material", 0.0, 1.0, 0.3), ("body_size", 0.0, 1.0, 0.3)],
     "start": {**{"osc1_string_decay": 0.9085, "osc1_string_damp": 0.425, "osc1_string_stiffness": 0.505, "osc1_string_excite_pos": 0.525, "osc1_string_pick_hardness": 0.0037, "osc1_string_pickup": 0.785}, "res_amount": 0.3, "res_decay": 0.3, "body_material": 0.2, "body_size": 0.5}}
+
+# the fitted guitar with its Guitar body, plus the second vibration direction: SPLIT and DECAY are searched
+INSTRUMENTS["guitar_split"] = {**INSTRUMENTS["guitar"],
+    "base": {"osc1_excite": 0, "osc1_unison": 1, "subosc_on": 0, "res_on": 1, "body_type": 5, "res_amount": 0.75,
+             "res_decay": 0.0225, "body_material": 0.1375, "body_size": 0.0, "osc1_string_stiffness": 0.505,
+             "osc1_string_excite_pos": 0.525, "osc1_string_pick_hardness": 0.0037, "osc1_string_pickup": 0.785,
+             "osc1_string_damp": 0.425, "osc1_string_decay": 0.9085, "osc1_string_split": 0.0},
+    "params": [("osc1_string_split", 0.0, 1.0, 0.0), ("osc1_string_decay", 0.0, 1.0, 0.9085)],
+    "start": {"osc1_string_split": 0.4, "osc1_string_decay": 0.9085}}
+
+VSCO = "/tmp/claude-0/vscoex/VSCO-2-CE-SFZ/Strings"      # CC0 recordings, VSCO 2 Community Edition
+_GUITAR_BEST = {"osc1_string_decay": 0.9085, "osc1_string_damp": 0.425, "osc1_string_stiffness": 0.505,
+                "osc1_string_excite_pos": 0.525, "osc1_string_pick_hardness": 0.0037, "osc1_string_pickup": 0.785}
+INSTRUMENTS["harp"] = {
+    "files": {38: (f"{VSCO}/Harp/KSHarp_D2_mf.wav", 90), 48: (f"{VSCO}/Harp/KSHarp_C3_mf.wav", 90),
+              55: (f"{VSCO}/Harp/KSHarp_G3_mf.wav", 90), 62: (f"{VSCO}/Harp/KSHarp_D4_mf.wav", 90),
+              72: (f"{VSCO}/Harp/KSHarp_C5_mf.wav", 90), 79: (f"{VSCO}/Harp/KSHarp_G5_mf.wav", 90)},
+    "base": {"osc1_excite": 0, "osc1_unison": 1, "subosc_on": 0}, "start": dict(_GUITAR_BEST)}
+INSTRUMENTS["bass"] = {
+    "files": {28: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_E1_v1_rr1.wav", 90), 33: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_A1_v1_rr1.wav", 90),
+              37: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_C#2_v1_rr1.wav", 90), 40: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_E2_v1_rr1.wav", 90),
+              44: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_G#2_v1_rr1.wav", 90), 47: (f"{VSCO}/Solo Contrabass/Pizz/BKCtbss_Pizz_B2_v1_rr1.wav", 90)},
+    "base": {"osc1_excite": 0, "osc1_unison": 1, "subosc_on": 0}, "start": dict(_GUITAR_BEST)}
 
 for _e in (1, 2, 3, 5):                      # the same recording fitted from another exciter: guitar_2 etc.
     INSTRUMENTS[f"guitar_{_e}"] = {**INSTRUMENTS["guitar"], "base": {"osc1_excite": _e, "osc1_unison": 1, "subosc_on": 0}}
@@ -264,7 +339,7 @@ def render_clips(name, out):
     start = dict(START)
     jobs = []
     for note, r in ref.items():
-        jobs.append((f"old_{note}", note, r["velocity"], {**INSTRUMENTS[name]["base"]}))
+        jobs.append((f"old_{note}", note, r["velocity"], {**INSTRUMENTS[name]["base"], **INSTRUMENTS[name].get("start", {})}))
         jobs.append((f"new_{note}", note, r["velocity"], {**INSTRUMENTS[name]["base"], **best}))
     audio = render_many(name, jobs, os.path.join(folder, "clips"))
     os.makedirs(out, exist_ok=True)
@@ -290,6 +365,7 @@ def render_clips(name, out):
 
 if __name__ == "__main__":
     cmd = sys.argv[1]
+    USE_WOBBLE = os.environ.get("FIT_WOBBLE") == "1"
     if cmd == "notes":
         x, rate = read_aiff(sys.argv[2])
         x = to_rate(x, rate)

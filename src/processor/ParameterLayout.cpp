@@ -1335,5 +1335,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                    VoiceRouting::toParamMask (VoiceRouting::defaultPatch().stage[(size_t) VoiceRouting::body]));
     }
 
+    // AW Delay (FX type 35) to the host's tempo, as the main Delay's SYNC and
+    // DIV (airwindows/DelaySync.h). Off, as in every older patch.
+    addBool ("fx_awdelay_sync", "AW Delay Sync", false);
+    addChoice ("fx_awdelay_div", "AW Delay Div", getSyncDivisionNames(), 3);
+
     return layout;
 }

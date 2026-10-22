@@ -2,6 +2,7 @@
 #include "PatchGraphRunner.h"
 #include "PatchGraphState.h"
 #include "../dsp/FastMath.h"
+#include "../dsp/airwindows/DelaySync.h"
 
 // The rack. PATCHER on: the slots as the nodes of the patcher's graph
 // (processEffectsPatched). Otherwise the rack's routing (fx_routing): SERIES,
@@ -1867,6 +1868,17 @@ void IlanaSynthAudioProcessor::FxEngine::processAirwindowsCategory (juce::AudioB
     for (size_t knob = 0; knob < knobs.size(); ++knob)
         knobs[knob] = getParam (refs[knob + 1]);
     const auto choice = juce::jlimit (0, (int) info.algorithms.size() - 1, (int) getParam (refs[0]));
+    const auto algorithm = info.algorithms[(size_t) choice];
+
+    // AW Delay with SYNC on: its time knob(s) set from the host's tempo.
+    if (std::strcmp (info.id, "awdelay") == 0 && getParam ("fx_awdelay_sync") > 0.5f)
+    {
+        const auto beats = getSyncDivisionBeats ((int) getParam ("fx_awdelay_div"));
+        const auto seconds = (60.0 / juce::jmax (1.0, currentBpm.load())) * beats;
+        for (int knob = 0; knob < (int) knobs.size(); ++knob)
+            if (airwindows::delaysync::isTimeKnob (algorithm, knob))
+                knobs[(size_t) knob] = airwindows::delaysync::knobFor (algorithm, seconds, currentSampleRate);
+    }
 
     auto* left = buffer.getWritePointer (0);
     auto* right = left;
@@ -1880,7 +1892,7 @@ void IlanaSynthAudioProcessor::FxEngine::processAirwindowsCategory (juce::AudioB
         right = airwindowsMonoRight.data();
     }
 
-    awCategoryModules[(size_t) category].process (left, right, numSamples, info.algorithms[(size_t) choice], knobs,
+    awCategoryModules[(size_t) category].process (left, right, numSamples, algorithm, knobs,
                                                   getParam (refs[6]));
 }
 

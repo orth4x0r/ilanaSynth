@@ -1053,6 +1053,8 @@ inline const HelpRow helpRows[] {
     { is ("fx_chorus_on|fx_chorus_rate|fx_chorus_depth|fx_chorus_mix"), "Thickening chorus for width." },
     { is ("fx_delay_on|fx_delay_time|fx_delay_sync|fx_delay_div|fx_delay_feedback|fx_delay_damping|fx_delay_pingpong|fx_delay_mix"), "Main delay. Damping darkens repeats." },
     { is ("fx_delay_pitch"), "Pitch-shifts the delay feedback: the Sophie trick." },
+    { is ("fx_awdelay_sync"), "Locks the echo time to the host tempo (the DIV note). StarChild2 has no time to lock. A note longer than the echo can reach stops at its longest time." },
+    { is ("fx_awdelay_div"), "The echo time while SYNC is on, as a note at the host tempo." },
     { is ("fx_delay_wow"), "Tape-style pitch drift of the delay time." },
     { is ("fx_taps_on|fx_taps_pattern|fx_taps_mix"), "Multi-tap rhythmic echoes riding on the delay time." },
     { is ("fx_stutter_on|fx_stutter_div|fx_stutter_mix"), "Loops the current beat-slice. Flip on/off in time for glitches." },

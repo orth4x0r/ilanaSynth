@@ -8,6 +8,7 @@
 
 #include "../PluginProcessor.h"
 #include "../dsp/airwindows/Categories.h"
+#include "../dsp/airwindows/DelaySync.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 #include "DisplayStyle.h"
@@ -138,6 +139,19 @@ private:
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();
         return 0.0f;
+    }
+
+    // An Airwindows knob as the effect runs it (algorithm: its registry
+    // index): AW Delay's time knobs follow the tempo while its SYNC is on.
+    float airwindowsKnob (const juce::String& prefix, int algorithm, int knob, double rate) const
+    {
+        if (prefix == "fx_awdelay" && param ("fx_awdelay_sync") > 0.5f && airwindows::delaysync::isTimeKnob (algorithm, knob))
+        {
+            static const double divisionBeats[] { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 0.75, 0.375 };
+            const auto beats = divisionBeats[juce::jlimit (0, 10, (int) param ("fx_awdelay_div"))];
+            return airwindows::delaysync::knobFor (algorithm, 60.0 / juce::jmax (1.0, processorRef.getCurrentBpm()) * beats, rate);
+        }
+        return param (prefix + "_p" + juce::String (knob + 1));
     }
 
     // ---- Shared drawing ----
@@ -1253,7 +1267,7 @@ private:
             impulseSeconds = seconds;
             run->prepare (rate);
             for (int k = 0; k < info.numKnobs; ++k)
-                run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (param (prefix + "_p" + juce::String (k + 1))));
+                run->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (airwindowsKnob (prefix, index, k, rate)));
 
             const auto total = (int) (rate * seconds);
             std::vector<float> left ((size_t) total, 0.0f), right ((size_t) total, 0.0f);
@@ -2006,6 +2020,12 @@ private:
                     mixIn (param (prefix + "_mix"));
                     for (int k = 1; k <= airwindows::Module::numKnobs; ++k)
                         mixIn (param (prefix + "_p" + juce::String (k)));
+                    if (prefix == "fx_awdelay")
+                    {
+                        mixIn (param ("fx_awdelay_sync"));
+                        mixIn (param ("fx_awdelay_div"));
+                        mixIn ((float) processorRef.getCurrentBpm());
+                    }
                 }
                 break;
             case Kind::freeze: mixIn (param ("fx_freeze_on")); break;

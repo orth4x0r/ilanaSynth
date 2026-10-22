@@ -92,64 +92,6 @@ inline void runFxLfoUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     expect (windowKnob (editor, "FX WINDOW DELAY 1", "fx_delay_time") != nullptr && windowKnob (editor, "FX WINDOW DELAY 2", "fx_delay_time") != nullptr,
             "FX LFO: both Delays' windows open");
 
-    // A window dims as the RACK card does (ilana, 2026-10-22): SYNC on greys
-    // TIME and TIME RIGHT, off greys DIV; the slot switched off greys all.
-    {
-        const auto inWindow = [] (juce::Component* item)
-        {
-            for (auto* parent = item->getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
-                if (parent->getName().equalsIgnoreCase ("FX WINDOW DELAY 1"))
-                    return true;
-            return false;
-        };
-        const auto alphaOf = [&editor, inWindow] (const juce::String& id)
-        {
-            std::vector<juce::Component*> all;
-            findAll<juce::Component> (editor, all);
-            for (auto* item : all)
-                if (const auto* knob = dynamic_cast<KnobControl*> (item); ((knob != nullptr && knob->getParameterId() == id)
-                         || (dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == id))
-                     && visibleInTree (item) && inWindow (item))
-                    return item->getAlpha();
-            return -1.0f;
-        };
-        ToggleControl* sync = nullptr;
-        std::vector<ToggleControl*> toggles;
-        findAll<ToggleControl> (editor, toggles);
-        for (auto* toggle : toggles)
-            if (toggle->getParameterId() == "fx_delay_sync" && visibleInTree (toggle) && inWindow (toggle))
-                sync = toggle;
-        expect (sync != nullptr, "FX window: Delay 1's window has SYNC");
-        if (sync != nullptr)
-        {
-            const auto setSync = [sync] (bool on)
-            {
-                if (sync->getButton().getToggleState() != on)
-                    sync->getButton().triggerClick();
-                settle (300);
-            };
-            setSync (true);
-            expect (alphaOf ("fx_delay_time") == IlanaTheme::dimmedAlpha && alphaOf ("fx_delay_time_r") == IlanaTheme::dimmedAlpha
-                        && alphaOf ("fx_delay_div") == 1.0f && alphaOf ("fx_delay_feedback") == 1.0f,
-                    "FX window: SYNC on dims the Delay's TIME and TIME RIGHT, not DIV");
-            setSync (false);
-            expect (alphaOf ("fx_delay_time") == 1.0f && alphaOf ("fx_delay_div") == IlanaTheme::dimmedAlpha,
-                    "FX window: SYNC off dims the Delay's DIV, not TIME");
-        }
-        const auto bypass = [&processor] (float value)
-        {
-            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
-                if (auto* parameter = processor.apvts.getParameter ("fx_slot" + juce::String (slot) + "_bypass"))
-                    parameter->setValueNotifyingHost (value);
-            settle (300);
-        };
-        bypass (1.0f);
-        // (A component keeps its alpha in 8 bits.)
-        const auto offAlpha = [] (float alpha) { return std::abs (alpha - FilterColours::offAlpha) < 0.01f; };
-        expect (offAlpha (alphaOf ("fx_delay_time")) && offAlpha (alphaOf ("fx_delay_feedback")),
-                "FX window: a switched-off slot dims all its controls");
-        bypass (0.0f);
-    }
 
     // "+ LFO" adds FX LFO 1 as a box on the canvas.
     auto* add = buttonNamed (editor, "+ LFO");
@@ -289,6 +231,103 @@ inline void runFxLfoUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
     settle (200);
     expect (processor.getFxPatch().lfos.empty() && view->getGraph().find (lfoNode) == nullptr, "FX LFO: REMOVE takes the box away");
     expect (processor.getFxPatchGraph().cables().size() == audioCables, "FX LFO: the audio cables are as they were");
+
+    // A window dims as the RACK card does (ilana, 2026-10-22): SYNC on greys
+    // TIME and TIME RIGHT, off greys DIV; the slot switched off greys all.
+    {
+        if (const auto* first = boxOfSlot (0))
+            view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (*first).getCentre() * view->getZoom(), false));
+        settle (300);
+        const auto inWindow = [] (juce::Component* item)
+        {
+            for (auto* parent = item->getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+                if (parent->getName().equalsIgnoreCase ("FX WINDOW DELAY 1"))
+                    return true;
+            return false;
+        };
+        const auto alphaOf = [&editor, inWindow] (const juce::String& id)
+        {
+            std::vector<juce::Component*> all;
+            findAll<juce::Component> (editor, all);
+            for (auto* item : all)
+                if (const auto* knob = dynamic_cast<KnobControl*> (item); ((knob != nullptr && knob->getParameterId() == id)
+                         || (dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == id))
+                     && visibleInTree (item) && inWindow (item))
+                    return item->getAlpha();
+            return -1.0f;
+        };
+        ToggleControl* sync = nullptr;
+        std::vector<ToggleControl*> toggles;
+        findAll<ToggleControl> (editor, toggles);
+        for (auto* toggle : toggles)
+            if (toggle->getParameterId() == "fx_delay_sync" && visibleInTree (toggle) && inWindow (toggle))
+                sync = toggle;
+        expect (sync != nullptr, "FX window: Delay 1's window has SYNC");
+        if (sync != nullptr)
+        {
+            const auto setSync = [sync] (bool on)
+            {
+                if (sync->getButton().getToggleState() != on)
+                    sync->getButton().triggerClick();
+                settle (300);
+            };
+            setSync (true);
+            expect (alphaOf ("fx_delay_time") == IlanaTheme::dimmedAlpha && alphaOf ("fx_delay_time_r") == IlanaTheme::dimmedAlpha
+                        && alphaOf ("fx_delay_div") == 1.0f && alphaOf ("fx_delay_feedback") == 1.0f,
+                    "FX window: SYNC on dims the Delay's TIME and TIME RIGHT, not DIV");
+            setSync (false);
+            expect (alphaOf ("fx_delay_time") == 1.0f && alphaOf ("fx_delay_div") == IlanaTheme::dimmedAlpha,
+                    "FX window: SYNC off dims the Delay's DIV, not TIME");
+        }
+        const auto bypass = [&processor] (float value)
+        {
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                if (auto* parameter = processor.apvts.getParameter ("fx_slot" + juce::String (slot) + "_bypass"))
+                    parameter->setValueNotifyingHost (value);
+            settle (300);
+        };
+        bypass (1.0f);
+        // (A component keeps its alpha in 8 bits.)
+        const auto offAlpha = [] (float alpha) { return std::abs (alpha - FilterColours::offAlpha) < 0.01f; };
+        expect (offAlpha (alphaOf ("fx_delay_time")) && offAlpha (alphaOf ("fx_delay_feedback")),
+                "FX window: a switched-off slot dims all its controls");
+        bypass (0.0f);
+
+        // AW Delay's own SYNC (TapeDelay2: its first knob is the time).
+        processor.addFxEffect (35);
+        settle (200);
+        const auto setValue = [&processor] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        setValue ("fx_awdelay_algo", 0.0f);
+        setValue ("fx_awdelay_sync", 1.0f);
+        settle (300);
+        for (const auto& node : view->getGraph().nodes())
+            if (! node.isFixed() && node.kind == 35)
+                view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (node).getCentre() * view->getZoom(), false));
+        settle (300);
+        const auto awAlpha = [&editor] (const juce::String& id)
+        {
+            std::vector<juce::Component*> all;
+            findAll<juce::Component> (editor, all);
+            for (auto* item : all)
+                if (const auto* knob = dynamic_cast<KnobControl*> (item); ((knob != nullptr && knob->getParameterId() == id)
+                         || (dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == id))
+                     && visibleInTree (item))
+                    for (auto* parent = item->getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+                        if (parent->getName().startsWith ("FX WINDOW"))
+                            return item->getAlpha();
+            return -1.0f;
+        };
+        expect (awAlpha ("fx_awdelay_p1") == IlanaTheme::dimmedAlpha && awAlpha ("fx_awdelay_div") == 1.0f,
+                "FX window: AW Delay's SYNC dims its time knob, not DIV");
+        setValue ("fx_awdelay_sync", 0.0f);
+        settle (300);
+        expect (awAlpha ("fx_awdelay_p1") == 1.0f && awAlpha ("fx_awdelay_div") == IlanaTheme::dimmedAlpha,
+                "FX window: AW Delay's SYNC off dims DIV, not its time knob");
+    }
 
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
     settle (200);

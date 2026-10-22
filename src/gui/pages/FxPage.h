@@ -894,6 +894,19 @@ public:
             if (parameterId == "fx_delay_div")
                 return ! on ("fx_delay_sync");
         }
+
+        // So do AW Delay's time knobs and DIV (its card's own SYNC).
+        if (const auto c = airwindows::categoryForFxType (type); c >= 0 && parameterId.startsWith ("fx_awdelay_"))
+        {
+            if (parameterId == "fx_awdelay_div")
+                return ! on ("fx_awdelay_sync");
+            const auto& info = airwindows::categoryModules()[(size_t) c];
+            const auto* choice = state.getRawParameterValue (juce::String ("fx_") + info.id + "_algo");
+            const auto algorithm = info.algorithms[(size_t) juce::jlimit (0, (int) info.algorithms.size() - 1, choice != nullptr ? (int) choice->load() : 0)];
+            for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+                if (parameterId == "fx_awdelay_p" + juce::String (k + 1))
+                    return airwindows::delaysync::isTimeKnob (algorithm, k) && on ("fx_awdelay_sync");
+        }
         return false;
     }
 
@@ -2780,24 +2793,6 @@ private:
 
                 if (! off && isIdleControl (panel.type, parameterIdOf (item), state))
                     itemAlpha = IlanaTheme::dimmedAlpha;
-
-                // So do AW Delay's time knobs and DIV (its card's own SYNC).
-                if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0 && ! off && awCategories[(size_t) c].sync != nullptr)
-                {
-                    auto synced = false;
-                    for (auto* other : group)
-                        if (auto* sync = dynamic_cast<ToggleControl*> (other); sync != nullptr && sync->getParameterId() == "fx_awdelay_sync")
-                            synced = sync->getButton().getToggleState();
-                    const auto algorithm = airwindows::categoryModules()[(size_t) c].algorithms[(size_t) categoryChoice (c)];
-                    auto isTime = false;
-                    if (auto* knob = dynamic_cast<KnobControl*> (item))
-                        for (int k = 0; k < airwindows::Module::numKnobs; ++k)
-                            if (knob->getParameterId() == "fx_awdelay_p" + juce::String (k + 1))
-                                isTime = airwindows::delaysync::isTimeKnob (algorithm, k);
-                    const auto isDiv = dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == "fx_awdelay_div";
-                    if ((isTime && synced) || (isDiv && ! synced))
-                        itemAlpha = IlanaTheme::dimmedAlpha;
-                }
 
                 if (! isPower && item->getAlpha() != itemAlpha)
                 {

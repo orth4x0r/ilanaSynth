@@ -4047,7 +4047,7 @@ float Voice::sourceValue (Mod::Source source, int sampleIndex, float ampValue, f
     switch (source)
     {
         case Mod::Source::ModEnv:     return modValue * velocityScaleFor (params.modEnvVelocity);
-        case Mod::Source::FilterEnv:  return filterValue;
+        case Mod::Source::FilterEnv:  return filterValue * velocityScaleFor (params.filterVelocity);
         case Mod::Source::AmpEnv:     return ampValue;
         case Mod::Source::Velocity:   return velocityLevel;
         case Mod::Source::KeyTrack:   return keyTrackValue;

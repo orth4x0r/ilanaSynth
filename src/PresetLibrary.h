@@ -599,6 +599,7 @@ namespace Library
 #include "PresetPackM10.h"
 #include "PresetPackGate.h"
 #include "PresetPackIlana.h"
+#include "PresetPackSearch.h"
 
 // The owner's blind A/B marked these presets bad in both their old and new
 // form (2026-09-30): rebuilt from scratch (content/analysis/rebuild-8.md).
@@ -2868,6 +2869,9 @@ inline std::vector<FactoryPreset> buildLaterPacks()
 
     // ilana's pack: grown from her own presets by tools/preset_gen.py.
     addIlanaPresets (add);
+
+    // ilana's search pack: tools/qd_search.py winners she kept (tools/bake_search.py).
+    addSearchPresets (add);
 
     return list;
 }

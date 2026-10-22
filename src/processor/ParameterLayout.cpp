@@ -197,7 +197,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addInt (id ("semi"), name + " Semi", -24, 24, 0);
         addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, first ? 0.0f : -7.0f, 1.0f, 1.0f);
         addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
-        addFloat (id ("detune"), name + " Detune", 0.0f, 50.0f, 15.0f);
+        addFloat (id ("detune"), name + " Detune", 0.0f, 200.0f, 15.0f, 0.6f);
         addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);
         addChoice (id ("warp"), name + " Warp", Warp::getNames(), 0);
         addFloat (id ("warp_amt"), name + " Warp Amount", 0.0f, 1.0f, 0.0f);
@@ -236,7 +236,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addInt ("sub_semi", "Osc3 Semi", -24, 24, 0);
     addFloat ("sub_fine", "Osc3 Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
     addInt ("sub_unison", "Osc3 Unison", 1, VoiceParams::maxUnison, 1);
-    addFloat ("sub_detune", "Osc3 Detune", 0.0f, 50.0f, 12.0f);
+    addFloat ("sub_detune", "Osc3 Detune", 0.0f, 200.0f, 12.0f, 0.6f);
     addFloat ("sub_spread", "Osc3 Spread", 0.0f, 1.0f, 0.0f);
     addChoice ("sub_warp", "Osc3 Warp", Warp::getNames(), 0);
     addFloat ("sub_warp_amt", "Osc3 Warp Amount", 0.0f, 1.0f, 0.0f);
@@ -712,7 +712,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addInt (id ("semi"), name + " Semi", -24, 24, 0);
         addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
         addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
-        addFloat (id ("detune"), name + " Detune", 0.0f, 50.0f, 15.0f);
+        addFloat (id ("detune"), name + " Detune", 0.0f, 200.0f, 15.0f, 0.6f);
         addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);
         addChoice (id ("warp"), name + " Warp", Warp::getNames(), 0);
         addFloat (id ("warp_amt"), name + " Warp Amount", 0.0f, 1.0f, 0.0f);

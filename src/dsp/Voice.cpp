@@ -105,7 +105,7 @@ float lfoShapeAt (int shape, double phase, float hold, const float* steps, const
 
 // Scales for explicit destinations: how far a full-depth modulation moves
 // the target, in the target's own units.
-constexpr float detuneRange = 50.0f;     // cents
+constexpr float detuneRange = 50.0f;     // cents (kept at 50 when the knob grew to 200, so saved routes keep their depth)
 constexpr float driveRange = 9.0f;       // drive multiplier
 constexpr float envAmountRange = 5.0f;   // octaves
 constexpr float timeOctaves = 5.0f;      // envelope times scale by 2^(mod * 5)
@@ -1265,7 +1265,7 @@ void Voice::updateUnisonLayout()
             continue;
         const auto& settings = params.oscillators[osc];
         layout (settings, numOscUnison[osc], settings.chord,
-                juce::jlimit (0.0f, 100.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
+                juce::jlimit (0.0f, 200.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
                 settings.unisonBlend + blockMod (blendDestinations[osc]),
                 unisonOffset[osc], unisonRatio[osc], unisonGains[osc]);
     }

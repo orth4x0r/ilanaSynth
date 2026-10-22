@@ -849,7 +849,7 @@ inline const HelpRow helpRows[] {
     { osc12 ("_semi"), "Pitch offset in semitones. Hard Sync: sync ratio." },
     { osc12 ("_fine"), "Fine pitch offset in cents." },
     { osc12 ("_unison"), "Stacked detuned copies of the oscillator. More = bigger, costlier." },
-    { osc12 ("_detune"), "Unison spread in cents. 20-40 is a classic supersaw." },
+    { osc12 ("_detune"), "Unison spread in cents, up to 200. 20-40 is a classic supersaw; 100+ is a wide, out-of-tune stack." },
     { osc12 ("_spread"), "Stereo spread of the unison stack." },
     { osc12 ("_mode"), "Wavetable, Physical (a string, or the Tine and Reed electric pianos), a sample you drag onto the card, "
       "Granular: a cloud of tiny grains read from that sample (a vocal until you load your own), "

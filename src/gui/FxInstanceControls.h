@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_gui_basics/juce_gui_basics.h>
 
 #include <memory>
 #include <vector>
@@ -178,5 +179,33 @@ private:
     std::vector<Entry> parameters;
     bool syncing = false;
     int gestures = 0;
+};
+
+// An instance's card: its shadow and the controls attached to it. The
+// controls' attachments unhook from the shadow's parameters as they go, so
+// the controls go first, on clear() and when the card goes. (A `card = {}`
+// freed the shadow first and crashed ilana's Ableton, 2026-10-22; the card
+// can't be copied or moved, so that can't come back.)
+struct Card
+{
+    Card() = default;
+    Card (const Card&) = delete;
+    Card& operator= (const Card&) = delete;
+    ~Card() { clear(); }
+
+    void clear()
+    {
+        controls.clear();
+        group.clear();
+        originals.clear();
+        shadow.reset();
+        visible = false;
+    }
+
+    std::unique_ptr<Shadow> shadow;
+    std::vector<std::unique_ptr<juce::Component>> controls;
+    std::vector<juce::Component*> group;     // as the page's group for the type, in its order
+    std::vector<juce::Component*> originals; // the type's control each one copies
+    bool visible = false;
 };
 } // namespace FxInstance

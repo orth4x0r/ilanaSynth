@@ -10,7 +10,7 @@ void runStressTests()
 {
     std::cout << "--- stress ---" << std::endl;
 
-    const auto run = [] (const juce::String& what, auto&& body)
+    const auto run = [] (const juce::String& what, auto&& body, float bound = 8.0f)
     {
         IlanaSynthAudioProcessor processor;
         processor.prepareToPlay (48000.0, 512);
@@ -35,7 +35,7 @@ void runStressTests()
                 }
         };
         body (processor, render);
-        check (! bad && peak < 8.0f, what + " (finite, peak " + juce::String (peak, 3) + ")");
+        check (! bad && peak < bound, what + " (finite, peak " + juce::String (peak, 3) + ")");
     };
 
     run ("mixed block sizes 1 to 4096", [] (auto&, auto& render)
@@ -82,5 +82,11 @@ void runStressTests()
                     parameter->setValueNotifyingHost (random.nextFloat());
             render (256, i % 10 == 0);
         }
-    });
+    },
+    // Its random patches stack gains with the output clip off (MASTER up to
+    // +12 dB, UTILITY, EQ and TILT boosts), so a sound one can peak near 9
+    // (#149's two new parameters moved its patch onto one: MASTER -6 dB,
+    // UTILITY +10, EQ +13 / +15, TILT +12). A runaway still blows far past
+    // 32 (+30 dB) or goes non-finite.
+    32.0f);
 }

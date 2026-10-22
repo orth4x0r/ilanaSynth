@@ -553,6 +553,9 @@ public:
     // shows a module that is in use.
     enum class Module { Oscillator = 0, Envelope, Lfo };
     static constexpr int defaultRevealMask = 0b111;
+    // A new patch (Init) shows OSC 1 and 2, so PLAY's oscillators fit without scrolling; OSC 3 shows once it
+    // is added or switched on (ilana 2026-10-22). A saved state and the other factory presets keep theirs.
+    static constexpr int newPatchOscRevealMask = 0b011;
     bool isRevealed (Module kind, int index) const
     {
         return ((revealMasks[(size_t) kind].load() >> index) & 1) != 0;
@@ -1446,7 +1449,7 @@ private:
     std::array<std::atomic<float>, 16> envMonitorStageStarts {};
     std::array<std::atomic<float>, 80> envMonitorSeconds {};
     std::atomic<int> noteSerial { 0 };
-    std::array<std::atomic<int>, 3> revealMasks { defaultRevealMask, defaultRevealMask, defaultRevealMask };
+    std::array<std::atomic<int>, 3> revealMasks { newPatchOscRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
 
     struct ParamEpoch : juce::AudioProcessorParameter::Listener

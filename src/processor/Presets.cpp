@@ -958,10 +958,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     }
     resetAllModRemaps();
 
-    // Back to three of each module; anything the preset turns on or routes
-    // still shows because it is in use.
+    // Back to three of each module (Init: two oscillators); anything the
+    // preset turns on or routes still shows because it is in use.
     for (auto& mask : revealMasks)
         mask.store (defaultRevealMask);
+    if (juce::String (presets[(size_t) index].name) == "Init")
+        revealMasks[(size_t) Module::Oscillator].store (newPatchOscRevealMask);
     ++revealVersion;
 
     // The rest of the per-patch state a factory preset doesn't carry goes
@@ -1037,6 +1039,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 
     for (const auto& value : presets[(size_t) index].values)
         values.push_back ({ juce::String (value.id), value.value });
+
+    // OSC 2's FINE defaulted to -7 ct until 2026-10-22 (now 0, ilana: "why is osc 2 -7 ct by default"); the factory
+    // presets written against the old default keep it, so they sound as they did. Init takes the new 0.
+    if (juce::String (presets[(size_t) index].name) != "Init"
+        && std::none_of (values.begin(), values.end(), [] (const auto& entry) { return entry.first == "osc2_fine"; }))
+        values.push_back ({ "osc2_fine", -7.0f });
 
     if (presets[(size_t) index].category == nullptr)
     {

@@ -195,7 +195,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("level"), name + " Level", 0.0f, 1.0f, first ? 0.8f : 0.6f);
         addFloat (id ("pan"), name + " Pan", -1.0f, 1.0f, 0.0f);
         addInt (id ("semi"), name + " Semi", -24, 24, 0);
-        addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, first ? 0.0f : -7.0f, 1.0f, 1.0f);
+        addFloat (id ("fine"), name + " Fine", -100.0f, 100.0f, 0.0f, 1.0f, 1.0f);
         addInt (id ("unison"), name + " Unison", 1, VoiceParams::maxUnison, 1);
         addFloat (id ("detune"), name + " Detune", 0.0f, 200.0f, 15.0f, 0.6f);
         addFloat (id ("spread"), name + " Spread", 0.0f, 1.0f, 0.5f);

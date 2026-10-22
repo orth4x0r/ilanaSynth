@@ -1887,7 +1887,7 @@ private:
         // (UI review 7, I7-24).
         // A plain sample shows its map too: one box, every key and velocity
         // (S13-1); granular mode reads a position, not zones.
-        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 96.0f)
+        if (sample != nullptr && sample->getNumSamples() >= 2 && ! compact && ! isGranularMode() && plot.getHeight() > 80.0f)
             drawZones (g, *sample, plot.removeFromBottom (juce::jmin (64.0f, plot.getHeight() * 0.3f)));
 
         if (sample == nullptr || sample->getNumSamples() < 2)

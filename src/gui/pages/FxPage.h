@@ -874,6 +874,57 @@ public:
         return showsSlotMix (panel) ? juce::String (hasOwnMix (type) ? "BLEND" : "MIX") : juce::String();
     }
 
+    // A control that does nothing in its effect's present settings, drawn
+    // at IlanaTheme::dimmedAlpha on its RACK card and in its PATCH window
+    // alike (`state`: the front settings, or a copy's own).
+    static bool isIdleControl (int type, const juce::String& parameterId, const juce::AudioProcessorValueTreeState& state)
+    {
+        const auto on = [&state] (const char* id)
+        {
+            const auto* value = state.getRawParameterValue (id);
+            return value != nullptr && value->load() > 0.5f;
+        };
+
+        // The delay's times do nothing while SYNC is on, its DIV nothing
+        // while it is off.
+        if (type == 9)
+        {
+            if (parameterId == "fx_delay_time" || parameterId == "fx_delay_time_r")
+                return on ("fx_delay_sync");
+            if (parameterId == "fx_delay_div")
+                return ! on ("fx_delay_sync");
+        }
+        return false;
+    }
+
+    static juce::String parameterIdOf (const juce::Component* item)
+    {
+        if (const auto* knob = dynamic_cast<const KnobControl*> (item))
+            return knob->getParameterId();
+        if (const auto* toggle = dynamic_cast<const ToggleControl*> (item))
+            return toggle->getParameterId();
+        if (const auto* combo = dynamic_cast<const ComboControl*> (item))
+            return combo->getParameterId();
+        return {};
+    }
+
+    // The module's own on parameter, where it has one.
+    static const char* enableParamFor (int type)
+    {
+        switch (type)
+        {
+            case 2:  return "fx_drive_on";
+            case 3:  return "fx_crush_on";
+            case 5:  return "fx_comb_on";
+            case 6:  return "fx_phaser_on";
+            case 7:  return "fx_chorus_on";
+            case 9:  return "fx_delay_on";
+            case 11: return "fx_smear_on";
+            case 13: return "fx_reverb_on";
+            default: return nullptr;
+        }
+    }
+
 private:
     int getSlotType (int slot) const
     {
@@ -1337,7 +1388,6 @@ private:
     }
 
     bool tapsEnabled() const { return processorRef.apvts.getRawParameterValue ("fx_taps_on")->load() > 0.5f; }
-    bool delaySynced() const { return processorRef.apvts.getRawParameterValue ("fx_delay_sync")->load() > 0.5f; }
 
     // One row per loaded slot, in chain order (the design's signal rail:
     // the rail at the left, then a headless row: number, name, solo, power
@@ -2664,23 +2714,6 @@ private:
     };
     std::array<InstanceCard, IlanaSynthAudioProcessor::numFxSlots> instanceCards;
 
-    // The module's own on parameter, where it has one.
-    static const char* enableParamFor (int type)
-    {
-        switch (type)
-        {
-            case 2:  return "fx_drive_on";
-            case 3:  return "fx_crush_on";
-            case 5:  return "fx_comb_on";
-            case 6:  return "fx_phaser_on";
-            case 7:  return "fx_chorus_on";
-            case 9:  return "fx_delay_on";
-            case 11: return "fx_smear_on";
-            case 13: return "fx_reverb_on";
-            default: return nullptr;
-        }
-    }
-
     // Off: the slot is bypassed, or the module's own switch is off.
     bool isModuleOff (int slot) const
     {
@@ -2735,6 +2768,9 @@ private:
             ToggleControl* power = nullptr;
             const auto& group = groupFor (panel);
             rowItems (group, panel.type, &power);
+            // (An instance's own card reads its own settings.)
+            const auto& card = instanceCards[(size_t) panel.slot];
+            const auto& state = panel.instance && card.shadow != nullptr ? card.shadow->getState() : processorRef.apvts;
 
             for (auto* item : group)
             {
@@ -2742,14 +2778,8 @@ private:
                 const auto isPower = toggle != nullptr && toggle == power;
                 auto itemAlpha = alpha;
 
-                // The delay's times do nothing while SYNC is on, its DIV
-                // nothing while it is off.
-                if (panel.type == 9 && ! off)
-                {
-                    const auto synced = delaySynced();
-                    if (((item == &delayTime || item == &delayTimeR) && synced) || (item == &delayDiv && ! synced))
-                        itemAlpha = IlanaTheme::dimmedAlpha;
-                }
+                if (! off && isIdleControl (panel.type, parameterIdOf (item), state))
+                    itemAlpha = IlanaTheme::dimmedAlpha;
 
                 // So do AW Delay's time knobs and DIV (its card's own SYNC).
                 if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0 && ! off && awCategories[(size_t) c].sync != nullptr)

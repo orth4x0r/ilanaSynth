@@ -9336,6 +9336,47 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_FXDIM: a Delay with SYNC on, its RACK card and its
+    // PATCH window side by side (ilana 2026-10-22: TIME greyed in the rack
+    // but not in the window); prints each window's bounds; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FXDIM", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        processor.addFxEffect (9);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_delay_sync", 1.0f);
+        settle (200);
+        pages->showPage ("FX");
+        settle (500);
+        save (*editor, outDir.getChildFile ("fxdim-rack.png"));
+
+        processor.setFxPatcherOn (true);
+        pages->showPage ("PATCH");
+        settle (400);
+        std::vector<PatchCableView*> views;
+        findAll<PatchCableView> (*editor, views);
+        for (auto* view : views)
+            if (view->getName() == "PATCH")
+                for (const auto& node : view->getGraph().nodes())
+                    if (! node.isFixed() && node.kind == 9)
+                        view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (node).getCentre() * view->getZoom(), false));
+        settle (500);
+        std::vector<juce::Component*> all;
+        findAll<juce::Component> (*editor, all);
+        for (auto* item : all)
+            if (item->getName().startsWith ("FX WINDOW") && visibleInTree (item))
+                std::cout << "WINDOW " << editor->getLocalArea (item, item->getLocalBounds()).toString() << std::endl;
+        save (*editor, outDir.getChildFile ("fxdim-patch.png"));
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_PATCHER: the FX tab's PATCHER (roadmap step 17): a rack
     // shown as cables, then a patch with a parallel split, two instances of
     // one effect and a loop, the RACK page with those instances, and the

@@ -499,6 +499,8 @@ inline DestinationName paramName (const juce::String& id, juce::String name)
             if (module == category.id)
                 moduleName = category.label;
         const auto field = id.fromLastOccurrenceOf ("_", false, false);
+        if (field == "sync" || field == "div")
+            return { "FX " + moduleName, field == "sync" ? juce::String ("Sync") : juce::String ("Div") };
         return { "FX " + moduleName, field == "mix" ? juce::String ("Mix") : "Knob " + field.substring (1) };
     }
 

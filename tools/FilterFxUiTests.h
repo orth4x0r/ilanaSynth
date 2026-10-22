@@ -5,6 +5,8 @@
 
 #include <set>
 
+#include "../src/gui/FxInstanceControls.h"
+
 void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProcessorEditor& editor)
 {
     const auto setParam = [&processor] (const juce::String& id, float plain)
@@ -697,6 +699,69 @@ void runFilterFxTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                     "FX: undo takes back one loop knob turn");
         }
         editor.showPage ("FX");
+    }
+
+    // ilana's Ableton crash (2026-10-22): a second Delay's card (its SYNC and
+    // PING-PONG switches on the instance's shadow) going away, or its slot
+    // taking another effect, freed the shadow before the switches, which then
+    // unhooked from freed parameters. Repeated so a freed heap shows.
+    {
+        loadNamed ("Init");
+        editor.showPage ("FX");
+        auto clearSlots = [&]
+        {
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+                setParam ("fx_slot" + juce::String (slot), 0.0f);
+        };
+        clearSlots();
+        settle (100);
+        int instanceSwitches = 0;
+        for (int round = 0; round < 24; ++round)
+        {
+            processor.addFxEffect (9);
+            const auto second = processor.addFxEffect (9);
+            settle (80);
+            if (round == 0)
+            {
+                std::vector<ToggleControl*> toggles;
+                findAll<ToggleControl> (editor, toggles);
+                instanceSwitches = (int) std::count_if (toggles.begin(), toggles.end(), [] (ToggleControl* t)
+                                                        { return t->getParameterId() == "fx_delay_pingpong" && visibleInTree (t); });
+            }
+            if (round % 2 == 0)
+                processor.removeFxEffect (second);
+            else
+                setParam ("fx_slot" + juce::String (second + 1), 13.0f); // a reverb in the second Delay's slot
+            settle (80);
+            clearSlots();
+            settle (40);
+        }
+        expect (instanceSwitches == 2, "FX: both Delay instances show their own PING-PONG switch (" + juce::String (instanceSwitches) + ")");
+
+        // The card itself: its controls go before its shadow, on clear() and when it goes.
+        static bool controlGone = false, controlsWentFirst = false;
+        struct ProbeControl : juce::Component
+        {
+            ~ProbeControl() override { controlGone = true; }
+        };
+        struct ProbeShadow : FxInstance::Shadow
+        {
+            using FxInstance::Shadow::Shadow;
+            ~ProbeShadow() override { controlsWentFirst = controlGone; }
+        };
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            controlGone = controlsWentFirst = false;
+            {
+                FxInstance::Card card;
+                card.shadow = std::make_unique<ProbeShadow> (processor, 0, 9, std::vector<juce::String> { "fx_delay_pingpong" });
+                card.controls.push_back (std::make_unique<ProbeControl>());
+                if (pass == 0)
+                    card.clear();
+            }
+            expect (controlGone && controlsWentFirst,
+                    juce::String ("FX: an instance card's controls go before its shadow ") + (pass == 0 ? "on clear()" : "when the card goes"));
+        }
     }
     loadNamed ("Init");
 }

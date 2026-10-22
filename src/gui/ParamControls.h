@@ -3264,6 +3264,118 @@ private:
     int hovered = -1;
 };
 
+// A row of small square icons, one per choice (the exciter: ilana, 2026-10-21, "like the
+// Serum sub picker"): the chosen tile lit in the accent, the others dim; the hovered
+// tile's name (and what it does) is its tooltip.
+class IconPicker : public juce::Component,
+                   public juce::TooltipClient
+{
+public:
+    struct Item
+    {
+        juce::String name, tip;
+        // The glyph in an 18 x 16 box: SVG path data, each with its stroke width (0 fills).
+        std::vector<std::pair<juce::String, float>> paths;
+    };
+
+    std::function<int()> getChosen;
+    std::function<void (int)> onChoose;
+
+    static constexpr float tileW = 22.0f, tileH = 18.0f;
+
+    void setItems (std::vector<Item> newItems)
+    {
+        items = std::move (newItems);
+        glyphs.clear();
+        for (const auto& item : items)
+        {
+            std::vector<std::pair<juce::Path, float>> parsed;
+            for (const auto& [data, stroke] : item.paths)
+                parsed.emplace_back (juce::Drawable::parseSVGPath (data), stroke);
+            glyphs.push_back (std::move (parsed));
+        }
+        repaint();
+    }
+    void setColour (juce::Colour newColour) { colour = newColour; repaint(); }
+    void refresh() { repaint(); }
+    int size() const { return (int) items.size(); }
+
+    // Each tile's rectangle: the tiles spread over the width, the gaps even.
+    juce::Rectangle<float> tile (int index) const
+    {
+        const auto n = juce::jmax (1, (int) items.size());
+        const auto gap = n > 1 ? juce::jmax (0.0f, ((float) getWidth() - (float) n * tileW) / (float) (n - 1)) : 0.0f;
+        return { (float) index * (tileW + gap), ((float) getHeight() - tileH) * 0.5f, tileW, tileH };
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto chosen = getChosen != nullptr ? getChosen() : -1;
+        const auto on = isEnabled() ? 1.0f : 0.5f;
+        for (int i = 0; i < (int) items.size(); ++i)
+        {
+            const auto r = tile (i).reduced (0.5f);
+            const auto lit = i == chosen;
+            const auto hover = i == hovered && isMouseOver();
+            g.setColour ((lit ? IlanaTheme::Ui::well.interpolatedWith (colour, 0.2f) : IlanaTheme::Ui::well).withMultipliedAlpha (on));
+            g.fillRoundedRectangle (r, 3.0f);
+            g.setColour ((lit ? colour : hover ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line).withMultipliedAlpha (on));
+            g.drawRoundedRectangle (r, 3.0f, 1.0f);
+
+            const auto ink = (lit ? colour : hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2).withMultipliedAlpha (on);
+            const auto transform = juce::AffineTransform::translation (r.getX() + 1.5f, r.getY() + 0.5f);
+            g.setColour (ink);
+            for (const auto& [path, stroke] : glyphs[(size_t) i])
+            {
+                if (stroke > 0.0f)
+                    g.strokePath (path, juce::PathStrokeType (stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), transform);
+                else
+                    g.fillPath (path, transform);
+            }
+        }
+    }
+
+    juce::String getTooltip() override
+    {
+        if (hovered >= 0 && hovered < (int) items.size())
+            return items[(size_t) hovered].name + (items[(size_t) hovered].tip.isNotEmpty() ? ": " + items[(size_t) hovered].tip : juce::String());
+        return {};
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override { setHovered (tileAt (event.position)); }
+    void mouseExit (const juce::MouseEvent&) override { setHovered (-1); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (const auto index = tileAt (event.position); isEnabled() && index >= 0 && onChoose != nullptr)
+        {
+            onChoose (index);
+            repaint();
+        }
+    }
+
+private:
+    int tileAt (juce::Point<float> point) const
+    {
+        for (int i = 0; i < (int) items.size(); ++i)
+            if (tile (i).expanded (1.5f, 2.0f).contains (point))
+                return i;
+        return -1;
+    }
+    void setHovered (int index)
+    {
+        if (index != hovered)
+        {
+            hovered = index;
+            repaint();
+        }
+    }
+
+    std::vector<Item> items;
+    std::vector<std::vector<std::pair<juce::Path, float>>> glyphs;
+    juce::Colour colour = IlanaTheme::accent();
+    int hovered = -1;
+};
+
 class ToggleControl : public juce::Component,
                       public juce::SettableTooltipClient,
                       private IlanaAnim::FrameTimer

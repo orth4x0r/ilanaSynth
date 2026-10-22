@@ -9059,6 +9059,18 @@ int main (int argc, char** argv)
         shot ("duplicate-aw");
         fill ({ 30, 13, 1, 3 });
         shot ("aw-all");
+        // AW Delay's SYNC and DIV: off, then on (the time knob dims), and
+        // StarChild2 (no time: no SYNC).
+        fill ({ 35, 9, 2 });
+        shot ("awdelay");
+        setParam ("fx_awdelay_sync", 1.0f);
+        shot ("awdelay-sync");
+        setParam ("fx_awdelay_algo", 4.0f);
+        shot ("awdelay-sync-doublelay");
+        setParam ("fx_awdelay_algo", 2.0f);
+        shot ("awdelay-starchild");
+        setParam ("fx_awdelay_algo", 0.0f);
+        setParam ("fx_awdelay_sync", 0.0f);
 
         // The effect picker (mockup "fxadd"): from the rack's + ADD EFFECT
         // tile and from slot 1's type button, at 100 % and 75 %. (Saved

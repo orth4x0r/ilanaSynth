@@ -227,7 +227,15 @@ public:
             for (int k = 0; k < airwindows::Module::numKnobs; ++k)
                 controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
             controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
+            // AW Delay: SYNC and DIV, as the main Delay's.
+            if (juce::String (airwindows::categoryModules()[(size_t) c].id) == "awdelay")
+            {
+                controls.sync = std::make_unique<ToggleControl> (p.apvts, prefix + "_sync", "SYNC");
+                controls.div = std::make_unique<ComboControl> (p.apvts, prefix + "_div", "DIV");
+            }
             std::vector<juce::Component*> group { controls.algo.get() };
+            if (controls.sync != nullptr)
+                group.insert (group.end(), { controls.sync.get(), controls.div.get() });
             for (auto& knob : controls.knobs)
                 group.push_back (knob.get());
             group.push_back (controls.mix.get());
@@ -1483,7 +1491,8 @@ private:
             if (isAirwindowsType (type) && ! item->isVisible())
                 continue;
 
-            if (toggle != nullptr && toggle->isSwitch() && found == nullptr)
+            // (AW Delay's SYNC is a setting beside its DIV, not the card's switch.)
+            if (toggle != nullptr && toggle->isSwitch() && found == nullptr && toggle->getParameterId() != "fx_awdelay_sync")
                 found = toggle;
             else
                 items.push_back (item);
@@ -2742,6 +2751,24 @@ private:
                         itemAlpha = IlanaTheme::dimmedAlpha;
                 }
 
+                // So do AW Delay's time knobs and DIV (its card's own SYNC).
+                if (const auto c = airwindows::categoryForFxType (panel.type); c >= 0 && ! off && awCategories[(size_t) c].sync != nullptr)
+                {
+                    auto synced = false;
+                    for (auto* other : group)
+                        if (auto* sync = dynamic_cast<ToggleControl*> (other); sync != nullptr && sync->getParameterId() == "fx_awdelay_sync")
+                            synced = sync->getButton().getToggleState();
+                    const auto algorithm = airwindows::categoryModules()[(size_t) c].algorithms[(size_t) categoryChoice (c)];
+                    auto isTime = false;
+                    if (auto* knob = dynamic_cast<KnobControl*> (item))
+                        for (int k = 0; k < airwindows::Module::numKnobs; ++k)
+                            if (knob->getParameterId() == "fx_awdelay_p" + juce::String (k + 1))
+                                isTime = airwindows::delaysync::isTimeKnob (algorithm, k);
+                    const auto isDiv = dynamic_cast<ComboControl*> (item) != nullptr && static_cast<ComboControl*> (item)->getParameterId() == "fx_awdelay_div";
+                    if ((isTime && synced) || (isDiv && ! synced))
+                        itemAlpha = IlanaTheme::dimmedAlpha;
+                }
+
                 if (! isPower && item->getAlpha() != itemAlpha)
                 {
                     item->setAlpha (itemAlpha);
@@ -3110,6 +3137,8 @@ private:
         std::unique_ptr<ComboControl> algo;
         std::array<std::unique_ptr<KnobControl>, airwindows::Module::numKnobs> knobs;
         std::unique_ptr<KnobControl> mix;
+        std::unique_ptr<ToggleControl> sync; // AW Delay only
+        std::unique_ptr<ComboControl> div;
     };
     std::vector<AwCategoryControls> awCategories;
 
@@ -3140,6 +3169,14 @@ private:
                 setAirwindowsUnit (*controls.knobs[(size_t) k], info, k);
             }
             controls.knobs[(size_t) k]->setVisible (loaded && used);
+        }
+
+        // (StarChild2 has no time to sync.)
+        if (controls.sync != nullptr)
+        {
+            const auto syncs = loaded && airwindows::delaysync::hasTime (category.algorithms[(size_t) categoryChoice (c)]);
+            controls.sync->setVisible (syncs);
+            controls.div->setVisible (syncs);
         }
 
         controls.algo->getComboBox().setTooltip (airwindowsTooltip (info));

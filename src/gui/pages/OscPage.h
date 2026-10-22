@@ -958,6 +958,66 @@ private:
     bool solid = false;
 };
 
+// The sympathetic strings' six notes (STRINGS' Manual tuning): a small panel
+// over the page, above the STRINGS card. A click anywhere outside it closes it.
+class TuningPopover : public juce::Component
+{
+public:
+    static constexpr int pad = 8, headerH = 22, dial = 36, cell = 44, height = headerH + 6 + 6 + dial + 10 + pad + 2;
+    static constexpr int widthFor (int count) { return pad * 2 + count * cell; }
+
+    ~TuningPopover() override { juce::Desktop::getInstance().removeGlobalMouseListener (this); }
+
+    void visibilityChanged() override
+    {
+        if (isVisible())
+            juce::Desktop::getInstance().addGlobalMouseListener (this);
+        else
+            juce::Desktop::getInstance().removeGlobalMouseListener (this);
+    }
+
+    std::function<bool (juce::Component*)> isOwnButton; // (the chevron toggles it itself)
+    std::function<void()> onClose;
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (area, 7.0f);
+        g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
+        g.drawRoundedRectangle (area, 7.0f, 1.0f);
+        g.setColour (IlanaTheme::accent());
+        g.setFont (IlanaTheme::font (8.5f, true).withKerningFactor (0.06f));
+        g.drawText ("STRING TUNING", juce::Rectangle<int> (pad, 0, getWidth() - 2 * pad, headerH), juce::Justification::centredLeft, false);
+        g.setColour (IlanaTheme::Ui::line);
+        g.fillRect (1, headerH, getWidth() - 2, 1);
+    }
+
+    void resized() override
+    {
+        auto x = pad;
+        for (auto* child : getChildren())
+        {
+            if (auto* knob = dynamic_cast<KnobControl*> (child))
+                knob->setBounds (KnobControl::packedBoundsFor ({ x + (cell - 40) / 2, headerH + 6 + 6, 40, dial + 10 }));
+            x += cell;
+        }
+    }
+
+private:
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! isVisible() || event.eventComponent == nullptr)
+            return;
+        if (event.eventComponent == this || isParentOf (event.eventComponent))
+            return;
+        if (isOwnButton != nullptr && isOwnButton (event.eventComponent))
+            return;
+        if (onClose != nullptr)
+            onClose();
+    }
+};
+
 class OscPage : public juce::Component,
                 private IlanaTheme::UiScaleListener,
                 private juce::AudioProcessorValueTreeState::Listener,
@@ -1120,13 +1180,13 @@ public:
     explicit OscPage (IlanaSynthAudioProcessor& p)
         : processorRef (p),
           subShape (p.apvts, "sub_shape", "WAVE"),
-          subOctave (p.apvts, "sub_octave", "OCT")
-          , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "MANUAL")
-          , symAmount (p.apvts, "sym_amount", "AMT"), symDecay (p.apvts, "sym_decay", "DECAY")
+          subOctave (p.apvts, "sub_octave", "OCTAVE"), noiseType (p.apvts, "noise_type", "TYPE")
+          , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "Manual tuning")
+          , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "COUNT")
           , sbOn (p.apvts, "sb_on", "SOUNDBOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "MIX"), sbTone (p.apvts, "sb_tone", "TONE")
           , sbSize (p.apvts, "sb_size", "SIZE"), stretch (p.apvts, "stretch", "STRETCH")
-          , pedalRes (p.apvts, "pedal_res", "PEDAL RES"), mechKey (p.apvts, "mech_key", "KEY NOISE")
+          , pedalRes (p.apvts, "pedal_res", "PEDAL RESONANCE"), mechKey (p.apvts, "mech_key", "KEY NOISE")
           , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
     {
         for (int i = 0; i < OscillatorIds::count; ++i)
@@ -1498,25 +1558,19 @@ public:
         // The oscillators' analogue drift (the vector pad's drift is WANDER:
         // UI review 6, I6-25).
         drift = std::make_unique<KnobControl> (p.apvts, "drift", "DRIFT");
-        // VOICE: how the notes are shared out (review 9, S9-1): the header's
-        // VOICES button opens the same settings.
-        voiceMode = std::make_unique<ComboControl> (p.apvts, "voice_mode", "MODE");
-        voiceCount = std::make_unique<KnobControl> (p.apvts, "poly_voices", "VOICES", IlanaTheme::Ui::text2, false);
-        bendRange = std::make_unique<KnobControl> (p.apvts, "bend_range", "BEND", IlanaTheme::Ui::text2, false);
-        glideTime = std::make_unique<KnobControl> (p.apvts, "glide", "GLIDE", IlanaTheme::Ui::text2, false);
-        glideLegato = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
         // The switch is the sub's alone, and says so; the noise has its
         // own level and colour beside it (V8-14, V8-15).
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
         subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "LEVEL", IlanaTheme::accent(), true);
         noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "LEVEL", IlanaTheme::Ui::text2, false);
         noiseColourStrip = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
-        addChildComponents (subShape, subOctave, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
-                            *voiceMode, *voiceCount, *bendRange, *glideTime, *glideLegato,
+        addChildComponents (subShape, subOctave, noiseType, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
                             symOn, symAmount, symDecay, symCount, symManual,
                             sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
+        // The strings' six notes live in the tuning popover (MANUAL TUNING's chevron opens it).
         for (auto& note : symNotes)
-            addChildComponent (*note);
+            tuningPopover.addAndMakeVisible (*note);
+        addChildComponent (tuningPopover);
         sbOn.showAsSwitch();
 
         for (auto* knob : stripKnobs())
@@ -1524,25 +1578,40 @@ public:
             knob->setInlineKnob (true);
             knob->setCapDialLikeRings (true);
         }
-        for (auto* menu : { &subShape, &subOctave, &sbModel, voiceMode.get() })
+        for (auto* menu : { &subShape, &subOctave, &sbModel, &noiseType })
             menu->setCompactLayout (true);
+        // Under its OCTAVE name the menu reads "-1" / "-2", as the mockup's
+        // (re-selected so the box shows the new text, as the exciter menu does).
+        {
+            auto& box = subOctave.getComboBox();
+            const auto selectedId = box.getSelectedId();
+            for (int item = 0; item < box.getNumItems(); ++item)
+                box.changeItemText (box.getItemId (item), box.getItemText (item).upToFirstOccurrenceOf (" ", false, false));
+            box.setSelectedId (0, juce::dontSendNotification);
+            box.setSelectedId (selectedId, juce::dontSendNotification);
+        }
         symManual.setInlineLabel (true);
-        glideLegato->setSmallName (true);
-        subOscOn->setGroupName ("SUB", IlanaTheme::accent());
-        symOn.setGroupName ("STRINGS", oscColour (4));
-        sbOn.setGroupName ("SOUNDBOARD", oscColour (4));
+        // (The one-row strip, ilana's mockup 2026-10-22: each card's name in its header, its switch at the header's right.)
+        for (auto* group : { subOscOn.get(), &symOn, &sbOn })
+            group->setBareSwitch (true);
         subOscOn->getButton().setTooltip ("Switch the sub oscillator on or off");
         symOn.getButton().setTooltip ("Sympathetic strings: shared drone strings that ring with everything you play");
         sbOn.getButton().setTooltip ("The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises");
 
-        moreButton.setTooltip ("Manual tuning of the sympathetic strings, and the keys' stretch tuning, pedal resonance and mechanical noises");
-        moreButton.onClick = [this]
+        tuneButton.setTooltip ("The sympathetic strings' six notes (with Manual tuning on)");
+        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible()); };
+        tuningPopover.isOwnButton = [this] (juce::Component* c) { return c == &tuneButton || tuneButton.isParentOf (c) || c == &symManual || symManual.isParentOf (c); };
+        tuningPopover.onClose = [this] { showTuning (false); };
+        styleHeaderButton (tuneButton);
+        addChildComponent (tuneButton);
+        // Switching Manual tuning on opens its notes.
+        symManual.getButton().onClick = [this]
         {
-            stripOpen = ! stripOpen;
-            updateModeVisibility();
+            if (symManual.getButton().getToggleState())
+                showTuning (true);
+            else
+                showTuning (false);
         };
-        styleHeaderButton (moreButton);
-        addChildComponent (moreButton);
 
         // (Not drawn: the tests pick an oscillator by this list, as they did by the old tabs.)
         oscTabs.setName ("OSC tabs");
@@ -1819,16 +1888,12 @@ public:
         updateEnabled();
     }
 
-    // The strip under the cards. VOICE and the keys' extras (stretch, pedal
-    // resonance, noises) are both in it; the second sits under MORE, which
-    // this opens.
+    // The strip under the cards: one row (STEREO, NOISE, SUB, STRINGS,
+    // SOUNDBOARD, KEYS); VOICE is in the dock. This scrolls it into view.
     enum SharedTab { sharedVoice = 0, sharedSubNoise, sharedSympathetic, sharedKeys };
 
-    void selectShared (int index)
+    void selectShared (int)
     {
-        if (index == sharedKeys || index == sharedSympathetic)
-            stripOpen = true;
-
         updateModeVisibility();
         scrollTo (-1);
     }
@@ -1880,7 +1945,10 @@ private:
     int unisonColumn() const { return unisonW; }
     static constexpr int mainDial = 29, ampDial = 20, nameLine = 10, knobCell = 35, ampCell = 27, menuH = 16;
     static constexpr int ampRowH = 30, chipH = 14, filterH = 15, outH = 12, spreadH = 17;
-    static constexpr int addRowHeight = 18, stripDialBase = 22, stripPanelBase = 52, stripMaxBonus = 14;
+    static constexpr int addRowHeight = 18;
+    // The strip: one row of cards (ilana's mockup, 2026-10-22), in design px.
+    static constexpr int stripCardH = 130, stripHeaderH = 24, stripGap = 6, stripPad = 8, stripDial = 36, stripCell = 44,
+                         stripMenuW = 46, stripWrapLine = 16, stripDialTop = 36, stripLaneTop = 98, stripLaneH = 22;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -2333,11 +2401,7 @@ private:
     bool canAdd() const { return numShown() < (embedded ? embeddedAddRowBelow : OscillatorIds::count); }
     static constexpr int embeddedAddRowBelow = 3;
 
-    // The strip's panels grow with the page's spare height (up to stripMaxBonus): bigger dials where the window has room.
-    int stripPanelHeight() const { return stripPanelBase + stripBonus; }
-    int stripDialSize() const { return stripDialBase + stripBonus; }
-    int stripHeightFor (int bonus) const { const auto panel = stripPanelBase + bonus; return 2 * panel + panelGap + (stripOpen ? 2 * (panel + panelGap) : 0); }
-    int stripHeight() const { return stripHeightFor (stripBonus); }
+    int stripHeight() const { return stripCardH; }
 
     // Embedded on PLAY the cards stand closer (the mockup's 5 unit gaps), so three of them and the two module bands fit.
     int topNow() const { return embedded ? 2 : topMargin; }
@@ -2346,7 +2410,7 @@ private:
 
     int contentHeight (const std::vector<int>& heights) const
     {
-        auto total = topNow() + (embedded ? 0 : stripHeightFor (stripMaxBonus)) + bottomNow();
+        auto total = topNow() + (embedded ? 0 : stripHeight()) + bottomNow();
         for (const auto height : heights)
             total += height + gapNow();
         if (canAdd())
@@ -2385,11 +2449,6 @@ private:
 
         // The strip keeps one size however many cards there are (ilana 2026-10-21: it shrank with a second
         // oscillator); the page scrolls when cards and strip do not fit.
-        if (! embedded && stripBonus != stripMaxBonus)
-        {
-            stripBonus = stripMaxBonus;
-            applyStripStyle();
-        }
 
         const auto width = getWidth() - sideMargin * 2;
         auto y = topNow();
@@ -3466,16 +3525,11 @@ private:
         return OscRole::modeName (getMode (index));
     }
 
-    // The strip (review 23): panels on the cards' four columns, no card around them.
-    // VOICE, STEREO, NOISE and SUB on the first row, STRINGS and SOUNDBOARD (spanning
-    // PITCH to UNISON) on the second; MORE opens the strings' manual tuning and the
-    // keys' extras as two more full-width panels under them.
-    struct StripEntry
-    {
-        juce::Component* item;
-        int width;
-    };
-
+    // The strip (ilana's mockup, 2026-10-22): one row of six cards under the
+    // oscillators, STEREO, NOISE, SUB, STRINGS, SOUNDBOARD and KEYS. Each card
+    // has a 24 px header (its name; SUB, STRINGS and SOUNDBOARD their switch at
+    // the right), one row of 36 px dials, and a lane at the foot for its menu or
+    // switch. The strings' six notes open over the page from Manual tuning.
     std::vector<CardGeometry::Panel> stripPanels;
 
     static int textWidth (const juce::String& text, float size, bool bold = false)
@@ -3483,101 +3537,170 @@ private:
         return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (size, bold)), text) + 2;
     }
 
-    static juce::Colour stripGrey() { return juce::Colour (0xff8b8f99); }
+    static constexpr float stripTitleText = 12.5f, stripLaneText = 11.0f, stripNameText = 11.5f; // (the mockup's sizes at 1060 px)
 
-    // Controls spread over a panel with equal space around each, centred in its content.
-    void placeStripRow (juce::Rectangle<int> panel, std::initializer_list<StripEntry> entries) const
+    // Dials and menus spread over a card with equal space around each, on the card's one dial row.
+    void placeStripRow (juce::Rectangle<int> card, std::initializer_list<juce::Component*> items, int cell = stripCell) const
     {
-        const auto c = panelContent (panel);
+        const auto content = card.reduced (stripPad, 0);
+        const auto widthOf = [cell] (juce::Component* item) { return dynamic_cast<KnobControl*> (item) != nullptr ? cell : stripMenuW; };
         auto used = 0;
-        for (const auto& entry : entries)
-            used += entry.width;
-        const auto each = (float) juce::jmax (0, c.getWidth() - used) / (float) juce::jmax (1, (int) entries.size());
-        auto x = (float) c.getX() + each * 0.5f;
-        const auto cellH = stripDialSize() + nameLine;
-        for (const auto& entry : entries)
+        for (auto* item : items)
+            used += widthOf (item);
+        const auto each = (float) juce::jmax (0, content.getWidth() - used) / (float) juce::jmax (1, (int) items.size());
+        auto x = (float) content.getX() + each * 0.5f;
+        for (auto* item : items)
         {
             const auto left = juce::roundToInt (x);
-            if (auto* knob = dynamic_cast<KnobControl*> (entry.item))
-                placeKnob (*knob, left, c.getY() + (c.getHeight() - cellH) / 2, entry.width, stripDialSize());
-            else if (auto* toggle = dynamic_cast<ToggleControl*> (entry.item))
-                toggle->setBounds ({ left, c.getY() + (c.getHeight() - 15) / 2 - 1, entry.width, 15 });
-            else
-                entry.item->setBounds ({ left, c.getY() + (c.getHeight() - menuH) / 2 - 3, entry.width, menuH });
-            x += (float) entry.width + each;
+            if (auto* knob = dynamic_cast<KnobControl*> (item)) // (the name's room is two lines: two-word names wrap)
+                knob->setBounds (KnobControl::packedBoundsFor ({ left, card.getY() + stripDialTop, cell, stripDial + nameLine + stripWrapLine }));
+            else // (a compact menu: its name over an 18 px box, centred on the dials)
+                item->setBounds ({ left, card.getY() + stripDialTop + 2, stripMenuW, 32 });
+            x += (float) widthOf (item) + each;
         }
     }
 
-    // A group that is its own switch: the dot and name stand where a panel's title does.
-    void placeStripSwitch (ToggleControl& toggle, juce::Rectangle<int> panel, const juce::String& name) const
+    // A card's foot: a name, then its menu to the card's right edge.
+    void placeLaneMenu (juce::Rectangle<int> card, const juce::String& name, ComboControl& menu)
     {
-        const auto width = 9 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (7.6f, true).withKerningFactor (0.13f)), name) + 8;
-        toggle.setBounds ({ panel.getX() + 6, panel.getY() + panelTop, width, panelTitleH - 1 });
+        const auto lane = juce::Rectangle<int> (card.getX() + stripPad, card.getY() + stripLaneTop, card.getWidth() - 2 * stripPad, stripLaneH);
+        const auto nameW = textWidth (name, stripLaneText, true) + 4;
+        laneLabels.push_back ({ lane.withWidth (nameW), name });
+        menu.setBounds (lane.withTrimmedLeft (nameW + 2));
     }
 
     void layoutStrip()
     {
         stripPanels.clear();
-        const auto cols = columnsFor (stripArea.getX(), stripArea.getWidth());
-        const auto accent = IlanaTheme::accent();
-        const auto grey = stripGrey();
-        const auto rowAY = stripArea.getY(), rowBY = rowAY + stripPanelHeight() + panelGap;
-        const auto panelAt = [&] (int from, int to, int y, const juce::String& title, juce::Colour colour)
-        {
-            const juce::Rectangle<int> area (cols.x[from], y, cols.x[to] + cols.w[to] - cols.x[from], stripPanelHeight());
-            stripPanels.push_back ({ area, title, {}, colour });
-            return area;
-        };
+        laneLabels.clear();
 
-        const auto legatoW = 72, moreW = packedButtonWidth (juce::String::fromUTF8 ("LESS \xe2\x96\xb4")) + 4;
-        placeStripRow (panelAt (0, 0, rowAY, "VOICE", accent),
-                       { { voiceMode.get(), 69 }, { voiceCount.get(), knobCell }, { bendRange.get(), knobCell }, { glideTime.get(), knobCell }, { glideLegato.get(), legatoW } });
-        placeStripRow (panelAt (1, 1, rowAY, "STEREO", accent), { { voiceSpread.get(), knobCell }, { unisonRandom.get(), knobCell }, { drift.get(), knobCell } });
-        placeStripRow (panelAt (2, 2, rowAY, "NOISE", accent), { { noiseStrip.get(), knobCell }, { noiseColourStrip.get(), knobCell }, { &moreButton, moreW } });
+        // The mockup's widths (152, 108, 102, 160, 160, 324 of 1006 px), to the page's width.
+        static constexpr int weights[] { 152, 108, 102, 160, 160, 324 };
+        static const char* const titles[] { "STEREO", "NOISE", "SUB", "STRINGS", "SOUNDBOARD", "KEYS" };
+        const auto avail = (float) (stripArea.getWidth() - 5 * stripGap);
+        std::array<juce::Rectangle<int>, 6> card;
+        auto x = stripArea.getX();
+        for (size_t i = 0; i < card.size(); ++i)
         {
-            const auto sub = panelAt (3, 3, rowAY, {}, accent);
-            placeStripSwitch (*subOscOn, sub, "SUB");
-            placeStripRow (sub, { { &subShape, 75 }, { subOscLevel.get(), knobCell }, { &subOctave, 67 } });
-        }
-        {
-            const auto strings = panelAt (0, 0, rowBY, {}, grey);
-            placeStripSwitch (symOn, strings, "STRINGS");
-            placeStripRow (strings, { { &symAmount, knobCell }, { &symCount, knobCell }, { &symDecay, knobCell } });
-            const auto board = panelAt (1, 3, rowBY, {}, grey);
-            placeStripSwitch (sbOn, board, "SOUNDBOARD");
-            placeStripRow (board, { { &sbModel, 85 }, { &sbSize, knobCell }, { &sbTone, knobCell }, { &sbMix, knobCell } });
+            const auto width = i + 1 == card.size() ? stripArea.getRight() - x : juce::roundToInt ((float) weights[i] * avail / 1006.0f);
+            card[i] = { x, stripArea.getY(), width, stripCardH };
+            stripPanels.push_back ({ card[i], titles[i], {}, IlanaTheme::accent() });
+            x += width + stripGap;
         }
 
-        // Under MORE: the strings' manual tuning, then the keys' extras.
-        if (stripOpen)
+        // The switches at the headers' right.
+        for (const auto& [toggle, index] : { std::pair<ToggleControl*, size_t> { subOscOn.get(), 2 }, { &symOn, 3 }, { &sbOn, 4 } })
+            toggle->setBounds ({ card[index].getRight() - stripPad - 26, card[index].getY() + (stripHeaderH - 14) / 2 + 1, 26, 14 });
+
+        placeStripRow (card[0], { voiceSpread.get(), unisonRandom.get(), drift.get() });
+        placeStripRow (card[1], { noiseStrip.get(), noiseColourStrip.get() });
+        placeStripRow (card[2], { subOscLevel.get(), &subOctave }, 36);
+        placeStripRow (card[3], { &symAmount, &symCount, &symDecay });
+        placeStripRow (card[4], { &sbSize, &sbTone, &sbMix });
+        placeStripRow (card[5], { &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal }, 62); // (room for RESONANCE)
+
+        placeLaneMenu (card[1], "TYPE", noiseType);
+        placeLaneMenu (card[2], "WAVE", subShape);
+        placeLaneMenu (card[4], "MODEL", sbModel);
         {
-            const auto tuning = panelAt (0, 3, rowBY + stripPanelHeight() + panelGap, "STRING TUNING", grey);
-            placeStripRow (tuning, { { &symManual, 66 }, { symNotes[0].get(), knobCell }, { symNotes[1].get(), knobCell }, { symNotes[2].get(), knobCell },
-                                     { symNotes[3].get(), knobCell }, { symNotes[4].get(), knobCell }, { symNotes[5].get(), knobCell } });
-            const auto keys = panelAt (0, 3, rowBY + 2 * (stripPanelHeight() + panelGap), "KEYS", accent);
-            placeStripRow (keys, { { &stretch, knobCell }, { &pedalRes, knobCell }, { &mechKey, knobCell }, { &mechDamper, knobCell }, { &mechPedal, knobCell } });
+            const auto lane = juce::Rectangle<int> (card[3].getX() + stripPad, card[3].getY() + stripLaneTop, card[3].getWidth() - 2 * stripPad, stripLaneH);
+            tuneButton.setBounds (lane.withLeft (lane.getRight() - 22));
+            symManual.setBounds (lane.withTrimmedRight (26).withSizeKeepingCentre (lane.getWidth() - 26, 15));
+            stringsCard = card[3];
         }
+
+        if (tuningPopover.isVisible())
+            tuningPopover.setBounds (tuningBounds());
     }
 
-    void paintStrip (juce::Graphics& g) const { paintPanelList (g, stripPanels); }
+    // The strings' six notes, over the cards right above the STRINGS card.
+    juce::Rectangle<int> stringsCard;
+
+    juce::Rectangle<int> tuningBounds() const
+    {
+        const auto width = TuningPopover::widthFor (6), height = TuningPopover::height;
+        const auto left = juce::jlimit (sideMargin, getWidth() - sideMargin - width, stringsCard.getCentreX() - width / 2);
+        return { left, stringsCard.getY() - height - 4, width, height };
+    }
+
+    void showTuning (bool show)
+    {
+        show = show && readBool ("sym_manual") && ! embedded;
+        if (show == tuningPopover.isVisible())
+            return;
+
+        if (show)
+        {
+            tuningPopover.setBounds (tuningBounds());
+            tuningPopover.setAlpha (0.0f);
+            tuningPopover.setVisible (true);
+            tuningPopover.toFront (false);
+            juce::Desktop::getInstance().getAnimator().fadeIn (&tuningPopover, 120);
+        }
+        else
+        {
+            tuningPopover.setVisible (false);
+        }
+        tuneButton.setToggleState (show, juce::dontSendNotification);
+    }
+
+public:
+    bool isTuningShown() const { return tuningPopover.isVisible(); }
+
+private:
+    void paintStrip (juce::Graphics& g) const
+    {
+        for (const auto& panel : stripPanels)
+        {
+            const auto area = panel.area.toFloat();
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (IlanaTheme::Ui::panel, 0.55f));
+            g.fillRoundedRectangle (area, 7.0f);
+            {
+                juce::Path shape;
+                shape.addRoundedRectangle (area, 7.0f);
+                const juce::Graphics::ScopedSaveState state (g);
+                g.reduceClipRegion (panel.area.withHeight (2));
+                g.setColour (panel.colour);
+                g.fillPath (shape);
+            }
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (area.reduced (0.5f), 6.5f, 1.0f);
+            g.fillRect (panel.area.getX() + 1, panel.area.getY() + stripHeaderH, panel.area.getWidth() - 2, 1);
+
+            g.setColour (panel.colour);
+            g.setFont (IlanaTheme::font (stripTitleText, true).withKerningFactor (0.06f));
+            IlanaTheme::drawFitted (g, panel.title, juce::Rectangle<int> (panel.area.getX() + stripPad, panel.area.getY() + 2, panel.area.getWidth() - 2 * stripPad - 30, stripHeaderH - 2),
+                                    juce::Justification::centredLeft, 1);
+        }
+
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (stripLaneText, true).withKerningFactor (0.06f));
+        for (const auto& [area, name] : laneLabels)
+            g.drawText (name, area, juce::Justification::centredLeft, false);
+    }
 
     // The strip's controls in the packed size, like the cards'.
     void applyStripStyle()
     {
-        for (auto* knob : { voiceCount.get(), bendRange.get(), glideTime.get(), voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(),
-                            noiseColourStrip.get(), subOscLevel.get(), &symAmount, &symCount, &symDecay, &sbSize, &sbTone, &sbMix,
-                            &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            knob->setPackedDial ((float) stripDialSize());
+        for (auto* knob : { voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(),
+                            &symAmount, &symCount, &symDecay, &sbSize, &sbTone, &sbMix, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
+        {
+            knob->setPackedDial ((float) stripDial);
+            knob->setPackedNameWrap (true, true); // (two-word names on two lines, as the mockup's)
+            knob->setPackedNameSize (stripNameText);
+        }
         for (auto& note : symNotes)
-            note->setPackedDial ((float) stripDialSize());
-        for (auto* menu : { voiceMode.get(), &subShape, &subOctave, &sbModel })
+            note->setPackedDial ((float) stripDial);
+        for (auto* menu : { &subShape, &sbModel, &noiseType })
+        {
             menu->setPackedMenu (true);
-        glideLegato->setPackedName (ToggleControl::NamePlace::left);
+            menu->getComboBox().getProperties().set ("textPrefix", juce::String()); // (the name stands before the box)
+            menu->getComboBox().getProperties().set ("packedMenuSize", stripTitleText);
+        }
         symManual.setPackedName (ToggleControl::NamePlace::right);
-        for (auto* group : { subOscOn.get(), &symOn, &sbOn })
-            group->getButton().getProperties().set ("packedGroup", true);
-        if (! moreButton.getProperties().contains ("packedButton"))
-            moreButton.getProperties().set ("packedButton", true);
+        symManual.setRightNameSize (stripNameText);
+        if (! tuneButton.getProperties().contains ("packedButton"))
+            tuneButton.getProperties().set ("packedButton", true);
     }
 
     void scrollTo (int osc)
@@ -3611,7 +3734,7 @@ private:
                 << (readFloat (prefix + "_unison") > 1.5f ? "u" : "-") << (isElectric (osc) ? "e" : "-")
                 << (getMode (osc) == 1 ? juce::String (juce::roundToInt (readFloat (prefix + "_excite"))) : juce::String()) << ";";
         }
-        key << (stripOpen ? "open" : "shut") << (readBool ("sym_manual") ? "m" : "-") << (canAdd() ? "+" : "=");
+        key << (readBool ("sym_manual") ? "m" : "-") << (canAdd() ? "+" : "=");
         return key;
     }
 
@@ -3656,7 +3779,7 @@ private:
 
     std::vector<KnobControl*> stripKnobs()
     {
-        std::vector<KnobControl*> knobs { voiceCount.get(), bendRange.get(), glideTime.get(), voiceSpread.get(), unisonRandom.get(),
+        std::vector<KnobControl*> knobs { voiceSpread.get(), unisonRandom.get(),
                                           drift.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(), &symAmount,
                                           &symDecay, &symCount, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey,
                                           &mechDamper, &mechPedal };
@@ -4173,20 +4296,18 @@ private:
 
         // The strip.
         applyStripStyle();
-        for (auto* item : std::initializer_list<juce::Component*> { voiceMode.get(), voiceCount.get(), bendRange.get(), glideTime.get(), glideLegato.get(),
-                                                                    voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
-                                                                    subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount, &symCount,
-                                                                    &symDecay, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix, &moreButton })
+        for (auto* item : std::initializer_list<juce::Component*> { voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
+                                                                    &noiseType, subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount,
+                                                                    &symCount, &symDecay, &symManual, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix,
+                                                                    &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
             item->setVisible (! embedded);
 
-        for (auto* item : std::initializer_list<juce::Component*> { &symManual, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
-            item->setVisible (stripOpen && ! embedded);
-
-        for (auto& note : symNotes)
-            note->setVisible (stripOpen && ! embedded && readBool ("sym_manual"));
-
-        moreButton.setButtonText (stripOpen ? juce::String ("LESS ") + juce::String::fromUTF8 ("\xe2\x96\xb4")
-                                            : juce::String ("MORE ") + juce::String::fromUTF8 ("\xe2\x96\xbe"));
+        // The chevron opens the six notes while Manual tuning is on.
+        tuneButton.setVisible (! embedded);
+        tuneButton.setEnabled (readBool ("sym_manual"));
+        tuneButton.setAlpha (readBool ("sym_manual") ? 1.0f : IlanaTheme::dimmedAlpha);
+        if (! readBool ("sym_manual") || embedded)
+            showTuning (false);
 
         updateTabItems();
         shownKey = layoutKey();
@@ -4571,8 +4692,6 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> scrubberAttachments;
     int lastRevealVersion = -1;
     int selected = 0;
-    int stripBonus = 0;
-    bool stripOpen = false;
     bool embedded = false; // on PLAY: the oscillator cards without the voice strip
     float laidOutScale = 0.0f;
 
@@ -4583,7 +4702,7 @@ private:
     DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
     DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
     static constexpr int addFmWidth = 150;
-    juce::TextButton moreButton { "MORE" };
+    juce::TextButton tuneButton { juce::String::fromUTF8 ("\xe2\x80\xba") };
     OscPicker oscTabs;
     std::unique_ptr<juce::FileChooser> tableChooser, exportChooser;
     std::array<std::unique_ptr<PhysicalControls>, OscillatorIds::count> physical;
@@ -4593,9 +4712,7 @@ private:
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
-    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift, voiceCount, bendRange, glideTime;
-    std::unique_ptr<ComboControl> voiceMode;
-    std::unique_ptr<ToggleControl> glideLegato;
+    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift;
     ToggleControl symOn, symManual;
     KnobControl symAmount, symDecay, symCount;
 
@@ -4611,7 +4728,9 @@ private:
     std::unique_ptr<KnobControl> subOscLevel, noiseStrip, noiseColourStrip;
 
     std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
-    ComboControl subShape, subOctave;
+    ComboControl subShape, subOctave, noiseType;
+    TuningPopover tuningPopover;
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> laneLabels;
 };
 
 // The OSC page scrolls only when the card's rows cannot fit at their

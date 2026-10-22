@@ -7101,10 +7101,12 @@ int runUiTests()
                 const auto name = knob->getNameTextBounds();
                 const auto rings = knob->getRingsBounds();
                 const auto whole = editor->getLocalArea (knob, knob->getLocalBounds());
-                // A knob scrolled wholly out of view is hidden, not cut.
+                // A knob scrolled out of view, wholly or in part, is hidden, not cut (the scroll
+                // decides that, not the layout: the OSC tab's one-row strip can sit at a viewport's edge).
                 auto hidden = false;
                 for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
-                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole);
+                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole)
+                             || (dynamic_cast<juce::Viewport*> (parent) != nullptr && ! editor->getLocalArea (parent, parent->getLocalBounds()).contains (whole));
                 if (hidden)
                     continue;
                 juce::StringArray why;
@@ -8602,6 +8604,46 @@ int main (int argc, char** argv)
         save (*editor, outDir.getChildFile ("flash-1.png"));
         settle (190);
         save (*editor, outDir.getChildFile ("flash-2.png"));
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_STRIP: the OSC tab's one-row strip with the strings' tuning open
+    // (strip-tuning.png), then the macros sliding to page 2 (strip-slide-0..5.png, 50 ms
+    // apart, and strip-page2.png), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_STRIP", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        for (const auto* id : { "sym_on", "sym_manual", "subosc_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        pages->showPage ("OSC");
+        settle (400);
+        {
+            // (The strings' chevron: the one TextButton that reads a lone ">".)
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == juce::String::fromUTF8 ("\xe2\x80\xba") && button->isShowing() && button->getTooltip().contains ("six notes"))
+                    button->triggerClick();
+        }
+        settle (300);
+        save (*editor, outDir.getChildFile ("strip-tuning.png"));
+        if (auto* pager = findChild<MacroPageSwitch> (*editor); pager != nullptr && pager->onPick != nullptr)
+        {
+            pager->onPick (1);
+            for (int i = 0; i < 6; ++i)
+            {
+                settle (50);
+                save (*editor, outDir.getChildFile ("strip-slide-" + juce::String (i) + ".png"));
+            }
+            settle (300);
+            save (*editor, outDir.getChildFile ("strip-page2.png"));
+        }
         return 0;
     }
 

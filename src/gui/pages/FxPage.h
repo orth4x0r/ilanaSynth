@@ -1368,9 +1368,7 @@ private:
             auto& card = instanceCards[(size_t) slot];
             if (! wanted[(size_t) slot] && card.shadow != nullptr)
             {
-                if (displays[(size_t) slot] != nullptr)
-                    displays[(size_t) slot]->setValueSource (nullptr);
-                card = {};
+                dropInstanceCard (slot);
                 continue;
             }
             card.visible = wanted[(size_t) slot];
@@ -1387,8 +1385,8 @@ private:
 
     void buildInstanceCard (int slot, int type, const FxPatchData::Patch& patch)
     {
+        dropInstanceCard (slot);
         auto& card = instanceCards[(size_t) slot];
-        card = {};
         std::vector<juce::String> ids;
         for (const auto& entry : patch.slots[(size_t) slot].values)
             ids.push_back (entry.first);
@@ -2645,15 +2643,16 @@ private:
     // An instance whose card isn't in front gets controls of its own, the
     // same classes as the type's, on a shadow of its settings
     // (FxInstanceControls.h), so its card looks and works like any other.
-    struct InstanceCard
-    {
-        std::unique_ptr<FxInstance::Shadow> shadow;
-        std::vector<std::unique_ptr<juce::Component>> controls;
-        std::vector<juce::Component*> group; // as slotGroups[type], in its order
-        std::vector<juce::Component*> originals; // the type's control each one copies
-        bool visible = false;
-    };
+    using InstanceCard = FxInstance::Card;
     std::array<InstanceCard, IlanaSynthAudioProcessor::numFxSlots> instanceCards;
+
+    // Takes a slot's instance card down: its picture stops reading the shadow, then the card goes (controls first).
+    void dropInstanceCard (int slot)
+    {
+        if (displays[(size_t) slot] != nullptr)
+            displays[(size_t) slot]->setValueSource (nullptr);
+        instanceCards[(size_t) slot].clear();
+    }
 
     // The module's own on parameter, where it has one.
     static const char* enableParamFor (int type)

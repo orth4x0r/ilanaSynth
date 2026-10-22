@@ -42,6 +42,21 @@ public:
     // The 2D / 3D flip a click makes (the snapshot tool and the UI tests set it directly).
     void setStack3d (bool shouldBe3d) { if (stack3d != shouldBe3d) { stack3d = shouldBe3d; updateViewButtons(); repaint(); } }
     bool isStack3d() const { return stack3d; }
+    // Where the handle of a FRAME route sits (the picture's own coordinates), for the UI tests: {-1, -1} when there is none.
+    juce::Point<float> frameRouteHandle (int slot) const
+    {
+        if (! frameTrackShown())
+            return { -1.0f, -1.0f };
+
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+
+        for (const auto& route : frameRoutes())
+            if (route.slot == slot)
+                return { track.getX() + track.getWidth() * routeReach (route.data, frame), track.getCentreY() };
+
+        return { -1.0f, -1.0f };
+    }
     void setFrameReadout (bool shouldShow) { if (frameReadout != shouldShow) { frameReadout = shouldShow; repaint(); } }
     WaveDisplay (IlanaSynthAudioProcessor& processor,
                  juce::String tableIdIn,
@@ -522,6 +537,14 @@ public:
             if (! isTableMode())
                 return;
 
+            if (const auto slot = routeHandleAt (event.position); slot >= 0)
+            {
+                routeDragSlot = slot;
+                processorRef.beginEdit ("Frame modulation depth");
+                setRouteDepthFromX (event.position.x);
+                return;
+            }
+
             processorRef.beginEdit (editName());
             beginGesture (frameId);
 
@@ -782,6 +805,12 @@ public:
         if (pressInHeader)
             return;
 
+        if (routeDragSlot >= 0)
+        {
+            setRouteDepthFromX (event.position.x);
+            return;
+        }
+
         if (handleDrag != 0)
         {
             setHandleFromX (event.position.x);
@@ -820,6 +849,12 @@ public:
 
         if (std::exchange (pressInHeader, false))
             return;
+
+        if (std::exchange (routeDragSlot, -1) >= 0)
+        {
+            processorRef.endEdit();
+            return;
+        }
 
         if ((compact || slim) && dragging && isTableMode() && ! subTableMapping && ! event.mouseWasDraggedSinceMouseDown())
         {
@@ -2308,6 +2343,109 @@ private:
         g.fillRoundedRectangle (track.withWidth (track.getWidth() * position), 1.0f);
         g.setColour (traceColour);
         g.fillRoundedRectangle (juce::Rectangle<float> (10.0f, 4.0f).withCentre ({ track.getX() + track.getWidth() * position, track.getCentreY() }), 2.0f);
+
+        drawFrameRoutes (g, track);
+    }
+
+    // The routes into this oscillator's FRAME: each one a band on the scrubber in its source's colour, reaching as far as
+    // the route's depth moves the frame, with a handle at the far end to drag (ilana, 2026-10-21).
+    struct FrameRoute
+    {
+        int slot = -1;
+        Mod::Slot data;
+    };
+
+    std::vector<FrameRoute> frameRoutes() const
+    {
+        std::vector<FrameRoute> routes;
+        const auto destination = frameDestination();
+
+        if (destination == Mod::Destination::None)
+            return routes;
+
+        for (int slot = 0; slot < Mod::maxSlots && routes.size() < 4; ++slot)
+        {
+            const auto data = processorRef.readModSlot (slot);
+            if (data.source != Mod::Source::None && data.destination == (int) destination && ! data.bypass)
+                routes.push_back ({ slot, data });
+        }
+
+        return routes;
+    }
+
+    // Where the route's far end sits on the frame axis (0..1): the set frame plus or minus its depth.
+    static float routeReach (const Mod::Slot& data, float frame)
+    {
+        const auto reach = data.polarity == Mod::Polarity::Negative ? frame - data.depth
+                           : Mod::isBipolarRoute (data)             ? frame + std::abs (data.depth)
+                                                                    : frame + data.depth;
+        return juce::jlimit (0.0f, 1.0f, reach);
+    }
+
+    juce::Rectangle<float> frameTrack() const
+    {
+        const auto plot = wellArea().reduced (10.0f, compact ? 5.0f : 10.0f);
+        return { plot.getX(), plot.getBottom() - 2.0f, plot.getWidth(), 2.0f };
+    }
+
+    bool frameTrackShown() const
+    {
+        if (! isTableMode() || subTableMapping)
+            return false;
+
+        const auto* table = processorRef.getWavetable (resolveTableIndex());
+        return table != nullptr && table->getNumFrames() > 1 && ! isStaticTable (table);
+    }
+
+    void drawFrameRoutes (juce::Graphics& g, juce::Rectangle<float> track) const
+    {
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+        const auto xAt = [&track] (float proportion) { return track.getX() + track.getWidth() * proportion; };
+
+        for (const auto& route : frameRoutes())
+        {
+            const auto colour = modSourceColour ((int) route.data.source);
+            const auto reach = routeReach (route.data, frame);
+            const auto low = Mod::isBipolarRoute (route.data) ? juce::jlimit (0.0f, 1.0f, frame - std::abs (route.data.depth)) : juce::jmin (frame, reach);
+            const auto high = Mod::isBipolarRoute (route.data) ? reach : juce::jmax (frame, reach);
+            g.setColour (colour.withAlpha (0.4f));
+            g.fillRoundedRectangle ({ xAt (low), track.getCentreY() - 3.0f, juce::jmax (1.0f, xAt (high) - xAt (low)), 6.0f }, 3.0f);
+            const auto handle = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ xAt (reach), track.getCentreY() });
+            g.setColour (IlanaTheme::Ui::bg);
+            g.fillEllipse (handle.expanded (1.5f));
+            g.setColour (colour);
+            g.fillEllipse (handle);
+        }
+    }
+
+    // The slot whose handle is under the pointer, else -1.
+    int routeHandleAt (juce::Point<float> position) const
+    {
+        if (! frameTrackShown())
+            return -1;
+
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+
+        for (const auto& route : frameRoutes())
+        {
+            const auto x = track.getX() + track.getWidth() * routeReach (route.data, frame);
+            if (std::abs (position.x - x) <= 8.0f && std::abs (position.y - track.getCentreY()) <= 9.0f)
+                return route.slot;
+        }
+
+        return -1;
+    }
+
+    void setRouteDepthFromX (float x)
+    {
+        const auto track = frameTrack();
+        const auto frame = juce::jlimit (0.0f, 1.0f, readValue (frameId));
+        const auto data = processorRef.readModSlot (routeDragSlot);
+        const auto along = (x - track.getX()) / juce::jmax (1.0f, track.getWidth()) - frame;
+        const auto depth = data.polarity == Mod::Polarity::Negative ? -along : Mod::isBipolarRoute (data) ? std::abs (along) : along;
+        processorRef.setModSlotValue (routeDragSlot, "amt", juce::jlimit (-1.0f, 1.0f, depth));
+        repaint();
     }
 
     // The parameter with whatever modulates it right now (LFOs, envelopes,
@@ -3004,6 +3142,7 @@ private:
     juce::uint64 modeEpoch = ~(juce::uint64) 0;
     double liveSeconds = 0.0;
     juce::String tableId, frameId, unisonId, spreadId, detuneId, shapeId, modeId;
+    int routeDragSlot = -1; // the FRAME route whose handle is being dragged
     int oscIndex = 0;
     juce::String startId, grainPositionId, grainFreezeId, endId, fadeInId, fadeOutId, reverseId, loopId, loopOwnId, loopFromId, loopToId, xfadeId, snapId;
     int handleDrag = 0; // 1: START, 2: END while one is dragged on the wave

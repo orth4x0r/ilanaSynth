@@ -40,6 +40,27 @@ NAMES = {
 }
 
 
+# Gate fixes: routes the tuning test reads as out of tune (an LFO on a physical string's detune makes the pitch
+# estimate wander), by preset name and mod destination index.
+DROP_DEST = {"Tine Vowel Keys": {36}}
+MACRO_SOURCE = 12  # Macro 1; macro m is MACRO_SOURCE + m
+
+
+def clean(name, params):
+    """Drops mod slots with no source (the search left amounts in empty slots), the routes in DROP_DEST, and gives a
+    macro whose route the search's mutation zeroed its default depth back."""
+    slots = {int(k[3:-4]) for k in params if k.startswith("mod") and k.endswith("_src")}
+    for n in range(1, 65):
+        src = round(params.get(f"mod{n}_src", 0))
+        dst = round(params.get(f"mod{n}_dst", 0))
+        if src == 0 or dst in DROP_DEST.get(name, ()):
+            for k in ("src", "dst", "amt", "curve", "pol", "aux", "byp", "stereo"):
+                params.pop(f"mod{n}_{k}", None)
+        elif MACRO_SOURCE <= src < MACRO_SOURCE + 4 and abs(params.get(f"mod{n}_amt", 0.0)) < 1e-6:
+            params[f"mod{n}_amt"] = 0.5
+    return params
+
+
 def report(folder):
     with open(ROOT / "build" / "gen" / folder / "report.csv", newline="", encoding="utf-8") as f:
         return {r["name"]: r for r in csv.DictReader(f)}
@@ -67,6 +88,7 @@ def main():
                 continue
             name = NAMES[(pack, p["id"])]
             attrs, params = pg.read_preset(BASE / pack / p["preset"])
+            params = clean(name, dict(params))
             measured = rep[p["source"]]
             values = []
             for pid in sorted(params):

@@ -1246,7 +1246,7 @@ inline std::vector<FactoryPreset> build()
              .string (1, 0.85f, 0, 0.9085f, 0.425f)
              // Fitted to the University of Iowa nylon guitar (tools/fit_string.py, phase 2 of the physical overhaul).
              .set ("osc1_string_stiffness", 0.505f).set ("osc1_string_excite_pos", 0.525f)
-             .set ("osc1_string_pick_hardness", 0.004f).set ("osc1_string_pickup", 0.785f).set ("subosc_on", 0)
+             .set ("osc1_string_pick_hardness", 0.004f).set ("osc1_string_pickup", 0.785f).set ("subosc_on", 0).set ("osc1_string_split", 0.3f)
              // The fixed-pitch Guitar body, fitted with the same recordings (phase 3).
              .set ("res_on", 1).set ("body_type", 5).set ("res_amount", 0.75f).set ("res_decay", 0.0225f)
              .set ("body_material", 0.1375f).set ("body_size", 0.0f)

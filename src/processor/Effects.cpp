@@ -785,7 +785,7 @@ void IlanaSynthAudioProcessor::FxEngine::processComb (juce::AudioBuffer<float>& 
 
     if (getParam ("fx_comb_on") > 0.5f)
     {
-        const auto frequency = juce::jlimit (20.0f, 2000.0f, getParam ("fx_comb_freq") * std::exp2 (getFxMod (Mod::Destination::FxCombFreq, 4.0f)));
+        const auto frequency = juce::jlimit (20.0f, 2000.0f, getParam ("fx_comb_freq") * std::exp2 (getFxMod (Mod::Destination::FxCombFreq, Mod::Range::combOctaves)));
         const auto feedback = juce::jlimit (0.0f, 0.97f, getParam ("fx_comb_feedback"));
         auto& mixRamp = fxRamps[(size_t) FxRamp::CombMix];
         mixRamp.begin (getParam ("fx_comb_mix"), numSamples);
@@ -815,7 +815,7 @@ void IlanaSynthAudioProcessor::FxEngine::processPhaser (juce::AudioBuffer<float>
 {
     if (getParam ("fx_phaser_on") > 0.5f)
     {
-        phaser.setRate (juce::jlimit (0.05f, 8.0f, getParam ("fx_phaser_rate") * std::exp2 (getFxMod (Mod::Destination::FxPhaserRate, 4.0f))));
+        phaser.setRate (juce::jlimit (0.05f, 8.0f, getParam ("fx_phaser_rate") * std::exp2 (getFxMod (Mod::Destination::FxPhaserRate, Mod::Range::phaserOctaves))));
         phaser.setDepth (getParam ("fx_phaser_depth"));
         phaser.setCentreFrequency (800.0f);
         phaser.setFeedback (getParam ("fx_phaser_feedback"));
@@ -875,7 +875,7 @@ void IlanaSynthAudioProcessor::FxEngine::processDelay (juce::AudioBuffer<float>&
         auto& timeRampR = fxRamps[(size_t) FxRamp::DelayTimeR];
         timeRampL.begin (baseDelaySamples[0], numSamples);
         timeRampR.begin (baseDelaySamples[1], numSamples);
-        const auto feedback = juce::jlimit (0.0f, 0.95f, getParam ("fx_delay_feedback") + getFxMod (Mod::Destination::FxDelayFeedback, 0.9f));
+        const auto feedback = juce::jlimit (0.0f, 0.95f, getParam ("fx_delay_feedback") + getFxMod (Mod::Destination::FxDelayFeedback, Mod::Range::delayFeedback));
         auto& mixRamp = fxRamps[(size_t) FxRamp::DelayMix];
         mixRamp.begin (getParam ("fx_delay_mix"), numSamples);
         const auto mixMod = getFxMod (Mod::Destination::FxDelayMix, 1.0f);

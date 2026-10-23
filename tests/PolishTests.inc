@@ -108,6 +108,60 @@ void runRedundantKnobsMigrationTest()
 }
 
 // The FILTER ENV VELOCITY knob scales the envelope source; one route with it sounds like the old amount with its velocity share.
+// ilana 2026-10-23: "100% should be 100% of that knobs or sliders values".
+// A route at 100 % spans its knob's whole range; a patch saved before (6
+// octaves of cutoff at 100 %) has its amounts scaled on load and sounds the same.
+void runModDepthRangeTest()
+{
+    using D = Mod::Destination;
+    const auto near = [] (float a, float b) { return std::abs (a - b) < 1.0e-4f; };
+
+    check (std::abs (20.0f * std::exp2 (Mod::Range::cutoffOctaves) - 20000.0f) < 1.0f,
+           "range: 100 % takes the cutoff from 20 Hz to 20 kHz");
+    check (std::abs (0.01f * std::exp2 (Mod::Range::lfoRateOctaves) - 40.0f) < 0.01f,
+           "range: 100 % takes an LFO's rate from 0.01 to 40 Hz");
+
+    std::map<juce::String, float> values {
+        { "mod1_dst", (float) (int) D::Filter1Cutoff }, { "mod1_amt", 1.0f },
+        { "mod2_dst", (float) (int) D::Osc1Frame }, { "mod2_amt", 0.5f },
+        { "mod3_dst", (float) (int) D::Lfo7Rate }, { "mod3_amt", -0.5f },
+        { "mod4_dst", (float) (int) D::Osc2Detune }, { "mod4_amt", 0.4f },
+    };
+    const auto get = [&values] (const juce::String& id, float fallback)
+    {
+        const auto found = values.find (id);
+        return found != values.end() ? found->second : fallback;
+    };
+    const auto set = [&values] (const juce::String& id, float value) { values[id] = value; };
+    const auto moved = IlanaSynthAudioProcessor::migrateModDepthRanges (get, set);
+    check (moved == 3 && near (values["mod1_amt"], 6.0f / Mod::Range::cutoffOctaves) && near (values["mod2_amt"], 0.5f)
+               && near (values["mod3_amt"], -2.0f / Mod::Range::lfoRateOctaves) && near (values["mod4_amt"], 0.1f),
+           "migration: old cutoff, LFO rate and detune amounts keep their octaves and cents, frame stays");
+
+    // Through a saved patch: one from before the change is scaled once; one
+    // saved since loads as it is.
+    IlanaSynthAudioProcessor source;
+    source.setModSlotValue (0, "src", (float) (int) Mod::Source::FilterEnv);
+    source.setModSlotValue (0, "dst", (float) (int) D::Filter1Cutoff);
+    source.setModSlotValue (0, "amt", 0.6f);
+    auto state = source.captureWholePatch();
+
+    IlanaSynthAudioProcessor current;
+    current.restoreWholePatch (state);
+    check (near (current.readModSlot (0).depth, 0.6f), "migration: a patch saved since loads its amount unchanged");
+
+    state.removeProperty ("modRangeSchema", nullptr);
+    IlanaSynthAudioProcessor old;
+    old.restoreWholePatch (state);
+    check (near (old.readModSlot (0).depth, 0.6f * 6.0f / Mod::Range::cutoffOctaves),
+           "migration: an older patch's cutoff route keeps its 3.6 octaves (" + juce::String (old.readModSlot (0).depth, 4) + ")");
+
+    // Saved again and reloaded, it is not scaled a second time.
+    IlanaSynthAudioProcessor again;
+    again.restoreWholePatch (old.captureWholePatch());
+    check (near (again.readModSlot (0).depth, old.readModSlot (0).depth), "migration: a migrated patch saved again is not scaled twice");
+}
+
 void runFilterEnvVelocityTest()
 {
     const auto render = [] (bool oldAmount, int velocity)
@@ -128,7 +182,7 @@ void runFilterEnvVelocityTest()
             setParam (processor, "f1_env", 0.0f);
             setParam (processor, "mod1_src", (float) Mod::Source::FilterEnv);
             setParam (processor, "mod1_dst", (float) (int) Mod::Destination::Filter1Cutoff);
-            setParam (processor, "mod1_amt", 2.0f / 6.0f);
+            setParam (processor, "mod1_amt", 2.0f / Mod::Range::cutoffOctaves); // 2 octaves
         }
         processor.prepareToPlay (48000.0, 512);
         std::vector<float> samples;
@@ -1218,6 +1272,7 @@ void runTests()
     timedRun ("Polish::runOversamplingKeysTest", [] { runOversamplingKeysTest(); });
     timedRun ("Polish::runStatePresetTest", [] { runStatePresetTest(); });
     timedRun ("Polish::runRedundantKnobsMigrationTest", [] { runRedundantKnobsMigrationTest(); });
+    timedRun ("Polish::runModDepthRangeTest", [] { runModDepthRangeTest(); });
     timedRun ("Polish::runFilterEnvVelocityTest", [] { runFilterEnvVelocityTest(); });
 }
 } // namespace Polish

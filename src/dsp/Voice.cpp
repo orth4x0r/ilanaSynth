@@ -105,11 +105,8 @@ float lfoShapeAt (int shape, double phase, float hold, const float* steps, const
 
 // Scales for explicit destinations: how far a full-depth modulation moves
 // the target, in the target's own units.
-constexpr float detuneRange = 50.0f;     // cents (kept at 50 when the knob grew to 200, so saved routes keep their depth)
+// (The rest are each knob's whole range: Mod::Range.)
 constexpr float driveRange = 9.0f;       // drive multiplier
-constexpr float envAmountRange = 5.0f;   // octaves
-constexpr float timeOctaves = 5.0f;      // envelope times scale by 2^(mod * 5)
-constexpr float lfoRateOctaves = 4.0f;
 
 // How much of the cabled audio a material body takes in besides its own
 // excitation, so audio patched into BODY rings the body.
@@ -1269,7 +1266,7 @@ void Voice::updateUnisonLayout()
             continue;
         const auto& settings = params.oscillators[osc];
         layout (settings, numOscUnison[osc], settings.chord,
-                juce::jlimit (0.0f, 200.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * detuneRange),
+                juce::jlimit (0.0f, 200.0f, settings.detuneCents + blockMod (detuneDestinations[osc]) * Mod::Range::detuneCents),
                 settings.unisonBlend + blockMod (blendDestinations[osc]),
                 unisonOffset[osc], unisonRatio[osc], unisonGains[osc]);
     }
@@ -1314,17 +1311,18 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // Per-note routes into the spectral amounts: each voice's own value for the block.
     spectralBlock = params.anySpectralMods && params.numModSlots > 0 ? spectralMods : std::array<float, 6> {};
 
-    const auto scaleTime = [] (float seconds, float mod)
+    const auto scaleTime = [] (float seconds, float mod, float octaves)
     {
-        return mod != 0.0f ? seconds * std::exp2 (juce::jlimit (-2.0f, 2.0f, mod) * timeOctaves) : seconds;
+        const auto clamp = Mod::Range::timeClampOctaves;
+        return mod != 0.0f ? seconds * std::exp2 (juce::jlimit (-clamp, clamp, mod * octaves)) : seconds;
     };
 
     const auto modulatedEnvelope = [&scaleTime] (TensionAdsr::Parameters env, float a, float d, float s, float r)
     {
-        env.attack = scaleTime (env.attack, a);
-        env.decay = scaleTime (env.decay, d);
+        env.attack = scaleTime (env.attack, a, Mod::Range::attackOctaves);
+        env.decay = scaleTime (env.decay, d, Mod::Range::decayOctaves);
         env.sustain = juce::jlimit (0.0f, 1.0f, env.sustain + s);
-        env.release = scaleTime (env.release, r);
+        env.release = scaleTime (env.release, r, Mod::Range::releaseOctaves);
         return env;
     };
 
@@ -1377,7 +1375,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     for (int lfo = 0; lfo < VoiceParams::numLfos; ++lfo)
     {
         lfoIncrements[lfo] = params.lfos[lfo].baseIncrement
-                             * std::exp2 ((double) blockMod (Mod::lfoRateDestinationFor (lfo)) * (double) lfoRateOctaves);
+                             * std::exp2 ((double) blockMod (Mod::lfoRateDestinationFor (lfo)) * (double) Mod::Range::lfoRateOctaves);
 
         // Key tracked: RATE 4 Hz runs at the note's own pitch, 8 Hz an
         // octave above, 2 Hz an octave below.
@@ -1509,7 +1507,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (osc < 3 || numOscUnison[osc] > 0)
             computePans (params.oscillators[osc], numOscUnison[osc],
-                         blockMod (panDestinations[osc]), blockMod (spreadDestinations[osc]),
+                         blockMod (panDestinations[osc]) * Mod::Range::oscPan, blockMod (spreadDestinations[osc]),
                          panGainL[osc], panGainR[osc]);
 
     computePans (VoiceParams::OscParams {}, 1, 0.0f, 0.0f, &panGainSubOscL, &panGainSubOscR);
@@ -3797,7 +3795,7 @@ void Voice::tuneBody (double driftedFrequency)
 
     if (params.resonatorOn && params.resonatorAmount + blockMod (D::ResAmount) > 0.001f)
     {
-        const auto offset = juce::jlimit (-24.0f, 24.0f, params.resonatorOffset + blockMod (D::ResOffset) * 12.0f);
+        const auto offset = juce::jlimit (-24.0f, 24.0f, params.resonatorOffset + blockMod (D::ResOffset) * Mod::Range::resOffsetSemitones);
         if (params.bodyType == 0)
         {
             resonatorL.setTuning (driftedFrequency, offset, params.resonatorKeytrack);
@@ -3852,16 +3850,16 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     const auto velocityEnvScale = 1.0f - params.filterVelocity + params.filterVelocity * velocityLevel;
 
-    const auto fmOctaves1 = (double) (params.filter1Fm + mods[(int) D::Filter1Fm]) * (double) previousOsc[1] * 4.0;
-    const auto fmOctaves2 = (double) (params.filter2Fm + mods[(int) D::Filter2Fm]) * (double) previousOsc[1] * 4.0;
+    const auto fmOctaves1 = (double) (params.filter1Fm + mods[(int) D::Filter1Fm] * Mod::Range::filterFm) * (double) previousOsc[1] * 4.0;
+    const auto fmOctaves2 = (double) (params.filter2Fm + mods[(int) D::Filter2Fm] * Mod::Range::filterFm) * (double) previousOsc[1] * 4.0;
 
     const auto keyOctaves1 = (double) params.filter1.keyTrack * (double) keyTrackOctaves;
-    const auto envOctaves1 = (double) (params.filter1.envAmount + mods[(int) D::Filter1Env] * envAmountRange)
+    const auto envOctaves1 = (double) (params.filter1.envAmount + mods[(int) D::Filter1Env] * Mod::Range::filterEnvOctaves)
                              * (double) filterEnvValue * (double) velocityEnvScale;
     const auto cutoff1 = juce::jlimit (20.0, sampleRate * 0.45,
                                        (double) params.filter1.cutoffHz
                                            * std::exp2 (keyOctaves1 + envOctaves1 + fmOctaves1
-                                                        + (double) mods[(int) D::Filter1Cutoff] * 6.0));
+                                                        + (double) mods[(int) D::Filter1Cutoff] * (double) Mod::Range::cutoffOctaves));
     const auto reso1 = juce::jlimit (0.0f, 1.0f, params.filter1.resonance + mods[(int) D::Filter1Reso]);
 
     // Filter 1 left wide open (the piano presets) gets the same bypass as
@@ -3935,7 +3933,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
         if (stereoRouted[0])
         {
             // A stereo route: the left cutoff moves up as the right moves down.
-            const auto shift = (double) mods[(int) D::Count] * 6.0;
+            const auto shift = (double) mods[(int) D::Count] * (double) Mod::Range::cutoffOctaves;
             const auto left = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)), reso1, morph1);
             const auto right = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
@@ -3962,13 +3960,13 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     }
 
     const auto keyOctaves2 = (double) params.filter2.keyTrack * (double) keyTrackOctaves;
-    const auto envOctaves2 = (double) (params.filter2.envAmount + mods[(int) D::Filter2Env] * envAmountRange)
+    const auto envOctaves2 = (double) (params.filter2.envAmount + mods[(int) D::Filter2Env] * Mod::Range::filterEnvOctaves)
                              * (double) filter2EnvValue * (double) velocityEnvScale
                              * (double) velocityScaleFor (params.filter2EnvVelocity);
     const auto cutoff2 = juce::jlimit (20.0, sampleRate * 0.45,
                                        (double) params.filter2.cutoffHz
                                            * std::exp2 (keyOctaves2 + envOctaves2 + fmOctaves2
-                                                        + (double) mods[(int) D::Filter2Cutoff] * 6.0));
+                                                        + (double) mods[(int) D::Filter2Cutoff] * (double) Mod::Range::cutoffOctaves));
     const auto reso2 = juce::jlimit (0.0f, 1.0f, params.filter2.resonance + mods[(int) D::Filter2Reso]);
 
     // Filter 2 is a Low Pass left wide open on 361 of the 371 factory
@@ -4013,7 +4011,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     if (stereoRouted[1])
     {
-        const auto shift = (double) mods[(int) D::Count + 1] * 6.0;
+        const auto shift = (double) mods[(int) D::Count + 1] * (double) Mod::Range::cutoffOctaves;
         const auto left = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)), reso2, morph2);
         const auto right = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,

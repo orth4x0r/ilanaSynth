@@ -500,6 +500,7 @@ inline const ValueRow valueRows[] {
 
     // Counts and ratios in their own words.
     { is ("arp_octaves"), Unit::whole, " oct" },
+    { is ("tune_loose"), Unit::whole, " ct" },
     { is ("west_stages"), ValueTexts::stages },
     { is ("fx_comp_ratio"), Unit::number1, ":1" },
     { is ("fx_crush_bits"), Unit::whole, " bits" },
@@ -619,7 +620,7 @@ inline const ValueRow valueRows[] {
     { is ("noise_level|noise_color|sub_colour|unison_random|voice_spread|body_material|body_size|body_coupling"), Unit::percent },
     { starts ("macro|mseg_level"), Unit::percent },
     { is ("res_decay"), Unit::percent },
-    { ends ("_string_decay|_string_damp|_string_stiffness|_string_pickup|_string_excite_pos|_string_pick_hardness|_string_pick_pos|_string_split"
+    { ends ("_string_decay|_string_damp|_string_stiffness|_string_pickup|_string_excite_pos|_string_pick_hardness|_string_pick_pos|_string_split|_string_click"
             "|_phys_a|_phys_b"), Unit::percent },
     { ends ("_smooth|_stereo").also (starts ("lfo")), Unit::percent },
     { ends ("_bow_pressure|_bow_speed|_bridge_buzz|_fret_rattle|_hammer_hard|_couple|_damper|_register|_ep_distance|_ep_position"),
@@ -799,6 +800,7 @@ inline const HelpRow helpRows[] {
     { ends ("_bow_speed"), "Bow travel speed; changes the sustained tone and scrape." },
     { ends ("_bridge_buzz"), "Nonlinear bridge contact, from clean to sitar-like buzz." },
     { ends ("_string_split"), "A sideways string movement that beats. Zero is the plain string." },
+    { ends ("_string_click"), "The sharp snap of the pluck. Zero is a clean pluck, full is a hard slap." },
     { ends ("_fret_rattle"), "Fret noise that follows the string. Faint buzz to loose fret; zero is clean." },
     { osc ("_hammer_hard"), "Hammer felt hardness. Used by the Hammer and Piano exciters. Harder felt and faster keys give a shorter contact and a brighter tone." },
     { is ("in_gain"), "ilanaSynth FX: the input's level into the engine (DRY is not affected)." },
@@ -893,6 +895,8 @@ inline const HelpRow helpRows[] {
     { is ("unison_random"), "Randomises unison start phases for a softer, phasey attack." },
     { is ("mpe_mode"), "Per-note bend and pressure via MIDI channels, \xc2\xb1" "48 st bend range." },
     { is ("drift"), "Analog-style per-voice pitch instability." },
+    { is ("tune_loose"), "Every note lands a little off pitch, up to 40 cents. Zero is in tune." },
+    { is ("tune_loose_both"), "On, notes land sharp or flat. Off, only flat, as a loosely tuned string does." },
     // Filters
     { is ("f1_type|f2_type"), "SVF: clean Low / Band / High Pass and Notch.  Ladder: Moog-style, saturating and self-oscillating.  "
       "Diode: 303-style squelch.  MS-20: gnarly Sallen-Key.  Comb +/-: tuned to the cutoff, metallic "

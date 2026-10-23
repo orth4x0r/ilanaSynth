@@ -328,8 +328,8 @@ void runLayoutReview9Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         {
             return texts.size() == 2 && texts[0].startsWith ("+  ADD OSC") && texts[1] == "+  ADD FM / DX7";
         };
-        // (PLAY's three cards leave no free slot, so it has no add row.)
-        expect (play.isEmpty() && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
+        // (PLAY's three cards have the same add row under them, reached by scrolling.)
+        expect (oscRow (play) && oscRow (osc) && fx.size() <= 1 && matrix.size() >= 1,
                 "PLAY, OSC, the matrix and a short FX rack add with the one dashed add button (" + play.joinIntoString ("|") + ", " + osc.joinIntoString ("|")
                     + ", " + fx.joinIntoString ("|") + ", " + matrix.joinIntoString ("|") + ")");
     }

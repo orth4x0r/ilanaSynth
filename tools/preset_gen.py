@@ -238,7 +238,19 @@ def sample(spec, rng):
     return spec
 
 
-def style_rules(params, category):
+DEFAULTS = {}  # set by cmd_draft: the parameter defaults
+
+
+def free_fx_slot(params):
+    """The first FX slot with no effect in it (None when all are used)."""
+    for n in range(1, 9):
+        key = f"fx_slot{n}"
+        if key in DEFAULTS and params.get(key, DEFAULTS[key]) == 0:
+            return n
+    return None
+
+
+def style_rules(params, category, rng=None):
     """What her presets do and the factory ones often don't: no glide on
     polyphonic patches, a few ms legato glide at most on mono ones, quick
     attacks outside pads, releases that end."""
@@ -248,6 +260,20 @@ def style_rules(params, category):
     else:
         params["glide"] = min(params.get("glide", 0.0), 0.012)
         params["glide_legato"] = 1.0
+    if category == "Lead" and rng is not None:
+        # ilana's round 3 tags: the "boring" leads were narrow (stereo width 0.13 against 0.50)
+        # and dry (release 0.36 s against 1.5 s). Give a lead some width and a little room.
+        params["amp_release"] = max(params.get("amp_release", 0.3), rng.uniform(0.3, 0.6))
+        slot = free_fx_slot(params)
+        if slot is not None:
+            params[f"fx_slot{slot}"] = float(rng.choice([36, 7, 41]))  # Ensemble, Chorus, Stereo
+            params[f"fx_slot{slot}_mix"] = rng.uniform(0.3, 0.55)
+    if category == "Pluck":
+        # ilana's round 1-2 votes: the winning plucks attack in ~10 ms and die away;
+        # the losing ones sustained at about -12 dB and rang on for seconds.
+        params["amp_attack"] = min(params.get("amp_attack", 0.003), 0.008)
+        params["amp_sustain"] = min(params.get("amp_sustain", 0.0), 0.05)
+        params["amp_release"] = min(params.get("amp_release", 0.3), 0.6)
     if category in ("Bass", "Pluck", "Keys", "Lead"):
         params["amp_attack"] = min(params.get("amp_attack", 0.003), 0.02)
         params["amp_release"] = min(params.get("amp_release", 0.3), 1.5 if category == "Keys" else 0.8)
@@ -258,14 +284,17 @@ def cmd_draft(args):
     from preset_gen_concepts import CONCEPTS  # the concepts, kept in their own file
 
     defaults = read_defaults()
+    DEFAULTS.update(defaults)
     seeds = load_seeds(defaults)
     rng = random.Random(args.seed)
-    out = GEN / "drafts"
+    out = Path(args.out)
     if out.exists():
         for old in out.rglob("*.ilanapreset"):
             old.unlink()
     manifest = []
     for concept in CONCEPTS:
+        if args.only and concept["name"] not in args.only:
+            continue
         seed = seeds[concept["seed"]]
         for draw in range(args.per):
             params = dict(seed["params"])
@@ -275,7 +304,7 @@ def cmd_draft(args):
                 params[key] = float(sample(spec, rng))
             for key, spec in concept.get("scale", {}).items():
                 params[key] = params[key] * float(sample(spec, rng))
-            params = style_rules(params, concept["category"])
+            params = style_rules(params, concept["category"], rng)
             macros = [m for m, _ in concept.get("macros", [])]
             params = wire_macros(params, concept.get("macros", []))
             for macro in range(8):  # macros start at 0 (the seed's knob positions go)
@@ -284,8 +313,8 @@ def cmd_draft(args):
             stem = f"{concept['name']}~{draw}"
             write_preset(out / f"{stem}.ilanapreset", stem, concept["category"], params, macros, seed["curves"])
             manifest.append({"stem": stem, "concept": concept["name"], "draw": draw})
-    (GEN / "drafts.json").write_text(json.dumps(manifest, indent=1))
-    print(f"{len(manifest)} drafts of {len(CONCEPTS)} concepts in {out}")
+    (out.parent / (out.name + ".json")).write_text(json.dumps(manifest, indent=1))
+    print(f"{len(manifest)} drafts in {out}")
 
 
 def load_render(folder):
@@ -469,6 +498,8 @@ def main():
     draft = sub.add_parser("draft")
     draft.add_argument("--per", type=int, default=6)
     draft.add_argument("--seed", type=int, default=1)
+    draft.add_argument("--only", nargs="*", help="draw only these concepts (by name)")
+    draft.add_argument("--out", default=str(GEN / "drafts"), help="folder for the drafts (drafts.json goes beside it)")
     pick = sub.add_parser("pick")
     pick.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
     bake = sub.add_parser("bake")

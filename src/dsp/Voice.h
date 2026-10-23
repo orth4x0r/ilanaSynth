@@ -222,6 +222,7 @@ struct VoiceParams
         bool stringSlap = false;
         float bowPressure = 0.5f, bowSpeed = 0.5f;
         float bridgeBuzz = 0.0f, fretRattle = 0.0f;
+        float stringSplit = 0.0f; // the second vibration direction (0 = off)
         // M4 keys: felt hardness, strings sharing the bridge, dampers on
         // release, and how much the string changes from bass to treble.
         float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;

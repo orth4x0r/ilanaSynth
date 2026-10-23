@@ -109,7 +109,15 @@ void save (juce::Component& editor, const juce::File& file)
 
     // ILANA_SNAPSHOT_SCALE: the pixel scale of the PNGs (1.5 by default; 3 for close-ups).
     static const auto scale = (float) juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_SCALE", "1.5").getDoubleValue();
-    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, scale > 0.1f ? scale : 1.5f);
+    const auto pixels = scale > 0.1f ? scale : 1.5f;
+    // The text is sized for the zoom it draws at, as in the host (a 1.5x PNG of a 100 % editor showed the 100 %
+    // floors and drew the small OSC card text bigger than ilana's 175 % window, 2026-10-23).
+    const auto zoom = IlanaTheme::uiScaleRef();
+    IlanaTheme::uiScaleRef() = zoom * pixels;
+    IlanaTheme::notifyUiScaleListeners();
+    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, pixels);
+    IlanaTheme::uiScaleRef() = zoom;
+    IlanaTheme::notifyUiScaleListeners();
     file.deleteFile();
     juce::FileOutputStream stream (file);
     juce::PNGImageFormat().writeImageToStream (image, stream);

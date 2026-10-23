@@ -619,7 +619,7 @@ inline const ValueRow valueRows[] {
     { is ("noise_level|noise_color|sub_colour|unison_random|voice_spread|body_material|body_size|body_coupling"), Unit::percent },
     { starts ("macro|mseg_level"), Unit::percent },
     { is ("res_decay"), Unit::percent },
-    { ends ("_string_decay|_string_damp|_string_stiffness|_string_pickup|_string_excite_pos|_string_pick_hardness|_string_pick_pos"
+    { ends ("_string_decay|_string_damp|_string_stiffness|_string_pickup|_string_excite_pos|_string_pick_hardness|_string_pick_pos|_string_split"
             "|_phys_a|_phys_b"), Unit::percent },
     { ends ("_smooth|_stereo").also (starts ("lfo")), Unit::percent },
     { ends ("_bow_pressure|_bow_speed|_bridge_buzz|_fret_rattle|_hammer_hard|_couple|_damper|_register|_ep_distance|_ep_position"),
@@ -798,6 +798,7 @@ inline const HelpRow helpRows[] {
     { ends ("_bow_pressure"), "Bow grip on the string. MPE pressure and channel aftertouch add to it." },
     { ends ("_bow_speed"), "Bow travel speed; changes the sustained tone and scrape." },
     { ends ("_bridge_buzz"), "Nonlinear bridge contact, from clean to sitar-like buzz." },
+    { ends ("_string_split"), "A sideways string movement that beats. Zero is the plain string." },
     { ends ("_fret_rattle"), "Fret noise that follows the string. Faint buzz to loose fret; zero is clean." },
     { osc ("_hammer_hard"), "Hammer felt hardness. Used by the Hammer and Piano exciters. Harder felt and faster keys give a shorter contact and a brighter tone." },
     { is ("in_gain"), "ilanaSynth FX: the input's level into the engine (DRY is not affected)." },

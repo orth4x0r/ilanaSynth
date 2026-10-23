@@ -210,7 +210,7 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_string_stiffness", prefix + "_string_pickup", prefix + "_string_excite_pos",
                                            prefix + "_string_pick_hardness", prefix + "_string_pick_pos", prefix + "_string_slap" };
             bowBuzzIds[(size_t) i] = { prefix + "_bow_pressure", prefix + "_bow_speed",
-                                        prefix + "_bridge_buzz", prefix + "_fret_rattle" };
+                                        prefix + "_bridge_buzz", prefix + "_fret_rattle", prefix + "_string_split" };
             keysParamIds[(size_t) i] = { prefix + "_hammer_hard", prefix + "_couple",
                                           prefix + "_damper", prefix + "_register" };
             electricParamIds[(size_t) i] = { prefix + "_ep_distance", prefix + "_ep_position" };
@@ -1555,6 +1555,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.bowSpeed = getParam (extras[1]);
         osc.bridgeBuzz = getParam (extras[2]);
         osc.fretRattle = getParam (extras[3]);
+        osc.stringSplit = getParam (extras[4]);
         const auto& keys = keysParamIds[(size_t) oscIndex];
         osc.hammerHardness = getParam (keys[0]);
         osc.couple = getParam (keys[1]);

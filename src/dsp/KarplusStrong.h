@@ -64,6 +64,7 @@ public:
 
         const auto size = juce::nextPowerOfTwo ((int) (sampleRate / 15.0) + 1);
         buffer.assign ((size_t) size, 0.0f);
+        bufferB.assign ((size_t) size, 0.0f);
         electric.prepare (sampleRate);
         piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
         feedbackLoop.prepare (sampleRate);
@@ -73,11 +74,12 @@ public:
     void reset()
     {
         std::fill (buffer.begin(), buffer.end(), 0.0f);
-        writePosition = 0;
-        lowpassState = 0.0f;
+        std::fill (bufferB.begin(), bufferB.end(), 0.0f);
+        writePosition = writePositionB = 0;
+        lowpassState = lowpassStateB = 0.0f;
         phase = 0.0;
-        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
-        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairState) stage[0] = stage[1] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = stage[1] = 0.0f;
         slapRemaining = 0;
         hammerElapsed = hammerTotal = 0;
         resetHorizontal();
@@ -161,6 +163,14 @@ public:
         bowSpeed = juce::jlimit (0.0f, 1.0f, speed);
         buzz = juce::jlimit (0.0f, 1.0f, bridgeBuzz);
         rattle = juce::jlimit (0.0f, 1.0f, fretRattle);
+    }
+
+    // The second vibration direction of a plucked string (0 = off, the plain
+    // single loop): a real string also moves sideways, a hair out of tune,
+    // and the two beat against each other as the note decays.
+    void setSplit (float amount)
+    {
+        split = juce::jlimit (0.0f, 1.0f, amount);
     }
 
     // M4 keys: hammer hardness (felt, 0..1) and how strongly the damper stops
@@ -315,15 +325,28 @@ public:
             }
         }
 
-        writePosition = 0;
-        lowpassState = 0.0f;
+        writePosition = writePositionB = 0;
+        lowpassState = lowpassStateB = 0.0f;
         phase = 0.0;
-        for (auto& stage : dispersionPairState) stage[0] = 0.0f;
-        for (auto& stage : dispersionPairIn) stage[0] = 0.0f;
+        for (auto& stage : dispersionPairState) stage[0] = stage[1] = 0.0f;
+        for (auto& stage : dispersionPairIn) stage[0] = stage[1] = 0.0f;
         slapRemaining = slap ? slapSamples() : 0;
         slapLevel = level;
             slapPhase = 0.0;
         strikeVelocity = level;
+
+        // The pick leaves the string at an angle: part of the burst moves it
+        // sideways (direction B), the rest up and down (A).
+        if (split > 0.0f)
+        {
+            const auto b = splitShare();
+            const auto a = 1.0f / std::sqrt (1.0f + b * b);
+            for (size_t i = 0; i < buffer.size(); ++i)
+            {
+                bufferB[i] = buffer[i] * a * b;
+                buffer[i] *= a;
+            }
+        }
     }
 
     // Kept out of line: inlined into the voice's per-sample loop, this large
@@ -383,6 +406,12 @@ public:
                        + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
         }
 
+        // The second direction (see setSplit) reads its own loop, a hair longer.
+        const auto splitOn = split > 0.0f && ! hammered && ! bufferB.empty();
+        auto delayedB = 0.0f;
+        if (splitOn)
+            delayedB = readSplit (period, delay, size);
+
         // Piano strings read the fractional part through a first-order
         // allpass (Thiran) instead: linear interpolation averages neighbours,
         // a low-pass that on a 23-sample treble loop costs ~170 dB/s.
@@ -417,13 +446,21 @@ public:
         }
         else if (useDispersion)
         {
-            for (int stage = 0; stage < dispersionStages(); ++stage)
+            if (splitOn)
             {
-                const auto next = coefficient * delayed + dispersionPairIn[stage][0]
-                                  - coefficient * dispersionPairState[stage][0];
-                dispersionPairIn[stage][0] = delayed;
-                dispersionPairState[stage][0] = next;
-                delayed = next;
+                // Both directions through the same stiffness allpasses, one lane each.
+                disperseSplitPair (delayed, delayedB, coefficient);
+            }
+            else
+            {
+                for (int stage = 0; stage < dispersionStages(); ++stage)
+                {
+                    const auto next = coefficient * delayed + dispersionPairIn[stage][0]
+                                      - coefficient * dispersionPairState[stage][0];
+                    dispersionPairIn[stage][0] = delayed;
+                    dispersionPairState[stage][0] = next;
+                    delayed = next;
+                }
             }
         }
 
@@ -454,6 +491,12 @@ public:
             output = (output - depth * (buffer[(size_t) tapIndex]
                                         + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction))
                      / std::sqrt (1.0f + depth * depth);
+        }
+
+        if (splitOn)
+        {
+            output += splitOutputGain * delayedB;
+            lowpassStateB += (delayedB - lowpassStateB) * lowpassCoefficient;
         }
 
         lowpassState += (delayed - lowpassState) * lowpassCoefficient;
@@ -523,6 +566,20 @@ public:
         {
             const auto contact = 0.04f;
             loopValue -= buzz * 0.8f * (loopValue - contact * std::tanh (loopValue / contact));
+        }
+
+        if (splitOn)
+        {
+            // The sideways loop rings a little longer than the one the bridge
+            // hears (it couples less), and gets its share of whatever excites.
+            const auto shareB = splitShare();
+            const auto shareA = 1.0f / std::sqrt (1.0f + shareB * shareB);
+            auto loopValueB = lowpassStateB * (1.0f - (1.0f - feedback) * 0.6f);
+            if (damper > 0.0f && ! noteHeld)
+                loopValueB *= damperLoss.get (damper, period, sampleRate);
+            bufferB[(size_t) writePositionB] = loopValueB + excitation * shareA * shareB;
+            writePositionB = writePositionB + 1 < loopSize ? writePositionB + 1 : (writePositionB + 1) % loopSize;
+            excitation *= shareA;
         }
 
         buffer[(size_t) writePosition] = loopValue + excitation;
@@ -947,6 +1004,62 @@ private:
         return delayed;
     }
 
+    // The sideways share of a pluck, and how much of that loop reaches the output.
+    float splitShare() const noexcept { return 0.7f * split; }
+    static constexpr float splitOutputGain = 0.6f;
+    static constexpr double splitDetune = 0.0028;
+
+    // The second direction's delayed sample: its own loop in bufferB, longer
+    // by splitDetune so the two beat; the allpass and damping delays come off
+    // the same as in the first.
+    float readSplit (double period, double delay, int size) noexcept
+    {
+        auto position = (double) writePositionB - period * (1.0 + splitDetune) + delay;
+        while (position < 0.0)
+            position += (double) size;
+        while (position >= (double) size)
+            position -= (double) size;
+        const auto index = (int) position;
+        const auto next = index + 1 < size ? index + 1 : 0;
+        const auto fraction = (float) (position - (double) index);
+        return bufferB[(size_t) index] + (bufferB[(size_t) next] - bufferB[(size_t) index]) * fraction;
+    }
+
+    // Both directions through the stiffness allpasses (lane 0 the first, lane
+    // 1 the second): the same arithmetic per lane.
+    void disperseSplitPair (float& first, float& second, float coefficient) noexcept
+    {
+        const auto stages = dispersionStages();
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        const auto c = _mm_set1_ps (coefficient);
+        auto x = _mm_set_ps (0.0f, 0.0f, second, first);
+        for (int stage = 0; stage < stages; ++stage)
+        {
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (c, x), _mm_load_ps (dispersionPairIn[stage])),
+                                          _mm_mul_ps (c, _mm_load_ps (dispersionPairState[stage])));
+            _mm_store_ps (dispersionPairIn[stage], x);
+            _mm_store_ps (dispersionPairState[stage], next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        first = out[0];
+        second = out[1];
+       #else
+        for (int lane = 0; lane < 2; ++lane)
+        {
+            auto& x = lane == 0 ? first : second;
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                const auto next = coefficient * x + dispersionPairIn[stage][lane] - coefficient * dispersionPairState[stage][lane];
+                dispersionPairIn[stage][lane] = x;
+                dispersionPairState[stage][lane] = next;
+                x = next;
+            }
+        }
+       #endif
+    }
+
     // Both polarisations through the piano stiffness allpasses (lane 0 the
     // vertical, lane 1 the horizontal): the same arithmetic per lane.
     void disperseHammeredPair (float& vertical, float& horizontal) noexcept
@@ -1224,6 +1337,10 @@ private:
     alignas (16) float dispersionPairIn[maxDispersionStages][4] {};
     alignas (16) float dispersionPairState[maxDispersionStages][4] {};
     int horizontalWrite = 0;
+    std::vector<float> bufferB;
+    int writePositionB = 0;
+    float lowpassStateB = 0.0f;
+    float split = 0.0f;
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;
     ElectricPiano electric;

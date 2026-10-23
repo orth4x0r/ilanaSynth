@@ -409,6 +409,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (juce::String (prefix) + "_bow_speed", oscLabel + " Bow Speed", 0.0f, 1.0f, 0.5f);
         addFloat (juce::String (prefix) + "_bridge_buzz", oscLabel + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
         addFloat (juce::String (prefix) + "_fret_rattle", oscLabel + " Fret Rattle", 0.0f, 1.0f, 0.0f);
+        addFloat (juce::String (prefix) + "_string_split", oscLabel + " String Split", 0.0f, 1.0f, 0.0f);
         const auto id = juce::String (prefix);
 
         addBool (id + "_sample_tuned", oscLabel + " Sample Tuned", true);

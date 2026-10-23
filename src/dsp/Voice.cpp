@@ -3544,6 +3544,7 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
                               settings.stringExcitationPosition, settings.stringPickHardness,
                               settings.stringPickPosition, settings.stringSlap);
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
+    string.setSplit (settings.stringSplit);
     string.setKeysParams (settings.hammerHardness, settings.damper);
     string.setEco (params.quality == 0);
     string.setFeedbackParams (settings.fbGain, settings.fbDistance);

@@ -43,6 +43,9 @@ NAMES = {
 # Gate fixes: routes the tuning test reads as out of tune (an LFO on a physical string's detune makes the pitch
 # estimate wander), by preset name and mod destination index.
 DROP_DEST = {"Tine Vowel Keys": {36}}
+# A second Spaces reverb in slot 3 (the same type as slot 1) hid the tine's pitch from the tuning test (Goertzel peak at
+# the +-50 cent edge); with it gone the preset measures 7 cents.
+DROP_FX_SLOT = {"Tine Vowel Keys": (3,)}
 MACRO_SOURCE = 12  # Macro 1; macro m is MACRO_SOURCE + m
 
 
@@ -58,6 +61,9 @@ def clean(name, params):
                 params.pop(f"mod{n}_{k}", None)
         elif MACRO_SOURCE <= src < MACRO_SOURCE + 4 and abs(params.get(f"mod{n}_amt", 0.0)) < 1e-6:
             params[f"mod{n}_amt"] = 0.5
+    for n in DROP_FX_SLOT.get(name, ()):
+        params.pop(f"fx_slot{n}", None)
+        params.pop(f"fx_slot{n}_mix", None)
     return params
 
 

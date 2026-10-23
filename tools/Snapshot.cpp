@@ -7101,10 +7101,12 @@ int runUiTests()
                 const auto name = knob->getNameTextBounds();
                 const auto rings = knob->getRingsBounds();
                 const auto whole = editor->getLocalArea (knob, knob->getLocalBounds());
-                // A knob scrolled wholly out of view is hidden, not cut.
+                // A knob scrolled out of view, wholly or in part, is hidden, not cut (the scroll
+                // decides that, not the layout: the OSC tab's one-row strip can sit at a viewport's edge).
                 auto hidden = false;
                 for (auto* parent = knob->getParentComponent(); parent != nullptr && parent != editor.get(); parent = parent->getParentComponent())
-                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole);
+                    hidden = hidden || ! editor->getLocalArea (parent, parent->getLocalBounds()).intersects (whole)
+                             || (dynamic_cast<juce::Viewport*> (parent) != nullptr && ! editor->getLocalArea (parent, parent->getLocalBounds()).contains (whole));
                 if (hidden)
                     continue;
                 juce::StringArray why;
@@ -8605,6 +8607,46 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // ILANA_SNAPSHOT_STRIP: the OSC tab's one-row strip with the strings' tuning open
+    // (strip-tuning.png), then the macros sliding to page 2 (strip-slide-0..5.png, 50 ms
+    // apart, and strip-page2.png), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_STRIP", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        for (const auto* id : { "sym_on", "sym_manual", "subosc_on" })
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (1.0f);
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        pages->showPage ("OSC");
+        settle (400);
+        {
+            // (The strings' chevron: the one TextButton that reads a lone ">".)
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == juce::String::fromUTF8 ("\xe2\x80\xba") && button->isShowing() && button->getTooltip().contains ("six notes"))
+                    button->triggerClick();
+        }
+        settle (300);
+        save (*editor, outDir.getChildFile ("strip-tuning.png"));
+        if (auto* pager = findChild<MacroPageSwitch> (*editor); pager != nullptr && pager->onPick != nullptr)
+        {
+            pager->onPick (1);
+            for (int i = 0; i < 6; ++i)
+            {
+                settle (50);
+                save (*editor, outDir.getChildFile ("strip-slide-" + juce::String (i) + ".png"));
+            }
+            settle (300);
+            save (*editor, outDir.getChildFile ("strip-page2.png"));
+        }
+        return 0;
+    }
+
     // ILANA_SNAPSHOT_FMCABLES: the FM matrix with three routes (OSC 2 into OSC 1, OSC 1 into
     // OSC 2, noise into OSC 2 and OSC 1): the cables under the frosted cells, three frames
     // apart (the pulses run); fmcables-0/1/2.png, then stop.
@@ -9333,6 +9375,47 @@ int main (int argc, char** argv)
             if (knob->getParameterId() == "fx_delay_damping")
                 writePng (renderMenuSheet (lf, { { knob->buildModMenu(), 0 } }, 1.5f), "fxlfo-menu-assign.png");
         }
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_FXDIM: a Delay with SYNC on, its RACK card and its
+    // PATCH window side by side (ilana 2026-10-22: TIME greyed in the rack
+    // but not in the window); prints each window's bounds; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_FXDIM", "").isNotEmpty())
+    {
+        const auto setParam = [&] (const juce::String& id, float value)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            setParam ("fx_slot" + juce::String (slot), 0.0f);
+        settle (100);
+        processor.addFxEffect (9);
+        setParam ("fx_delay_on", 1.0f);
+        setParam ("fx_delay_sync", 1.0f);
+        settle (200);
+        pages->showPage ("FX");
+        settle (500);
+        save (*editor, outDir.getChildFile ("fxdim-rack.png"));
+
+        processor.setFxPatcherOn (true);
+        pages->showPage ("PATCH");
+        settle (400);
+        std::vector<PatchCableView*> views;
+        findAll<PatchCableView> (*editor, views);
+        for (auto* view : views)
+            if (view->getName() == "PATCH")
+                for (const auto& node : view->getGraph().nodes())
+                    if (! node.isFixed() && node.kind == 9)
+                        view->mouseDoubleClick (PatchCableUi::mouse (*view, view->nodeBounds (node).getCentre() * view->getZoom(), false));
+        settle (500);
+        std::vector<juce::Component*> all;
+        findAll<juce::Component> (*editor, all);
+        for (auto* item : all)
+            if (item->getName().startsWith ("FX WINDOW") && visibleInTree (item))
+                std::cout << "WINDOW " << editor->getLocalArea (item, item->getLocalBounds()).toString() << std::endl;
+        save (*editor, outDir.getChildFile ("fxdim-patch.png"));
         return 0;
     }
 

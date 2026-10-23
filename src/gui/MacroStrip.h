@@ -449,6 +449,182 @@ private:
 // GLIDE as a row in the VOICES menu (it left the bottom strip to make room
 // for all eight macros): its name, a slider and the time. Turning it leaves
 // the menu open.
+// The macros in pages of four (ilana 2026-10-22): a window one page wide;
+// the eight macros stand on a track two pages wide, which slides to the page
+// asked for (an ease in and out over 260 ms).
+class MacroPager : public juce::Component
+{
+public:
+    static constexpr int perPage = 4, pages = 2, slideMs = 260;
+
+    MacroPager()
+    {
+        setInterceptsMouseClicks (false, true);
+        track.setInterceptsMouseClicks (false, true);
+        addAndMakeVisible (track);
+    }
+
+    void setMacros (const std::vector<StripKnob*>& knobs)
+    {
+        macros = knobs;
+        for (auto* knob : macros)
+            track.addAndMakeVisible (knob);
+        resized();
+    }
+
+    int getPage() const { return page; }
+    // Which page a macro stands on, and whether it is on the one shown.
+    static int pageOf (int macro) { return macro / perPage; }
+    bool isShown (int macro) const { return pageOf (macro) == page; }
+
+    void setPage (int newPage, bool animate)
+    {
+        newPage = juce::jlimit (0, pages - 1, newPage);
+        if (newPage == page)
+            return;
+        page = newPage;
+        layoutTrack (animate);
+        if (onPageChanged != nullptr)
+            onPageChanged (page);
+    }
+
+    std::function<void (int)> onPageChanged;
+
+    // The width each macro takes (its slot, less the 4 px between them).
+    int slotWidth() const { return getWidth() / perPage; }
+
+    void resized() override { layoutTrack (false); }
+
+private:
+    void layoutTrack (bool animate)
+    {
+        const auto width = getWidth(), height = getHeight(), slot = slotWidth();
+        for (size_t i = 0; i < macros.size(); ++i)
+            macros[i]->setBounds (pageOf ((int) i) * width + ((int) i % perPage) * slot, 0, slot - 4, height);
+
+        const juce::Rectangle<int> target (-page * width, 0, width * pages, height);
+        auto& animator = juce::Desktop::getInstance().getAnimator();
+        if (animate && isShowing())
+        {
+            // Both pages show while the track slides; the page left behind hides after.
+            for (auto* knob : macros)
+                knob->setVisible (true);
+            animator.animateComponent (&track, target, 1.0f, slideMs, false, 0.0, 0.0);
+            juce::Timer::callAfterDelay (slideMs + 40, [safe = juce::Component::SafePointer<MacroPager> (this), shown = page]
+            {
+                if (safe != nullptr && safe->page == shown)
+                    safe->showPageOnly();
+            });
+        }
+        else
+        {
+            animator.cancelAnimation (&track, false);
+            track.setBounds (target);
+            showPageOnly();
+        }
+    }
+
+    // Only the page shown is visible (no sliver of the next page at a zoom that rounds the window's edge).
+    void showPageOnly()
+    {
+        for (size_t i = 0; i < macros.size(); ++i)
+            macros[i]->setVisible (isShown ((int) i));
+    }
+
+    juce::Component track;
+    std::vector<StripKnob*> macros;
+    int page = 0;
+};
+
+// The macros' page switch: "1" over "2", the page shown lit; a page with a
+// macro in use carries a dot when it is not the one shown.
+class MacroPageSwitch : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    MacroPageSwitch()
+    {
+        setTooltip ("Macro pages: 1 shows macros 1 to 4, 2 shows macros 5 to 8");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    std::function<void (int)> onPick;
+
+    void setPage (int newPage) { if (newPage != page) { page = newPage; repaint(); } }
+    void setUsed (int index, bool isUsed)
+    {
+        if (used[(size_t) index] != isUsed)
+        {
+            used[(size_t) index] = isUsed;
+            repaint();
+        }
+    }
+
+    juce::Rectangle<int> cellBounds (int index) const
+    {
+        const auto cell = juce::jmin (getWidth(), (getHeight() - 2) / 2);
+        return { (getWidth() - cell) / 2, getHeight() / 2 - cell - 1 + index * (cell + 2), cell, cell };
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        for (int index = 0; index < 2; ++index)
+        {
+            const auto area = cellBounds (index).toFloat();
+            const auto lit = index == page;
+            const auto over = hoverCell == index && ! lit;
+            g.setColour (lit ? IlanaTheme::accent().withAlpha (0.22f) : (over ? IlanaTheme::Ui::raised : IlanaTheme::Ui::well));
+            g.fillRoundedRectangle (area, 4.0f);
+            g.setColour (lit ? IlanaTheme::accent() : IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 1.0f);
+            g.setColour (lit ? IlanaTheme::accent() : (over ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2));
+            g.setFont (IlanaTheme::font (8.5f, true));
+            g.drawText (juce::String (index + 1), area, juce::Justification::centred, false);
+            if (used[(size_t) index] && ! lit)
+            {
+                g.setColour (IlanaTheme::accent());
+                g.fillEllipse (area.getRight() - 4.5f, area.getY() + 1.5f, 3.0f, 3.0f);
+            }
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override { setHover (cellAt (event.getPosition())); }
+    void mouseExit (const juce::MouseEvent&) override { setHover (-1); }
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        auto index = cellAt (event.getPosition());
+        if (index < 0)
+            index = 1 - page; // (a click between the two flips)
+        if (onPick != nullptr)
+            onPick (index);
+    }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+    {
+        if (onPick != nullptr && std::abs (wheel.deltaY) > 0.0f)
+            onPick (wheel.deltaY < 0.0f ? 1 : 0);
+    }
+
+private:
+    int cellAt (juce::Point<int> point) const
+    {
+        for (int index = 0; index < 2; ++index)
+            if (cellBounds (index).expanded (2).contains (point))
+                return index;
+        return -1;
+    }
+
+    void setHover (int index)
+    {
+        if (index != hoverCell)
+        {
+            hoverCell = index;
+            repaint();
+        }
+    }
+
+    int page = 0, hoverCell = -1;
+    std::array<bool, 2> used {};
+};
+
 class GlideMenuItem : public juce::PopupMenu::CustomComponent
 {
 public:

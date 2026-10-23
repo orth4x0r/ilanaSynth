@@ -140,8 +140,9 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
         settle (200);
     }
 
-    // The strip: all eight macros, MASTER, no page toggle, and GLIDE in the
-    // VOICES menu (V5-12, S5-27).
+    // The strip: all eight macros (two pages of four since ilana 2026-10-22,
+    // with no "5-8" button), MASTER, and GLIDE with the rest of VOICE in the
+    // dock (it was in the VOICES menu: V5-12, S5-27).
     {
         std::vector<StripKnob*> strip;
         findAll<StripKnob> (editor, strip);
@@ -166,9 +167,9 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
         for (auto* button : buttons)
             pageToggle = pageToggle || (visibleInTree (button) && button->getButtonText().contains ("5-8"));
 
-        expect (shown.size() >= 4 && shown.size() <= 8 && narrowest >= 80 && ! pageToggle && ! glideInStrip && findKnob ("master") != nullptr,
-                "the strip shows the macros in use, at least four (S10-10: " + juce::String (shown.size()) + ", narrowest " + juce::String (narrowest)
-                    + " px) and MASTER, with no 5-8 toggle and no GLIDE");
+        expect (shown.size() >= 4 && shown.size() <= 8 && narrowest >= 80 && ! pageToggle && glideInStrip && findKnob ("master") != nullptr,
+                "the strip shows the macros, at least four (S10-10: " + juce::String (shown.size()) + ", narrowest " + juce::String (narrowest)
+                    + " px), MASTER and VOICE's GLIDE, with no 5-8 toggle");
 
         GlideMenuItem glide (processor);
         int width = 0, height = 0;
@@ -599,14 +600,15 @@ void runReview7ModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
             processor.setRevealed (Module::Lfo, i, lfoBefore[(size_t) i]);
         expect (anchored, "a group chip's tray opens over that chip, not at the window's edge");
 
-        // The hover line sits in the dock's macro row, under the chips, not over them.
+        // The hover line sits in the tab row's free middle (the dock is full: ilana
+        // 2026-10-22), never over the source chips.
         auto& line = editor.getHoverLine();
         auto overChips = false;
         for (auto* chip : found)
             if (chip->isVisible() && chip->getParentComponent() == line.getParentComponent())
                 overChips = overChips || chip->getBounds().intersects (line.getBounds());
-        expect (! overChips && lfoGroup != nullptr && line.getBounds().getY() >= lfoGroup->getBottom() - 2,
-                "the hover line sits under the source chips, not over them");
+        expect (! overChips && lfoGroup != nullptr && line.getBounds().getBottom() <= 52 + 34,
+                "the hover line sits in the tab row, not over the source chips");
 
         // Its title is the matrix's name for the knob.
         editor.showPage ("MAIN");

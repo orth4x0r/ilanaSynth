@@ -192,7 +192,6 @@ private:
     float hostScaleFactor() const;
 
     // The hover line's own strip, between the pages and the source chips.
-    static constexpr int infoLineHeight = 38;
     static constexpr int designWidth = 1060;
     static constexpr int designHeight = 720;
     // The KEYBOARD strip sits below the 720 px design: showing it grows the
@@ -356,14 +355,19 @@ private:
     std::vector<std::pair<int, int>> heldNoteKeys;
     int noteKeyOctave = 0;
     void releaseNoteKeys (bool onlyThoseUp);
-    // All eight macros exist; the strip shows the first four, and more once
-    // they are named, routed or added with "+" (review 10, S10-10).
+    // All eight macros, in two pages of four (ilana 2026-10-22): the pager
+    // shows one page and slides to the other from its 1 / 2 switch.
     std::vector<std::unique_ptr<StripKnob>> macroKnobs;
-    GhostButton macroPlusButton { "+ MACRO" };
-    int shownMacros = 4, addedMacros = 0;
+    MacroPager macroPager;
+    MacroPageSwitch macroPageSwitch;
     void updateMacroStrip();
-    // (Voices, pitch-bend range, voice mode, glide and legato live in the
-    // VOICES menu.)
+    // VOICE in the dock, beside MASTER (ilana 2026-10-22, as Serum and Vital):
+    // the voice mode, voices, pitch-bend range, glide and legato.
+    std::unique_ptr<ComboControl> voiceModeMenu;
+    std::unique_ptr<StripKnob> voicesKnob, bendKnob, glideKnob;
+    std::unique_ptr<ToggleControl> legatoToggle;
+    std::array<int, 2> dockDividerX {};
+    juce::Rectangle<int> macroRowBounds;
     std::unique_ptr<StripKnob> masterKnob;
     std::unique_ptr<OutputMeter> outputMeter;
     // Where the header's action groups (file, edit, tools) part, in header x.

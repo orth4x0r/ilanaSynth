@@ -150,8 +150,9 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
                 "VECTOR X and VECTOR Y are chips of their own in the bar while VECTOR is on (S8-20)");
     }
 
-    // The hover line has its own place in the dock, in the macro row under the
-    // chips: it covers no page and no chip (S8-11, V8-31; the shell mockup).
+    // The hover line has its own place: the tab row's free middle, over the
+    // status readouts while it shows (the dock's macro row is full since VOICE
+    // moved there, ilana 2026-10-22). It covers no page and no chip (S8-11, V8-31).
     {
         auto* line = findChild<InfoStrip> (editor);
         auto* tabs = findChild<juce::TabbedComponent> (editor);
@@ -164,9 +165,9 @@ void runModulationReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         }
         const auto lineBox = line != nullptr ? editor.getLocalArea (line, line->getLocalBounds()) : juce::Rectangle<int>();
         const auto pageBox = tabs != nullptr ? editor.getLocalArea (tabs, tabs->getLocalBounds()) : juce::Rectangle<int>();
-        expect (line != nullptr && tabs != nullptr && lineBox.getHeight() >= 14 && lineBox.getY() >= pageBox.getBottom()
-                    && lineBox.getY() >= chipBottom,
-                "the hover line sits in the dock's macro row, under the chips and clear of the pages (" + lineBox.toString() + ", page "
+        expect (line != nullptr && tabs != nullptr && lineBox.getHeight() >= 14 && lineBox.getWidth() >= 300
+                    && lineBox.getBottom() <= pageBox.getY() + tabs->getTabBarDepth() && lineBox.getBottom() <= chipTop,
+                "the hover line sits in the tab row, wide, clear of the pages and the chips (" + lineBox.toString() + ", page "
                     + pageBox.toString() + ", chips at " + juce::String (chipTop) + " to " + juce::String (chipBottom) + ")");
     }
 

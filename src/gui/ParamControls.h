@@ -1168,9 +1168,16 @@ public:
     float packedDialDevicePx() const { return packedD * IlanaTheme::uiScaleRef(); }
     // A packed name too wide for its cell breaks at its first space onto a second line ("KEY" over "TRACK"),
     // in full words; the cell the page gives the knob must leave the room (about 9 px under the name).
-    void setPackedNameWrap (bool wrap)
+    void setPackedNameWrap (bool wrap, bool always = false)
     {
         packedNameWrap = wrap;
+        packedNameAlwaysWraps = wrap && always; // (a row whose two-word names all break, as the OSC strip's KEYS)
+        repaint();
+    }
+    // The packed name's size, when a row wants it bigger than the dial's own (the OSC strip's 10 px); 0: the dial's.
+    void setPackedNameSize (float size)
+    {
+        packedNameSize = size;
         repaint();
     }
     // Pixels a packed value may run past the dial's width before its unit is dropped ("1.20 kHz").
@@ -1505,11 +1512,12 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
-            const auto nameFont = IlanaTheme::font (juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
+            const auto nameFont = IlanaTheme::font (packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             const auto lineHeight = (int) std::ceil (nameFont.getHeight()) + 1;
             if (packedNameWrap && name.containsChar (' ')
-                && juce::GlyphArrangement::getStringWidth (juce::Font (nameFont), name) > (float) (packedNameArea.getWidth() - 2 * packedPadX - 8) - 2.0f)
+                && (packedNameAlwaysWraps
+                    || juce::GlyphArrangement::getStringWidth (juce::Font (nameFont), name) > (float) (packedNameArea.getWidth() - 2 * packedPadX - 8) - 2.0f))
             {
                 auto area = packedNameArea;
                 IlanaTheme::drawFitted (g, name.upToFirstOccurrenceOf (" ", false, false), area.removeFromTop (lineHeight), juce::Justification::centredTop, 1);
@@ -2726,7 +2734,8 @@ private:
     bool compact = false, inlineText = false;
     float packedD = 0.0f;
     int packedValueRoom = 0;
-    bool packedNameWrap = false;
+    bool packedNameWrap = false, packedNameAlwaysWraps = false;
+    float packedNameSize = 0.0f;
     juce::Rectangle<int> packedNameArea;
     std::unique_ptr<juce::TextEditor> valueEditor;
     juce::Rectangle<int> inlineValueArea;
@@ -3451,6 +3460,12 @@ public:
         repaint();
     }
     NamePlace getPackedName() const { return packedPlace; }
+    // The size of a name to the switch's right (7.3 px in the cards; the OSC strip's Manual tuning and the dock's LEGATO are bigger).
+    void setRightNameSize (float size)
+    {
+        rightNameSize = size;
+        repaint();
+    }
 
     // Just the pill, filling the area (a card header's power switch).
     void setBareSwitch (bool shouldBeBare)
@@ -3515,7 +3530,7 @@ public:
             else
             {
                 g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (7.3f));
+                g.setFont (IlanaTheme::font (rightNameSize));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { b.getRight() + 5, b.getY(), juce::jmax (0, getWidth() - b.getRight() - 5), b.getHeight() }, juce::Justification::centredLeft, 1);
             }
             return;
@@ -3599,6 +3614,7 @@ private:
     int switchDrop = 0, nameDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
     NamePlace packedPlace = NamePlace::none;
+    float rightNameSize = 7.3f;
     juce::Colour groupColour;
     juce::String groupText;
     static constexpr int inlineSwitchWidth = 34;

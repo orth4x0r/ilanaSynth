@@ -7,6 +7,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("grainPosSchema", 2, nullptr);
     state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("redundantKnobsSchema", 2, nullptr);
+    state.setProperty ("modRangeSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 4, nullptr);
     state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
@@ -617,7 +618,9 @@ int IlanaSynthAudioProcessor::migrateFilterEnvAmounts (const std::function<float
     auto keepVelocityKnob = false, leftInPlace = false;
 
     // (The old default of Filter 1's amount was 1.5 octaves: a patch that
-    // never stored one still had it.) The matrix reaches 6 octaves at 100 %.
+    // never stored one still had it.) The routes are written in the old
+    // scale, 6 octaves at 100 %; migrateModDepthRanges, run after this on
+    // every path, takes them to the knob-wide one.
     for (const auto filter : { 1, 2 })
     {
         const juce::String prefix (filter == 1 ? "f1" : "f2");
@@ -773,6 +776,42 @@ void IlanaSynthAudioProcessor::migrateRedundantKnobs (const std::function<float 
     migrateFilterEnvAmounts (get, set);
     migrateEnvelopeTension (get, set);
     migrateWarpEnvelopes (get, set);
+}
+
+int IlanaSynthAudioProcessor::migrateModDepthRanges (const std::function<float (const juce::String&, float)>& get,
+                                                     const std::function<void (const juce::String&, float)>& set)
+{
+    auto moved = 0;
+
+    for (int slot = 1; slot <= Mod::maxSlots; ++slot)
+    {
+        const auto prefix = "mod" + juce::String (slot);
+        const auto factor = Mod::Range::legacyDepthFactor (juce::roundToInt (get (prefix + "_dst", 0.0f)));
+        const auto depth = get (prefix + "_amt", 0.0f);
+
+        if (factor != 1.0f && depth != 0.0f)
+        {
+            set (prefix + "_amt", depth * factor);
+            ++moved;
+        }
+    }
+
+    return moved;
+}
+
+void IlanaSynthAudioProcessor::migrateModDepthRanges()
+{
+    migrateModDepthRanges ([this] (const juce::String& id, float fallback)
+                           {
+                               if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id)))
+                                   return ranged->convertFrom0to1 (ranged->getValue());
+                               return fallback;
+                           },
+                           [this] (const juce::String& id, float value)
+                           {
+                               if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id)))
+                                   ranged->setValueNotifyingHost (ranged->convertTo0to1 (value));
+                           });
 }
 
 void IlanaSynthAudioProcessor::migrateOperatorModes()
@@ -1366,6 +1405,30 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                                          child.setProperty ("value", value, nullptr);
                                  });
         state.setProperty ("redundantKnobsSchema", 2, nullptr);
+    }
+
+    // A patch saved before 100 % meant the knob's whole range keeps its
+    // routes' sound (after the step above, whose cutoff routes are old-scale).
+    if ((int) state.getProperty ("modRangeSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateModDepthRanges ([&find] (const juce::String& id, float fallback)
+                               {
+                                   const auto child = find (id);
+                                   return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                               },
+                               [&find] (const juce::String& id, float value)
+                               {
+                                   if (auto child = find (id); child.isValid())
+                                       child.setProperty ("value", value, nullptr);
+                               });
+        state.setProperty ("modRangeSchema", 2, nullptr);
     }
 
     // An operator saved before the FM / DX7 type loads as one (it renders

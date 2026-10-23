@@ -220,8 +220,10 @@ inline void notifyUiScaleListeners()
 inline juce::FontOptions font (float height, bool bold = false, bool tabular = false)
 {
     const auto scale = juce::jmax (0.25f, uiScaleRef());
-    // No text under the screen floor, whatever the zoom (V9-26).
-    const auto deviceHeight = juce::jmax (height * scale, TextSize::screenFloorPx);
+    // No text under the screen floor, whatever the zoom (V9-26), and none under the floor's size at 100 %
+    // at a bigger zoom: the approved pictures are drawn at 100 %, so the small OSC card text read that size
+    // there and drew smaller in ilana's 175 % window (2026-10-23).
+    const auto deviceHeight = juce::jmax (height, TextSize::screenFloorPx / juce::jmin (1.0f, scale)) * scale;
     if (auto& probe = fontProbe(); probe.armed)
     {
         probe.smallest = juce::jmin (probe.smallest, deviceHeight);
@@ -245,7 +247,7 @@ inline float tallestAtAnyZoom (float height)
 {
     auto tallest = height;
     for (const auto zoom : { 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f })
-        tallest = juce::jmax (tallest, juce::jmax (1.0f, std::round (juce::jmax (height * zoom, TextSize::screenFloorPx))) / zoom);
+        tallest = juce::jmax (tallest, juce::jmax (1.0f, std::round (juce::jmax (height, TextSize::screenFloorPx / juce::jmin (1.0f, zoom)) * zoom)) / zoom);
     return tallest;
 }
 
@@ -332,7 +334,7 @@ inline juce::Font fittedFont (const juce::Font& font, const juce::String& line, 
     const auto scale = juce::jmax (0.25f, uiScaleRef());
     const auto width = juce::GlyphArrangement::getStringWidth (font, line);
     // (Nor shrunk under the screen floor at a small zoom: V9-26.)
-    floor = juce::jmin (font.getHeight(), juce::jmax (floor, TextSize::screenFloorPx / scale));
+    floor = juce::jmin (font.getHeight(), juce::jmax (floor, TextSize::screenFloorPx / juce::jmin (1.0f, scale)));
 
     // Width follows height closely, so one step lands near the fit; snap
     // down to whole device pixels, as font() does, so the glyphs stay crisp.

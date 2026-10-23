@@ -426,11 +426,11 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     playPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
     // The header's VOICES: the OSC page's VOICE tab (one voice panel).
-    showVoicePanel = [this, oscViewport]
+    // (The voice settings are in the dock now: this opens the voice mode's menu there.)
+    showVoicePanel = [this]
     {
-        if (auto* page = oscViewport->getPage())
-            page->selectShared (OscPage::sharedVoice);
-        showPage ("OSC");
+        if (voiceModeMenu != nullptr)
+            voiceModeMenu->getComboBox().showPopup();
     };
     getOscCardBounds = [this, oscViewport] (int osc) -> juce::Rectangle<int>
     {
@@ -545,16 +545,33 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
             showPage ("MATRIX");
         };
-        content.addAndMakeVisible (*knob);
         macroKnobs.push_back (std::move (knob));
     }
-    macroPlusButton.setTooltip ("Show the next macro (up to 8).  Macros 5 to 8 appear once they are named or assigned.");
-    macroPlusButton.onClick = [this]
     {
-        addedMacros = juce::jmin (4, shownMacros - 4 + 1);
-        updateMacroStrip();
-    };
-    content.addChildComponent (macroPlusButton);
+        std::vector<StripKnob*> knobs;
+        for (auto& knob : macroKnobs)
+            knobs.push_back (knob.get());
+        macroPager.setMacros (knobs);
+        macroPager.onPageChanged = [this] (int page) { macroPageSwitch.setPage (page); };
+        macroPageSwitch.onPick = [this] (int page) { macroPager.setPage (page, true); };
+        content.addAndMakeVisible (macroPager);
+        content.addAndMakeVisible (macroPageSwitch);
+    }
+
+    // VOICE (ilana 2026-10-22: in the dock beside MASTER, as Serum and Vital
+    // do; it was the OSC tab's VOICE panel). Names beside the knobs, as the
+    // macros' are.
+    voiceModeMenu = std::make_unique<ComboControl> (p.apvts, "voice_mode", "MODE");
+    voiceModeMenu->setCompactLayout (true);
+    voiceModeMenu->setPackedMenu (true);
+    voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices", -1, IlanaTheme::Ui::text2, false);
+    bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend", -1, IlanaTheme::Ui::text2, false);
+    glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide", -1, IlanaTheme::Ui::text2, false);
+    legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
+    legatoToggle->setPackedName (ToggleControl::NamePlace::right);
+    legatoToggle->setRightNameSize (11.0f);
+    for (auto* component : std::initializer_list<juce::Component*> { voiceModeMenu.get(), voicesKnob.get(), bendKnob.get(), glideKnob.get(), legatoToggle.get() })
+        content.addAndMakeVisible (component);
     // Master is a setting rather than a sound control: neutral, so it doesn't
     // outshine the page (and yellow stays the macros' colour).
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
@@ -571,7 +588,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
     content.addChildComponent (headerScope);
 
-    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. Click for the voice settings: mode, how many voices, the pitch-bend range and glide.");
+    voicesArea.setTooltip ("Voices\nNotes sounding, of the most that can. The voice settings (mode, voices, bend, glide, legato) are in the bottom bar; click for the voice mode.");
     voicesArea.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     voicesArea.onClick = [this] { showVoicePanel(); };
     content.addAndMakeVisible (voicesArea);
@@ -1428,39 +1445,27 @@ int IlanaSynthAudioProcessorEditor::getSourcePopoverSource() const
     return sourcePopover != nullptr && sourcePopover->isVisible() ? static_cast<SourcePopover*> (sourcePopover.get())->getSource() : 0;
 }
 
-// The macros the strip shows: the first four, any named, moved or routed,
-// and the ones added with "+" (S10-10: half of the eight were placeholders).
+// The macro pages: + ASSIGN shows on the first idle macro only, and the page
+// switch marks the page not shown when a macro on it is in use.
 void IlanaSynthAudioProcessorEditor::updateMacroStrip()
 {
-    auto wanted = 4 + addedMacros;
-
+    auto anyAssigned = false;
+    std::array<bool, MacroPager::pages> used {};
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
     {
         const auto* value = processorRef.apvts.getRawParameterValue ("macro" + juce::String (macro + 1));
         const auto named = processorRef.getMacroName (macro) != "Macro " + juce::String (macro + 1);
-        const auto routed = usedModSources[(size_t) juce::jlimit (0, (int) Mod::Source::Count - 1, (int) Mod::macroSourceFor (macro))];
-
-        if (named || routed || (value != nullptr && value->load() > 0.001f))
-            wanted = juce::jmax (wanted, macro + 1);
+        const auto assigned = macroKnobs[(size_t) macro]->isAssigned();
+        anyAssigned = anyAssigned || assigned;
+        used[(size_t) MacroPager::pageOf (macro)] = used[(size_t) MacroPager::pageOf (macro)] || assigned || named
+                                                    || (value != nullptr && value->load() > 0.001f);
     }
 
-    wanted = juce::jlimit (4, (int) macroKnobs.size(), wanted);
-
-    if (wanted != shownMacros)
-    {
-        shownMacros = wanted;
-        resized();
-    }
-
-    auto anyAssigned = false;
-    for (int macro = 0; macro < shownMacros; ++macro)
-        anyAssigned = anyAssigned || macroKnobs[(size_t) macro]->isAssigned();
+    for (int page = 0; page < MacroPager::pages; ++page)
+        macroPageSwitch.setUsed (page, used[(size_t) page]);
 
     for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
-    {
-        macroKnobs[(size_t) macro]->setVisible (macro < shownMacros);
-        macroKnobs[(size_t) macro]->setQuietAssign (! anyAssigned && macro > 0);
-    }
+        macroKnobs[(size_t) macro]->setQuietAssign (! anyAssigned && macro % MacroPager::perPage > 0);
 }
 
 void IlanaSynthAudioProcessorEditor::timerCallback()
@@ -1515,7 +1520,7 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         const auto maxVoices = juce::jlimit (1, 32, voicesValue != nullptr ? juce::roundToInt (voicesValue->load()) : 32);
         const auto text = "Voices: " + juce::String (juce::jmin (maxVoices, processorRef.getActiveVoiceCount())) + " of "
                           + juce::String (maxVoices) + " playing\nNotes sounding / the most that can sound. "
-                          + "Click for the voice settings (OSC > VOICE).";
+                          + "Click for the voice mode (VOICE, in the bottom bar).";
 
         if (voicesArea.getTooltip() != text)
             voicesArea.setTooltip (text);
@@ -1624,6 +1629,10 @@ void IlanaSynthAudioProcessorEditor::paintHeader (juce::Graphics& g)
         for (const auto x : chipSeparatorX)
             if (x > 0)
                 g.fillRect (juce::Rectangle<int> (x, chipRowBounds.getCentreY() - 8, 1, 16));
+        // The rules round VOICE in the macro row.
+        for (const auto x : dockDividerX)
+            if (x > 0)
+                g.fillRect (juce::Rectangle<int> (x, macroRowBounds.getY() + 3, 1, macroRowBounds.getHeight() - 6));
     }
 }
 
@@ -1726,39 +1735,45 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     dockBounds = area.removeFromBottom (dockHeight);
 
-    // The macro row: the macros and + MACRO at the left, then the hover line
-    // in the free middle, MASTER and the meter at the right. The window's
-    // resize grip owns the corner: the meter keeps clear of it.
+    // The macro row (ilana 2026-10-22): a page of four macros and its 1 / 2
+    // switch, a rule, VOICE (mode, voices, bend, glide, legato), a rule, then
+    // MASTER and the meter at the right. The window's resize grip owns the
+    // corner: the meter keeps clear of it.
     auto strip = dockBounds.withTrimmedTop (1 + 6 + 22 + 6).withTrimmedBottom (6).reduced (14, 0);
+    macroRowBounds = strip;
     strip.removeFromRight (12); // (the meter ends 26 px from the edge: the resize grip's corner)
-    outputMeter->setBounds (strip.removeFromRight (110).withSizeKeepingCentre (110, 36));
-    strip.removeFromRight (8);
-    masterKnob->setBounds (strip.removeFromRight (100));
-    strip.removeFromRight (10);
+    outputMeter->setBounds (strip.removeFromRight (100).withSizeKeepingCentre (100, 36));
+    strip.removeFromRight (6);
+    masterKnob->setBounds (strip.removeFromRight (86));
+    strip.removeFromRight (9);
+    dockDividerX[1] = strip.getRight();
+    strip.removeFromRight (6); // (LEGATO's box ends in a few px of air: the rule stands midway)
 
-    // The "+ MACRO" tile sits right after the last macro (review 11, S11-9).
-    // (PLAY, review 24: the macros and + MACRO at one even pitch across the row.)
-    const auto hasPlus = shownMacros < (int) macroKnobs.size();
-    const auto plusWidth = hasPlus ? macroPlusButton.getIdealWidth() + 4 : 0;
-    const auto macroWidth = juce::jlimit (84, 190, (strip.getWidth() + 10) / juce::jmax (1, shownMacros + (hasPlus ? 1 : 0)));
-
-    for (int macro = 0; macro < (int) macroKnobs.size(); ++macro)
-        macroKnobs[(size_t) macro]->setBounds (strip.getX() + macro * macroWidth, strip.getY(), macroWidth - 4, strip.getHeight());
-
-    const auto macrosEnd = strip.getX() + shownMacros * macroWidth;
-    macroPlusButton.setBounds (macrosEnd + (macroWidth - macroPlusButton.getIdealWidth()) / 2, strip.getCentreY() - 12, macroPlusButton.getIdealWidth(), 24);
-    macroPlusButton.setVisible (plusWidth > 0);
-
-    // The hover line: in what is left of the macro row, between the last
-    // macro (or + MACRO) and MASTER, so it never sits over a card or a chip.
+    // VOICE, right to left from the rule before MASTER.
     {
-        const auto from = (plusWidth > 0 ? macroPlusButton.getRight() : macrosEnd) + 12;
-        const auto to = masterKnob->getX() - 8;
-        infoStrip.setBounds (juce::Rectangle<int> (from, strip.getCentreY() - infoLineHeight / 2, juce::jmax (0, to - from), infoLineHeight));
-        infoStrip.setVisible (infoStrip.getWidth() >= 140);
+        constexpr int voiceGap = 6;
+        legatoToggle->setBounds (strip.removeFromRight (68).withSizeKeepingCentre (68, 15));
+        strip.removeFromRight (voiceGap);
+        glideKnob->setBounds (strip.removeFromRight (78));
+        strip.removeFromRight (voiceGap);
+        bendKnob->setBounds (strip.removeFromRight (68));
+        strip.removeFromRight (voiceGap);
+        voicesKnob->setBounds (strip.removeFromRight (74));
+        strip.removeFromRight (voiceGap);
+        voiceModeMenu->setBounds (strip.removeFromRight (76).withSizeKeepingCentre (76, 22));
+        strip.removeFromRight (9);
+        dockDividerX[0] = strip.getRight();
+        strip.removeFromRight (9);
     }
 
-    infoStrip.setQuietArea (dockBounds.withTop (dockBounds.getY() - 2));
+    // The page switch, then the macros' page in what is left.
+    macroPageSwitch.setBounds (strip.removeFromRight (16));
+    strip.removeFromRight (4);
+    macroPager.setBounds (strip);
+
+    // The hover line: in the tab row's free middle (layoutTabRow), the dock
+    // being full.
+    infoStrip.setQuietArea ({}); // (it sits in the tab row now: the dock's controls explain themselves too)
     infoStrip.toFront (false);
 
     // The source chips: one row, 22 px chips.
@@ -2024,8 +2039,19 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
         section->switcher.setVisible (current);
 
         if (current)
+        {
             section->switcher.setBounds (row.removeFromLeft (juce::jmin (row.getWidth(), section->switcher.getIdealWidth())));
+            row.removeFromLeft (12);
+        }
     }
+
+    // The hover line (the dock is full since VOICE moved there, ilana 2026-10-22):
+    // the tab row from the last tab to SCOPE, two lines high, over the page
+    // switch and BPM, VOICES and CPU while it shows (it paints its own ground
+    // and shows only while a control is rested on).
+    infoStrip.setBounds (juce::Rectangle<int> (tabsRight + 12, bar.getY() + 1, juce::jmax (0, scopeButton.getX() - 14 - (tabsRight + 12)), tabBarHeight - 3));
+    infoStrip.setVisible (true);
+    infoStrip.toFront (false);
 }
 
 void IlanaSynthAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
@@ -2421,10 +2447,6 @@ void IlanaSynthAudioProcessorEditor::updateHeaderButtons()
 
     for (auto& knob : macroKnobs)
         knob->refreshName();
-
-    // A new patch starts from the macros it uses.
-    if (nameChanged)
-        addedMacros = 0;
 }
 
 void IlanaSynthAudioProcessorEditor::updateUndoButtons()

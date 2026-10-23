@@ -879,6 +879,8 @@ public:
     static constexpr float selectText = 15.5f;
     // The packed OSC panels' text (review 23 mockups, drawn at 1.5x: 11.5, 9 and 8.5 px), in units; font() holds the 10 px floor.
     static constexpr float packedMenuText = 9.0f, packedNameText = 7.5f;
+    // A packed menu's text size: its own ("packedMenuSize", the OSC strip's lane menus) or the cards' 9 px.
+    static float packedMenuSizeOf (const juce::ComboBox& box) { return (float) box.getProperties().getWithDefault ("packedMenuSize", packedMenuText); }
 
     // A button's corners: 8 px at 30 px high, 6 px at 24 (the sheet's .btn and .btn.sm).
     static float buttonRadius (float height) { return juce::jlimit (3.0f, 8.0f, height * 0.26f); }
@@ -1008,7 +1010,7 @@ public:
     {
         // The OSC cards' packed menus (review 23): 11.5 px at the mockup's scale.
         if (box.getProperties().getWithDefault ("packedMenu", false))
-            return juce::Font (IlanaTheme::font (packedMenuText));
+            return juce::Font (IlanaTheme::font (packedMenuSizeOf (box)));
         // (The sheet's select text is 11.5 px: 15.7 units; boxes under 22 px keep the body size.)
         return juce::Font (IlanaTheme::font (box.getHeight() >= 22 ? selectText : box.getHeight() >= 18 ? IlanaTheme::TextSize::body
                                                                                                           : IlanaTheme::TextSize::minInteractive));
@@ -1552,7 +1554,7 @@ public:
                     }
             }
             g.setColour ((isPlaceholderValue (value) ? Ui::text3 : Ui::text).withMultipliedAlpha (textOn));
-            g.setFont (font (packedMenuText));
+            g.setFont (font (packedMenuSizeOf (box)));
             IlanaTheme::drawFitted (g, value, juce::Rectangle<int> (textX, 0, juce::jmax (0, width - textX - 15), height), juce::Justification::centredLeft, 1);
             return;
         }
@@ -1573,7 +1575,7 @@ public:
         {
             const auto prefixW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameText, true).withKerningFactor (0.09f), prefix) + 5;
             // (The value comes first: a menu with no room for both drops its name, which the tooltip keeps.)
-            const auto valueW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuText), box.getText()) + 2;
+            const auto valueW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuSizeOf (box)), box.getText()) + 2;
             return valueW > box.getWidth() - 5 - prefixW - 15 ? 0 : prefixW;
         }
         // (A menu too narrow for its name and a value drops the name: the 75 % zoom's.)

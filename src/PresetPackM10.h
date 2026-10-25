@@ -274,9 +274,11 @@ inline void addM10Presets (const std::function<void (const FactoryPreset&)>& add
     // ======================================================================
     // Chaos and physics modulators (M8.1, M2): 8
     // ======================================================================
+    // RATE 0.3 Hz before Lorenz went round once per cycle: the same motion
+    // (LfoSimInfo::lorenzLegacyRateScale at RHO 28).
     add (sim (B ("Lorenz Wash", "Pad")
                   .osc1 (ShimmerStack, 0.5f, 0.55f).osc2 (AirPad, 0.4f, 0.4f, 12)
-                  .filter1 (Sem, 1500.0f, 0.3f).amp (1.0f, 0.5f, 1.0f, 2.0f), 1, SimLorenz, 0.3f, { 0.5f, 0.5f, 0.5f })
+                  .filter1 (Sem, 1500.0f, 0.3f).amp (1.0f, 0.5f, 1.0f, 2.0f), 1, SimLorenz, 0.47952f, { 0.5f, 0.5f, 0.5f })
              .mod (Lfo1, D::Filter1Cutoff, 0.35f).mod (src (Mod::Source::Lfo1B), D::Osc1Frame, 0.4f)
              .macro (1, "CHAOS", { { D::Lfo1Rate, 0.35f } })
              .macro (2, "DEPTH", { { D::Filter1Cutoff, 0.3f } })

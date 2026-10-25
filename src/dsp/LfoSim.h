@@ -185,18 +185,33 @@ inline juce::String text (int shape, int index, float p)
     }
 }
 
+// Lorenz loops about 1.33 times per unit of model time at the default
+// SIGMA, RHO and BETA, and faster as RHO rises (measured: about RHO^0.6).
+constexpr double lorenzLoopsPerTime = 1.332;
+// Before 2026-10-23 one cycle of RATE was 1.2 units of model time whatever
+// RHO was, so Lorenz looped 1.6 (default) to 2.5 times per cycle.
+constexpr double lorenzLegacyTimePerCycle = 1.2;
+
 // Model time per cycle of RATE for the chaotic systems (the physics
-// objects run in seconds: RATE 1 Hz is real time).
-inline double timePerCycle (int shape, double omega = 1.2)
+// objects run in seconds: RATE 1 Hz is real time). Lorenz makes one loop
+// per cycle at any RHO, so RATE is how often it goes round.
+inline double timePerCycle (int shape, double omega = 1.2, double rho = 28.0)
 {
     using namespace LfoSimShapes;
     switch (shape)
     {
-        case Lorenz:  return 1.2;
+        case Lorenz:  return std::pow (28.0 / juce::jmax (24.0, rho), 0.6) / lorenzLoopsPerTime;
         case Rossler: return 6.0;
         case Duffing: return juce::MathConstants<double>::twoPi / juce::jmax (0.05, omega);
         default:      return 1.0;
     }
+}
+
+// How much faster RATE must be for a Lorenz LFO saved before the change to
+// move as it did then (RHO as its physical value).
+inline double lorenzLegacyRateScale (double rho)
+{
+    return lorenzLegacyTimePerCycle / timePerCycle (LfoSimShapes::Lorenz, 1.2, rho);
 }
 } // namespace LfoSimInfo
 
@@ -702,7 +717,7 @@ private:
             case Lorenz:
             {
                 const auto sigma = param (s, 0), rho = param (s, 1), beta = param (s, 2);
-                integrate<3> (cycles * LfoSimInfo::timePerCycle (shape), 0.004,
+                integrate<3> (cycles * LfoSimInfo::timePerCycle (shape, 1.2, rho), 0.004,
                               [=] (const double* y, double* d, double) { lorenz (y, d, sigma, rho, beta); });
                 break;
             }
@@ -774,7 +789,7 @@ private:
         }
 
         modelTime += cycles * (shape == Lorenz || shape == Rossler || shape == Duffing
-                                   ? LfoSimInfo::timePerCycle (shape, param (s, 2)) : 1.0);
+                                   ? LfoSimInfo::timePerCycle (shape, param (s, 2), param (s, 1)) : 1.0);
         guard();
     }
 

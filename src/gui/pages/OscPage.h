@@ -1829,12 +1829,12 @@ public:
         // (Sized by the wavetable card PLAY's bands were approved under, 28 px warp rows and 12 px chip: the OSC tab's
         // cards are 6 px taller, and the oscillators scroll that little rather than the bands shrinking, ilana 2026-10-22.)
         const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * 28 + 1 + 3 + 12) + panelTail + 1 + cardPad + 1;
-        std::vector<int> heights;
-        // (Never more than the three cards PLAY shows at once: a fourth operator and beyond scroll.)
-        for (const auto osc : shownList())
-            if (heights.size() < (size_t) embeddedAddRowBelow)
-                heights.push_back (wavetableCard);
-        return contentHeight (heights);
+        // (Never more than the three cards PLAY shows at once: a fourth card, and the add row under a third, scroll.)
+        const auto counted = juce::jmin (numShown(), embeddedAddRowBelow);
+        auto total = topNow() + (embedded ? 0 : stripHeight()) + bottomNow() + counted * (wavetableCard + gapNow());
+        if (counted < embeddedAddRowBelow)
+            total += addRowHeight + gapNow();
+        return total;
     }
 
     void resized() override
@@ -2398,9 +2398,8 @@ private:
         return heights;
     }
 
-    // (Embedded on PLAY the row shows only while a card or two leave room: three oscillators and the
-    // two module rows fill the page, and the OSC tab adds more.)
-    bool canAdd() const { return numShown() < (embedded ? embeddedAddRowBelow : OscillatorIds::count); }
+    // (PLAY too: past three cards the add row sits below them and the area scrolls to it, ilana 2026-10-23.)
+    bool canAdd() const { return numShown() < OscillatorIds::count; }
     static constexpr int embeddedAddRowBelow = 3;
 
     int stripHeight() const { return stripCardH; }

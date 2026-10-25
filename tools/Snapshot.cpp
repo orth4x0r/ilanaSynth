@@ -247,9 +247,20 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         auto* level3 = knobFor ("osc2_level");
         const auto addArea = add != nullptr ? editor.getLocalArea (add, add->getLocalBounds()) : juce::Rectangle<int>();
         const auto level3Area = level3 != nullptr ? editor.getLocalArea (level3, level3->getLocalBounds()) : juce::Rectangle<int>();
-        // (Three cards fill PLAY's oscillator stack: the add row shows only while a slot is free.)
-        expect (add == nullptr && level3 != nullptr && knobFor (osc3 + "_level") != nullptr,
-                "PLAY: three oscillator cards (OSC 3 shown, dimmed while off), no add row with every slot taken");
+        // (Past three cards the add row sits under them and PLAY's oscillator area scrolls to it, ilana 2026-10-23.)
+        expect (add != nullptr && level3 != nullptr && knobFor (osc3 + "_level") != nullptr,
+                "PLAY: three oscillator cards (OSC 3 shown, dimmed while off) and the + ADD OSC 4 row under them");
+        // (ilana 2026-10-23, "i cant scroll to add another osc": scrolled to the end, the whole row shows.)
+        if (auto* view = add != nullptr ? add->findParentComponentOfClass<juce::Viewport>() : nullptr)
+        {
+            view->setViewPosition (0, 1 << 20);
+            settle (100);
+            const auto shownRow = editor.getLocalArea (add, add->getLocalBounds());
+            const auto shownView = editor.getLocalArea (view, view->getLocalBounds());
+            expect (shownView.contains (shownRow), "PLAY: scrolled to the end, the + ADD OSC 4 row is in view (" + shownRow.toString() + " in " + shownView.toString() + ")");
+            view->setViewPosition (0, 0);
+            settle (100);
+        }
         expect (level1 != nullptr && level3 != nullptr && centreX (level1) == centreX (level3)
                     && centreX (knobFor ("osc1_semi")) == centreX (knobFor ("osc2_semi")),
                 "PLAY: SEMI, LEVEL in the same columns on every wavetable card");
@@ -8924,6 +8935,22 @@ int main (int argc, char** argv)
         };
         setPin (false);
         save (*editor, outDir.getChildFile ("play-3osc.png"));
+        // Scrolled to the end: the + ADD OSC 4 row under the third card.
+        {
+            std::vector<DashedAddButton*> adds;
+            findAll<DashedAddButton> (*editor, adds);
+            for (auto* add : adds)
+                if (visibleInTree (add) && add->getButtonText().contains ("ADD OSC"))
+                    if (auto* view = add->findParentComponentOfClass<juce::Viewport>())
+                    {
+                        view->setViewPosition (0, 1 << 20);
+                        settle (300);
+                        save (*editor, outDir.getChildFile ("play-3osc-scrolled.png"));
+                        view->setViewPosition (0, 0);
+                        settle (300);
+                        break;
+                    }
+        }
         setPin (true);
         save (*editor, outDir.getChildFile ("play-3osc-pinned.png"));
         setPin (false);

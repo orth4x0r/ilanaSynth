@@ -13,16 +13,40 @@
 
 struct ModRingConfig
 {
+    // How a route's amount moves the knob's value: as a share of the knob's
+    // travel (plain parameters), in octaves (value x 2^(amount x scale)) or
+    // in the knob's own unit (value + amount x scale).
+    enum class Unit { travel, octaves, value };
+
     int destination = 0;
     float scale = 1.0f;
+    Unit unit = Unit::travel;
+
+    // The knob's value moved by `amount` (a route's depth x its source), as
+    // the voices hear it, kept inside the knob's range.
+    float modulated (const juce::NormalisableRange<float>& range, float plain, float amount) const
+    {
+        switch (unit)
+        {
+            case Unit::octaves: return juce::jlimit (range.start, range.end, plain * std::exp2 (amount * scale));
+            case Unit::value:   return juce::jlimit (range.start, range.end, plain + amount * scale);
+            case Unit::travel:  break;
+        }
+        return range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, range.convertTo0to1 (plain) + amount * scale));
+    }
 };
 
-// Which modulation destination a knob drives, and how far a full-depth
-// modulation moves the knob (as a fraction of its travel) for the ring.
+// Which modulation destination a knob drives, and how a full-depth route
+// moves it. Since 2026-10-23 every one spans the knob's whole range at
+// 100 % (Mod::Range); the octave and own-unit ones say so, so the ring
+// lands where the sound does on a skewed knob.
 inline ModRingConfig modRingConfigFor (const juce::String& id)
 {
     using D = Mod::Destination;
+    using Unit = ModRingConfig::Unit;
     const auto explicitDest = [] (D d, float scale) { return ModRingConfig { (int) d, scale }; };
+    const auto inOctaves = [] (D d, float octaves) { return ModRingConfig { (int) d, octaves, Unit::octaves }; };
+    namespace R = Mod::Range;
 
     struct OscIds { const char* prefix; D pitch, frame, level, pan, detune, spread, warp, blend, start, end; };
     static const OscIds oscs[] {
@@ -52,46 +76,58 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
         if (field == "semi" || field == "fine") return explicitDest (osc.pitch, 1.0f);
         if (field == "frame")        return explicitDest (osc.frame, 1.0f);
         if (field == "level")        return explicitDest (osc.level, 1.0f);
-        if (field == "pan")          return explicitDest (osc.pan, 0.5f);
-        if (field == "detune")       return explicitDest (osc.detune, 1.0f);
+        if (field == "pan")          return explicitDest (osc.pan, 1.0f);
+        if (field == "detune")       return { (int) osc.detune, R::detuneCents, Unit::value };
         if (field == "spread")       return explicitDest (osc.spread, 1.0f);
         if (field == "warp_amt")     return explicitDest (osc.warp, 1.0f);
         if (field == "uni_blend")    return explicitDest (osc.blend, 1.0f);
-        if (field == "sample_start") return explicitDest (osc.start, 0.5f);
-        if (field == "sample_end")   return explicitDest (osc.end, 0.5f);
+        if (field == "sample_start") return explicitDest (osc.start, 1.0f);
+        if (field == "sample_end")   return explicitDest (osc.end, 1.0f);
     }
+
+    struct OctaveEntry { const char* id; D destination; float octaves; };
+    static const OctaveEntry octaveEntries[] {
+        { "f1_cutoff", D::Filter1Cutoff, R::cutoffOctaves }, { "f2_cutoff", D::Filter2Cutoff, R::cutoffOctaves },
+        { "lfo1_rate", D::Lfo1Rate, R::lfoRateOctaves }, { "lfo2_rate", D::Lfo2Rate, R::lfoRateOctaves },
+        { "lfo3_rate", D::Lfo3Rate, R::lfoRateOctaves }, { "lfo4_rate", D::Lfo4Rate, R::lfoRateOctaves },
+        { "mseg_rate", D::MsegRate, R::msegRateOctaves },
+        { "amp_attack", D::AmpAttack, R::attackOctaves }, { "amp_decay", D::AmpDecay, R::decayOctaves },
+        { "amp_release", D::AmpRelease, R::releaseOctaves },
+        { "fe_attack", D::FeAttack, R::attackOctaves }, { "fe_decay", D::FeDecay, R::decayOctaves },
+        { "fe_release", D::FeRelease, R::releaseOctaves },
+        { "me_attack", D::MeAttack, R::attackOctaves }, { "me_decay", D::MeDecay, R::decayOctaves },
+        { "me_release", D::MeRelease, R::releaseOctaves },
+        { "f2e_attack", D::F2eAttack, R::attackOctaves }, { "f2e_decay", D::F2eDecay, R::decayOctaves },
+        { "f2e_release", D::F2eRelease, R::releaseOctaves },
+        { "e4_attack", D::E4Attack, R::attackOctaves }, { "e4_decay", D::E4Decay, R::decayOctaves },
+        { "e4_release", D::E4Release, R::releaseOctaves },
+        { "fx_comb_freq", D::FxCombFreq, R::combOctaves }, { "fx_phaser_rate", D::FxPhaserRate, R::phaserOctaves },
+    };
+
+    for (const auto& entry : octaveEntries)
+        if (id == entry.id)
+            return inOctaves (entry.destination, entry.octaves);
 
     struct Entry { const char* id; D destination; float scale; };
     static const Entry entries[] {
         { "noise_level", D::NoiseLevel, 1.0f },
-        { "f1_cutoff", D::Filter1Cutoff, 0.5f }, { "f1_reso", D::Filter1Reso, 1.0f },
-        { "f1_drive", D::Filter1Drive, 1.0f }, { "f1_env", D::Filter1Env, 0.5f }, { "f1_fm", D::Filter1Fm, 0.5f },
+        { "f1_reso", D::Filter1Reso, 1.0f },
+        { "f1_drive", D::Filter1Drive, 1.0f }, { "f1_env", D::Filter1Env, 1.0f }, { "f1_fm", D::Filter1Fm, 1.0f },
         { "f1_morph", D::Filter1Morph, 1.0f },
-        { "f2_cutoff", D::Filter2Cutoff, 0.5f }, { "f2_reso", D::Filter2Reso, 1.0f },
-        { "f2_drive", D::Filter2Drive, 1.0f }, { "f2_env", D::Filter2Env, 0.5f }, { "f2_fm", D::Filter2Fm, 0.5f },
+        { "f2_reso", D::Filter2Reso, 1.0f },
+        { "f2_drive", D::Filter2Drive, 1.0f }, { "f2_env", D::Filter2Env, 1.0f }, { "f2_fm", D::Filter2Fm, 1.0f },
         { "f2_morph", D::Filter2Morph, 1.0f },
         { "fm_amount", D::FmAmount, 1.0f }, { "fm_feedback", D::FmFeedback, 1.0f },
         { "fm_1to2", D::Fm1to2, 1.0f }, { "fm_1to3", D::Fm1to3, 1.0f }, { "fm_2to3", D::Fm2to3, 1.0f },
         { "fm_3to1", D::Fm3to1, 1.0f }, { "fm_3to2", D::Fm3to2, 1.0f },
         { "fm_fb2", D::Fm2Feedback, 1.0f }, { "fm_fb3", D::Fm3Feedback, 1.0f },
         { "ring_mod", D::RingMod, 1.0f }, { "drift", D::Drift, 1.0f },
-        { "lfo1_rate", D::Lfo1Rate, 0.3f }, { "lfo2_rate", D::Lfo2Rate, 0.3f },
-        { "lfo3_rate", D::Lfo3Rate, 0.3f }, { "lfo4_rate", D::Lfo4Rate, 0.3f }, { "mseg_rate", D::MsegRate, 0.3f },
-        { "res_amount", D::ResAmount, 1.0f }, { "res_decay", D::ResDecay, 1.0f }, { "res_offset", D::ResOffset, 0.5f },
-        { "amp_attack", D::AmpAttack, 0.5f }, { "amp_decay", D::AmpDecay, 0.5f },
-        { "amp_sustain", D::AmpSustain, 1.0f }, { "amp_release", D::AmpRelease, 0.5f },
-        { "fe_attack", D::FeAttack, 0.5f }, { "fe_decay", D::FeDecay, 0.5f },
-        { "fe_sustain", D::FeSustain, 1.0f }, { "fe_release", D::FeRelease, 0.5f },
-        { "me_attack", D::MeAttack, 0.5f }, { "me_decay", D::MeDecay, 0.5f },
-        { "me_sustain", D::MeSustain, 1.0f }, { "me_release", D::MeRelease, 0.5f },
-        { "f2e_attack", D::F2eAttack, 0.5f }, { "f2e_decay", D::F2eDecay, 0.5f },
-        { "f2e_sustain", D::F2eSustain, 1.0f }, { "f2e_release", D::F2eRelease, 0.5f },
-        { "e4_attack", D::E4Attack, 0.5f }, { "e4_decay", D::E4Decay, 0.5f },
-        { "e4_sustain", D::E4Sustain, 1.0f }, { "e4_release", D::E4Release, 0.5f },
+        { "res_amount", D::ResAmount, 1.0f }, { "res_decay", D::ResDecay, 1.0f }, { "res_offset", D::ResOffset, 1.0f },
+        { "amp_sustain", D::AmpSustain, 1.0f }, { "fe_sustain", D::FeSustain, 1.0f }, { "me_sustain", D::MeSustain, 1.0f },
+        { "f2e_sustain", D::F2eSustain, 1.0f }, { "e4_sustain", D::E4Sustain, 1.0f },
         { "fx_drive_amount", D::FxDriveAmount, 1.0f }, { "fx_crush_mix", D::FxCrushMix, 1.0f },
-        { "fx_comb_freq", D::FxCombFreq, 0.6f }, { "fx_phaser_rate", D::FxPhaserRate, 0.55f },
         { "fx_chorus_depth", D::FxChorusDepth, 1.0f }, { "fx_delay_mix", D::FxDelayMix, 1.0f },
-        { "fx_delay_feedback", D::FxDelayFeedback, 0.95f }, { "fx_smear_mix", D::FxSmearMix, 1.0f },
+        { "fx_delay_feedback", D::FxDelayFeedback, 1.0f }, { "fx_smear_mix", D::FxSmearMix, 1.0f },
         { "fx_freeze_mix", D::FxFreezeMix, 1.0f }, { "fx_reverb_mix", D::FxReverbMix, 1.0f },
         { "fx_reverb_size", D::FxReverbSize, 1.0f },
     };
@@ -102,7 +138,7 @@ inline ModRingConfig modRingConfigFor (const juce::String& id)
 
     for (int lfo = 4; lfo < Mod::numLfoSources; ++lfo)
         if (id == "lfo" + juce::String (lfo + 1) + "_rate")
-            return explicitDest (Mod::lfoRateDestinationFor (lfo), 0.3f);
+            return inOctaves (Mod::lfoRateDestinationFor (lfo), R::lfoRateOctaves);
 
     // Everything else that can be modulated is a plain-parameter destination,
     // offset in the knob's own normalised range.
@@ -1304,6 +1340,7 @@ public:
     void setModulationTarget (const juce::String& targetParameterId)
     {
         ringConfig = modRingConfigFor (targetParameterId);
+        ringOnOwnValue = targetParameterId == parameterId;
         applyModulatableMark();
         routings.clear();
         dotStrip.setDots (routings);
@@ -1541,6 +1578,17 @@ public:
         // (Where the knob's hand is: it glides to a value that changed by itself.)
         const auto baseNorm = IlanaTheme::fadePeek (&slider, 90, (float) juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue())));
         const auto angleOf = [] (float norm) { return ringStart + juce::jlimit (0.0f, 1.0f, norm) * (ringEnd - ringStart); };
+        // Where the knob's value moved by `amount` sits on its travel (a
+        // knob standing in for another parameter counts its travel as the
+        // target's range).
+        const auto normAt = [this, baseNorm] (float amount)
+        {
+            if (ringConfig.unit == ModRingConfig::Unit::travel || ! ringOnOwnValue)
+                return baseNorm + amount * (ringConfig.unit == ModRingConfig::Unit::travel ? ringConfig.scale : 1.0f);
+            const juce::NormalisableRange<float> range ((float) slider.getMinimum(), (float) slider.getMaximum());
+            const auto base = (float) slider.proportionOfLengthToValue (baseNorm);
+            return (float) slider.valueToProportionOfLength (ringConfig.modulated (range, base, amount));
+        };
 
         // The outer rings pass behind the knob's name, not over it.
         const juce::Graphics::ScopedSaveState state (g);
@@ -1564,9 +1612,8 @@ public:
             const auto tight = count > 1 && ringRadius (1) - ringRadius (0) < 3.0f;
             const auto width = (tight ? 1.6f : 2.0f) + hotAmount;
             const auto colour = modArcColour (modSourceColour (dot.source), knobColour);
-            const auto depth = dot.depth * ringConfig.scale;
-            const auto low = dot.bipolar ? baseNorm - std::abs (depth) : juce::jmin (baseNorm, baseNorm + depth);
-            const auto high = dot.bipolar ? baseNorm + std::abs (depth) : juce::jmax (baseNorm, baseNorm + depth);
+            const auto low = dot.bipolar ? normAt (-std::abs (dot.depth)) : juce::jmin (baseNorm, normAt (dot.depth));
+            const auto high = dot.bipolar ? normAt (std::abs (dot.depth)) : juce::jmax (baseNorm, normAt (dot.depth));
 
             juce::Path range;
             const auto a = angleOf (low), b = angleOf (high);
@@ -1590,7 +1637,7 @@ public:
 
             // What it adds now: from the knob's value to the live position.
             const auto live = juce::isPositiveAndBelow (i, (int) liveValues.size()) ? liveValues[(size_t) i] : 0.0f;
-            const auto liveAngle = angleOf (baseNorm + live * ringConfig.scale);
+            const auto liveAngle = angleOf (normAt (live));
             const auto baseAngle = angleOf (baseNorm);
 
             if (! quiet && std::abs (liveAngle - baseAngle) > 0.01f)
@@ -1613,7 +1660,7 @@ public:
 
             if (hot)
             {
-                const auto handleAt = centre.getPointOnCircumference (radius, angleOf (baseNorm + depth));
+                const auto handleAt = centre.getPointOnCircumference (radius, angleOf (normAt (dot.depth)));
                 const auto handle = juce::Rectangle<float> (6.5f, 6.5f).withCentre (handleAt);
                 g.setColour (IlanaTheme::Ui::bg);
                 g.fillEllipse (handle.expanded (1.0f));
@@ -2709,6 +2756,7 @@ private:
     }
 
     ModRingConfig ringConfig;
+    bool ringOnOwnValue = true; // false while it shows another parameter's ring (setModulationTarget)
     juce::String parameterId;
     juce::Colour knobAccent;
     bool followsTheme = false;

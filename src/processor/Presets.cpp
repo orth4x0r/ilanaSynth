@@ -1296,6 +1296,12 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     // row with the depths added (the same sound; review 6, S5-9).
     mergeDuplicateModSlots();
 
+    // Every amount above (recipe, voicing, default macros) was written when
+    // 100 % moved a cutoff 6 octaves, an LFO's rate 4...: scaled to the
+    // knob-wide ranges, the preset sounds the same. (Before the MSEG move,
+    // which converts an MSEG rate route's amount itself.)
+    migrateModDepthRanges();
+
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
     moveLegacyMsegToLfo();
 

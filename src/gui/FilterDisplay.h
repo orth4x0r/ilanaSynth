@@ -508,7 +508,7 @@ private:
                                        filterIndex == 0 ? Mod::Destination::Filter1Cutoff : Mod::Destination::Filter2Cutoff)
                                  : 0.0;
 
-        return juce::jlimit (20.0, 20000.0, base * std::exp2 (mod * 6.0));
+        return juce::jlimit (20.0, 20000.0, base * std::exp2 (mod * (double) Mod::Range::cutoffOctaves));
     }
 
     std::complex<double> response (int filterIndex, double frequency, bool withMod) const

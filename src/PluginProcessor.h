@@ -380,6 +380,13 @@ public:
     // All three, for a patch from before the knobs went.
     static void migrateRedundantKnobs (const std::function<float (const juce::String&, float)>& get,
                                        const std::function<void (const juce::String&, float)>& set);
+    // A route saved before 100 % meant a knob's whole range (2026-10-23)
+    // gets its amount scaled so it moves the target as far as before
+    // (Mod::Range::legacyDepthFactor). Returns the routes changed.
+    static int migrateModDepthRanges (const std::function<float (const juce::String&, float)>& get,
+                                      const std::function<void (const juce::String&, float)>& set);
+    // The same on the live parameters (a factory preset, written for the old ranges).
+    void migrateModDepthRanges();
     // The same on the live parameters (after a bounce or a factory preset).
     void migrateOperatorModes();
     bool clearModSlotsForTarget (int destination);

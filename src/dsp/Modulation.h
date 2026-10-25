@@ -284,6 +284,71 @@ inline bool isExplicitDestination (int destination)
            || (destination >= firstNewExplicitDestination && destination < (int) Destination::Count);
 }
 
+// How far a full-depth route (100 %) moves an explicit destination, in the
+// destination's own unit: its knob's whole range (2026-10-23, ilana: "100%
+// should be 100% of that knobs or sliders values"). The octave ones are the
+// knob's span in octaves, so 100 % reaches the far end from either end.
+// Every other explicit destination already spanned its knob at 1.0.
+namespace Range
+{
+constexpr float cutoffOctaves = 9.9657843f;     // 20 Hz .. 20 kHz
+constexpr float filterEnvOctaves = 10.0f;       // -5 .. 5 octaves
+constexpr float filterFm = 2.0f;                // -1 .. 1
+constexpr float oscPan = 2.0f;                  // -1 .. 1
+constexpr float resOffsetSemitones = 24.0f;     // -12 .. 12
+constexpr float detuneCents = 200.0f;           // 0 .. 200 ct
+constexpr float lfoRateOctaves = 11.965784f;    // 0.01 .. 40 Hz
+constexpr float msegRateOctaves = 8.6438562f;   // 0.02 .. 8 Hz
+constexpr float combOctaves = 6.6438562f;       // 20 .. 2000 Hz
+constexpr float phaserOctaves = 7.3219281f;     // 0.05 .. 8 Hz
+constexpr float attackOctaves = 12.287712f;     // 1 ms .. 5 s
+constexpr float decayOctaves = 9.9657843f;      // 5 ms .. 5 s
+constexpr float releaseOctaves = 10.965784f;    // 5 ms .. 10 s
+constexpr float timeClampOctaves = 10.0f;       // the most a summed route stretches a stage
+constexpr float delayFeedback = 0.95f;          // 0 .. 0.95
+
+// What 1.0 used to move each of them before (6 octaves of cutoff, 4 of an
+// LFO's rate...): a route saved then is multiplied by old / new on load, so
+// it sounds the same. 1 for every destination that did not change.
+inline float legacyDepthFactor (int destination)
+{
+    using D = Destination;
+    const auto d = (D) destination;
+
+    switch (d)
+    {
+        case D::Filter1Cutoff: case D::Filter2Cutoff: return 6.0f / cutoffOctaves;
+        case D::Filter1Env: case D::Filter2Env:       return 5.0f / filterEnvOctaves;
+        case D::Filter1Fm: case D::Filter2Fm:         return 1.0f / filterFm;
+        case D::ResOffset:                            return 12.0f / resOffsetSemitones;
+        case D::MsegRate:                             return 4.0f / msegRateOctaves;
+        case D::FxCombFreq:                           return 4.0f / combOctaves;
+        case D::FxPhaserRate:                         return 4.0f / phaserOctaves;
+        case D::FxDelayFeedback:                      return 0.9f / delayFeedback;
+        case D::Osc1Pan: case D::Osc2Pan: case D::SubPan:
+        case D::Osc4Pan: case D::Osc5Pan: case D::Osc6Pan:
+            return 1.0f / oscPan;
+        case D::Osc1Detune: case D::Osc2Detune: case D::SubDetune:
+        case D::Osc4Detune: case D::Osc5Detune: case D::Osc6Detune:
+            return 50.0f / detuneCents;
+        case D::AmpAttack: case D::FeAttack: case D::MeAttack: case D::F2eAttack: case D::E4Attack:
+            return 5.0f / attackOctaves;
+        case D::AmpDecay: case D::FeDecay: case D::MeDecay: case D::F2eDecay: case D::E4Decay:
+            return 5.0f / decayOctaves;
+        case D::AmpRelease: case D::FeRelease: case D::MeRelease: case D::F2eRelease: case D::E4Release:
+            return 5.0f / releaseOctaves;
+        default:
+            break;
+    }
+
+    for (int lfo = 0; lfo < numLfoSources; ++lfo)
+        if (d == lfoRateDestinationFor (lfo))
+            return 4.0f / lfoRateOctaves;
+
+    return 1.0f;
+}
+} // namespace Range
+
 // Every other continuous parameter (effects and a few globals) can also be
 // modulated. These are applied once per block to the parameter itself, so
 // per-voice sources follow the loudest voice. Stored after the explicit

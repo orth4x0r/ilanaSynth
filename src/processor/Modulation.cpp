@@ -147,7 +147,11 @@ bool IlanaSynthAudioProcessor::moveLegacyMsegToLfo()
         if (routing.aux == Mod::Source::Mseg)
             setModSlotValue (slot, "aux", (float) (int) lfoSource);
         if (routing.destination == (int) Mod::Destination::MsegRate)
+        {
+            // The same octaves on the LFO's rate as on the MSEG's.
             setModSlotValue (slot, "dst", (float) (int) Mod::lfoRateDestinationFor (lfo));
+            setModSlotValue (slot, "amt", routing.depth * Mod::Range::msegRateOctaves / Mod::Range::lfoRateOctaves);
+        }
     }
 
     setRevealed (Module::Lfo, lfo, true);
@@ -823,7 +827,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
 
         // Rate modulation from the previous block's synth-wide evaluation.
         const auto rateMod = modDisplayValues[(size_t) rateDestination].load();
-        return juce::jlimit (0.001f, 200.0f, rate * std::exp2 (rateMod * 4.0f));
+        return juce::jlimit (0.001f, 200.0f, rate * std::exp2 (rateMod * Mod::Range::lfoRateOctaves));
     };
 
     float lfoRates[numLfos] {};
@@ -895,7 +899,7 @@ void IlanaSynthAudioProcessor::renderLfos (int numSamples, const juce::MidiBuffe
                                getParam ("mseg_time3"), getParam ("mseg_time4") };
 
         const auto rateMod = modDisplayValues[(size_t) Mod::Destination::MsegRate].load();
-        mseg.setParams (levels, times, getParam ("mseg_rate") * std::exp2 (rateMod * 4.0f), getParam ("mseg_loop") > 0.5f);
+        mseg.setParams (levels, times, getParam ("mseg_rate") * std::exp2 (rateMod * Mod::Range::msegRateOctaves), getParam ("mseg_loop") > 0.5f);
     }
 
     for (int i = 0; i < numSamples; ++i)

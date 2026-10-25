@@ -590,8 +590,7 @@ private:
         if (const auto config = modRingConfigFor (id); config.destination != 0)
             if (const auto* parameter = processorRef.apvts.getParameter (id))
             {
-                const auto range = parameter->getNormalisableRange();
-                return range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, range.convertTo0to1 (plain) + processorRef.getModDisplay (config.destination)));
+                return config.modulated (parameter->getNormalisableRange(), plain, processorRef.getModDisplay (config.destination));
             }
 
         return plain;

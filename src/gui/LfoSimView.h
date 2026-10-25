@@ -161,10 +161,14 @@ public:
         return outputB ? row.removeFromRight (width) : row.removeFromLeft (width);
     }
 
-    static juce::String outputTagText (const LfoSimInfo::Shape& info, int axis, bool outputB)
+    // On a narrow scope (the compact pop-up) a tag that wouldn't fit says just OUT 1 / OUT 2 (its tooltip names it).
+    static juce::String outputTagText (const LfoSimInfo::Shape& info, int axis, bool outputB, float scopeWidth = 1.0e6f)
     {
         const auto names = outputNames (info, axis);
-        return outputB ? "OUT 2: " + names.second : "OUT 1: " + names.first; // spelt out (UI review 9, V9-20)
+        const auto full = outputB ? "OUT 2: " + names.second : "OUT 1: " + names.first; // spelt out (UI review 9, V9-20)
+        const auto fits = (float) juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::tiny, true)), full) + 14.0f
+                          <= scopeWidth * 0.5f - 4.0f;
+        return fits ? full : juce::String (outputB ? "OUT 2" : "OUT 1");
     }
 
 private:
@@ -185,7 +189,7 @@ private:
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
         for (const auto outputB : { false, true })
         {
-            const auto text = outputTagText (info, lastAxis, outputB);
+            const auto text = outputTagText (info, lastAxis, outputB, area.getWidth());
             const auto tag = outputTagBounds (area, text, outputB);
             const auto tagColour = outputB ? IlanaTheme::Ui::text2 : colour;
             g.setColour (IlanaTheme::Ui::bg.withAlpha (0.6f));

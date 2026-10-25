@@ -994,13 +994,24 @@ public:
         updateVisibility();
     }
 
-    // Without its pool of cards (the pop-up editor: its chip chose the source).
-    void setPoolHidden (bool hide)
+    // The pop-up editor's layout (ilana's compact mockup, 2026-10-25): no pool (its chip chose the
+    // envelope) and no card, the graph at the left, ATTACK DECAY SUSTAIN RELEASE over DELAY HOLD
+    // VELOCITY KEY RATE.
+    void setCompact (bool shouldBeCompact)
     {
-        poolHidden = hide;
-        thumbs.setVisible (! hide);
+        compact = shouldBeCompact;
+        thumbs.setVisible (! compact);
+        for (auto& unit : units)
+            for (auto* knob : unit.knobs)
+                if (auto* dial = dynamic_cast<KnobControl*> (knob))
+                    dial->setPackedDial (compact ? compactDial : 0.0f);
         resized();
+        repaint();
     }
+
+    static constexpr float compactDial = 28.0f;
+    static constexpr int compactPitch = 40, compactRow = 39, compactGap = 10; // (40: VELOCITY and KEY RATE side by side at the real fonts)
+    static constexpr int compactKnobsWidth = 4 * compactPitch, compactHeight = 2 * compactRow;
 
     // What the section needs below its cards: the panel's header and one
     // row of full-size knobs.
@@ -1017,7 +1028,7 @@ public:
     {
         auto area = getLocalBounds();
 
-        if (! poolHidden)
+        if (! compact)
         {
             thumbs.setViewWidth (area.getWidth());
             thumbs.setBounds (area.removeFromTop (cardHeight));
@@ -1028,6 +1039,26 @@ public:
         {
             panel = {};
             opEditor.setBounds (area);
+            return;
+        }
+
+        if (compact)
+        {
+            panel = {};
+            const auto unitIndex = juce::jlimit (0, (int) units.size() - 1, selected);
+            auto& unit = units[(size_t) unitIndex];
+            unit.display->setBounds (area.removeFromLeft (area.getWidth() - compactGap - compactKnobsWidth));
+            area.removeFromLeft (compactGap);
+            // (The knobs come in the graph's order: DELAY ATTACK HOLD DECAY SUSTAIN RELEASE VEL KEY RATE.)
+            const std::array<size_t, 8> order { 1, 3, 4, 5, 0, 2, 6, 7 };
+            for (size_t i = 0; i < order.size(); ++i)
+                if (order[i] < unit.knobs.size() && unit.knobs[order[i]] != nullptr)
+                {
+                    const auto row = (int) i / 4, column = (int) i % 4;
+                    const auto cell = juce::Rectangle<int> (area.getX() + column * compactPitch, area.getY() + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
+                                                            compactPitch, (int) compactDial + 10);
+                    unit.knobs[order[i]]->setBounds (KnobControl::packedBoundsFor (cell));
+                }
             return;
         }
 
@@ -1192,7 +1223,7 @@ private:
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
     EnvThumbBar thumbs;
-    bool poolHidden = false;
+    bool compact = false;
     OperatorEnvEditor opEditor { processorRef };
     OperatorPool::ShapeCache opEnvShape, opPitchShape;
     EffectRules ampRules { processorRef };
@@ -1437,13 +1468,64 @@ public:
     void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
     void handleAsyncUpdate() override { lastShape = -1; timerCallback(); }
 
-    // Without its pool of cards (the pop-up editor: its chip chose the source).
-    void setPoolHidden (bool hide)
+    // The pop-up editor's layout (ilana's compact mockup, 2026-10-25): no pool (its chip chose the
+    // LFO) and no card. The graph at the left; a column with SHAPE, the switches as pills, TRIGGER
+    // (and AXIS) with FIRE on a simulated shape, then the knobs four to a row.
+    void setCompact (bool shouldBeCompact)
     {
-        poolHidden = hide;
-        thumbs.setVisible (! hide);
-        resized();
+        compact = shouldBeCompact;
+        thumbs.setVisible (! compact);
+        const auto dial = compact ? compactDial : 0.0f;
+        for (size_t lfo = 0; lfo < controlsList.size(); ++lfo)
+        {
+            auto& c = *controlsList[lfo];
+            for (auto* menu : { &c.shape, &c.trigger, &c.axis })
+                menu->setPackedMenu (compact);
+            c.rate.getRateKnob().setPackedDial (dial);
+            c.rate.getRateKnob().setPackedValueRoom (compact ? 12 : 0);
+            c.rate.getDivisionKnob().setPackedDial (dial);
+            for (auto* knob : { &c.phase, &c.physA, &c.physB, &c.smooth, &c.stereo, &c.seed })
+                knob->setPackedDial (dial);
+            for (auto& knob : c.sim)
+                knob->setPackedDial (dial);
+            if (compact && pills.size() <= lfo)
+            {
+                std::array<std::unique_ptr<PillToggle>, 5> row;
+                ToggleControl* toggles[] { &c.sync, &c.retrig, &c.key, &c.loop, &c.kick };
+                for (size_t i = 0; i < row.size(); ++i)
+                {
+                    row[i] = std::make_unique<PillToggle> (processorRef.apvts, toggles[i]->getParameterId(), toggles[i]->getButton().getButtonText(),
+                                                           lfoColour ((int) lfo), toggles[i]->getButton().getTooltip());
+                    addChildComponent (*row[i]);
+                }
+                pills.push_back (std::move (row));
+            }
+        }
+        msegRate.setPackedDial (dial);
+        msegLoop.setPackedName (compact ? ToggleControl::NamePlace::right : ToggleControl::NamePlace::none);
+        clockDiv.setPackedMenu (compact);
+        updateVisibility();
     }
+
+    // The compact layout's height for what it shows now (its owner sizes the pop-up to it).
+    int compactHeight() const
+    {
+        if (selected == opLfoId)
+            return 150;
+        if (selected == msegId)
+            return compactRowsTop (2) + compactRow;
+        if (selected == clockId)
+            return 72;
+        const auto shape = shapeOf (selected);
+        const auto simulated = LfoSimShapes::isSim (shape);
+        return compactRowsTop (simulated ? 3 : 2) + compactRow * ((compactKnobs (selected).size() + 3) / 4);
+    }
+
+    // The compact layout's size changed (another shape, another source).
+    std::function<void()> onCompactSizeChanged;
+
+    static constexpr float compactDial = 28.0f;
+    static constexpr int compactColumn = 4 * 46, compactPitch = 46, compactRow = 39, compactGap = 10, compactLine = 16, compactLineGap = 4;
 
     static constexpr int cardHeight = 48;
     static constexpr int lfoRulerBand = 16; // (LfoDisplay: its ruler and the 2 px before it)
@@ -1452,7 +1534,7 @@ public:
     {
         auto area = getLocalBounds();
 
-        if (! poolHidden)
+        if (! compact)
         {
             thumbs.setViewWidth (area.getWidth());
             thumbs.setBounds (area.removeFromTop (cardHeight));
@@ -1463,6 +1545,12 @@ public:
         {
             panel = {};
             opLfoEditor.setBounds (area);
+            return;
+        }
+
+        if (compact)
+        {
+            layoutCompact (area);
             return;
         }
 
@@ -1641,6 +1729,116 @@ public:
     // (PLAY's LFO card labels its switch the same way.) RETRIG on a plain shape (one LFO per voice, restarted by its note);
     // VOICE on a simulated one (each voice runs its own simulation; PER VOICE did not fit
     // its slot, N16-6), whose TRIGGER says when it restarts.
+    int shapeOf (int lfo) const
+    {
+        const auto index = juce::jlimit (0, (int) displays.size() - 1, lfo);
+        return (int) processorRef.apvts.getRawParameterValue ("lfo" + juce::String (index + 1) + "_shape")->load();
+    }
+
+    // The compact layout's knobs, in the full layout's order (RATE, SMOOTH, then the shape's own).
+    std::vector<juce::Component*> compactKnobs (int lfo) const
+    {
+        if (lfo < 0 || lfo >= (int) controlsList.size())
+            return {};
+        auto& c = *controlsList[(size_t) lfo];
+        const auto shape = shapeOf (lfo);
+        std::vector<juce::Component*> knobs { c.rate.layoutItem(), &c.smooth };
+        if (LfoSimShapes::isSim (shape))
+        {
+            const auto& info = LfoSimInfo::get (shape);
+            for (int param = 0; param < LfoSimInfo::numParams; ++param)
+                if (info.params[(size_t) param].name != nullptr)
+                    knobs.push_back (c.sim[(size_t) param].get());
+            if (info.usesStereo)
+                knobs.push_back (&c.stereo);
+            if (info.usesSeed)
+                knobs.push_back (&c.seed);
+        }
+        else
+        {
+            knobs.push_back (&c.phase);
+            if (LfoShapes::isPhysics (shape))
+                knobs.insert (knobs.end(), { &c.physA, &c.physB });
+        }
+        return knobs;
+    }
+
+    // Where the knob rows start under `lines` lines of menus and switches.
+    static int compactRowsTop (int lines) { return lines * (compactLine + compactLineGap); }
+
+    void layoutCompact (juce::Rectangle<int> area)
+    {
+        panel = {};
+        infoArea = {};
+        auto column = area.removeFromRight (compactColumn);
+        area.removeFromRight (compactGap);
+        const auto line = [&column] (int index)
+        {
+            return juce::Rectangle<int> (column.getX(), column.getY() + index * (compactLine + compactLineGap), column.getWidth(), compactLine);
+        };
+        const auto placeKnobs = [&column] (const std::vector<juce::Component*>& knobs, int top)
+        {
+            for (size_t i = 0; i < knobs.size(); ++i)
+            {
+                const auto row = (int) i / 4, slot = (int) i % 4;
+                const juce::Rectangle<int> cell (column.getX() + slot * compactPitch, column.getY() + top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
+                                                 compactPitch, (int) compactDial + 10);
+                knobs[i]->setBounds (KnobControl::packedBoundsFor (cell));
+            }
+        };
+
+        if (selected == msegId)
+        {
+            msegEditor.setBounds (area);
+            msegMove.setBounds (line (0));
+            msegLoop.setBounds (line (1));
+            placeKnobs ({ &msegRate }, compactRowsTop (2));
+            return;
+        }
+        if (selected == clockId)
+        {
+            clockView.setBounds (area);
+            clockDiv.setBounds (line (0));
+            return;
+        }
+
+        const auto index = juce::jlimit (0, (int) displays.size() - 1, selected);
+        const auto shape = shapeOf (index);
+        const auto simulated = LfoSimShapes::isSim (shape);
+        displays[(size_t) index]->setBounds (area);
+        auto& c = *controlsList[(size_t) index];
+        c.shape.setBounds (line (0));
+
+        auto x = column.getX();
+        if ((size_t) index < pills.size())
+            for (auto& pill : pills[(size_t) index])
+                if (pill->isVisible())
+                {
+                    const auto width = (int) std::ceil (pill->textWidth()) + 8;
+                    pill->setBounds ({ x, line (1).getY(), width, compactLine });
+                    x += width + 2;
+                }
+
+        if (simulated)
+        {
+            labelSimulated (c, shape);
+            auto third = line (2);
+            c.fire.setBounds (third.removeFromRight (40));
+            third.removeFromRight (6);
+            if (LfoSimInfo::get (shape).usesAxis)
+            {
+                c.trigger.setBounds (third.removeFromLeft ((third.getWidth() - 4) / 2));
+                third.removeFromLeft (4);
+                c.axis.setBounds (third);
+            }
+            else
+                c.trigger.setBounds (third);
+        }
+
+        placeKnobs (compactKnobs (index), compactRowsTop (simulated ? 3 : 2));
+        c.rate.matchBounds();
+    }
+
     static void labelRunSwitch (ToggleControl& toggle, bool simulated)
     {
         const juce::String text (simulated ? "VOICE" : "RETRIG");
@@ -2188,11 +2386,31 @@ private:
             c.fire.setVisible (visible && simulated);
             for (int param = 0; param < LfoSimInfo::numParams; ++param)
                 c.sim[(size_t) param]->setVisible (visible && simulated && info.params[(size_t) param].name != nullptr);
+
+            // Compact: the pills stand in for the switches, with their names (RETRIG reads VOICE on a simulated shape).
+            if (compact && (size_t) lfo < pills.size())
+            {
+                ToggleControl* toggles[] { &c.sync, &c.retrig, &c.key, &c.loop, &c.kick };
+                for (size_t i = 0; i < 5; ++i)
+                {
+                    pills[(size_t) lfo][i]->setVisible (toggles[i]->isVisible());
+                    pills[(size_t) lfo][i]->setText (toggles[i]->getButton().getButtonText());
+                    pills[(size_t) lfo][i]->setTooltip (toggles[i]->getButton().getTooltip());
+                    toggles[i]->setVisible (false);
+                }
+            }
         }
 
         thumbs.setSelected (selected);
         resized();
         repaint();
+
+        if (compact && compactHeight() != lastCompactHeight)
+        {
+            lastCompactHeight = compactHeight();
+            if (onCompactSizeChanged != nullptr)
+                onCompactSizeChanged();
+        }
     }
 
     IlanaAnim::ChangeGate changeGate;
@@ -2236,7 +2454,9 @@ private:
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
     LfoThumbBar thumbs;
-    bool poolHidden = false;
+    bool compact = false;
+    int lastCompactHeight = -1;
+    std::vector<std::array<std::unique_ptr<PillToggle>, 5>> pills; // the compact layout's SYNC RETRIG KEY LOOP KICK
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
     MsegEditor msegEditor;

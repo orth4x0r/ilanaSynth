@@ -133,4 +133,53 @@ void paintSubBoxTitle (juce::Graphics& g, juce::Rectangle<int> header, const juc
 // Page headings sit where a card's title does: 12 px in from the card edge
 // (cards start 12 px in from the page), 26 px tall like a card's header.
 constexpr int headingX = 24, headingHeight = 26;
+
+// An on/off as one pill (the LFO's SYNC, RETRIG and KEY, on PLAY and in its pop-up): solid while on.
+class PillToggle : public ParamBoundComponent
+{
+public:
+    PillToggle (juce::AudioProcessorValueTreeState& state, const juce::String& id, const juce::String& text, juce::Colour colourIn, const juce::String& tip)
+        : ParamBoundComponent (state, id), label (text), colour (colourIn)
+    {
+        setTooltip (tip);
+        setRepaintsOnMouseActivity (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+        const auto on = current > 0;
+        g.setColour (on ? colour : IlanaTheme::Ui::raised.interpolatedWith (colour, isMouseOver() ? 0.12f : 0.0f));
+        const auto radius = bounds.getHeight() * 0.5f;
+        g.fillRoundedRectangle (bounds, radius);
+        if (! on)
+        {
+            g.setColour (IlanaTheme::Ui::line);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        }
+        g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (8.5f, true));
+        g.drawText (label, bounds, juce::Justification::centred);
+    }
+
+    void mouseDown (const juce::MouseEvent&) override { setValue (current > 0 ? 0 : 1); }
+
+    void setText (const juce::String& text)
+    {
+        if (text != label)
+        {
+            label = text;
+            repaint();
+        }
+    }
+
+    // The text's width, so a row of pills can be sized to what they say.
+    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (8.5f, true)), label) + 2.0f; }
+
+private:
+    juce::String label;
+    juce::Colour colour;
+};
+
 } // namespace

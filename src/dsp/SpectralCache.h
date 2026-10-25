@@ -43,35 +43,43 @@ public:
 
     // Audio thread. Returns the table the oscillator should play; base is the
     // table behind the choice right now (a replaced patch table rebuilds).
-    const Wavetable* get (int osc, int tableChoice, const Wavetable* base, int mode, float amount)
+    // blend (FRAME BLEND Spectral) asks for the copy with spectrally blended
+    // in-between frames (Wavetable::makeSpectralBlend), of the warped table
+    // when a warp is on; until it is built the oscillator crossfades.
+    const Wavetable* get (int osc, int tableChoice, const Wavetable* base, int mode, float amount, bool blend = false)
     {
         auto& slot = slots[(size_t) osc];
 
         if (base == nullptr)
             return base;
 
-        if (mode <= SpectralWarp::Off || mode >= SpectralWarp::Count || tableChoice < 0 || tableChoice >= numChoices)
+        if (mode < SpectralWarp::Off || mode >= SpectralWarp::Count)
+            mode = SpectralWarp::Off;
+
+        if ((mode == SpectralWarp::Off && ! blend) || tableChoice < 0 || tableChoice >= numChoices)
         {
             slot.wantedMode = SpectralWarp::Off;
+            slot.wantedBlend = false;
             return base;
         }
 
-        const auto step = juce::jlimit (0, amountSteps, juce::roundToInt (amount * (float) amountSteps));
+        const auto step = mode == SpectralWarp::Off ? 0 : juce::jlimit (0, amountSteps, juce::roundToInt (amount * (float) amountSteps));
         slot.wantedTable = tableChoice;
         slot.wantedMode = mode;
         slot.wantedStep = step;
+        slot.wantedBlend = blend;
         slot.wantedSource = base;
 
         if (synchronous)
         {
             const juce::ScopedLock buildLock (slot.buildLock);
-            build (slot, tableChoice, mode, step);
+            build (slot, tableChoice, mode, step, blend);
         }
 
         const juce::SpinLock::ScopedTryLockType lock (slot.lock);
 
         if (lock.isLocked() && slot.built != nullptr && slot.builtTable == tableChoice && slot.builtMode == mode
-            && slot.builtSource == base)
+            && slot.builtBlend == blend && slot.builtSource == base)
         {
             slot.lastServed = slot.built.get();
             slot.lastServedTable = tableChoice;
@@ -79,7 +87,9 @@ public:
         }
 
         // Mid-rebuild of a different table or mode: keep what was playing if
-        // it's still this table, else the plain table.
+        // it's still this table, else the plain table. (A blended copy and the
+        // plain one have different frame counts, but the oscillator maps its
+        // frame position over whichever it gets, so either is safe to play.)
         return slot.lastServed != nullptr && slot.lastServedTable == tableChoice ? slot.lastServed : base;
     }
 
@@ -176,7 +186,7 @@ public:
         const juce::SpinLock::ScopedLockType lock (slot.lock);
 
         if (mode > SpectralWarp::Off && slot.builtTable == tableChoice && slot.builtMode == mode)
-            return slot.built;
+            return slot.warped;
 
         return {};
     }
@@ -186,7 +196,8 @@ public:
     {
         const auto& slot = slots[(size_t) osc];
         return slot.builtTable == slot.wantedTable.load() && slot.builtMode == slot.wantedMode.load()
-               && slot.builtStep == slot.wantedStep.load() && slot.builtSource.load() == slot.wantedSource.load();
+               && slot.builtStep == slot.wantedStep.load() && slot.builtBlend == slot.wantedBlend.load()
+               && slot.builtSource.load() == slot.wantedSource.load();
     }
 
 private:
@@ -287,38 +298,61 @@ private:
     {
         std::atomic<int> wantedTable { -1 }, wantedMode { 0 }, wantedStep { 0 };
         std::atomic<int> builtTable { -1 }, builtMode { 0 }, builtStep { -1 };
+        std::atomic<bool> wantedBlend { false }, builtBlend { false };
         std::atomic<const Wavetable*> wantedSource { nullptr }, builtSource { nullptr };
         mutable juce::SpinLock lock;  // guards built
         juce::CriticalSection buildLock; // one builder at a time
-        std::shared_ptr<Wavetable> built;
+        std::shared_ptr<Wavetable> built;  // what plays: the warped table, spectrally blended when asked
+        std::shared_ptr<Wavetable> warped; // the warped table on its own frames, for display (null when only blended)
         const Wavetable* lastServed = nullptr; // audio thread only
         int lastServedTable = -1;              // audio thread only
     };
 
-    void build (Slot& slot, int table, int mode, int step)
+    void build (Slot& slot, int table, int mode, int step, bool blend)
     {
         const auto source = sourceFor (table);
 
         if (source == nullptr)
             return;
 
-        if (table == slot.builtTable && mode == slot.builtMode && step == slot.builtStep && source.get() == slot.builtSource.load())
+        if (table == slot.builtTable && mode == slot.builtMode && step == slot.builtStep && blend == slot.builtBlend
+            && source.get() == slot.builtSource.load())
             return;
 
-        std::shared_ptr<Wavetable> warped (SpectralWarp::warpTable (*source, mode, (float) step / (float) amountSteps));
+        std::shared_ptr<Wavetable> warped;
+
+        if (mode > SpectralWarp::Off)
+            warped = SpectralWarp::warpTable (*source, mode, (float) step / (float) amountSteps);
+
+        std::shared_ptr<Wavetable> played = warped;
+
+        if (blend)
+            if (auto blended = Wavetable::makeSpectralBlend (warped != nullptr ? *warped : *source))
+                played = std::move (blended);
+
+        // Nothing to build: a one-frame table with no warp plays as it is.
+        if (played == nullptr)
+            played = std::shared_ptr<Wavetable> (source, const_cast<Wavetable*> (source.get()));
 
         const juce::SpinLock::ScopedLockType lock (slot.lock);
 
-        if (slot.built != nullptr)
         {
             const juce::ScopedLock retiredLock (retiredGuard);
-            retired.push_back ({ slot.built, juce::Time::getMillisecondCounter() });
+            const auto now = juce::Time::getMillisecondCounter();
+
+            if (slot.built != nullptr)
+                retired.push_back ({ slot.built, now });
+
+            if (slot.warped != nullptr && slot.warped != slot.built)
+                retired.push_back ({ slot.warped, now });
         }
 
-        slot.built = warped;
+        slot.built = played;
+        slot.warped = warped;
         slot.builtTable = table;
         slot.builtMode = mode;
         slot.builtStep = step;
+        slot.builtBlend = blend;
         slot.builtSource = source.get();
     }
 
@@ -332,12 +366,13 @@ private:
                 const auto table = slot.wantedTable.load();
                 const auto mode = slot.wantedMode.load();
                 const auto step = slot.wantedStep.load();
+                const auto blend = slot.wantedBlend.load();
 
-                if (mode <= SpectralWarp::Off || table < 0 || table >= numChoices)
+                if ((mode <= SpectralWarp::Off && ! blend) || table < 0 || table >= numChoices)
                     continue;
 
                 const juce::ScopedLock buildLock (slot.buildLock);
-                build (slot, table, mode, step);
+                build (slot, table, mode, step, blend);
             }
 
             serviceVoiceRequests();

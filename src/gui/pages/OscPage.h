@@ -1114,6 +1114,7 @@ class OscPage : public juce::Component,
               uniFrame (state, prefix + "_uni_frame", juce::String::fromUTF8 ("FRAME \xc2\xb1")),
               uniWarp (state, prefix + "_uni_warp", juce::String::fromUTF8 ("WARP \xc2\xb1")),
               spectral (state, prefix + "_spectral", "SPECTRAL"),
+              frameBlend (state, prefix + "_frame_blend", "FRAME BLEND"),
               scale (state, prefix + "_scale", "SCALE"),
               scaleRoot (state, prefix + "_scale_root", "ROOT"),
               spectralAmt (state, prefix + "_spectral_amt", "SPEC AMT"),
@@ -1147,7 +1148,7 @@ class OscPage : public juce::Component,
         }
 
         ToggleControl on, sampleTuned, sampleLoop, sampleReverse, sampleLoopOwn, sampleSnap;
-        ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral, scale, scaleRoot;
+        ComboControl mode, table, excite, chord, ampEnv, warp, uniMode, spectral, frameBlend, scale, scaleRoot;
         // M6: the PD chain's second stage and the warp (DCW) envelope.
         ComboControl warp2;
         KnobControl warp2Amt;
@@ -1287,7 +1288,7 @@ public:
             auto& osc = *item;
             addChildComponents (osc.grainPosition, osc.grainScan, osc.grainFreeze, osc.grainSize, osc.grainDensity,
                                 osc.grainSpray, osc.grainPitch, osc.grainSpread, osc.grainLive,
-                                osc.spectral, osc.spectralAmt, osc.warp, osc.uniMode, osc.scale, osc.scaleRoot,
+                                osc.spectral, osc.frameBlend, osc.spectralAmt, osc.warp, osc.uniMode, osc.scale, osc.scaleRoot,
                                 osc.warpAmt, osc.uniBlend, osc.uniFrame, osc.uniWarp, osc.warp2, osc.warp2Amt);
             addChildComponents (osc.on, osc.mode, osc.table, osc.excite,
                                 osc.level, osc.pan, osc.semi, osc.fine,
@@ -1311,7 +1312,7 @@ public:
             for (auto* knob : cardKnobs (osc))
                 knob->setInlineKnob (true);
             for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.tune, &osc.ampEnv, &osc.uniMode, &osc.scale, &osc.scaleRoot,
-                                &osc.chord, &osc.excite, &osc.table, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
+                                &osc.chord, &osc.excite, &osc.table, &osc.frameBlend, &osc.feedbackType, &osc.mode, &osc.sampleSync, &osc.sampleStretch,
                                 &osc.samplePlayback, &osc.sampleQuality })
                 menu->setCompactLayout (true);
             for (auto* toggle : { &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.samplePingPong, &osc.sampleStartSafe, &osc.grainLive, &osc.grainFreeze })
@@ -1998,6 +1999,7 @@ private:
                 // (Panels, review 23: the cells below are only the list of what shows;
                 // layoutWavetablePanels places them; the table's menu is the header's.)
                 add (osc.table, 0, 0);
+                add (osc.frameBlend, 0, 0);
                 add (osc.warp, 0, 0);
                 add (osc.warpAmt, 0, 0);
                 add (osc.spectral, 0, 0);
@@ -2620,6 +2622,11 @@ private:
             pieces.prevTable.setBounds ({ x, centre - 8, 24, 16 });
             pieces.nextTable.setBounds ({ x + 27, centre - 8, 24, 16 });
             x += 58;
+            // FRAME BLEND: how the table reads between frames, beside the table it reads.
+            // (4 px after the steps, as the steps sit 4 px after the table's menu.)
+            x -= 3;
+            osc.frameBlend.setBounds (juce::Rectangle<int> (juce::jlimit (0, 138, right.getRight() - x - 4), menuH).withPosition (x, centre - menuH / 2));
+            x = osc.frameBlend.getRight() + 6;
         }
 
         if (card.kind == Kind::sample || card.kind == Kind::grain)
@@ -4103,7 +4110,7 @@ private:
         auto& osc = *controls[(size_t) i];
         auto& phys = *physical[(size_t) i];
         auto& pieces = *aux[(size_t) i];
-        return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.mode, &osc.table,
+        return { &osc.on, &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.mode, &osc.table, &osc.frameBlend,
                  &osc.excite, &osc.chord, &osc.ampEnv, &osc.warp, &osc.uniMode, &osc.scale, &osc.scaleRoot, &osc.spectral,
                  &osc.level, &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune, &osc.spread,
                  &osc.stringDecay, &osc.stringDamp, &osc.stringSustain, &osc.sampleStart, &osc.sampleEnd,
@@ -4153,6 +4160,7 @@ private:
         for (auto* menu : { &osc.warp, &osc.warp2, &osc.spectral, &osc.tune, &osc.ampEnv, &osc.scale, &osc.scaleRoot, &osc.chord, &osc.uniMode, &osc.feedbackType, &osc.sampleSync, &osc.sampleStretch, &osc.samplePlayback, &osc.sampleQuality })
             menu->setPackedMenu (panels);
         osc.table.setPackedMenu (kind == Kind::wavetable || kind == Kind::fm);
+        osc.frameBlend.setPackedMenu (kind == Kind::wavetable);
         waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
 
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
@@ -4384,7 +4392,7 @@ private:
                                &physicalControls.fbGain, &physicalControls.fbDistance }, enabled);
 
             auto& osc = *controls[(size_t) index];
-            setGroupEnabled ({ &osc.mode, &osc.table, &osc.excite, &osc.level,
+            setGroupEnabled ({ &osc.mode, &osc.table, &osc.frameBlend, &osc.excite, &osc.level,
                                &osc.pan, &osc.semi, &osc.fine, &osc.unison, &osc.detune,
                                &osc.spread, &osc.stringDecay, &osc.stringDamp, &osc.stringSustain,
                                &osc.sampleTuned, &osc.sampleLoop, &osc.sampleReverse, &osc.sampleLoopOwn, &osc.sampleSnap, &osc.sampleLoopXfade, &osc.sampleRoot,

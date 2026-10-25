@@ -36,6 +36,7 @@
 #include "StringModelTests.inc"
 #include "PresetFxIntegrityTests.inc"
 #include "VoiceModTests.inc"
+#include "FrameBlendTests.inc"
 #include "FilterArpLibraryTests.inc"
 #include "LfoPhysicsGranularTests.inc"
 #include "M4Tests.inc"
@@ -719,6 +720,7 @@ int main()
     timedRun ("runWarpTests", [] { runWarpTests(); });
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
+    timedRun ("runFrameBlendTests", [] { runFrameBlendTests(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });

@@ -203,7 +203,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
             oscCoreIds[(size_t) i] = { prefix + "_on", prefix + "_table", prefix + "_frame", prefix + "_level",
                                        prefix + "_pan", prefix + "_semi", prefix + "_fine", prefix + "_unison",
                                        prefix + "_detune", prefix + "_spread", prefix + "_spectral",
-                                       prefix + "_spectral_amt", prefix + "_chord", prefix + "_out" };
+                                       prefix + "_spectral_amt", prefix + "_chord", prefix + "_out",
+                                       prefix + "_frame_blend" };
 
             stringParamIds[(size_t) i] = { prefix + "_mode", prefix + "_excite", prefix + "_string_decay",
                                            prefix + "_string_damp", prefix + "_string_sustain",
@@ -1389,10 +1390,12 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         auto& settings = p.oscillators[(size_t) osc];
         const auto choice = (int) getParam (ids.table);
         p.oscillatorEnabled[(size_t) osc] = getParam (ids.on) > 0.5f;
+        settings.frameBlend = juce::jlimit (0, FrameBlend::count - 1, (int) getParam (ids.frameBlend));
         settings.table = p.oscillatorEnabled[(size_t) osc]
                              ? spectralCache->get (osc, choice, getTableForChoice (choice),
                                                    (int) getParam (ids.spectral),
-                                                   getParam (ids.spectralAmount))
+                                                   getParam (ids.spectralAmount),
+                                                   settings.frameBlend == FrameBlend::spectral)
                              : getTableForChoice (choice);
         settings.spectralMode = (int) getParam (ids.spectral);
         settings.spectralTable = choice;

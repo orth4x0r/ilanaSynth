@@ -1344,5 +1344,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addBool ("fx_awdelay_sync", "AW Delay Sync", false);
     addChoice ("fx_awdelay_div", "AW Delay Div", getSyncDivisionNames(), 3);
 
+    // FRAME BLEND: how a wavetable reads between two frames as its frame
+    // position moves (FrameBlend in dsp/Wavetable.h). Crossfade, as in every
+    // older patch.
+    {
+        juce::StringArray blends;
+        for (const auto* blendName : FrameBlend::names)
+            blends.add (blendName);
+
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            addChoice (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_frame_blend",
+                       "Osc" + juce::String (osc + 1) + " Frame Blend", blends, FrameBlend::crossfade);
+    }
+
     return layout;
 }

@@ -1181,7 +1181,7 @@ public:
         : processorRef (p),
           subShape (p.apvts, "sub_shape", "WAVE"),
           subOctave (p.apvts, "sub_octave", "OCTAVE"), noiseType (p.apvts, "noise_type", "TYPE")
-          , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "Manual tuning")
+          , symOn (p.apvts, "sym_on", "ON"), symManual (p.apvts, "sym_manual", "Manual tuning"), looseBoth (p.apvts, "tune_loose_both", "Sharp and flat")
           , symAmount (p.apvts, "sym_amount", "AMOUNT"), symDecay (p.apvts, "sym_decay", "DECAY")
           , symCount (p.apvts, "sym_count", "COUNT")
           , sbOn (p.apvts, "sb_on", "SOUNDBOARD"), sbModel (p.apvts, "sb_model", "MODEL"), sbMix (p.apvts, "sb_mix", "MIX"), sbTone (p.apvts, "sb_tone", "TONE")
@@ -1558,14 +1558,16 @@ public:
         // The oscillators' analogue drift (the vector pad's drift is WANDER:
         // UI review 6, I6-25).
         drift = std::make_unique<KnobControl> (p.apvts, "drift", "DRIFT");
+        // A random offset per note, up to 40 ct (LOOSE), sharp or flat or flat only.
+        tuneLoose = std::make_unique<KnobControl> (p.apvts, "tune_loose", "LOOSE");
         // The switch is the sub's alone, and says so; the noise has its
         // own level and colour beside it (V8-14, V8-15).
         subOscOn = std::make_unique<ToggleControl> (p.apvts, "subosc_on", "SUB");
         subOscLevel = std::make_unique<KnobControl> (p.apvts, "subosc_level", "LEVEL", IlanaTheme::accent(), true);
         noiseStrip = std::make_unique<KnobControl> (p.apvts, "noise_level", "LEVEL", IlanaTheme::Ui::text2, false);
         noiseColourStrip = std::make_unique<KnobControl> (p.apvts, "noise_color", "COLOUR", IlanaTheme::Ui::text2, false);
-        addChildComponents (subShape, subOctave, noiseType, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift,
-                            symOn, symAmount, symDecay, symCount, symManual,
+        addChildComponents (subShape, subOctave, noiseType, *subOscLevel, *noiseStrip, *noiseColourStrip, *subOscOn, *voiceSpread, *unisonRandom, *drift, *tuneLoose,
+                            symOn, symAmount, symDecay, symCount, symManual, looseBoth,
                             sbOn, sbModel, sbMix, sbTone, sbSize, stretch, pedalRes, mechKey, mechDamper, mechPedal);
         // The strings' six notes live in the tuning popover (MANUAL TUNING's chevron opens it).
         for (auto& note : symNotes)
@@ -1591,6 +1593,7 @@ public:
             box.setSelectedId (selectedId, juce::dontSendNotification);
         }
         symManual.setInlineLabel (true);
+        looseBoth.setInlineLabel (true);
         // (The one-row strip, ilana's mockup 2026-10-22: each card's name in its header, its switch at the header's right.)
         for (auto* group : { subOscOn.get(), &symOn, &sbOn })
             group->setBareSwitch (true);
@@ -1948,7 +1951,7 @@ private:
     static constexpr int addRowHeight = 18;
     // The strip: one row of cards (ilana's mockup, 2026-10-22), in design px.
     static constexpr int stripCardH = 130, stripHeaderH = 24, stripGap = 6, stripPad = 8, stripDial = 36, stripCell = 44,
-                         stripMenuW = 46, stripWrapLine = 16, stripDialTop = 36, stripLaneTop = 98, stripLaneH = 22;
+                         stripMenuW = 46, stripCellStereo = 42, stripWrapLine = 16, stripDialTop = 36, stripLaneTop = 98, stripLaneH = 22;
     static constexpr int wellWidth = 150, rowLabelWidth = 50, colGap = 6, rowGap = 4;
     static constexpr int sampleRowHeight = 48, sampleLabelWidth = 96, sampleColumns = 7, sampleWaveMin = 190;
 
@@ -3574,7 +3577,7 @@ private:
         laneLabels.clear();
 
         // The mockup's widths (152, 108, 102, 160, 160, 324 of 1006 px), to the page's width.
-        static constexpr int weights[] { 152, 108, 102, 160, 160, 324 };
+        static constexpr int weights[] { 182, 104, 102, 147, 147, 324 };
         static const char* const titles[] { "STEREO", "NOISE", "SUB", "STRINGS", "SOUNDBOARD", "KEYS" };
         const auto avail = (float) (stripArea.getWidth() - 5 * stripGap);
         std::array<juce::Rectangle<int>, 6> card;
@@ -3591,7 +3594,8 @@ private:
         for (const auto& [toggle, index] : { std::pair<ToggleControl*, size_t> { subOscOn.get(), 2 }, { &symOn, 3 }, { &sbOn, 4 } })
             toggle->setBounds ({ card[index].getRight() - stripPad - 26, card[index].getY() + (stripHeaderH - 14) / 2 + 1, 26, 14 });
 
-        placeStripRow (card[0], { voiceSpread.get(), unisonRandom.get(), drift.get() });
+        placeStripRow (card[0], { voiceSpread.get(), unisonRandom.get(), drift.get(), tuneLoose.get() }, stripCellStereo);
+        looseBoth.setBounds (card[0].withTrimmedLeft (stripPad).withTrimmedRight (stripPad).withTop (card[0].getY() + stripLaneTop).withHeight (stripLaneH).withSizeKeepingCentre (card[0].getWidth() - 2 * stripPad, 15));
         placeStripRow (card[1], { noiseStrip.get(), noiseColourStrip.get() });
         placeStripRow (card[2], { subOscLevel.get(), &subOctave }, 36);
         placeStripRow (card[3], { &symAmount, &symCount, &symDecay });
@@ -3681,7 +3685,7 @@ private:
     // The strip's controls in the packed size, like the cards'.
     void applyStripStyle()
     {
-        for (auto* knob : { voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(),
+        for (auto* knob : { voiceSpread.get(), unisonRandom.get(), drift.get(), tuneLoose.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(),
                             &symAmount, &symCount, &symDecay, &sbSize, &sbTone, &sbMix, &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
         {
             knob->setPackedDial ((float) stripDial);
@@ -3698,6 +3702,8 @@ private:
         }
         symManual.setPackedName (ToggleControl::NamePlace::right);
         symManual.setRightNameSize (stripNameText);
+        looseBoth.setPackedName (ToggleControl::NamePlace::right);
+        looseBoth.setRightNameSize (stripNameText);
         if (! tuneButton.getProperties().contains ("packedButton"))
             tuneButton.getProperties().set ("packedButton", true);
     }
@@ -3779,7 +3785,7 @@ private:
     std::vector<KnobControl*> stripKnobs()
     {
         std::vector<KnobControl*> knobs { voiceSpread.get(), unisonRandom.get(),
-                                          drift.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(), &symAmount,
+                                          drift.get(), tuneLoose.get(), noiseStrip.get(), noiseColourStrip.get(), subOscLevel.get(), &symAmount,
                                           &symDecay, &symCount, &sbMix, &sbTone, &sbSize, &stretch, &pedalRes, &mechKey,
                                           &mechDamper, &mechPedal };
         for (auto& note : symNotes)
@@ -4295,7 +4301,7 @@ private:
 
         // The strip.
         applyStripStyle();
-        for (auto* item : std::initializer_list<juce::Component*> { voiceSpread.get(), unisonRandom.get(), drift.get(), noiseStrip.get(), noiseColourStrip.get(),
+        for (auto* item : std::initializer_list<juce::Component*> { voiceSpread.get(), unisonRandom.get(), drift.get(), tuneLoose.get(), &looseBoth, noiseStrip.get(), noiseColourStrip.get(),
                                                                     &noiseType, subOscOn.get(), &subShape, subOscLevel.get(), &subOctave, &symOn, &symAmount,
                                                                     &symCount, &symDecay, &symManual, &sbOn, &sbModel, &sbSize, &sbTone, &sbMix,
                                                                     &stretch, &pedalRes, &mechKey, &mechDamper, &mechPedal })
@@ -4711,8 +4717,8 @@ private:
     bool chooserOpen = false;
 
     // Voice-wide settings that shape how the oscillators stack and drift.
-    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift;
-    ToggleControl symOn, symManual;
+    std::unique_ptr<KnobControl> voiceSpread, unisonRandom, drift, tuneLoose;
+    ToggleControl symOn, symManual, looseBoth;
     KnobControl symAmount, symDecay, symCount;
 
     // Acoustic keys (M4): soundboard, stretch tuning, pedal resonance and

@@ -326,6 +326,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addFloat ("glide", "Glide", 0.0f, 2.0f, 0.0f, 0.13f); // (skew 0.13: 10 ms sits at half the travel; most glides are 0-10 ms, the longer ones effects)
     addFloat ("bend_range", "Bend Range", 0.0f, 24.0f, 2.0f, 1.0f, 1.0f);
     addFloat ("drift", "Drift", 0.0f, 1.0f, 0.0f);
+    addFloat ("tune_loose", "Loose Tuning", 0.0f, 40.0f, 0.0f); // cents
+    addBool ("tune_loose_both", "Loose Tuning Both Ways", true);
 
     // Oscillator cross-modulation
     addFloat ("fm_amount", "FM Osc2 > Osc1", 0.0f, 1.0f, 0.0f);
@@ -410,6 +412,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (juce::String (prefix) + "_bridge_buzz", oscLabel + " Bridge Buzz", 0.0f, 1.0f, 0.0f);
         addFloat (juce::String (prefix) + "_fret_rattle", oscLabel + " Fret Rattle", 0.0f, 1.0f, 0.0f);
         addFloat (juce::String (prefix) + "_string_split", oscLabel + " String Split", 0.0f, 1.0f, 0.0f);
+        addFloat (juce::String (prefix) + "_string_click", oscLabel + " String Click", 0.0f, 1.0f, 1.0f);
         const auto id = juce::String (prefix);
 
         addBool (id + "_sample_tuned", oscLabel + " Sample Tuned", true);

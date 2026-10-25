@@ -210,7 +210,8 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
                                            prefix + "_string_stiffness", prefix + "_string_pickup", prefix + "_string_excite_pos",
                                            prefix + "_string_pick_hardness", prefix + "_string_pick_pos", prefix + "_string_slap" };
             bowBuzzIds[(size_t) i] = { prefix + "_bow_pressure", prefix + "_bow_speed",
-                                        prefix + "_bridge_buzz", prefix + "_fret_rattle", prefix + "_string_split" };
+                                        prefix + "_bridge_buzz", prefix + "_fret_rattle", prefix + "_string_split",
+                                        prefix + "_string_click" };
             keysParamIds[(size_t) i] = { prefix + "_hammer_hard", prefix + "_couple",
                                           prefix + "_damper", prefix + "_register" };
             electricParamIds[(size_t) i] = { prefix + "_ep_distance", prefix + "_ep_position" };
@@ -1508,6 +1509,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     p.ringMod = getParam ("ring_mod");
     p.hardSync = getParam ("hard_sync") > 0.5f;
     p.drift = getParam ("drift");
+    p.tuneLoose = getParam ("tune_loose");
+    p.tuneLooseBoth = getParam ("tune_loose_both") > 0.5f;
 
     // FM matrix [source][target]; OSC 2 > 1 and OSC 1 feedback are the
     // original FM Amount and FM Feedback.
@@ -1556,6 +1559,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         osc.bridgeBuzz = getParam (extras[2]);
         osc.fretRattle = getParam (extras[3]);
         osc.stringSplit = getParam (extras[4]);
+        osc.stringClick = getParam (extras[5]);
         const auto& keys = keysParamIds[(size_t) oscIndex];
         osc.hammerHardness = getParam (keys[0]);
         osc.couple = getParam (keys[1]);

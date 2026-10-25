@@ -161,7 +161,7 @@ public:
         addAndMakeVisible (picker);
         styleFmLink (pitchLfoLink, juce::String::fromUTF8 ("OP PITCH \xc2\xb7 OP LFO"));
         pitchLfoLink.setTooltip ("The Operator Env's pitch envelope (OP PITCH) and LFO (OP LFO), for the whole voice: every "
-                                 "oscillator on the Operator Env follows them. Edited in MOD's pools, with TRANSPOSE and SCALE SHIFT.");
+                                 "oscillator on the Operator Env follows them. Click: their editors, by their chips in the dock.");
         pitchLfoLink.onClick = [] { FmOperatorInfo::openPitchAndLfo(); };
         addChildComponent (pitchLfoLink);
         // An oscillator of another type: one click makes it an FM / DX7
@@ -245,7 +245,7 @@ public:
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
             // One short hint, the same on every type (I15-11); the longer
             // sentence is ENVELOPE's tooltip.
-            IlanaTheme::drawFitted (g, isFmType (selectedOperator) ? "Edit the envelope on MOD or PLAY."
+            IlanaTheme::drawFitted (g, isFmType (selectedOperator) ? "Edit the envelope on PLAY."
                                                                     : "Ratio and OP ENV are for FM / DX7 oscillators.",
                                     ampHint.withTrimmedRight (makeOperator.isVisible() ? makeOperator.getWidth() + 6 : 0),
                                     juce::Justification::centredLeft, 3);
@@ -556,8 +556,8 @@ private:
 
             if (selected)
             {
-                const auto tip = isFmType (op) ? juce::String ("Envelope\nEdit it on MOD or PLAY, or pick OP ENV for a DX7 envelope here.")
-                                               : juce::String ("Envelope\nEdit it on MOD or PLAY. Ratio tuning and OP ENV are FM / DX7's: switch this oscillator to FM / DX7 to use them.");
+                const auto tip = isFmType (op) ? juce::String ("Envelope\nEdit it on PLAY (ENVELOPE's EDIT), or pick OP ENV for a DX7 envelope here.")
+                                               : juce::String ("Envelope\nEdit it on PLAY (ENVELOPE's EDIT). Ratio tuning and OP ENV are FM / DX7's: switch this oscillator to FM / DX7 to use them.");
                 controls.ampEnv.setTooltip (tip);
                 controls.ampEnv.getComboBox().setTooltip (tip);
             }

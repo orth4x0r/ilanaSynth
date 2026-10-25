@@ -2808,12 +2808,15 @@ int runUiTests()
             auto pitchShown = false;
             for (auto* candidate : graphs)
                 pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
-            expect (pitchShown, "OP PITCH · OP LFO opens the pitch envelope's graph");
-            // The link left MOD on OP PITCH: back to OP ENV, where the voice
-            // opened it.
-            if (auto* page = pages->getCurrentPage())
-                if (auto* envCards = findChild<EnvThumbBar> (*page); envCards != nullptr && envCards->onSelect != nullptr)
-                    envCards->onSelect (16);
+            expect (pitchShown && pages->getCurrentPageId() == "MAIN", "OP PITCH · OP LFO opens the pitch envelope's graph in its pop-up on PLAY");
+            // (Closed again: its cross.)
+            findAll<juce::TextButton> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && visibleInTree (button))
+                {
+                    button->triggerClick();
+                    break;
+                }
             settle (200);
 
             // The MOD pools carry OP ENV, OP PITCH and OP LFO as pool cards,
@@ -8969,6 +8972,35 @@ int main (int argc, char** argv)
                 settle (400);
                 save (*editor, outDir.getChildFile ("play-stereo-popup.png"));
                 click ("STEREO");
+                // OP PITCH (FM's link, UI review 25): its own editor in the pop-up on PLAY, by its dock chip.
+                set ("osc1_amp_env", (float) OperatorEg::envelopeChoice);
+                settle (500);
+                FmOperatorInfo::openPitchAndLfo();
+                settle (500);
+                save (*editor, outDir.getChildFile ("play-op-pitch-popup.png"));
+                {
+                    std::vector<ModSourceChip*> dockChips;
+                    findAll<ModSourceChip> (*editor, dockChips);
+                    for (auto* chip : dockChips)
+                        if (chip->getSourceIndex() == (int) Mod::Source::OpLfo && visibleInTree (chip) && chip->onClick != nullptr)
+                        {
+                            chip->onClick (*chip);
+                            break;
+                        }
+                    settle (500);
+                    save (*editor, outDir.getChildFile ("play-op-lfo-popup.png"));
+                }
+                {
+                    std::vector<juce::TextButton*> buttons;
+                    findAll<juce::TextButton> (*editor, buttons);
+                    for (auto* button : buttons)
+                        if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && visibleInTree (button))
+                        {
+                            button->triggerClick();
+                            break;
+                        }
+                }
+                set ("osc1_amp_env", 0.0f);
                 set ("filters_parallel", 0.0f);
                 set ("f2_type", 0.0f);
                 set ("sym_on", 0.0f);

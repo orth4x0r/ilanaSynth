@@ -461,11 +461,20 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             fmPage->selectOperator (osc);
         showPage ("FM");
     };
-    FmOperatorInfo::hooks().openPitchAndLfo = [this, envLfoPage]
+    // OP PITCH and OP LFO: their pop-up editors by their dock chips, on PLAY (UI review 25: the MOD page has no tab now).
+    FmOperatorInfo::hooks().openPitchAndLfo = [this, playPage]
     {
-        envLfoPage->selectEnvelope (17);
-        envLfoPage->selectLfo (IlanaSynthAudioProcessor::numLfos + 2);
-        showPage ("ENV/LFO");
+        showPage ("MAIN");
+        if (getSourcePopoverSource() == (int) Mod::Source::OpPitchEnv)
+            return;
+        for (auto& chip : chips)
+            if (chip->getSourceIndex() == (int) Mod::Source::OpPitchEnv && chip->isShowing())
+            {
+                toggleSourcePopover (chip->getSourceIndex(), *chip);
+                return;
+            }
+        // (No chip in the dock's row: by PLAY's ENVELOPE card.)
+        toggleSourcePopover ((int) Mod::Source::OpPitchEnv, playPage->getEnvelopeCard());
     };
 
     // The scope floats over any page.
@@ -810,7 +819,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     content.addChildComponent (chipTray);
 
     moreChipsButton.setButtonText ("+");
-    moreChipsButton.setTooltip ("Add an LFO or envelope: it joins the pool on MOD > ENV / LFO and gets a chip here to drag.");
+    moreChipsButton.setTooltip ("Add an LFO or envelope: it gets a chip here to drag, and a pill on PLAY's ENVELOPE or LFO card.");
     moreChipsButton.onClick = [this] { showChipPicker(); };
     content.addChildComponent (moreChipsButton);
 

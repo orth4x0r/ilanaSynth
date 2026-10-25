@@ -737,7 +737,7 @@ inline const HelpRow helpRows[] {
     { is ("opeg_pitch_l4"), "END: the pitch envelope's level 4, in semitones from the note (the DX7's pitch L4, "
       "0-99: 50 is the note, 0 and 99 about four octaves down and up). Moves every ratio oscillator on the Operator Env." },
     { osc ("_eg_out"), "Level on the Operator Env. This is the DX7's OUTPUT LEVEL, 0-99: how loud a carrier is, how deep "
-      "a modulator modulates, in dB below 99. The oscillator's VOICE LEVEL (OSC page) scales it on top (50 % plays it as set)." },
+      "a modulator modulates, in dB below 99. The oscillator's VOICE LEVEL (its card on PLAY) scales it on top (50 % plays it as set)." },
     { osc ("_eg_break"), "Keyboard scaling's centre key. This is the DX7's BREAK POINT: LOW and HIGH DEPTH change the level below and above it." },
     { osc ("_eg_ldepth"), "Low-side level change. It follows LOW CURVE and shows the change an octave below SCALE KEY "
       "(the DX7's LEFT DEPTH, 0-99)." },
@@ -1026,13 +1026,13 @@ inline const HelpRow helpRows[] {
     { ends ("_src").also (starts ("mod")), "Modulation source." },
     { ends ("_dst").also (starts ("mod")), "Target of the modulation." },
     { ends ("_amt").also (starts ("mod")), "Depth. Negative values invert the modulation." },
-    { ends ("_level1|_level2|_level3|_level4").also (starts ("mseg_")), "MSEG point level. Drag the editor in MOD > STEPS & MSEG." },
+    { ends ("_level1|_level2|_level3|_level4").also (starts ("mseg_")), "MSEG point level. Drag the points in the MSEG's editor (its chip in the dock)." },
     { ends ("_time1|_time2|_time3|_time4").also (starts ("mseg_")), "MSEG segment length (relative)." },
     { is ("mseg_rate"), "Speed of the multi-segment envelope." },
     { is ("mseg_loop"), "Loop the shape, or hold the last point." },
     { is ("clock_div"), "Tempo-synced rate of the Clocked S&H random source." },
     // Macros
-    { starts ("macro"), "Assign in MOD > MATRIX, or drive it with MIDI CC 20-23." },
+    { starts ("macro"), "Assign in MATRIX, or drive it with MIDI CC 20-23." },
     // Arp
     { is ("arp_on"), "Plays held notes as a pattern. Off = normal playing. While PROB SEQ is on it plays instead." },
     { is ("arp_mode"), "The order held notes play in: up, down, both ways, random, converging, a random walk, all at once "
@@ -1077,7 +1077,7 @@ inline const HelpRow helpRows[] {
       "unchanged); a soloed effect is heard alone." },
     { is ("fx_patcher"), "PATCHER: the rack's effects as boxes you wire with cables, output to input. Parallel branches, "
       "loops (each with a 1.3 ms delay) and several of the same effect. Off: SERIES or PARALLEL." },
-    { is ("route_cables"), "ROUTING cables (FILTER tab): each oscillator goes where its cables go (Filter 1, Filter 2, WEST, "
+    { is ("route_cables"), "ROUTING cables (PATCH): each oscillator goes where its cables go (Filter 1, Filter 2, WEST, "
       "straight out, or several at once), and the cables between the filters and WEST set their order. "
       "Off: the fixed chain (each oscillator's route, SERIAL / PARALLEL, WEST's position)." },
     { starts ("cable_"), "Where this oscillator, filter, WEST or the physical BODY sends its signal, as the PATCH tab draws it. "
@@ -1129,7 +1129,7 @@ inline const HelpRow helpRows[] {
     { is ("fx_ring_freq|fx_ring_mix"), "Ring modulation with an internal carrier oscillator." },
     { is ("fx_octaver_mix"), "Octaver: blends in an octave-down granulated layer." },
     { is ("fx_vowel_morph|fx_vowel_mix"), "Vowel filter: morphs A-E-I-O-U formant shapes." },
-    { is ("fx_filter_type"), "The filter model: any of the FILTER page's types, run once on the effects' sound. In a PATCH loop it filters "
+    { is ("fx_filter_type"), "The filter model: any of the filter types, run once on the effects' sound. In a PATCH loop it filters "
       "what comes back round." },
     { is ("fx_filter_slope"), "12 or 24 dB per octave, for the classic types (the others have their own)." },
     { is ("fx_filter_cutoff"), "Where the filter cuts or rings. Glides over about 20 ms, so sweeping it doesn't click." },

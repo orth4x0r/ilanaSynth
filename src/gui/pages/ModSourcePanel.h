@@ -712,7 +712,7 @@ private:
         if (s == S::Aftertouch) return "Pressure: channel or polyphonic aftertouch, and MPE pressure.";
         if (s == S::Random) return "A new random value for each note.";
         if (Mod::macroIndexFor (s) >= 0) return "A macro knob in the dock: one knob that moves every route it drives.";
-        return "A modulation source. Its settings, if it has any, are on MOD.";
+        return "A modulation source. Its settings, if it has any, open from its chip in the dock.";
     }
 
     // An envelope nothing plays dims, and says so over its graph (UI review
@@ -845,8 +845,10 @@ public:
 
         const auto s = (Mod::Source) source;
         const auto lfo = Mod::lfoIndexFor (s);
-        const auto lfoCard = lfo >= 0 ? lfo : s == Mod::Source::Mseg ? LfoSection::msegId : s == Mod::Source::ClockSh ? LfoSection::clockId : -1;
-        const auto env = SourceEditor::envelopeOf (source);
+        const auto lfoCard = lfo >= 0 ? lfo : s == Mod::Source::Mseg ? LfoSection::msegId : s == Mod::Source::ClockSh ? LfoSection::clockId
+                                                : s == Mod::Source::OpLfo ? LfoSection::opLfoId : -1;
+        // (OP PITCH is the envelope section's Operator Env pitch card.)
+        const auto env = s == Mod::Source::OpPitchEnv ? EnvSection::opPitchId : SourceEditor::envelopeOf (source);
         kind = lfoCard >= 0 ? Kind::lfo : env >= 0 ? Kind::envelope : Kind::other;
 
         if (kind == Kind::lfo)
@@ -894,13 +896,17 @@ public:
     static constexpr int padding = 4, sideInset = 14, bottomInset = 14;
     static constexpr int compactHeader = 26, compactInset = 8, compactTop = 6, routesGap = 6;
     static constexpr int envCardWidth = 330, lfoCardWidth = 410; // (410: five switch pills in the LFO column at the real fonts)
+    // (OP PITCH's and OP LFO's DX7 editors: the graph and every knob with its whole name.)
+    static constexpr int operatorHeight = 180, operatorWidth = 760;
 
     juce::Point<int> preferredSize() const
     {
         if (kind == Kind::other)
             return { preferredWidth, preferredHeight };
-        const auto editorHeight = kind == Kind::lfo ? (lfoSection != nullptr ? lfoSection->compactHeight() : 120) : EnvSection::compactHeight;
-        return { 2 * padding + (kind == Kind::lfo ? lfoCardWidth : envCardWidth),
+        const auto opPitch = kind == Kind::envelope && source == (int) Mod::Source::OpPitchEnv;
+        const auto operatorSource = opPitch || source == (int) Mod::Source::OpLfo;
+        const auto editorHeight = operatorSource ? operatorHeight : kind == Kind::lfo ? (lfoSection != nullptr ? lfoSection->compactHeight() : 120) : EnvSection::compactHeight;
+        return { 2 * padding + (operatorSource ? operatorWidth : kind == Kind::lfo ? lfoCardWidth : envCardWidth),
                  2 * padding + compactHeader + compactTop + editorHeight + routesGap + routesHeight() + compactInset };
     }
 

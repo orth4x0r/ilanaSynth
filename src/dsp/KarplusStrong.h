@@ -168,6 +168,13 @@ public:
     // The second vibration direction of a plucked string (0 = off, the plain
     // single loop): a real string also moves sideways, a hair out of tune,
     // and the two beat against each other as the note decays.
+    // How much of the raw pluck snap the pickup hears at each note start
+    // (1 = all of it, the plain string; 0 = none, a clean pluck).
+    void setClick (float amount)
+    {
+        click = juce::jlimit (0.0f, 1.0f, amount);
+    }
+
     void setSplit (float amount)
     {
         split = juce::jlimit (0.0f, 1.0f, amount);
@@ -323,6 +330,18 @@ public:
                 smooth += (value - smooth) * smoothing;
                 buffer[(size_t) (first + i)] = pickHardness < 1.0f ? smooth : value;
             }
+
+            // The pickup hears the string `period * position` behind the loop's
+            // read point, which at the start of a note is the buffer before the
+            // shaped cycle: the raw burst there is the sharp slap a real
+            // string never makes. Play the shaped cycle there instead; CLICK
+            // brings the raw burst back (1, as before) for a harder snap.
+            if (click < 1.0f)
+                for (int i = first - 1; i >= 0; --i)
+                {
+                    const auto shapedCycle = buffer[(size_t) (i + period)];
+                    buffer[(size_t) i] = shapedCycle + click * (buffer[(size_t) i] - shapedCycle);
+                }
         }
 
         writePosition = writePositionB = 0;
@@ -1341,6 +1360,7 @@ private:
     int writePositionB = 0;
     float lowpassStateB = 0.0f;
     float split = 0.0f;
+    float click = 1.0f;
     double horizontalLoopDelay = 0.0;
     Excite excite = Excite::Burst;
     ElectricPiano electric;

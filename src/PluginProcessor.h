@@ -1104,7 +1104,7 @@ private:
     mutable juce::SpinLock tableLock;
 
     std::array<std::array<ParamRef, 11>, OscillatorIds::count> stringParamIds;
-    std::array<std::array<ParamRef, 5>, OscillatorIds::count> bowBuzzIds;
+    std::array<std::array<ParamRef, 6>, OscillatorIds::count> bowBuzzIds;
     std::array<std::array<ParamRef, 4>, OscillatorIds::count> keysParamIds;
     std::array<std::array<ParamRef, 2>, OscillatorIds::count> electricParamIds;
     std::array<std::array<ParamRef, 2>, OscillatorIds::count> feedbackParamIds;

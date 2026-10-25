@@ -369,6 +369,15 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         baseFrequency *= std::exp2 (cents / 1200.0);
     }
 
+    // A hand-tuned instrument is never quite in tune: each note lands up to
+    // 40 cents off, a fresh draw every time (sharp or flat, or flat only).
+    if (params.tuneLoose > 0.0f)
+    {
+        const auto draw = driftRandom.nextFloat();
+        const auto shift = params.tuneLooseBoth ? draw * 2.0f - 1.0f : -draw;
+        baseFrequency *= std::exp2 ((double) shift * (double) params.tuneLoose / 1200.0);
+    }
+
     pitchNote = midiNoteNumber;
     keyTrackValue = juce::jlimit (-1.0f, 1.0f, (float) (midiNoteNumber - 60) / 48.0f);
     keyTrackOctaves = (float) (midiNoteNumber - 60) / 12.0f;
@@ -3545,6 +3554,7 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
                               settings.stringPickPosition, settings.stringSlap);
     string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setSplit (settings.stringSplit);
+    string.setClick (settings.stringClick);
     string.setKeysParams (settings.hammerHardness, settings.damper);
     string.setEco (params.quality == 0);
     string.setFeedbackParams (settings.fbGain, settings.fbDistance);

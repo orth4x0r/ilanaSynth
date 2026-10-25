@@ -8957,6 +8957,12 @@ int main (int argc, char** argv)
                 click ("PLAY LFO EDIT");
                 settle (500);
                 save (*editor, outDir.getChildFile ("play-edit-lfo-popup.png"));
+                // A simulated shape: TRIGGER, FIRE and every knob in the compact pop-up.
+                set ("lfo1_shape", (float) LfoSimShapes::Pendulum);
+                settle (500);
+                save (*editor, outDir.getChildFile ("play-edit-lfo-sim-popup.png"));
+                set ("lfo1_shape", 0.0f);
+                settle (300);
                 click ("PLAY LFO EDIT");
                 settle (300);
                 click ("STEREO");

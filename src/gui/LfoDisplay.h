@@ -1234,7 +1234,7 @@ private:
         const auto scope = LfoSimPreview::scopeArea (getLocalBounds().toFloat().reduced (10.0f, 8.0f), settings.shape);
 
         for (const auto outputB : { false, true })
-            if (LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (info, settings.axis, outputB), outputB).contains (position))
+            if (LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (info, settings.axis, outputB, scope.getWidth()), outputB).contains (position))
                 return outputB ? 1 : 0;
 
         return -1;
@@ -1246,7 +1246,7 @@ public:
     {
         const auto settings = processorRef.readLfoSimSettings (index);
         const auto scope = LfoSimPreview::scopeArea (getLocalBounds().toFloat().reduced (10.0f, 8.0f), settings.shape);
-        return LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (LfoSimInfo::get (settings.shape), settings.axis, output == 1),
+        return LfoSimPreview::outputTagBounds (scope, LfoSimPreview::outputTagText (LfoSimInfo::get (settings.shape), settings.axis, output == 1, scope.getWidth()),
                                                output == 1);
     }
 

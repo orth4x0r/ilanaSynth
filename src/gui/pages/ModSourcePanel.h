@@ -806,8 +806,8 @@ private:
 // showing, so a source is shaped and its depths set beside the knobs it
 // drives. An LFO, an envelope, the MSEG and the Clocked S&H get their full
 // editor, every setting MOD had (ilana, 2026-10-25: "integrate all settings
-// in the pop up"), an envelope's over the DRIVES list; anything else the
-// short editor.
+// in the pop up") laid out compact, over the DRIVES list; anything else
+// the short editor.
 // The header drags it anywhere in the page area; the cross, Escape or a
 // second click on the chip closes it. While it is open its source is
 // pinned (the knobs it drives stay lit).
@@ -854,7 +854,13 @@ public:
             if (lfoSection == nullptr)
             {
                 lfoSection = std::make_unique<LfoSection> (processorRef, settings);
-                lfoSection->setPoolHidden (true);
+                lfoSection->setCompact (true);
+                lfoSection->onCompactSizeChanged = [this]
+                {
+                    resized();
+                    if (onSizeChanged != nullptr)
+                        onSizeChanged();
+                };
                 addChildComponent (*lfoSection);
             }
             lfoSection->select (lfoCard);
@@ -864,7 +870,7 @@ public:
             if (envSection == nullptr)
             {
                 envSection = std::make_unique<EnvSection> (processorRef, settings);
-                envSection->setPoolHidden (true);
+                envSection->setCompact (true);
                 addChildComponent (*envSection);
             }
             envSection->select (env);
@@ -875,24 +881,27 @@ public:
             lfoSection->setVisible (kind == Kind::lfo);
         if (envSection != nullptr)
             envSection->setVisible (kind == Kind::envelope);
-        // (An LFO's editor lists its routes itself, in its card.)
-        routes.setVisible (kind == Kind::envelope);
-        if (kind == Kind::envelope)
+        routes.setVisible (kind != Kind::other);
+        if (kind != Kind::other)
             routes.setSource (source, modSourceColour (source));
         resized();
         repaint();
     }
 
-    // The short editor's size; the full ones as wide as MOD's page, as tall as their editor row and DRIVES.
+    // The short editor's size; the full ones compact (ilana's mockup, 2026-10-25): an envelope's card
+    // 330 wide, an LFO's 400, as tall as their controls and DRIVES.
     static constexpr int preferredWidth = 620, preferredHeight = 340, headerHeight = 38;
-    static constexpr int fullWidth = 1000, lfoEditorHeight = 232, padding = 4, sideInset = 14, bottomInset = 14, routesGap = 8;
+    static constexpr int padding = 4, sideInset = 14, bottomInset = 14;
+    static constexpr int compactHeader = 26, compactInset = 8, compactTop = 6, routesGap = 6;
+    static constexpr int envCardWidth = 330, lfoCardWidth = 410; // (410: five switch pills in the LFO column at the real fonts)
 
     juce::Point<int> preferredSize() const
     {
         if (kind == Kind::other)
             return { preferredWidth, preferredHeight };
-        const auto editorHeight = kind == Kind::lfo ? lfoEditorHeight : EnvSection::editorHeight + routesGap + routesHeight();
-        return { fullWidth, 2 * padding + headerHeight + editorHeight + bottomInset };
+        const auto editorHeight = kind == Kind::lfo ? (lfoSection != nullptr ? lfoSection->compactHeight() : 120) : EnvSection::compactHeight;
+        return { 2 * padding + (kind == Kind::lfo ? lfoCardWidth : envCardWidth),
+                 2 * padding + compactHeader + compactTop + editorHeight + routesGap + routesHeight() + compactInset };
     }
 
     // Above the chip it came from, inside the page area; where it was
@@ -918,42 +927,46 @@ public:
         const auto colour = modSourceColour (source);
         IlanaTheme::paintCard (g, bounds, 10.0f, colour.withAlpha (0.55f));
 
-        auto header = bounds.toNearestInt().reduced (16, 0).removeFromTop (headerHeight);
+        auto header = bounds.toNearestInt().reduced (kind == Kind::other ? 16 : 10, 0).removeFromTop (kind == Kind::other ? headerHeight : compactHeader);
         const auto count = modRouteCount (processorRef, source);
-        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (source, &processorRef),
-                                     count == 0 ? juce::String ("drag its chip onto a knob") : juce::String (count) + (count == 1 ? " route" : " routes"),
-                                     colour, 200);
+        const auto lfo = Mod::lfoIndexFor ((Mod::Source) source);
+        // (Compact, DRIVES counts the routes: the header says what the source is doing.)
+        const auto caption = kind == Kind::envelope ? juce::String ("drag the graph or the knobs")
+                             : kind == Kind::lfo && lfo >= 0 ? LfoShapeMenu::runCaption (processorRef, lfo)
+                             : count == 0 ? juce::String ("drag its chip onto a knob") : juce::String (count) + (count == 1 ? " route" : " routes");
+        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (source, &processorRef), caption, colour, 200);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (padding);
-        auto header = area.removeFromTop (headerHeight).reduced (12, 0).withSizeKeepingCentre (area.getWidth() - 24, 22);
-        closeButton.setBounds (header.removeFromRight (24));
-        auto body = area.reduced (sideInset, 0).withTrimmedBottom (bottomInset);
         if (kind == Kind::other)
         {
-            editor.setBounds (body);
+            auto header = area.removeFromTop (headerHeight).reduced (12, 0).withSizeKeepingCentre (area.getWidth() - 24, 22);
+            closeButton.setBounds (header.removeFromRight (24));
+            editor.setBounds (area.reduced (sideInset, 0).withTrimmedBottom (bottomInset));
             return;
         }
+        // One title (the pop-up's), then the editor and DRIVES as one line under it.
+        const auto header = area.removeFromTop (compactHeader);
+        closeButton.setBounds (juce::Rectangle<int> (18, 18).withCentre ({ header.getRight() - 6 - 9, header.getCentreY() }));
+        auto body = area.reduced (compactInset, 0).withTrimmedBottom (compactInset).withTrimmedTop (compactTop);
+        routes.setBounds (body.removeFromBottom (routesHeight()));
+        body.removeFromBottom (routesGap);
         if (kind == Kind::lfo && lfoSection != nullptr)
             lfoSection->setBounds (body);
         if (kind == Kind::envelope && envSection != nullptr)
-        {
-            routes.setBounds (body.removeFromBottom (routesHeight()));
-            body.removeFromBottom (routesGap);
             envSection->setBounds (body);
-        }
     }
 
     void mouseMove (const juce::MouseEvent& event) override
     {
-        setMouseCursor (event.y < headerHeight + 4 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+        setMouseCursor (event.y < headerBottom() ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
     }
 
     void mouseDown (const juce::MouseEvent& event) override
     {
-        dragging = event.y < headerHeight + 4;
+        dragging = event.y < headerBottom();
         dragStart = getPosition();
     }
 
@@ -983,6 +996,8 @@ public:
 
 private:
     enum class Kind { lfo, envelope, other };
+
+    int headerBottom() const { return padding + (kind == Kind::other ? headerHeight : compactHeader); }
 
     // DRIVES folded to its header line, or open to its whole list (up to 200 px).
     int routesHeight() const

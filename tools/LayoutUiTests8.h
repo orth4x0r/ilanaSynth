@@ -75,8 +75,8 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         const auto folded = knobFor (osc3 + "_level") != nullptr && toggleFor (osc3 + "_on") != nullptr;
         expect (folded, "PLAY: switched-off OSC 3 keeps its whole card (knobs shown, dimmed) and its switch");
         auto* add = buttonNamed ("+  ADD OSC 4");
-        // (Three cards fill the stack: no add row until a slot is free.)
-        expect (add == nullptr, "PLAY: no + ADD OSC 4 row while three oscillator cards fill the stack");
+        // (Three cards fill the stack; the add row sits under them and the area scrolls to it, ilana 2026-10-23.)
+        expect (add != nullptr, "PLAY: a + ADD OSC 4 row under three oscillator cards");
         expect (level1 != nullptr && level1->getHeight() >= 40,
                 "PLAY: a strip's knobs keep their full height, rings clear of the value (" + juce::String (level1 != nullptr ? level1->getHeight() : 0) + " px)");
         (void) pitch;

@@ -3,7 +3,16 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <complex>
+#include <memory>
 #include <vector>
+
+// How an oscillator reads between two frames as its frame position moves
+// (oscN_frame_blend). Crossfade is what every older patch does.
+namespace FrameBlend
+{
+inline constexpr int crossfade = 0, spectral = 1, stepped = 2, count = 3;
+inline constexpr const char* names[count] { "Crossfade", "Spectral", "Stepped" };
+} // namespace FrameBlend
 
 class Wavetable
 {
@@ -45,7 +54,17 @@ public:
 
     // Detected period in samples (fractional), or 0 if the audio is unpitched.
     static double detectPeriod (const float* audio, int numSamples, double sampleRate);
-    void buildFromFrames (const std::vector<std::vector<float>>& frames);
+    // normalise scales the whole table to a peak of 1; a table derived from
+    // an already normalised one passes false so its frames keep their level.
+    void buildFromFrames (const std::vector<std::vector<float>>& frames, bool normalise = true);
+
+    // FRAME BLEND Spectral: a copy of source with in-between frames whose
+    // harmonics glide from one frame to the next (each harmonic's level moves
+    // in a straight line, its phase turns the short way round), so a frame
+    // sweep morphs without the thinning a plain crossfade gives where two
+    // frames' phases disagree. Position 0..1 still lands on the same source
+    // frames. nullptr for a table of fewer than two frames.
+    static std::unique_ptr<Wavetable> makeSpectralBlend (const Wavetable& source);
 
     int getNumFrames() const noexcept { return numFrames; }
 
@@ -67,7 +86,7 @@ public:
     void setName (juce::String newName) { name = std::move (newName); }
 
 private:
-    void buildLevels (const std::vector<std::vector<float>>& frames);
+    void buildLevels (const std::vector<std::vector<float>>& frames, bool normalise);
 
     int numFrames = 0;
     juce::String name;

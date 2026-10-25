@@ -955,6 +955,10 @@ inline const HelpRow helpRows[] {
     { ends ("_grain_pos"), "Where in the sample the grains are taken from." },
     { ends ("_grain_scan"), "Moves the position by itself: 1x is the sample's speed." },
     { ends ("_grain_freeze"), "Holds the cloud in place until you let go." },
+    { ends ("_frame_blend"), "How the wave changes as FRAME moves between two frames. Crossfade mixes them; where their "
+      "phases disagree the middle can sound thinner. Spectral glides each harmonic's level and phase from one frame "
+      "to the next, so a sweep morphs smoothly at full strength. Stepped jumps from frame to frame with no blend, "
+      "for a choppy, stepped sweep." },
     { ends ("_spectral"), "Reshapes the harmonics, not the waveform. Stretch pulls them apart into bells and "
       "metal, Shift moves them all up for hollow ring-mod tones, Odd/Even keeps odd then even harmonics, "
       "Formant moves the vowel without changing pitch, Smear blurs them into a haze, Harmonic Cut keeps only "

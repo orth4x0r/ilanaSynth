@@ -181,6 +181,9 @@ public:
             return;
         }
 
+        if (valueLineHidden) // (something else sits there: VOICES' STEREO tag)
+            return;
+
         const auto routed = macroIndex >= 0 && routedTargets > 0 && ! hover;
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (routed ? IlanaTheme::font (IlanaTheme::TextSize::label)
@@ -332,6 +335,25 @@ public:
 private:
     // The knob's cell (the ring inside is 8 px smaller: a 30 px dial).
     static constexpr int knobBox = 38;
+
+public:
+    // The second line (the value) left to another control laid over it.
+    void setValueLineHidden (bool hidden)
+    {
+        valueLineHidden = hidden;
+        repaint();
+    }
+
+    // Where the second line sits, in the parent's coordinates.
+    juce::Rectangle<int> valueLineBounds() const
+    {
+        auto text = textArea();
+        text.removeFromTop (text.getHeight() / 2);
+        return text + getPosition();
+    }
+
+private:
+    bool valueLineHidden = false;
 
     juce::Rectangle<int> textArea() const
     {

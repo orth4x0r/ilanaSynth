@@ -804,7 +804,7 @@ private:
 // The dock's pop-out editor: a click on a source chip opens it above the
 // dock on whatever page is showing, so a source is shaped and its depths
 // set beside the knobs it drives. The header drags it anywhere in the page
-// area; OPEN IN MOD jumps to the full editor; the cross, Escape or a second
+// area; ALL SETTINGS jumps to the full editor; the cross, Escape or a second
 // click on the chip closes it. While it is open its source is pinned (the
 // knobs it drives stay lit).
 class SourcePopover : public juce::Component
@@ -818,8 +818,8 @@ public:
         closeButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")));
         closeButton.setTooltip ("Close (Escape, or click the source's chip again)");
         closeButton.onClick = [this] { if (onClose != nullptr) onClose(); };
-        openButton.setButtonText (juce::String::fromUTF8 ("OPEN IN MOD \xe2\x80\xba"));
-        openButton.setTooltip ("This source's full editor on MOD > ENV / LFO, with its rarer settings");
+        openButton.setButtonText (juce::String::fromUTF8 ("ALL SETTINGS \xe2\x80\xba"));
+        openButton.setTooltip ("This source's full editor, with its rarer settings, on its own page (PLAY's tab brings you back)");
         openButton.onClick = [this] { if (onOpenInMod != nullptr) onOpenInMod (editor.getSource()); };
         addAndMakeVisible (closeButton);
         addAndMakeVisible (openButton);

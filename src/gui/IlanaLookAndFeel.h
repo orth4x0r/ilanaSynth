@@ -1129,11 +1129,15 @@ public:
 
     int getTabButtonBestWidth (juce::TabBarButton& button, int) override
     {
+        if (button.getProperties()["hiddenTab"]) // (a page behind the row: no button)
+            return 0;
         return juce::GlyphArrangement::getStringWidthInt (juce::Font (tabFont()), button.getButtonText()) + 22;
     }
 
     void drawTabButton (juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool isMouseDown) override
     {
+        if (button.getProperties()["hiddenTab"])
+            return;
         const auto bounds = button.getLocalBounds().toFloat();
         const auto active = button.getToggleState();
         const auto hover = animatedHover (&button, isMouseOver || isMouseDown, 14.0f);

@@ -8954,6 +8954,11 @@ int main (int argc, char** argv)
                 save (*editor, outDir.getChildFile ("play-edit-popup.png"));
                 click ("PLAY envelope EDIT");
                 settle (300);
+                click ("PLAY LFO EDIT");
+                settle (500);
+                save (*editor, outDir.getChildFile ("play-edit-lfo-popup.png"));
+                click ("PLAY LFO EDIT");
+                settle (300);
                 click ("STEREO");
                 settle (400);
                 save (*editor, outDir.getChildFile ("play-stereo-popup.png"));

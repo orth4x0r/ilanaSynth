@@ -1264,8 +1264,8 @@ public:
             box.changeItemText (3, "Body" + arrow + "string");
             box.setSelectedId (selectedId, juce::dontSendNotification);
         }
-        for (const auto& spec : { std::pair<const char*, const char*> { "res_amount", "AMOUNT" }, { "body_coupling", "COUPLE" }, { "body_material", "MATERIAL" },
-                                  { "body_size", "SIZE" } })
+        for (const auto& spec : { std::pair<const char*, const char*> { "res_amount", "AMOUNT" }, { "res_decay", "DECAY" }, { "body_coupling", "COUPLE" },
+                                  { "body_material", "MATERIAL" }, { "body_size", "SIZE" }, { "res_offset", "OFFSET" }, { "res_keytrack", "KEY TRK" } })
             bodyKnobs.push_back (knob (spec.first, spec.second, bodyColour()));
         boardModel = menuFor ("sb_model", "MODEL", "SOUNDBOARD MODEL\nClassic, or Dense for a thicker board.");
         for (const auto& spec : { std::pair<const char*, const char*> { "sb_size", "SIZE" }, { "sb_tone", "TONE" }, { "sb_mix", "MIX" } })
@@ -1303,11 +1303,14 @@ public:
         effectRules.add (*bodyType, [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
         effectRules.add (*bodyKnobs[0], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
         effectRules.add (*bodyCoupling, [this, stringsCoupling] { return readInt ("res_on") != 0 || stringsCoupling(); }, "BODY is off: switch it on");
-        effectRules.add (*bodyKnobs[1], [this, stringsCoupling, modal]
+        // Knobs: AMOUNT DECAY COUPLE / MATERIAL SIZE OFFSET KEY TRK.
+        effectRules.add (*bodyKnobs[2], [this, stringsCoupling, modal]
                          { return stringsCoupling() || (readInt ("body_coupling_mode") != 0 && modal() && readInt ("res_on") != 0); },
                          "COUPLING is Off, or needs a modal BODY");
-        for (size_t i = 2; i < bodyKnobs.size(); ++i)
+        for (const size_t i : std::initializer_list<size_t> { 3, 4 })
             effectRules.add (*bodyKnobs[i], [this, modal] { return readInt ("res_on") != 0 && modal(); }, "BODY is off, or Classic");
+        for (const size_t i : std::initializer_list<size_t> { 1, 5, 6 })
+            effectRules.add (*bodyKnobs[i], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
         effectRules.add (*balance, [this] { return readInt ("filters_parallel") != 0; }, "the filters are in SERIAL");
 
         // ENVELOPE and LFO: EDIT (or the title) opens the source's pop-up editor.
@@ -1706,12 +1709,19 @@ private:
             boardOn->setBounds ({ x, centre - 8, 28, 16 });
             const auto top = card.getY() + headerHeight + 5;
             const auto inner = card.reduced (6, 0);
-            bodyType->setBounds ({ inner.getX(), top, 80, 16 });
-            bodyCoupling->setBounds ({ inner.getX() + 84, top, inner.getWidth() - 84, 16 });
             boardModel->setBounds ({ inner.getX(), top, inner.getWidth(), 16 });
-            const auto knobArea = card.withTop (top + 18).withBottom (card.getBottom() - 3);
-            placeKnobRow (knobArea, pointers (bodyKnobs), 43);
-            placeKnobRow (knobArea, pointers (boardKnobs), 43);
+            placeKnobRow (card.withTop (top + 18).withBottom (card.getBottom() - 3), pointers (boardKnobs), 43);
+
+            // BODY: two rows. TYPE over COUPLING beside AMOUNT DECAY COUPLE, then MATERIAL SIZE OFFSET KEY TRK.
+            const auto rows = card.withTop (card.getY() + headerHeight + 1).withBottom (card.getBottom() - 2);
+            const auto row1 = rows.withHeight (rows.getHeight() / 2);
+            const auto row2 = rows.withTop (row1.getBottom());
+            constexpr int menuWidth = 72, bodyPitch = 33;
+            const auto menuX = inner.getX() + (inner.getWidth() - menuWidth - 3 * bodyPitch) / 2;
+            bodyType->setBounds ({ menuX, row1.getCentreY() - 18, menuWidth, 16 });
+            bodyCoupling->setBounds ({ menuX, row1.getCentreY() + 2, menuWidth, 16 });
+            placeKnobRow (row1, { bodyKnobs[0].get(), bodyKnobs[1].get(), bodyKnobs[2].get() }, bodyPitch, 0, menuX + menuWidth);
+            placeKnobRow (row2, { bodyKnobs[3].get(), bodyKnobs[4].get(), bodyKnobs[5].get(), bodyKnobs[6].get() }, 43);
         }
 
         for (const auto isNoise : { false, true })

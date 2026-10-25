@@ -399,7 +399,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     // One-tab PLAY (ilana's mockup v3, 2026-10-25): the OSC, FILTER and MOD tabs are gone from the row, PLAY
     // holds what they did. Their pages stay behind the row (no tab button, last so the shortcuts stay):
-    // ALL SETTINGS on a pop-up editor still opens MOD's full ENV / LFO page, and the UI tests reach them.
+    // the UI tests reach them (a pop-up editor holds every setting MOD's ENV / LFO page had).
     visibleTabCount = tabs.getNumTabs();
     auto* oscViewport = new OscPageViewport (p);
     addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
@@ -423,17 +423,6 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             playPage->showStrings (strings);
         if (body >= 0)
             playPage->showBody (body);
-    };
-
-    // The pop-out source editor's ALL SETTINGS.
-    openSourceInMod = [this, envLfoPage] (int source)
-    {
-        if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) source); lfo >= 0)
-            envLfoPage->selectLfo (lfo);
-        else if (const auto env = SourceEditor::envelopeOf (source); env >= 0)
-            envLfoPage->selectEnvelope (env);
-        closeSourcePopover();
-        showPage ("ENV/LFO");
     };
 
     playPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
@@ -517,9 +506,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // A source chip's click opens its editor over the page (the dock's
     // pop-out, 2026-10-09).
     {
-        auto popover = std::make_unique<SourcePopover> (p);
+        auto popover = std::make_unique<SourcePopover> (p, *settings);
         popover->onClose = [this] { closeSourcePopover(); };
-        popover->onOpenInMod = [this] (int source) { if (openSourceInMod != nullptr) openSourceInMod (source); };
+        popover->onSizeChanged = [this]
+        {
+            if (auto* open = static_cast<SourcePopover*> (sourcePopover.get()); open != nullptr && open->isVisible())
+                open->setBounds (open->placeIn (pageArea(), sourcePopoverAnchor));
+        };
         popover->getEditor().onEditOperatorEnv = [this]
         {
             const auto operators = OperatorPool::operatorsOnEnv (processorRef);

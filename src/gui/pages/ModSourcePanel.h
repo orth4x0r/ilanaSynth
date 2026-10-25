@@ -801,54 +801,107 @@ private:
     size_t historyPos = 0;
 };
 
-// The dock's pop-out editor: a click on a source chip opens it above the
-// dock on whatever page is showing, so a source is shaped and its depths
-// set beside the knobs it drives. The header drags it anywhere in the page
-// area; ALL SETTINGS jumps to the full editor; the cross, Escape or a second
-// click on the chip closes it. While it is open its source is pinned (the
-// knobs it drives stay lit).
+// The dock's pop-out editor: a click on a source chip (or EDIT on PLAY's
+// ENVELOPE and LFO cards) opens it above the dock on whatever page is
+// showing, so a source is shaped and its depths set beside the knobs it
+// drives. An LFO, an envelope, the MSEG and the Clocked S&H get their full
+// editor, every setting MOD had (ilana, 2026-10-25: "integrate all settings
+// in the pop up"), an envelope's over the DRIVES list; anything else the
+// short editor.
+// The header drags it anywhere in the page area; the cross, Escape or a
+// second click on the chip closes it. While it is open its source is
+// pinned (the knobs it drives stay lit).
 class SourcePopover : public juce::Component
 {
 public:
-    explicit SourcePopover (IlanaSynthAudioProcessor& p) : processorRef (p), editor (p)
+    SourcePopover (IlanaSynthAudioProcessor& p, juce::PropertiesFile& settingsRef)
+        : processorRef (p), settings (settingsRef), editor (p), routes (p)
     {
         // The assignment bars wait behind DRIVES, as on PLAY.
         editor.setRoutesFolded (true);
         addAndMakeVisible (editor);
+        routes.setCollapsed (true);
+        routes.onCollapsedChange = [this] (bool) { if (onSizeChanged != nullptr) onSizeChanged(); };
+        routes.onRoutesChanged = [this] { if (! routes.isCollapsed() && onSizeChanged != nullptr) onSizeChanged(); };
+        addChildComponent (routes);
         closeButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")));
         closeButton.setTooltip ("Close (Escape, or click the source's chip again)");
         closeButton.onClick = [this] { if (onClose != nullptr) onClose(); };
-        openButton.setButtonText (juce::String::fromUTF8 ("ALL SETTINGS \xe2\x80\xba"));
-        openButton.setTooltip ("This source's full editor, with its rarer settings, on its own page (PLAY's tab brings you back)");
-        openButton.onClick = [this] { if (onOpenInMod != nullptr) onOpenInMod (editor.getSource()); };
         addAndMakeVisible (closeButton);
-        addAndMakeVisible (openButton);
         setWantsKeyboardFocus (true);
     }
 
     std::function<void()> onClose;
-    std::function<void (int source)> onOpenInMod;
+    // Its size changed (DRIVES opened or closed): the owner places it again.
+    std::function<void()> onSizeChanged;
 
-    int getSource() const { return editor.getSource(); }
+    int getSource() const { return source; }
     SourceEditor& getEditor() { return editor; }
 
-    // The source's full editor lives on MOD only for LFOs and envelopes.
-    void setSource (int source)
+    void setSource (int newSource)
     {
+        source = newSource;
         editor.setSource (source);
-        openButton.setVisible (Mod::lfoIndexFor ((Mod::Source) source) >= 0 || SourceEditor::envelopeOf (source) >= 0);
+
+        const auto s = (Mod::Source) source;
+        const auto lfo = Mod::lfoIndexFor (s);
+        const auto lfoCard = lfo >= 0 ? lfo : s == Mod::Source::Mseg ? LfoSection::msegId : s == Mod::Source::ClockSh ? LfoSection::clockId : -1;
+        const auto env = SourceEditor::envelopeOf (source);
+        kind = lfoCard >= 0 ? Kind::lfo : env >= 0 ? Kind::envelope : Kind::other;
+
+        if (kind == Kind::lfo)
+        {
+            if (lfoSection == nullptr)
+            {
+                lfoSection = std::make_unique<LfoSection> (processorRef, settings);
+                lfoSection->setPoolHidden (true);
+                addChildComponent (*lfoSection);
+            }
+            lfoSection->select (lfoCard);
+        }
+        else if (kind == Kind::envelope)
+        {
+            if (envSection == nullptr)
+            {
+                envSection = std::make_unique<EnvSection> (processorRef, settings);
+                envSection->setPoolHidden (true);
+                addChildComponent (*envSection);
+            }
+            envSection->select (env);
+        }
+
+        editor.setVisible (kind == Kind::other);
+        if (lfoSection != nullptr)
+            lfoSection->setVisible (kind == Kind::lfo);
+        if (envSection != nullptr)
+            envSection->setVisible (kind == Kind::envelope);
+        // (An LFO's editor lists its routes itself, in its card.)
+        routes.setVisible (kind == Kind::envelope);
+        if (kind == Kind::envelope)
+            routes.setSource (source, modSourceColour (source));
         resized();
         repaint();
     }
 
+    // The short editor's size; the full ones as wide as MOD's page, as tall as their editor row and DRIVES.
     static constexpr int preferredWidth = 620, preferredHeight = 340, headerHeight = 38;
+    static constexpr int fullWidth = 1000, lfoEditorHeight = 232, padding = 4, sideInset = 14, bottomInset = 14, routesGap = 8;
+
+    juce::Point<int> preferredSize() const
+    {
+        if (kind == Kind::other)
+            return { preferredWidth, preferredHeight };
+        const auto editorHeight = kind == Kind::lfo ? lfoEditorHeight : EnvSection::editorHeight + routesGap + routesHeight();
+        return { fullWidth, 2 * padding + headerHeight + editorHeight + bottomInset };
+    }
 
     // Above the chip it came from, inside the page area; where it was
     // dragged to once moved.
     juce::Rectangle<int> placeIn (juce::Rectangle<int> area, juce::Rectangle<int> chip)
     {
         pageArea = area;
-        const auto size = juce::Point<int> (juce::jmin (preferredWidth, area.getWidth() - 16), juce::jmin (preferredHeight, area.getHeight() - 16));
+        const auto wanted = preferredSize();
+        const auto size = juce::Point<int> (juce::jmin (wanted.x, area.getWidth() - 16), juce::jmin (wanted.y, area.getHeight() - 16));
         if (! moved)
             topLeft = { chip.getX() - 6, area.getBottom() - 8 - size.y };
         return juce::Rectangle<int> (topLeft.x, topLeft.y, size.x, size.y).constrainedWithin (area.reduced (4));
@@ -856,30 +909,41 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat().reduced (4.0f);
+        const auto bounds = getLocalBounds().toFloat().reduced ((float) padding);
         for (int ring = 5; ring >= 1; --ring)
         {
             g.setColour (juce::Colours::black.withAlpha (0.13f));
             g.fillRoundedRectangle (bounds.expanded ((float) ring).translated (0.0f, 3.0f), 10.0f + (float) ring);
         }
-        const auto colour = modSourceColour (editor.getSource());
+        const auto colour = modSourceColour (source);
         IlanaTheme::paintCard (g, bounds, 10.0f, colour.withAlpha (0.55f));
 
         auto header = bounds.toNearestInt().reduced (16, 0).removeFromTop (headerHeight);
-        const auto count = modRouteCount (processorRef, editor.getSource());
-        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (editor.getSource(), &processorRef),
+        const auto count = modRouteCount (processorRef, source);
+        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (source, &processorRef),
                                      count == 0 ? juce::String ("drag its chip onto a knob") : juce::String (count) + (count == 1 ? " route" : " routes"),
                                      colour, 200);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (4);
+        auto area = getLocalBounds().reduced (padding);
         auto header = area.removeFromTop (headerHeight).reduced (12, 0).withSizeKeepingCentre (area.getWidth() - 24, 22);
         closeButton.setBounds (header.removeFromRight (24));
-        header.removeFromRight (6);
-        openButton.setBounds (header.removeFromRight (124));
-        editor.setBounds (area.reduced (14, 0).withTrimmedBottom (14));
+        auto body = area.reduced (sideInset, 0).withTrimmedBottom (bottomInset);
+        if (kind == Kind::other)
+        {
+            editor.setBounds (body);
+            return;
+        }
+        if (kind == Kind::lfo && lfoSection != nullptr)
+            lfoSection->setBounds (body);
+        if (kind == Kind::envelope && envSection != nullptr)
+        {
+            routes.setBounds (body.removeFromBottom (routesHeight()));
+            body.removeFromBottom (routesGap);
+            envSection->setBounds (body);
+        }
     }
 
     void mouseMove (const juce::MouseEvent& event) override
@@ -918,9 +982,23 @@ public:
     }
 
 private:
+    enum class Kind { lfo, envelope, other };
+
+    // DRIVES folded to its header line, or open to its whole list (up to 200 px).
+    int routesHeight() const
+    {
+        return routes.isCollapsed() ? SourceRouteList::headerHeight + 6 : juce::jmin (200, routes.getIdealHeight());
+    }
+
     IlanaSynthAudioProcessor& processorRef;
+    juce::PropertiesFile& settings;
+    int source = 0;
+    Kind kind = Kind::other;
     SourceEditor editor;
-    juce::TextButton closeButton, openButton;
+    SourceRouteList routes;
+    std::unique_ptr<LfoSection> lfoSection;
+    std::unique_ptr<EnvSection> envSection;
+    juce::TextButton closeButton;
     juce::Rectangle<int> pageArea;
     juce::Point<int> topLeft, dragStart;
     bool moved = false, dragging = false;

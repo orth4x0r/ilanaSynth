@@ -994,6 +994,14 @@ public:
         updateVisibility();
     }
 
+    // Without its pool of cards (the pop-up editor: its chip chose the source).
+    void setPoolHidden (bool hide)
+    {
+        poolHidden = hide;
+        thumbs.setVisible (! hide);
+        resized();
+    }
+
     // What the section needs below its cards: the panel's header and one
     // row of full-size knobs.
     static constexpr int cardHeight = 48;
@@ -1009,9 +1017,12 @@ public:
     {
         auto area = getLocalBounds();
 
-        thumbs.setViewWidth (area.getWidth());
-        thumbs.setBounds (area.removeFromTop (cardHeight));
-        area.removeFromTop (8);
+        if (! poolHidden)
+        {
+            thumbs.setViewWidth (area.getWidth());
+            thumbs.setBounds (area.removeFromTop (cardHeight));
+            area.removeFromTop (8);
+        }
 
         if (selected >= opEnvId)
         {
@@ -1181,6 +1192,7 @@ private:
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
     EnvThumbBar thumbs;
+    bool poolHidden = false;
     OperatorEnvEditor opEditor { processorRef };
     OperatorPool::ShapeCache opEnvShape, opPitchShape;
     EffectRules ampRules { processorRef };
@@ -1425,6 +1437,14 @@ public:
     void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
     void handleAsyncUpdate() override { lastShape = -1; timerCallback(); }
 
+    // Without its pool of cards (the pop-up editor: its chip chose the source).
+    void setPoolHidden (bool hide)
+    {
+        poolHidden = hide;
+        thumbs.setVisible (! hide);
+        resized();
+    }
+
     static constexpr int cardHeight = 48;
     static constexpr int lfoRulerBand = 16; // (LfoDisplay: its ruler and the 2 px before it)
 
@@ -1432,9 +1452,12 @@ public:
     {
         auto area = getLocalBounds();
 
-        thumbs.setViewWidth (area.getWidth());
-        thumbs.setBounds (area.removeFromTop (cardHeight));
-        area.removeFromTop (8);
+        if (! poolHidden)
+        {
+            thumbs.setViewWidth (area.getWidth());
+            thumbs.setBounds (area.removeFromTop (cardHeight));
+            area.removeFromTop (8);
+        }
 
         if (selected == opLfoId)
         {
@@ -2213,6 +2236,7 @@ private:
     juce::PropertiesFile& settings;
     juce::Rectangle<int> panel;
     LfoThumbBar thumbs;
+    bool poolHidden = false;
     std::vector<std::unique_ptr<LfoDisplay>> displays;
     std::vector<std::unique_ptr<Controls>> controlsList;
     MsegEditor msegEditor;

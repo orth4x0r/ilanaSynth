@@ -341,7 +341,6 @@ private:
     // A chip's click: its source's editor floating over the page (SourcePopover).
     std::unique_ptr<juce::Component> sourcePopover;
     juce::Rectangle<int> sourcePopoverAnchor;
-    std::function<void (int)> openSourceInMod;
     void closeSourcePopover();
 
 public:

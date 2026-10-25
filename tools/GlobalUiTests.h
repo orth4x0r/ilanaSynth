@@ -380,8 +380,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         const auto scopeBounds = boundsInEditor (scope);
         auto tabsRight = 0;
         if (auto* tabbed = findChild<juce::TabbedComponent> (editor))
-            if (auto* last = tabbed->getTabbedButtonBar().getTabButton (tabbed->getNumTabs() - 1))
-                tabsRight = boundsInEditor (last).getRight();
+            for (int index = 0; index < tabbed->getNumTabs(); ++index) // (the last tab with a button: OSC, FILTER and MOD have none)
+                if (auto* tab = tabbed->getTabbedButtonBar().getTabButton (index); tab != nullptr && tab->getWidth() > 0)
+                    tabsRight = juce::jmax (tabsRight, boundsInEditor (tab).getRight());
         expect (shown != nullptr && scope != nullptr && switchBounds.getRight() + 60 < scopeBounds.getX()
                     && switchBounds.getX() >= tabsRight && switchBounds.getX() <= tabsRight + 20
                     && switchBounds.getWidth() >= shown->getIdealWidth(),

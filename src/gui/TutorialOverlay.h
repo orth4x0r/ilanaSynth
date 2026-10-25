@@ -29,18 +29,18 @@ public:
             { "DX7 BANKS + OPERATOR ENV", "FM", "288 DX7 voices load as normal presets (find them by sound in the browser, or under its DX7 chip); "
                                                 "any oscillator can use the DX7's envelope (ENVELOPE: Operator Env). Import more .syx banks from the browser." },
             { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters on the FILTER page." },
-            { juce::String (FilterType::Count) + " FILTERS", "FILTER", "The filter list, grouped by family on the FILTER page." },
+            { juce::String (FilterType::Count) + " FILTERS", "MAIN", "The filter list, grouped by family in the FILTER card's type menu." },
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
-            { "SF2 / SFZ", "OSC", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },
+            { "SF2 / SFZ", "MAIN", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },
             { "VOCODER", "FX", "A vocoder effect module." },
-            { "PHYSICAL STRINGS", "OSC", "Strings struck, plucked or bowed: pick Physical in an oscillator's menu." },
-            { "FELT HAMMER BOARD", "OSC", "The reworked piano exciter: try the Felt Hammer Board preset." },
-            { "FEEDBACK GUITAR", "OSC", "A string that feeds back through its amp." },
-            { "CHAOS LFO SHAPES", "ENV/LFO", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
-            { "WEST COAST", "FILTER", "A wavefolder and low-pass gate after (or in place of) the filters." },
+            { "PHYSICAL STRINGS", "MAIN", "Strings struck, plucked or bowed: pick Physical in an oscillator's menu." },
+            { "FELT HAMMER BOARD", "MAIN", "The reworked piano exciter: try the Felt Hammer Board preset." },
+            { "FEEDBACK GUITAR", "MAIN", "A string that feeds back through its amp." },
+            { "CHAOS LFO SHAPES", "MAIN", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
+            { "WEST COAST", "MAIN", "A wavefolder and low-pass gate after (or in place of) the filters." },
             { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad; EVOLVE is on each macro's card." },
-            { "RESAMPLE", "OSC", "Resample the whole patch into an oscillator." },
-            { "WAVETABLE EDITOR", "OSC", "Draw and edit wavetables from an oscillator's table." }
+            { "RESAMPLE", "MAIN", "Resample the whole patch into an oscillator." },
+            { "WAVETABLE EDITOR", "MAIN", "Draw and edit wavetables from an oscillator's table." }
         };
         return list;
     }

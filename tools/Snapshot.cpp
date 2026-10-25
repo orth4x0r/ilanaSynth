@@ -4589,7 +4589,7 @@ int runUiTests()
                 editBody->triggerClick();
                 settle (300);
             }
-            expect (editBody != nullptr && pages->getCurrentPageId() == "FILTER", "OSC's EDIT BODY > opens FILTER");
+            expect (editBody != nullptr && pages->getCurrentPageId() == "MAIN", "OSC's EDIT BODY > opens PLAY (its BODY / BOARD card, one-tab PLAY 2026-10-25)");
             pages->showPage ("OSC");
             settle (200);
         }
@@ -7237,7 +7237,7 @@ int runUiTests()
                         + juce::String (switches) + ")");
         }
 
-        // PLAY: each filter has its own graph (the markers show on hover: PlayPageUiTests.h).
+        // PLAY: one FILTER card, one graph drawing both filters (one-tab PLAY, 2026-10-25).
         loadNamed ("Init");
         pages->showPage ("MAIN");
         settle (300);
@@ -7247,7 +7247,7 @@ int runUiTests()
             auto shownGraphs = 0;
             for (auto* display : displays)
                 shownGraphs += visibleInTree (display) ? 1 : 0;
-            expect (shownGraphs == 2, "PLAY shows one filter graph per filter (" + juce::String (shownGraphs) + ")");
+            expect (shownGraphs == 1, "PLAY shows one filter graph for both filters (" + juce::String (shownGraphs) + ")");
         }
 
         // PLAY's filter TYPE reads like FILTER's (its short names), SLOPE is
@@ -8915,6 +8915,62 @@ int main (int argc, char** argv)
         pages->showPage ("MAIN");
         settle (500);
         save (*editor, outDir.getChildFile ("play.png"));
+        // The one-tab PLAY's other views (mockup v3, 2026-10-25): FILTER 2 in parallel on a morphing type,
+        // KEYS, BOARD, the strings' tuning, ENVELOPE's EDIT pop-up and the dock's STEREO pop-up.
+        {
+            auto* shell = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+            const auto set = [&processor] (const char* id, float value)
+            {
+                if (auto* parameter = processor.apvts.getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            const auto click = [&] (const juce::String& name)
+            {
+                std::vector<juce::Button*> buttons;
+                findAll<juce::Button> (*editor, buttons);
+                for (auto* button : buttons)
+                    if (button->getName() == name && visibleInTree (button))
+                    {
+                        button->triggerClick();
+                        return;
+                    }
+            };
+            if (shell != nullptr && shell->showPlayViews != nullptr)
+            {
+                set ("filters_parallel", 1.0f);
+                set ("f2_type", (float) FilterType::VowelMorph);
+                set ("sym_on", 1.0f);
+                set ("sym_manual", 1.0f);
+                shell->showPlayViews (1, 1, 1);
+                settle (600);
+                save (*editor, outDir.getChildFile ("play-views.png"));
+                shell->showPlayViews (-1, 0, -1);
+                click ("Tuning");
+                settle (400);
+                save (*editor, outDir.getChildFile ("play-tuning.png"));
+                click ("Tuning");
+                click ("PLAY envelope EDIT");
+                settle (500);
+                save (*editor, outDir.getChildFile ("play-edit-popup.png"));
+                click ("PLAY envelope EDIT");
+                settle (300);
+                click ("PLAY LFO EDIT");
+                settle (500);
+                save (*editor, outDir.getChildFile ("play-edit-lfo-popup.png"));
+                click ("PLAY LFO EDIT");
+                settle (300);
+                click ("STEREO");
+                settle (400);
+                save (*editor, outDir.getChildFile ("play-stereo-popup.png"));
+                click ("STEREO");
+                set ("filters_parallel", 0.0f);
+                set ("f2_type", 0.0f);
+                set ("sym_on", 0.0f);
+                set ("sym_manual", 0.0f);
+                shell->showPlayViews (0, 0, 0);
+                settle (400);
+            }
+        }
         // Three open (OSC 2 and 3 switched on; OSC 3 is "sub"): three two-row cards fill the column.
         for (const char* id : { "osc2_on", "sub_on" })
             if (auto* parameter = processor.apvts.getParameter (id))

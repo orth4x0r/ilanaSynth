@@ -73,6 +73,8 @@ public:
     // "MATRIX", "FM", "ARP/SEQ", "FX", "INPUT"): each lives in one of
     // the seven top-level tabs. "SCOPE" opens the scope panel.
     void showPage (const juce::String& id);
+    // PLAY's card views, for the tests and snapshots: FILTER 1 or 2, STRINGS or KEYS, BODY or BOARD (-1 keeps one).
+    std::function<void (int filter, int strings, int body)> showPlayViews;
     // The voice settings are OSC > VOICE; the header's VOICES and the settings menu jump there.
     std::function<void()> showVoicePanel;
     // OSC's card for an oscillator, in this editor's coordinates (the UI tests).
@@ -231,6 +233,13 @@ private:
     };
     ShellTabs tabs;
     std::vector<SectionPage*> sections; // owned by tabs
+    std::function<void()> showPlayBody;
+    // The dock's STEREO tag under VOICES and the pop-up it opens (SPREAD, PHASE, DRIFT, LOOSE).
+    std::unique_ptr<juce::Button> stereoButton;
+    std::unique_ptr<juce::Component> stereoPopover;
+    void setStereoOpen (bool open);
+    juce::Rectangle<int> stereoPopoverBounds() const;
+    int visibleTabCount = 0; // the tabs with a button in the row; the rest (OSC, FILTER, MOD) sit behind it
     std::unique_ptr<juce::Component> scopePanel;
     std::unique_ptr<juce::Component> scopeWindow; // the scope popped out (WINDOW)
     GhostButton scopeButton { "SCOPE" };
@@ -332,7 +341,6 @@ private:
     // A chip's click: its source's editor floating over the page (SourcePopover).
     std::unique_ptr<juce::Component> sourcePopover;
     juce::Rectangle<int> sourcePopoverAnchor;
-    std::function<void (int)> openSourceInMod;
     void closeSourcePopover();
 
 public:

@@ -1552,7 +1552,7 @@ private:
         if (isVoice (node))
         {
             if (onShowPage)
-                onShowPage (localKind (node) >= stageKind ? "FILTER" : "OSC");
+                onShowPage ("MAIN"); // (the oscillators and the filters are on PLAY)
         }
         else if (const auto slot = slotOf (&node); slot >= 0)
         {

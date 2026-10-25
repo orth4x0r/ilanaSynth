@@ -358,11 +358,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     addSection ("PLAY", { { "MAIN", "OVERVIEW", playPage }, { "VECTOR", "VECTOR", new VectorPage (p) } });
-    auto* oscViewport = new OscPageViewport (p);
-    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
-    addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
     auto* matrixPage = new MatrixPage (p);
-    addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage } });
     // The matrix has its own tab (ilana, 2026-10-10).
     addSection ("MATRIX", { { "MATRIX", "MATRIX", matrixPage } });
     // An LFO card's DRIVES row opens its routing in the matrix.
@@ -401,27 +397,32 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     if (IlanaSynthAudioProcessor::isEffectBuild)
         addSection ("INPUT", { { "INPUT", "INPUT", new InputPage (p) } });
 
-    playPage->onEditLfo = [this, envLfoPage] (int lfo)
-    {
-        envLfoPage->selectLfo (lfo);
-        showPage ("ENV/LFO");
-    };
+    // One-tab PLAY (ilana's mockup v3, 2026-10-25): the OSC, FILTER and MOD tabs are gone from the row, PLAY
+    // holds what they did. Their pages stay behind the row (no tab button, last so the shortcuts stay):
+    // the UI tests reach them (a pop-up editor holds every setting MOD's ENV / LFO page had).
+    visibleTabCount = tabs.getNumTabs();
+    auto* oscViewport = new OscPageViewport (p);
+    addSection ("OSC", { { "OSC", "OSCILLATORS", oscViewport } });
+    addSection ("FILTER", { { "FILTER", "FILTER", new FilterPage (p) } });
+    addSection ("MOD", { { "ENV/LFO", "ENV / LFO", envLfoPage } });
+    for (int index = visibleTabCount; index < tabs.getNumTabs(); ++index)
+        if (auto* button = tabs.getTabbedButtonBar().getTabButton (index))
+        {
+            button->getProperties().set ("hiddenTab", true);
+            button->setInterceptsMouseClicks (false, false);
+        }
 
-    playPage->onEditEnvelope = [this, envLfoPage] (int envelope)
+    // EDIT (or the title) on PLAY's ENVELOPE and LFO: the source's pop-up editor, as a dock chip opens it.
+    playPage->onEditSource = [this] (int source, juce::Component& anchor) { toggleSourcePopover (source, anchor); };
+    showPlayBody = [playPage] { playPage->showBody (0); };
+    showPlayViews = [playPage] (int filter, int strings, int body)
     {
-        envLfoPage->selectEnvelope (envelope);
-        showPage ("ENV/LFO");
-    };
-
-    // The pop-out source editor's OPEN IN MOD.
-    openSourceInMod = [this, envLfoPage] (int source)
-    {
-        if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) source); lfo >= 0)
-            envLfoPage->selectLfo (lfo);
-        else if (const auto env = SourceEditor::envelopeOf (source); env >= 0)
-            envLfoPage->selectEnvelope (env);
-        closeSourcePopover();
-        showPage ("ENV/LFO");
+        if (filter >= 0)
+            playPage->showFilter (filter);
+        if (strings >= 0)
+            playPage->showStrings (strings);
+        if (body >= 0)
+            playPage->showBody (body);
     };
 
     playPage->onOpenPage = [this] (const juce::String& name) { showPage (name); };
@@ -505,9 +506,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     // A source chip's click opens its editor over the page (the dock's
     // pop-out, 2026-10-09).
     {
-        auto popover = std::make_unique<SourcePopover> (p);
+        auto popover = std::make_unique<SourcePopover> (p, *settings);
         popover->onClose = [this] { closeSourcePopover(); };
-        popover->onOpenInMod = [this] (int source) { if (openSourceInMod != nullptr) openSourceInMod (source); };
+        popover->onSizeChanged = [this]
+        {
+            if (auto* open = static_cast<SourcePopover*> (sourcePopover.get()); open != nullptr && open->isVisible())
+                open->setBounds (open->placeIn (pageArea(), sourcePopoverAnchor));
+        };
         popover->getEditor().onEditOperatorEnv = [this]
         {
             const auto operators = OperatorPool::operatorsOnEnv (processorRef);
@@ -565,6 +570,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     voiceModeMenu->setCompactLayout (true);
     voiceModeMenu->setPackedMenu (true);
     voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices", -1, IlanaTheme::Ui::text2, false);
+    voicesKnob->setValueLineHidden (true);
     bendKnob = std::make_unique<StripKnob> (p, "bend_range", "Bend", -1, IlanaTheme::Ui::text2, false);
     glideKnob = std::make_unique<StripKnob> (p, "glide", "Glide", -1, IlanaTheme::Ui::text2, false);
     legatoToggle = std::make_unique<ToggleControl> (p.apvts, "glide_legato", "LEGATO");
@@ -572,6 +578,20 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     legatoToggle->setRightNameSize (11.0f);
     for (auto* component : std::initializer_list<juce::Component*> { voiceModeMenu.get(), voicesKnob.get(), bendKnob.get(), glideKnob.get(), legatoToggle.get() })
         content.addAndMakeVisible (component);
+    // STEREO beside VOICES (mockup v3, 2026-10-25): the OSC tab's STEREO settings, in a pop-up over the page.
+    {
+        auto button = std::make_unique<PopButton> ("STEREO", StereoPopover::colour());
+        button->setTagStyle (true);
+        button->setTooltip ("Stereo settings\nSPREAD, PHASE, DRIFT and LOOSE: how wide and how loose the voices play.");
+        button->onClick = [this] { setStereoOpen (stereoPopover == nullptr || ! stereoPopover->isVisible()); };
+        content.addAndMakeVisible (*button);
+        stereoButton = std::move (button);
+        auto popover = std::make_unique<StereoPopover> (p);
+        popover->onClose = [this] { setStereoOpen (false); };
+        popover->isOwnButton = [this] (juce::Component* c) { return c == stereoButton.get(); };
+        content.addChildComponent (*popover);
+        stereoPopover = std::move (popover);
+    }
     // Master is a setting rather than a sound control: neutral, so it doesn't
     // outshine the page (and yellow stays the macros' colour).
     masterKnob = std::make_unique<StripKnob> (p, "master", "Master", -1, IlanaTheme::Ui::text2, false);
@@ -1758,13 +1778,22 @@ void IlanaSynthAudioProcessorEditor::resized()
         strip.removeFromRight (voiceGap);
         bendKnob->setBounds (strip.removeFromRight (68));
         strip.removeFromRight (voiceGap);
-        voicesKnob->setBounds (strip.removeFromRight (74));
+        // VOICES' second line is the STEREO tag (mockup v3); the count reads in the tab row's VOICES.
+        voicesKnob->setBounds (strip.removeFromRight (90));
+        {
+            const auto line = voicesKnob->valueLineBounds();
+            const auto width = static_cast<PopButton*> (stereoButton.get())->idealWidth();
+            stereoButton->setBounds (juce::Rectangle<int> (line.getX() - 1, line.getY() - 1, width, 16));
+        }
         strip.removeFromRight (voiceGap);
         voiceModeMenu->setBounds (strip.removeFromRight (76).withSizeKeepingCentre (76, 22));
         strip.removeFromRight (9);
         dockDividerX[0] = strip.getRight();
         strip.removeFromRight (9);
     }
+
+    if (stereoPopover != nullptr && stereoPopover->isVisible())
+        stereoPopover->setBounds (stereoPopoverBounds());
 
     // The page switch, then the macros' page in what is left.
     macroPageSwitch.setBounds (strip.removeFromRight (16));
@@ -1826,6 +1855,32 @@ void IlanaSynthAudioProcessorEditor::showOperatorEnvelope (int op)
         editOperator (op);
 }
 
+juce::Rectangle<int> IlanaSynthAudioProcessorEditor::stereoPopoverBounds() const
+{
+    const auto button = stereoButton != nullptr ? stereoButton->getBounds() : juce::Rectangle<int>();
+    const auto area = pageArea();
+    return juce::Rectangle<int> (StereoPopover::width, StereoPopover::height)
+        .withPosition (button.getCentreX() - StereoPopover::width / 2, dockBounds.getY() - StereoPopover::height - 2)
+        .constrainedWithin (area.reduced (4, 0).withTrimmedBottom (-2));
+}
+
+void IlanaSynthAudioProcessorEditor::setStereoOpen (bool open)
+{
+    if (stereoPopover == nullptr)
+        return;
+    if (open)
+    {
+        stereoPopover->setBounds (stereoPopoverBounds());
+        stereoPopover->setVisible (true);
+        stereoPopover->toFront (true);
+    }
+    else
+    {
+        stereoPopover->setVisible (false);
+    }
+    stereoButton->setToggleState (open, juce::dontSendNotification);
+}
+
 void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
 {
     if (id == "SCOPE")
@@ -1844,11 +1899,20 @@ void IlanaSynthAudioProcessorEditor::showPage (const juce::String& id)
         return;
     }
 
-    // The PHYSICAL tab folded into the oscillator cards (2026-10-10): its
-    // old id opens OSC.
+    // The PHYSICAL tab folded into the oscillator cards (2026-10-10), and
+    // the cards onto PLAY (2026-10-25): its old id opens PLAY.
     if (id == "PHYSICAL")
     {
-        showPage ("OSC");
+        showPage ("MAIN");
+        return;
+    }
+
+    // A Physical card's BODY link: PLAY, its BODY · BOARD card on BODY.
+    if (id == "BODY")
+    {
+        showPage ("MAIN");
+        if (showPlayBody != nullptr)
+            showPlayBody();
         return;
     }
 
@@ -2016,7 +2080,7 @@ void IlanaSynthAudioProcessorEditor::layoutTabRow()
     place (voicesArea, textWidth ("VOICES 32 / 32"), readoutGap);
 
     auto& tabBar = tabs.getTabbedButtonBar();
-    auto* lastTab = tabBar.getNumTabs() > 0 ? tabBar.getTabButton (tabBar.getNumTabs() - 1) : nullptr;
+    auto* lastTab = visibleTabCount > 0 ? tabBar.getTabButton (visibleTabCount - 1) : nullptr; // (the last one with a button)
     const auto tabsRight = lastTab != nullptr ? tabs.getX() + tabBar.getX() + lastTab->getRight() : bar.getX();
 
     // BPM gives way when the current tab's page switch would not fit
@@ -3369,7 +3433,7 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
         {
             const auto index = digit - '1';
 
-            if (index < tabs.getNumTabs())
+            if (index < visibleTabCount)
             {
                 tabs.setCurrentTabIndex (index);
                 return true;

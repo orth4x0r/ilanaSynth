@@ -1471,11 +1471,11 @@ public:
             // with the other voices is on FILTER, the soundboard in the strip
             // below.
             styleJumpLink (card.stringButton, "BODY");
-            card.stringButton.setTooltip ("The resonant body is on the FILTER page; the soundboard is in the strip below the oscillators");
+            card.stringButton.setTooltip (juce::String::fromUTF8 ("The resonant body and the soundboard: PLAY's BODY \xc2\xb7 BOARD card"));
             card.stringButton.onClick = [this]
             {
                 if (auto* editor = findParentComponentOfClass<IlanaSynthAudioProcessorEditor>())
-                    editor->showPage ("FILTER");
+                    editor->showPage ("BODY");
             };
             addChildComponent (card.stringButton);
 

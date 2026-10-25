@@ -298,11 +298,15 @@ public:
         int frame1 = 0;
         float frac = 0.0f;
         float position = 0.0f; // 0..1, kept so a spread can offset it per unison voice
+        bool stepped = false;  // FRAME BLEND Stepped, kept for the same reason
     };
 
-    static FrameRead frameReadFor (const Wavetable* table, float position) noexcept
+    // stepped (FRAME BLEND Stepped) plays the nearest whole frame instead of
+    // crossfading the two either side.
+    static FrameRead frameReadFor (const Wavetable* table, float position, bool stepped = false) noexcept
     {
         FrameRead read;
+        read.stepped = stepped;
 
         if (table == nullptr || table->getNumFrames() == 0)
             return read;
@@ -310,6 +314,13 @@ public:
         const auto numFrames = table->getNumFrames();
         read.position = position;
         const auto scaled = juce::jlimit (0.0f, 1.0f, position) * (float) (numFrames - 1);
+
+        if (stepped)
+        {
+            read.frame0 = read.frame1 = juce::jmin ((int) (scaled + 0.5f), numFrames - 1);
+            return read;
+        }
+
         read.frame0 = (int) scaled;
         read.frame1 = juce::jmin (read.frame0 + 1, numFrames - 1);
         read.frac = scaled - (float) read.frame0;

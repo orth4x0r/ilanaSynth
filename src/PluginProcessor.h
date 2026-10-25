@@ -1179,7 +1179,7 @@ private:
     std::atomic<float> inputLevelDisplay { 0.0f }, inputEnvDisplay { 0.0f };
     struct OscCoreIds
     {
-        ParamRef on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out;
+        ParamRef on, table, frame, level, pan, semi, fine, unison, detune, spread, spectral, spectralAmount, chord, out, frameBlend;
     };
     std::array<OscCoreIds, OscillatorIds::count> oscCoreIds;
     VoiceParams voiceParamsShared; // this block's voice parameters, built in place (idle voices read it at note start)

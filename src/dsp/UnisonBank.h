@@ -59,6 +59,8 @@ public:
         refreshAllLanes();
     }
 
+    const Wavetable* getWavetable() const noexcept { return table; }
+
     void setFrequency (int lane, double newFrequency)
     {
         frequency[lane] = newFrequency;
@@ -485,7 +487,8 @@ private:
                 auto laneFrames = frames;
 
                 if (frameSpread > 0.0f)
-                    laneFrames = WavetableOscillator::frameReadFor (table, frames.position + 0.5f * frameSpread * lanePosition[lane]);
+                    laneFrames = WavetableOscillator::frameReadFor (table, frames.position + 0.5f * frameSpread * lanePosition[lane],
+                                                                    frames.stepped);
 
                 std::int32_t index;
                 float fraction, gain = 1.0f;

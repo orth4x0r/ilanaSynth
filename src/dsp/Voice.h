@@ -186,6 +186,7 @@ struct VoiceParams
         int spectralTable = -1;
         float spectralAmount = 0.0f;
         const Wavetable* baseTable = nullptr;
+        int frameBlend = 0; // FrameBlend: Crossfade, Spectral (settings.table is then the blended copy) or Stepped
         // Quantise this oscillator's note (plus SEMI) to a scale (Scales::getNames, 0 = off) and root (0-11).
         int scale = 0;
         int scaleRoot = 0;

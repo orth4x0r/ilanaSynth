@@ -397,16 +397,108 @@ void Wavetable::timeSlice (const std::vector<float>& audio, std::vector<std::vec
     }
 }
 
-void Wavetable::buildFromFrames (const std::vector<std::vector<float>>& frames)
+void Wavetable::buildFromFrames (const std::vector<std::vector<float>>& frames, bool normalise)
 {
     if (frames.empty())
         return;
 
     numFrames = (int) frames.size();
-    buildLevels (frames);
+    buildLevels (frames, normalise);
 }
 
-void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames)
+std::unique_ptr<Wavetable> Wavetable::makeSpectralBlend (const Wavetable& source)
+{
+    using Complex = std::complex<float>;
+
+    const auto count = source.numFrames;
+
+    if (count < 2)
+        return nullptr;
+
+    // About 128 steps across the whole table (at least two per gap), so a
+    // crossfade between neighbouring blended frames is too short to thin.
+    constexpr auto targetSteps = 128;
+    const auto steps = juce::jlimit (2, targetSteps, (targetSteps + count - 2) / (count - 1));
+    constexpr auto bins = frameSize / 2; // harmonics 1..bins-1, plus the Nyquist bin
+
+    const TableFFT fft ((int) std::log2 ((double) frameSize));
+    std::vector<Complex> time ((size_t) frameSize), spectrum ((size_t) frameSize);
+
+    // Each source frame's spectrum, from the full-band level (its samples
+    // sit one in from the start of the row).
+    std::vector<std::vector<Complex>> spectra ((size_t) count);
+
+    for (int frame = 0; frame < count; ++frame)
+    {
+        const auto* data = source.getFrameData (0, frame);
+
+        for (int i = 0; i < frameSize; ++i)
+            time[(size_t) i] = Complex (data[i + 1], 0.0f);
+
+        fft.perform (time.data(), spectrum.data(), false);
+        spectra[(size_t) frame].assign (spectrum.begin(), spectrum.begin() + bins + 1);
+    }
+
+    std::vector<std::vector<float>> frames;
+    frames.reserve ((size_t) ((count - 1) * steps + 1));
+
+    const auto addFrame = [&] (const std::vector<Complex>& a, const std::vector<Complex>& b, float t)
+    {
+        std::fill (spectrum.begin(), spectrum.end(), Complex());
+
+        for (int bin = 1; bin < bins; ++bin)
+        {
+            const auto za = a[(size_t) bin], zb = b[(size_t) bin];
+            const auto magA = std::abs (za), magB = std::abs (zb);
+            const auto magnitude = magA + (magB - magA) * t;
+
+            if (magnitude <= 0.0f)
+                continue;
+
+            // A harmonic only one frame has keeps that frame's phase.
+            auto phase = 0.0;
+
+            if (magA <= 1.0e-9f)
+                phase = std::arg (zb);
+            else if (magB <= 1.0e-9f)
+                phase = std::arg (za);
+            else
+            {
+                const auto phaseA = (double) std::arg (za);
+                auto turn = (double) std::arg (zb) - phaseA;
+                turn -= juce::MathConstants<double>::twoPi * std::floor ((turn + juce::MathConstants<double>::pi) / juce::MathConstants<double>::twoPi);
+                phase = phaseA + turn * (double) t;
+            }
+
+            const auto z = std::polar (magnitude, (float) phase);
+            spectrum[(size_t) bin] = z;
+            spectrum[(size_t) (frameSize - bin)] = std::conj (z);
+        }
+
+        spectrum[(size_t) bins] = Complex (a[(size_t) bins].real() + (b[(size_t) bins].real() - a[(size_t) bins].real()) * t, 0.0f);
+
+        fft.perform (spectrum.data(), time.data(), true);
+
+        std::vector<float> samples ((size_t) frameSize);
+        for (int i = 0; i < frameSize; ++i)
+            samples[(size_t) i] = time[(size_t) i].real();
+
+        frames.push_back (std::move (samples));
+    };
+
+    for (int frame = 0; frame + 1 < count; ++frame)
+        for (int step = 0; step < steps; ++step)
+            addFrame (spectra[(size_t) frame], spectra[(size_t) frame + 1], (float) step / (float) steps);
+
+    addFrame (spectra[(size_t) count - 1], spectra[(size_t) count - 1], 0.0f);
+
+    auto table = std::make_unique<Wavetable>();
+    table->name = source.name;
+    table->buildFromFrames (frames, false);
+    return table;
+}
+
+void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames, bool normalise)
 {
     using Complex = std::complex<float>;
 
@@ -494,7 +586,7 @@ void Wavetable::buildLevels (const std::vector<std::vector<float>>& frames)
         }
     }
 
-    if (peak > 0.0f)
+    if (normalise && peak > 0.0f)
     {
         const auto scale = 1.0f / peak;
 

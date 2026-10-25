@@ -2521,7 +2521,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         const auto frame = juce::jlimit (0.0f, 1.0f, frameSmooth[osc].getNextValue() + frameMods[0][osc]);
                         levelTarget = levelSmooth[osc].getNextValue();
                         renderLevel = osc == 2 ? level : juce::jlimit (0.0f, 1.0f, levelTarget + levelMods[0][osc]);
-                        frames = WavetableOscillator::frameReadFor (settings.table, frame);
+                        frames = WavetableOscillator::frameReadFor (oscBank[osc].getWavetable(), frame, settings.frameBlend == FrameBlend::stepped);
                     }
                 }
                 const auto operatorEg = usesOperatorEg (osc);
@@ -2832,7 +2832,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         const auto operatorEg = usesOperatorEg (osc);
                         const auto rate = fmRate (fmInput)
                                           * (operatorEg && settings.tuneMode != OscTuning::Fixed ? dx7Rates[slot] : 1.0);
-                        const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
+                        const auto frames = WavetableOscillator::frameReadFor (oscBank[osc].getWavetable(), frame, settings.frameBlend == FrameBlend::stepped);
                         const auto selectedEnv = operatorEg ? dx7Gains[slot][osc] * dx7LevelScale : selectedEnvs[slot][osc];
                         const auto oscGain = renderLevel * enable * (alternateAmpRouting ? selectedEnv : 1.0f) * keyLevelGain[osc];
 
@@ -3171,7 +3171,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                   * (operatorEg && settings.tuneMode != OscTuning::Fixed ? dx7PitchRate : 1.0);
                 const auto ring = settings.warpMode == Warp::Ring
                                       ? 1.0f + (warpSource - 1.0f) * warpAmount : 1.0f;
-                const auto frames = WavetableOscillator::frameReadFor (settings.table, frame);
+                const auto frames = WavetableOscillator::frameReadFor (oscBank[osc].getWavetable(), frame, settings.frameBlend == FrameBlend::stepped);
 
                 auto stringSum = 0.0f;
                 // The Operator EG's gain in place of an envelope (ENV 1 if the

@@ -297,6 +297,73 @@ void chaosTests()
     const auto lyapunov = lorenzLyapunov();
     check (std::abs (lyapunov - 0.906) < 0.05, "Lorenz's largest Lyapunov exponent is about 0.9 (" + juce::String (lyapunov, 3) + ")");
 
+    // RATE is how often Lorenz goes round, at any RHO (it looped 1.6 times
+    // per cycle at the default RHO and 2.5 at the top before 2026-10-23).
+    for (const auto rhoKnob : { 0.5f, 0.75f, 1.0f })
+    {
+        auto s = settingsFor (LfoSimShapes::Lorenz);
+        s.p[1] = rhoKnob;
+        s.seed = 3;
+        LfoSim sim;
+        sim.reset (s, 3);
+        auto loops = 0;
+        auto previous = 0.0, beforePrevious = 0.0;
+        auto n = 0;
+        constexpr double rate = 4.0, seconds = 60.0;
+        run (sim, s, rate, seconds, [&] (double t, float, float)
+        {
+            if (n++ % LfoSim::tick != 0)
+                return; // the model moves once per tick
+            const auto z = sim.state()[2]; // peaks once per loop
+            if (t > 5.0 && previous > beforePrevious && previous >= z)
+                ++loops;
+            beforePrevious = previous;
+            previous = z;
+        });
+        const auto perCycle = (double) loops / (rate * (seconds - 5.0));
+        check (perCycle > 0.9 && perCycle < 1.1, "Lorenz at RHO " + juce::String (LfoSimInfo::value (LfoSimShapes::Lorenz, 1, rhoKnob), 1)
+                                                     + " loops once per cycle of RATE (" + juce::String (perCycle, 2) + ")");
+    }
+
+    // A free Lorenz LFO saved before that loads with the RATE that moves it
+    // as it did; a synced one, a saved-now one and other shapes keep theirs.
+    {
+        IlanaSynthAudioProcessor processor;
+        setParam (processor, "lfo1_shape", (float) LfoSimShapes::Lorenz);
+        setParam (processor, "lfo1_rate", 1.0f);
+        setParam (processor, "lfo2_shape", (float) LfoSimShapes::Lorenz);
+        setParam (processor, "lfo2_sync", 1.0f);
+        setParam (processor, "lfo3_shape", (float) LfoSimShapes::Rossler);
+        setParam (processor, "lfo3_rate", 1.0f);
+        setParam (processor, "lfo4_shape", (float) LfoSimShapes::Lorenz);
+        setParam (processor, "lfo4_rate", 2.0f);
+        setParam (processor, "lfo4_p2", 1.0f); // RHO 56
+        juce::MemoryBlock saved;
+        processor.getStateInformation (saved);
+        auto xml = IlanaSynthAudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        xml->removeAttribute ("lorenzSchema");
+        juce::MemoryBlock old;
+        IlanaSynthAudioProcessor::copyXmlToBinary (*xml, old);
+
+        const auto rateOf = [] (IlanaSynthAudioProcessor& p, const char* id) { return p.apvts.getRawParameterValue (id)->load(); };
+        IlanaSynthAudioProcessor fromOld;
+        fromOld.setStateInformation (old.getData(), (int) old.getSize());
+        check (std::abs (rateOf (fromOld, "lfo1_rate") - 1.6f) < 0.01f && std::abs (rateOf (fromOld, "lfo3_rate") - 1.0f) < 1.0e-4f
+                   && std::abs (rateOf (fromOld, "lfo4_rate") - (float) (2.0 * 1.2 * LfoSimInfo::lorenzLoopsPerTime * std::pow (2.0, 0.6))) < 0.01f
+                   && std::abs (rateOf (fromOld, "lfo2_rate") - 4.0f) < 1.0e-4f,
+               "an older patch's free Lorenz LFO gets the RATE it moved at (" + juce::String (rateOf (fromOld, "lfo1_rate"), 3) + ", "
+                   + juce::String (rateOf (fromOld, "lfo4_rate"), 3) + "); synced and Rossler keep theirs");
+
+        IlanaSynthAudioProcessor fromNew;
+        fromNew.setStateInformation (saved.getData(), (int) saved.getSize());
+        juce::MemoryBlock again;
+        fromNew.getStateInformation (again);
+        IlanaSynthAudioProcessor twice;
+        twice.setStateInformation (again.getData(), (int) again.getSize());
+        check (std::abs (rateOf (fromNew, "lfo1_rate") - 1.0f) < 1.0e-4f && std::abs (rateOf (twice, "lfo1_rate") - 1.0f) < 1.0e-4f,
+               "a patch saved now keeps its Lorenz RATE through save and load");
+    }
+
     for (const auto shape : { LfoSimShapes::Lorenz, LfoSimShapes::Rossler, LfoSimShapes::Duffing, LfoSimShapes::Henon,
                               LfoSimShapes::Logistic, LfoSimShapes::DoublePendulum })
     {

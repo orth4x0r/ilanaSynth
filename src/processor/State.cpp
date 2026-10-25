@@ -5,6 +5,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     auto state = apvts.copyState();
     state.setProperty ("osc3Schema", 2, nullptr);
     state.setProperty ("grainPosSchema", 2, nullptr);
+    state.setProperty ("lorenzSchema", 2, nullptr);
     state.setProperty ("stringSchema", 2, nullptr);
     state.setProperty ("redundantKnobsSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
@@ -947,6 +948,50 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         }
 
         state.setProperty ("grainPosSchema", 2, nullptr);
+    }
+
+    // 2026-10-23: Lorenz loops once per cycle of RATE (it looped 1.6 to 2.5
+    // times). A free-running Lorenz LFO saved before gets the faster RATE
+    // that moves it as before; a synced one keeps its division and now
+    // loops on it.
+    if ((int) state.getProperty ("lorenzSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+
+            return juce::ValueTree();
+        };
+        const auto valueOf = [&find] (const juce::String& id, float fallback)
+        {
+            const auto child = find (id);
+            return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+        };
+
+        for (int lfo = 1; lfo <= numLfos; ++lfo)
+        {
+            const auto prefix = "lfo" + juce::String (lfo);
+
+            if (juce::roundToInt (valueOf (prefix + "_shape", 0.0f)) != LfoSimShapes::Lorenz || valueOf (prefix + "_sync", 0.0f) > 0.5f)
+                continue;
+
+            const auto rho = LfoSimInfo::value (LfoSimShapes::Lorenz, 1, valueOf (prefix + "_p2", 0.5f));
+            auto rate = find (prefix + "_rate");
+
+            if (! rate.isValid())
+            {
+                rate = juce::ValueTree ("PARAM");
+                rate.setProperty ("id", prefix + "_rate", nullptr);
+                state.appendChild (rate, nullptr);
+            }
+
+            const auto scaled = (double) valueOf (prefix + "_rate", 4.0f) * LfoSimInfo::lorenzLegacyRateScale (rho);
+            rate.setProperty ("value", (float) juce::jlimit (0.01, 40.0, scaled), nullptr);
+        }
+
+        state.setProperty ("lorenzSchema", 2, nullptr);
     }
 
     // v1.1 added factory wavetables ahead of the four user slots, so older

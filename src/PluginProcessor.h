@@ -583,6 +583,16 @@ public:
     // ratio on the Operator EG (a DX7 operator's init state).
     void addOscillator (int index, int mode);
     void removeOscillator (int index);
+    // Oscillator slots (OscSlots.cpp, ilana 2026-10-26). A swap trades two
+    // oscillators whole: settings, sample, FM routes, PATCH cable, vector
+    // corners and the mod routes into them. moveOscillator puts a shown
+    // oscillator at a position among the shown ones (the card order) and
+    // returns its new slot; duplicateOscillator copies one into the first
+    // hidden slot, right after it, and returns that slot (-1: all six are
+    // shown). Message thread; wrap each in performEdit.
+    void swapOscillators (int a, int b);
+    int moveOscillator (int osc, int position);
+    int duplicateOscillator (int from);
     // Sets an oscillator's type (OscMode). Leaving FM / DX7 drops what only
     // an operator has, so the new type's card shows everything that plays:
     // TUNING goes back to semitones, and a Wavetable leaves the Operator EG
@@ -942,6 +952,8 @@ private:
         std::shared_ptr<const ClipState::Clips> clips;
     };
     struct PatchDataEdit;
+    float readNormalised (const juce::String& id) const;
+    void writeNormalised (const juce::String& id, float value);
     PatchData capturePatchData() const;
     // Puts back the parts of data that differ from reference.
     void restorePatchData (const PatchData& data, const PatchData& reference);

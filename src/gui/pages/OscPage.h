@@ -1481,6 +1481,19 @@ public:
             };
             addChildComponent (card.stringButton);
 
+            // The header's x removes the oscillator (ilana 2026-10-26: "an easier way to ... delete oscs").
+            card.removeButton.setTooltip ("Remove this oscillator (undo brings it back). Drag the header to move the card; right-click it to duplicate");
+            card.removeButton.onClick = [this, i]
+            {
+                auto& p = processorRef;
+                p.performEdit ("Remove OSC " + juce::String (i + 1), [&p, i] { p.removeOscillator (i); });
+                updateModeVisibility();
+                updateEnabled();
+            };
+            styleHeaderButton (card.removeButton);
+            card.removeButton.getProperties().set ("packedButton", true);
+            addChildComponent (card.removeButton);
+
             card.sampleLoadButton.setButtonText ("LOAD...");
             card.sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample.  You can also drop a .wav or .sfz file on the picture");
             card.sampleLoadButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleLoadButton); };
@@ -1801,19 +1814,126 @@ public:
             paintStrip (g);
     }
 
-    // A right-click on a card's header: switch it off or remove it (the old
-    // tab's menu).
+    // A right-click on a card's header: switch it off, duplicate or remove
+    // it (the old tab's menu). A drag by the header moves the card (ilana
+    // 2026-10-26: "drag to reorder"): a line shows where it lands.
     void mouseDown (const juce::MouseEvent& event) override
     {
-        if (! event.mods.isPopupMenu())
-            return;
-
+        dragOsc = -1;
         for (const auto& card : cards)
             if (card.header.contains (event.getPosition()))
             {
-                showOscMenu (card.osc);
+                if (event.mods.isPopupMenu())
+                    showOscMenu (card.osc);
+                else if (cards.size() > 1)
+                    dragOsc = card.osc;
                 return;
             }
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (dragOsc < 0 || (! dragging && event.getDistanceFromDragStart() < 5))
+            return;
+
+        dragging = true;
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        if (auto* viewport = findParentComponentOfClass<juce::Viewport>())
+        {
+            const auto inViewport = viewport->getLocalPoint (this, event.getPosition());
+            viewport->autoScroll (inViewport.x, inViewport.y, 30, 12);
+        }
+        const auto position = dropPosition (event.y);
+        if (position != dropAt)
+        {
+            dropAt = position;
+            repaint();
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        const auto osc = dragOsc, position = dropAt;
+        const auto moved = dragging && position >= 0 && position != positionOf (osc);
+        dragOsc = dropAt = -1;
+        dragging = false;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        repaint();
+
+        if (moved)
+        {
+            const auto name = "OSC " + juce::String (osc + 1);
+            auto& p = processorRef;
+            auto landed = osc;
+            p.performEdit ("Move " + name, [&p, &landed, osc, position] { landed = p.moveOscillator (osc, position); });
+            selected = landed;
+            updateModeVisibility();
+            updateEnabled();
+        }
+    }
+
+    // An open hand over a header's free space says it can be dragged.
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        auto overHeader = false;
+        for (const auto& card : cards)
+            overHeader = overHeader || card.header.contains (event.getPosition());
+        setMouseCursor (overHeader && cards.size() > 1 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! dragging || dragOsc < 0)
+            return;
+
+        for (const auto& card : cards)
+            if (card.osc == dragOsc)
+            {
+                g.setColour (oscColour (dragOsc));
+                g.drawRoundedRectangle (card.bounds.toFloat().reduced (0.5f), 10.0f, 2.0f);
+            }
+
+        // The line between the cards it would land between (the gap's middle).
+        if (dropAt < 0 || dropAt == positionOf (dragOsc))
+            return;
+
+        const auto target = dropAt > positionOf (dragOsc) ? dropAt + 1 : dropAt;
+        const auto y = target < (int) cards.size() ? cards[(size_t) target].bounds.getY() - juce::jmax (1, gapNow()) / 2
+                                                   : cards.back().bounds.getBottom() + juce::jmax (1, gapNow()) / 2;
+        const auto& first = cards.front().bounds;
+        g.setColour (oscColour (dragOsc));
+        g.fillRoundedRectangle (juce::Rectangle<float> ((float) first.getX() + 4.0f, (float) y - 1.5f, (float) first.getWidth() - 8.0f, 3.0f), 1.5f);
+    }
+
+    // The card order (the shown oscillators, in slot order) of an oscillator.
+    int positionOf (int osc) const
+    {
+        for (size_t i = 0; i < cards.size(); ++i)
+            if (cards[i].osc == osc)
+                return (int) i;
+        return -1;
+    }
+
+    // Where a card dragged to y lands: the number of other cards above y's line.
+    int dropPosition (int y) const
+    {
+        auto position = 0;
+        for (const auto& card : cards)
+            if (card.osc != dragOsc && y > card.bounds.getCentreY())
+                ++position;
+        return position;
+    }
+
+    // Duplicate: the copy lands under the original and is selected.
+    void duplicate (int osc)
+    {
+        auto& p = processorRef;
+        auto copy = -1;
+        p.performEdit ("Duplicate OSC " + juce::String (osc + 1), [&p, &copy, osc] { copy = p.duplicateOscillator (osc); });
+        if (copy >= 0)
+            selected = copy;
+        updateModeVisibility();
+        updateEnabled();
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
@@ -1906,7 +2026,7 @@ public:
     // The UI test reads the menu's items.
     juce::StringArray getOscMenuItems (int band) const
     {
-        return { isOff (band) ? "Switch on" : "Switch off", "Remove oscillator" };
+        return { isOff (band) ? "Switch on" : "Switch off", "Duplicate oscillator", "Remove oscillator" };
     }
 
     // The card's rectangle in the page (the UI tests).
@@ -2316,6 +2436,8 @@ private:
 
     std::vector<CardGeometry> cards;
     juce::Rectangle<int> stripArea, addArea;
+    int dragOsc = -1, dropAt = -1; // a card dragged by its header, and where it would land
+    bool dragging = false;
 
     // (A switched-off oscillator keeps its whole card, dimmed, on both tabs; no card folds, the page scrolls
     // instead: ilana 2026-10-21 "dont fold ... just let me scroll", 2026-10-22 "yeah, dim".)
@@ -2598,6 +2720,11 @@ private:
         const auto centre = card.header.getCentreY();
         osc.on.setBounds (juce::Rectangle<int> (30, 17).withCentre ({ card.header.getRight() - 6 - 15, centre }));
         auto right = card.header.withRight (osc.on.getX() - 6);
+        if (pieces.removeButton.isVisible())
+        {
+            pieces.removeButton.setBounds (right.removeFromRight (17).withSizeKeepingCentre (17, 16));
+            right.removeFromRight (4);
+        }
 
         // (From the right: a sample card reads LOAD, RESAMPLE, EXPORT, SLICE, ZONES, DETECT.)
         for (auto* button : { &loadButton (index), &pieces.sampleDetectButton, &pieces.sampleZonesButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
@@ -3784,6 +3911,20 @@ private:
         SampleNameBox sampleNameButton;
         BarSliderControl xfadeBar; // the sample's CROSSFADE, a row of the toggle list
         juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
+        // The header's x: remove this oscillator. Drawn as two strokes, as big as
+        // the buttons' capitals (a text x read small).
+        struct RemoveButton : juce::TextButton
+        {
+            void paintButton (juce::Graphics& g, bool over, bool down) override
+            {
+                getLookAndFeel().drawButtonBackground (g, *this, findColour (buttonColourId), over, down);
+                const auto centre = getLocalBounds().toFloat().getCentre();
+                const auto arm = 3.0f;
+                g.setColour (findColour (textColourOffId).withMultipliedAlpha (over ? 1.0f : 0.85f));
+                g.drawLine (centre.x - arm, centre.y - arm, centre.x + arm, centre.y + arm, 1.4f);
+                g.drawLine (centre.x - arm, centre.y + arm, centre.x + arm, centre.y - arm, 1.4f);
+            }
+        } removeButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -3944,6 +4085,7 @@ private:
         juce::PopupMenu menu;
         menu.addSectionHeader ("OSC " + juce::String (band + 1));
         menu.addItem (1, on ? "Switch off" : "Switch on");
+        menu.addItem (3, "Duplicate oscillator", canAdd());
         menu.addItem (2, "Remove oscillator", numShown() > 1);
         juce::Component::SafePointer<OscPage> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
@@ -3957,6 +4099,8 @@ private:
 
                                 if (result == 2)
                                     p.performEdit ("Remove " + name, [&p, band] { p.removeOscillator (band); });
+                                else if (result == 3)
+                                    safe->duplicate (band);
                                 else if (auto* parameter = p.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) band]) + "_on"))
                                     p.performEdit (name + (on ? " off" : " on"), [parameter, on]
                                     {
@@ -4132,7 +4276,7 @@ private:
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
                  &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton, &pieces.sampleNameButton,
-                 &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.exciterPills,
+                 &pieces.removeButton, &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.exciterPills,
                  &phys.resAmount, &phys.resOn, &phys.resBoard };
     }
 
@@ -4295,6 +4439,7 @@ private:
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
             pieces.opEnvButton.setVisible (false); // (the envelope picture opens the editor on a click)
             pieces.stringButton.setVisible (kind == Kind::physical);
+            pieces.removeButton.setVisible (numShown() > 1);
 
             // The well: the table (slim line), the string, the operator's
             // envelope, the sample, the live meter.

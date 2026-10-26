@@ -225,7 +225,12 @@ int main (int argc, char** argv)
     {
         if (! wanted (names[i]))
             continue;
-        const auto print = render (processor, i);
+        // A fresh processor per preset: string and feedback voices keep their
+        // buffers across a patch load, so a preset's print depended on the
+        // presets rendered before it (adding one moved four others).
+        IlanaSynthAudioProcessor fresh;
+        fresh.setNonRealtime (true);
+        const auto print = render (fresh, i);
         out << i << ",\"" << names[i].toStdString() << "\"," << print.rmsDb << "," << print.peak << ","
             << print.centroid << "," << print.side << "\n";
     }

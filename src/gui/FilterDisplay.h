@@ -83,12 +83,12 @@ public:
 
         IlanaTheme::paintWell (g, bounds, 6.0f);
 
-        const auto plot = bounds.reduced (10.0f, 12.0f);
+        const auto plot = plotBounds();
 
         // A graph this size carries a full grid: every 1-2-5 step of the
         // frequency axis named, the dB steps labelled (N16-4); the small
         // ones (PLAY's) keep the three decades.
-        const auto big = bounds.getHeight() >= 150.0f && bounds.getWidth() >= 400.0f;
+        const auto big = ! isCompact();
 
         if (big)
         {
@@ -111,7 +111,7 @@ public:
         }
 
         // The frequency axis, named as on the scope.
-        g.setColour (IlanaTheme::Ui::text3);
+        g.setColour (big ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::text3.withAlpha (0.6f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         const std::vector<std::pair<double, const char*>> frequencyNames = big
             ? std::vector<std::pair<double, const char*>> { { 50.0, "50" }, { 100.0, "100" }, { 200.0, "200" }, { 500.0, "500" }, { 1000.0, "1k" },
@@ -120,7 +120,7 @@ public:
         for (const auto& [frequency, name] : frequencyNames)
         {
             const auto x = plot.getX() + (float) frequencyToX (frequency) * plot.getWidth();
-            g.drawText (name, juce::Rectangle<float> (x + 3.0f, bounds.getBottom() - 13.0f, 30.0f, 11.0f), juce::Justification::centredLeft);
+            g.drawText (name, juce::Rectangle<float> (x + 3.0f, (big ? bounds.getBottom() : plot.getBottom()) - 13.0f, 30.0f, 11.0f), juce::Justification::centredLeft);
         }
         if (big)
             g.drawText ("Hz", juce::Rectangle<float> (plot.getRight() - 26.0f, bounds.getBottom() - 13.0f, 26.0f, 11.0f), juce::Justification::centredRight);
@@ -336,7 +336,9 @@ private:
         return readParam ("west_on") > 0.5f && juce::roundToInt (readParam ("west_pos")) == 1 && readParam ("route_cables") < 0.5f;
     }
 
-    juce::Rectangle<float> plotBounds() const { return getLocalBounds().toFloat().reduced (10.0f, 12.0f); }
+    // A small graph (PLAY's) plots edge to edge, its frequency names faint inside the plot.
+    bool isCompact() const { return getHeight() < 150 || getWidth() < 400; }
+    juce::Rectangle<float> plotBounds() const { return getLocalBounds().toFloat().reduced (isCompact() ? 3.0f : 10.0f, isCompact() ? 3.0f : 12.0f); }
 
     // A filter's own level at its cutoff: the response's peak within a
     // quarter octave of it (a notch's or a comb's dip at the exact cutoff
@@ -487,9 +489,11 @@ private:
         return 20.0 * std::pow (1000.0, proportion);
     }
 
-    static double dbToY (double db)
+    // +24 to -48 dB; a small graph shows +18 to -30 so its slopes read steeper.
+    double dbToY (double db) const
     {
-        return juce::jlimit (0.0, 1.0, (24.0 - db) / 72.0);
+        return isCompact() ? juce::jlimit (0.0, 1.0, (18.0 - db) / 48.0)
+                           : juce::jlimit (0.0, 1.0, (24.0 - db) / 72.0);
     }
 
     float readParam (const char* id) const

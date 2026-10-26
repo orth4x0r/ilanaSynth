@@ -225,7 +225,15 @@ int main (int argc, char** argv)
     {
         if (! wanted (names[i]))
             continue;
-        const auto print = render (processor, i);
+        // A fresh processor per preset: string and feedback voices keep their
+        // buffers across a patch load, so a preset's print depended on the
+        // presets rendered before it (adding one moved four others).
+        // ILANA_FINGERPRINT_SEQUENTIAL=1: one processor for all (to see what a
+        // patch load leaves behind: it should print the same rows).
+        static const bool sequential = juce::SystemStats::getEnvironmentVariable ("ILANA_FINGERPRINT_SEQUENTIAL", "").isNotEmpty();
+        IlanaSynthAudioProcessor fresh;
+        fresh.setNonRealtime (true);
+        const auto print = render (sequential ? processor : fresh, i);
         out << i << ",\"" << names[i].toStdString() << "\"," << print.rmsDb << "," << print.peak << ","
             << print.centroid << "," << print.side << "\n";
     }

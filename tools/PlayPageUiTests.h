@@ -169,4 +169,46 @@ void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             settle (400);
         }
     }
+
+    // ilana on beta 1.4: with more envelopes than pills fit (AMP and FILT showed), the graph showed ENV 4 but no
+    // pill did, so it couldn't be picked. The pill row now scrolls so the selected source is always among its pills.
+    {
+        for (int env = 1; env < 5; ++env)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, true);
+        settle (600);
+        juce::Component* card = nullptr;
+        juce::Button* next = nullptr;
+        juce::Button* previous = nullptr;
+        std::vector<juce::Component*> all;
+        findAll<juce::Component> (editor, all);
+        for (auto* c : all)
+            if (visibleInTree (c))
+            {
+                if (c->getName() == "PLAY envelope card")
+                    card = c;
+                else if (c->getName() == "PLAY envelope card next")
+                    next = dynamic_cast<juce::Button*> (c);
+                else if (c->getName() == "PLAY envelope card previous")
+                    previous = dynamic_cast<juce::Button*> (c);
+            }
+        expect (card != nullptr && next != nullptr && previous != nullptr, "PLAY: the ENVELOPE card and its arrows are found");
+        if (card != nullptr && next != nullptr && previous != nullptr)
+        {
+            const auto shown = [card] { return juce::StringArray::fromTokens (card->getProperties()["shownSources"].toString(), ",", ""); };
+            const auto selected = [card] { return card->getProperties()["selectedSource"].toString(); };
+            expect (shown().size() < 5, "PLAY: the ENVELOPE card has more envelopes than pills (the case ilana hit; " + juce::String (shown().size()) + " pills)");
+            juce::String missing;
+            for (int i = 0; i < 10; ++i)
+            {
+                (i < 5 ? next : previous)->triggerClick();
+                settle (30);
+                if (! shown().contains (selected()))
+                    missing << ModNames::source (selected().getIntValue()) << ", ";
+            }
+            expect (missing.isEmpty(), "PLAY: stepping through the 5 envelopes both ways, the selected one always has a pill on screen (" + missing + ")");
+        }
+        for (int env = 1; env < 5; ++env)
+            processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
+        settle (400);
+    }
 }

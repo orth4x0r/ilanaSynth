@@ -261,7 +261,10 @@ public:
             lowpassState = 0.0f;
             strikeVelocity = level;
             bowRamp = 0.0f;
-            bowRampCoefficient = (float) (1.0 - std::exp (-1.0 / (0.03 * sampleRate)));
+            // A low string takes longer to speak: the bow's push builds over
+            // 30 ms, up to three times that below A3.
+            const auto rampSeconds = 0.03 * juce::jlimit (1.0, 3.0, 220.0 / frequency);
+            bowRampCoefficient = (float) (1.0 - std::exp (-1.0 / (rampSeconds * sampleRate)));
             bridgeInput = 0.0f;
             return;
         }
@@ -1154,7 +1157,12 @@ private:
         if (bowPositionGlide.moving (target))
             bowPositionGlide.step (target, (double) glideCoefficient, 1.0e-7);
         const auto position = bowPositionGlide.value;
-        const auto base = juce::jmax (4.0, period - 1.0 - (1.0 - (double) lowpassCoefficient) / (double) lowpassCoefficient);
+        // Below A3 the bridge passes less treble, in proportion to the pitch: a
+        // real low string is much duller than a fixed cutoff would leave it,
+        // and its raw sawtooth buzzed.
+        const auto lpc = frequency >= 220.0 ? lowpassCoefficient
+                                            : (float) juce::jmax (0.03, (double) lowpassCoefficient * frequency / 220.0);
+        const auto base = juce::jmax (4.0, period - 1.0 - (1.0 - (double) lpc) / (double) lpc);
         const auto bridgeLength = juce::jlimit (2.0, (double) half - 2.0, base * position);
         const auto neckLength = juce::jlimit (2.0, (double) half - 2.0, base * (1.0 - position));
 
@@ -1174,7 +1182,7 @@ private:
         const auto neckOut = readLine (half, bowNeckWrite, neckLength);
 
         // Bridge: loss and damping on every reflection (DECAY and DAMP).
-        lowpassState += (bridgeOut - lowpassState) * lowpassCoefficient;
+        lowpassState += (bridgeOut - lowpassState) * lpc;
         auto bridgeReflection = -lowpassState * feedback;
         if (damper > 0.0f && ! noteHeld)
             bridgeReflection *= damperLoss.get (damper, period, sampleRate);

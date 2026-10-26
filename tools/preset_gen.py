@@ -71,7 +71,10 @@ REF_CATEGORY = {
     "real piano SOUND": "Keys",
     "trancey pad": "Pad",
     "velocity warp physical pluck": "Pluck",
-    # Synced 2026-10-25 (PR #165).
+    # Synced 2026-10-25 (PR #165). big KEYS also saves an edited table
+    # (Ghostly Voices edit, User 1) that none of its oscillators plays, so
+    # dropping it, as a factory preset must, does not change its sound.
+    "big KEYS": "Keys",
     "euclidian random keys": "Keys",
     "ilanakeys": "Keys",
     "nOta Pluck": "Pluck",
@@ -81,10 +84,6 @@ REF_CATEGORY = {
     "detuned reese plus saw bass": "Bass",
 }
 
-# Her presets that play a wavetable saved inside the file ("big KEYS": its
-# edited Ghostly Voices table). A factory preset cannot carry that table, so
-# they are neither references nor seeds; their tricks are in the concepts.
-EMBEDDED_TABLE = {"big KEYS"}
 
 # Modulation sources by name (Mod::getSourceNames; the first 22, append only).
 SOURCES = {name: index for index, name in enumerate([
@@ -229,8 +228,6 @@ def load_seeds(defaults):
                 rendered[row["name"]] = values
     seeds = {}
     for path in sorted(USER.glob("*.ilanapreset")):
-        if path.stem in EMBEDDED_TABLE:
-            continue
         attrs, params = read_preset(path)
         full = dict(defaults)
         if path.stem in rendered:

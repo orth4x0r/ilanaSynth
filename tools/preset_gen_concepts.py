@@ -41,6 +41,7 @@ SUPERSAW = "supersaw plucked lead"
 TRESILLO = "Tresillo Gate_edited"
 WIDEPAD = "Wide Chord Pad - Warmed"
 REESE = "detuned reese plus saw bass"
+BIGKEYS = "big KEYS"
 
 POLY = {"voice_mode": 0, "poly_voices": 16}
 MONO = {"voice_mode": 2, "poly_voices": 1, "glide": ("pick", 0.0, 0.002, 0.003), "glide_legato": 1}
@@ -665,6 +666,12 @@ CONCEPTS += [
               ("LFO 2", "Filter1 Cutoff", (0.1, 0.25))],
      "macros": [("TONE", [("Filter1 Cutoff", 0.4)]), ("FRAME", [("Osc1 Frame", 0.5)]),
                 ("RESO", [("Filter1 Reso", 0.3)]), ("SPACE", [("Reverb Mix", 0.4)])]},
+    {"name": "Chaos Bell Keys", "category": "Keys", "seed": BIGKEYS,
+     "about": "big KEYS with its chaos LFOs kept and the comb filter tuned higher into a bell",
+     "set": {"f2_cutoff": ("log", 1800, 4000), "f2_reso": (0.3, 0.55), "amp_decay": (0.25, 0.6),
+             "amp_sustain": (0.2, 0.45)},
+     "macros": [("TONE", [("Filter1 Cutoff", 0.4)]), ("BELL", [("Filter2 Reso", 0.4)]),
+                ("FRAME", [("Osc1 Frame", 0.5)]), ("DRY", [("fx_slot1_mix", -0.5)])]},
     {"name": "Chaos Saw Pluck", "category": "Lead", "seed": SUPERSAW,
      "about": "her trance supersaw pluck with slow random drift on the cutoff and the detune",
      "set": {"lfo3_shape": ("pick", 17, 18), "lfo3_sync": 1, "lfo3_div": ("pick", 1, 2), "lfo4_shape": 20,

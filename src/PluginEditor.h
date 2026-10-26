@@ -200,7 +200,7 @@ private:
     // window, so the pages above keep their size and layout.
     static constexpr int keyboardHeight = 32;
     int totalDesignHeight() const { return designHeight + (keyboardVisible ? keyboardHeight : 0); }
-    static constexpr const char* appVersion = "1.3";
+    static constexpr const char* appVersion = "1.4 BETA";
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, (size_t) Mod::Source::Count> usedModSources {};

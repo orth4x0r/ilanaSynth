@@ -28,7 +28,7 @@ public:
         static const std::vector<NewFeature> list {
             { "DX7 BANKS + OPERATOR ENV", "FM", "288 DX7 voices load as normal presets (find them by sound in the browser, or under its DX7 chip); "
                                                 "any oscillator can use the DX7's envelope (ENVELOPE: Operator Env). Import more .syx banks from the browser." },
-            { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters on the FILTER page." },
+            { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters in FILTER's TYPE menu." },
             { juce::String (FilterType::Count) + " FILTERS", "MAIN", "The filter list, grouped by family in the FILTER card's type menu." },
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
             { "SF2 / SFZ", "MAIN", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },

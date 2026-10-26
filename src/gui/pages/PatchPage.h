@@ -390,7 +390,7 @@ public:
         lfoButton.onClick = [this] { addLfo (std::nullopt); };
         addAndMakeVisible (lfoButton);
         resetButton.setTooltip ("The oscillator and filter cables back to the standard routing (each oscillator's route, "
-                                "SERIAL / PARALLEL and WEST's position, as the OSC and FILTER pages set them)");
+                                "SERIAL / PARALLEL and WEST's position, as PLAY sets them)");
         resetButton.onClick = [this] { resetVoiceToChain(); };
         fitButton.setTooltip ("Fit the whole patch in view (F, or double-click empty space)");
         fitButton.onClick = [this] { fit (true); };
@@ -1227,8 +1227,8 @@ private:
                     onAttachment = std::make_unique<juce::ButtonParameterAttachment> (*parameter, onButton, nullptr);
             onButton.setVisible (onAttachment != nullptr);
             editButton.setVisible (true);
-            editButton.setButtonText (voice >= stageKind ? "EDIT ON FILTER" : "EDIT ON OSC");
-            editButton.setTooltip (voice >= stageKind ? "Open the FILTER page" : "Open the OSC page");
+            editButton.setButtonText ("EDIT ON PLAY");
+            editButton.setTooltip (voice >= stageKind ? "Open PLAY, where its FILTER or WEST COAST card is" : "Open PLAY, where its oscillator card is");
         }
         else if (slot >= 0)
         {
@@ -1705,7 +1705,7 @@ private:
         if (isVoice (node))
         {
             const auto kind = localKind (node);
-            menu.addItem (kind >= stageKind ? "Edit on the FILTER page" : "Edit on the OSC page", [this, node] { open (node); });
+            menu.addItem ("Edit on PLAY", [this, node] { open (node); });
             if (kind != stageKind + VoiceRouting::f1 && kind != stageKind + VoiceRouting::f2)
                 menu.addItem ("Remove its cables", [this, id = node.id]
                 {

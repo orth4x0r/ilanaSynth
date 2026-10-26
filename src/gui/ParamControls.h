@@ -1524,6 +1524,9 @@ public:
         }
         if (value.length() > 4 && value.containsChar ('.'))
             value = value.dropLastCharacters (value.length() - 4).trimCharactersAtEnd (".");
+        // ("5.00" is "5.0": two decimals in one digit's dial came within 2 px of the ring, UI review 25.)
+        if (value.length() == 4 && juce::CharacterFunctions::isDigit (value[0]) && value[1] == '.')
+            value = juce::String (value.getDoubleValue(), 1);
 
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
         const auto drawn = IlanaTheme::font (packedD * kPackedValueScale, true, true);

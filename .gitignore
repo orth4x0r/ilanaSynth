@@ -20,3 +20,6 @@ CMakeUserPresets.json
 __pycache__/
 
 .claude/worktrees/
+
+# xwin Windows SDK cache (tools/win-syntax-check.sh)
+.xwin-cache/

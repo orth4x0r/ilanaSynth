@@ -1358,5 +1358,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
                        "Osc" + juce::String (osc + 1) + " Frame Blend", blends, FrameBlend::crossfade);
     }
 
+    // OSC 4-6's STRING SPLIT (OSC 1-3 had theirs; a swap of oscillators
+    // would have lost it, ilana 2026-10-26). Zero, the plain string, as their
+    // voices read it before.
+    for (int osc = 4; osc <= 6; ++osc)
+        addFloat ("osc" + juce::String (osc) + "_string_split", "Osc" + juce::String (osc) + " String Split", 0.0f, 1.0f, 0.0f);
+
     return layout;
 }

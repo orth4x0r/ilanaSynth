@@ -154,6 +154,7 @@ void expect (bool condition, const juce::String& message)
 #include "DropdownUiTests.h"
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
+#include "OscSlotUiTests.h"
 #include "FxLfoUiTests.h"
 #include "FxCarouselUiTests.h"
 #include "LayoutUiTests10.h"
@@ -1051,6 +1052,15 @@ int runUiTests()
     if (only == "PG")
     {
         runPatchCableTests (processor);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "OS")
+    {
+        runOscSlotUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7433,6 +7443,8 @@ int runUiTests()
     runPatchCableTests (processor);
     // Step 16: the oscillators' ROUTING cables.
     runOscRoutingUiTests (processor, *pages);
+    // Duplicate, drag to reorder, x to remove (2026-10-26).
+    runOscSlotUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.
     runFxLfoUiTests (processor, *pages);
     runFxCarouselUiTests (processor, *pages);

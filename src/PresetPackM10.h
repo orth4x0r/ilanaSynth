@@ -94,6 +94,21 @@ inline void addM10Presets (const std::function<void (const FactoryPreset&)>& add
              .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
              .fx ({ FxEq, FxReverb }).eq (2.0f, 700.0f, -2.0f, -1.0f).reverb (Hall, 0.7f, 0.25f));
 
+    // Fitted to the Iowa solo cello (bow, damping, bow position) with a Classic body: the body took the 3 kHz+ buzz off in her blind vote.
+    add (B ("Solo Cello", "Lead")
+             .string (1, 0.8f, XBow, 0.9109f, 0.4475f, 1.0f).unison (1, 1, 0.0f, 0.0f)
+             .set ("osc1_bow_pressure", 0.125f).set ("osc1_bow_speed", 0.375f)
+             .set ("osc1_string_stiffness", 0.6f).set ("osc1_string_excite_pos", 0.2f)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .set ("res_on", 1).set ("body_type", 0).set ("body_material", 0.5f).set ("res_amount", 0.4f)
+             .amp (0.12f, 0.4f, 1.0f, 0.5f).filter1 (LP, 14000.0f, 0.0f)
+             .lfo (1, Sine, 5.2f, true).mod (Lfo1, D::Osc1Pitch, 0.01f, 0.0f, Wheel)
+             .macro (1, "PRESSURE", { { param ("osc1_bow_pressure"), 0.35f } })
+             .macro (2, "BODY", { { D::ResAmount, 0.4f } })
+             .macro (3, "VIBRATO", { { D::Lfo1Rate, 0.2f } })
+             .macro (4, "HALL", { { D::FxReverbMix, 0.35f } })
+             .fx ({ FxReverb }).reverb (Hall, 0.7f, 0.2f));
+
     add (B ("Harp Cascade", "Pluck")
              .string (1, 0.8f, XBurst, 0.8f, 0.25f).set ("osc1_string_pick_hardness", 0.3f).set ("osc1_string_pick_pos", 0.3f)
              .amp (0.001f, 4.0f, 1.0f, 1.2f)

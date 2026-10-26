@@ -89,6 +89,7 @@ public:
         snapGlides = true;
         electric.reset();
         piano.reset();
+        feedbackLoop.reset();
     }
 
     void setFrequency (double hz)

@@ -1454,11 +1454,12 @@ public:
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
         paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()));
-        paintCardWithHeader (g, stringsBounds, {}, stringsColour());
-        paintCardWithHeader (g, westBounds, "WEST COAST", westColour());
-        paintCardWithHeader (g, bodyBounds, {}, bodyColour());
-        paintCardWithHeader (g, subBounds, "SUB", subColour());
-        paintCardWithHeader (g, noiseBounds, "NOISE", subColour());
+        // (A switched-off card's dot dims as an off oscillator's does: UI review 26.)
+        paintCardWithHeader (g, stringsBounds, {}, stringsColour(), stringsTabs.getSelected() != 0 || readInt ("sym_on") != 0);
+        paintCardWithHeader (g, westBounds, "WEST COAST", westColour(), readInt ("west_on") != 0);
+        paintCardWithHeader (g, bodyBounds, {}, bodyColour(), readInt (boardTab.getSelected() == 0 ? "sb_on" : "res_on") != 0);
+        paintCardWithHeader (g, subBounds, "SUB", subColour(), readInt ("subosc_on") != 0);
+        paintCardWithHeader (g, noiseBounds, "NOISE", subColour(), readInt ("noise_on") != 0);
 
         // STRINGS' TUNING over AUTO / MANUAL and NOTES; KEYS' NOISE over KEY, DAMPER and PEDAL.
         const auto strings = stringsTabs.getSelected() == 0;
@@ -1589,6 +1590,11 @@ private:
         operatorFilterOff = operatorVoiceFilterOff (processorRef);
         filterDisplay.setVoiceOff (operatorFilterOff);
         effectRules.apply();
+        if (const auto switches = switchesSignature(); switches != lastSwitches)
+        {
+            lastSwitches = switches;
+            repaint();
+        }
         // A type or the routing changed: the filter card's knobs follow (MORPH, BALANCE, the slope).
         const auto signature = readInt ("f1_type") * 7 + readInt ("f2_type") * 131 + readInt ("filters_parallel") * 30011;
         if (signature != filterSignature)
@@ -1653,6 +1659,7 @@ private:
     }
 
     float rememberedCutoff = 8000.0f;
+    int lastSwitches = -1;
 
     // The OSC area's own scroll bar (thin, over the cards' side margin), shown only while the cards overflow it.
     void syncOscBar()
@@ -1676,17 +1683,23 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
-    // What the bands may take: the oscillator cards' own height (their page's
-    // minimum, with its add row) first.
+    // What the bands may take: the page less two oscillator cards and their add row, whatever the
+    // oscillator count, so the bands are one height on every patch (a third card scrolls).
     int bandsHeightFor (int pageHeight) const
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = page->getReferenceHeight();
+            oscHeight = page->getBandsReferenceHeight();
         return pageHeight - bottomMargin - oscHeight;
     }
 
-    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint) const
+    int switchesSignature() const
+    {
+        return readInt ("sym_on") + 2 * readInt ("west_on") + 4 * readInt ("res_on") + 8 * readInt ("sb_on")
+               + 16 * readInt ("subosc_on") + 32 * readInt ("noise_on");
+    }
+
+    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit = true) const
     {
         if (card.isEmpty())
             return;
@@ -1695,7 +1708,7 @@ private:
         g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
         g.fillRect (juce::Rectangle<int> (card.getX() + 1, card.getY() + headerHeight - 1, card.getWidth() - 2, 1));
         const auto centre = card.getY() + headerHeight / 2;
-        IlanaTheme::paintTag (g, { (float) card.getX() + 14.0f, (float) centre }, tint);
+        IlanaTheme::paintTag (g, { (float) card.getX() + 14.0f, (float) centre }, lit ? tint : tint.withMultipliedSaturation (0.6f).withMultipliedBrightness (0.5f));
         if (title.isEmpty())
             return;
         g.setColour (IlanaTheme::Ui::text);
@@ -1751,9 +1764,9 @@ private:
     {
         const auto total = band.getWidth() - 2 * hGap;
         auto row = band;
-        filterBounds = row.removeFromLeft (juce::roundToInt ((float) total * 456.0f / 1036.0f));
+        filterBounds = row.removeFromLeft (juce::roundToInt ((float) total * 472.0f / 1036.0f));
         row.removeFromLeft (hGap);
-        stringsBounds = row.removeFromLeft (juce::roundToInt ((float) total * 221.0f / 1036.0f));
+        stringsBounds = row.removeFromLeft (juce::roundToInt ((float) total * 219.0f / 1036.0f));
         row.removeFromLeft (hGap);
         westBounds = row;
 
@@ -1776,16 +1789,16 @@ private:
             // Body: the graph one size in every view, then CUTOFF RESO DRIVE KEY TRACK and a fifth slot, SLOPE
             // on a classic type or MORPH on one that morphs (a type has one or the other).
             auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
-            const auto knobsX = card.getRight() - 6 - 5 * cell;
+            const auto knobsX = card.getRight() - 6 - 5 * filterPitch;
             filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 5, body.getY() + 1, knobsX - 4 - card.getX() - 5, body.getHeight() - 2));
             const auto& parts = filters[(size_t) shown];
             // (Room under the dials for KEY TRACK's second line.)
             const auto cellY = body.getY() - 2 + (body.getHeight() + 2 - (int) dialSize - 10 - 13) / 2;
             for (size_t k = 0; k < parts.knobs.size(); ++k)
                 for (auto& other : filters)
-                    other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * cell, cellY, cell, (int) dialSize + 10 + 13 }));
+                    other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
             for (auto& other : filters)
-                other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * cell, cellY, cell, (int) dialSize + 10 + 13 }));
+                other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
         }
 
         {
@@ -1996,7 +2009,8 @@ private:
                && FilterType::usesSlope (type);
     }
 
-    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42;
+    // (UI review 26: FILTER back to mockup v4's width, its graph about 290 px; the knobs at 33 and WEST at 41 give the room.)
+    static constexpr int westPitch = 41, stringsPitch = 43, bodyPitch = 42, filterPitch = 33;
 
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };

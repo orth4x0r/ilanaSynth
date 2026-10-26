@@ -1017,6 +1017,73 @@ private:
     }
 };
 
+// PLAY's drop tile (mockup v4, ilana 2026-10-26): with one or two oscillators the room under the cards
+// is one dashed tile holding the two add buttons, and an audio file or SoundFont dropped on it lands
+// in a new oscillator.
+class OscDropTile : public juce::Component,
+                    public juce::FileDragAndDropTarget
+{
+public:
+    std::function<void (const juce::File&)> onFileDropped;
+
+    // The add buttons sit on the tile; the caption goes under them.
+    void setCaptionTop (int y) { captionTop = y; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (area, 8.0f);
+        const float dashes[] { 4.0f, 4.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        if (dragHover)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.08f));
+            g.fillRoundedRectangle (area, 8.0f);
+        }
+        g.setColour (dragHover ? IlanaTheme::accent() : IlanaTheme::Ui::line);
+        g.fillPath (dashed);
+        if (captionTop > 0 && captionTop + 14 < getHeight())
+        {
+            g.setColour (dragHover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (dragHover ? "drop to add it as a new oscillator" : "or drop a wavetable, sample or .sfz here",
+                        juce::Rectangle<int> (0, captionTop, getWidth(), 16), juce::Justification::centred, false);
+        }
+    }
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        if (files.size() != 1)
+            return false;
+        const juce::File file (files[0]);
+        for (const auto* extension : { "wav", "aif", "aiff", "flac", "ogg", "mp3", "m4a", "sf2", "sfz" })
+            if (file.hasFileExtension (extension))
+                return true;
+        return false;
+    }
+
+    void fileDragEnter (const juce::StringArray&, int, int) override { setDragHover (true); }
+    void fileDragExit (const juce::StringArray&) override { setDragHover (false); }
+
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        setDragHover (false);
+        if (files.size() == 1 && onFileDropped != nullptr)
+            onFileDropped (juce::File (files[0]));
+    }
+
+private:
+    void setDragHover (bool hover)
+    {
+        dragHover = hover;
+        repaint();
+    }
+
+    bool dragHover = false;
+    int captionTop = 0;
+};
+
 class OscPage : public juce::Component,
                 private IlanaTheme::UiScaleListener,
                 private juce::AudioProcessorValueTreeState::Listener,
@@ -1724,6 +1791,9 @@ public:
         addFmButton.setTooltip ("Add the next oscillator as an FM / DX7 operator: a sine tuned by ratio, on its OP ENV");
         addFmButton.onClick = [this] { addOscillatorOfType (OscMode::fmOperator); };
         addChildComponent (addFmButton);
+        // On PLAY, with room under one or two cards, both buttons sit on the drop tile.
+        addChildComponent (dropTile);
+        dropTile.onFileDropped = [this] (const juce::File& file) { addOscillatorFromFile (file); };
 
         lastRevealVersion = processorRef.getRevealVersion();
         updateModeVisibility();
@@ -1947,13 +2017,20 @@ public:
 
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
     // card (a sample, a string) never squeezes the bands: the oscillator area scrolls instead.
-    int getReferenceHeight() const
+    int getReferenceHeight() const { return referenceHeightFor (numShown()); }
+
+    // What PLAY sizes its two module bands by: always two wavetable cards and the add row, the layout the bands
+    // were approved under (81 / 104 px). A third card scrolls a little rather than the bands shrinking (ilana
+    // 2026-10-22; UI review 26 found three-oscillator presets squashing band 2 to 89 px).
+    int getBandsReferenceHeight() const { return referenceHeightFor (2); }
+
+    int referenceHeightFor (int shown) const
     {
         // (Sized by the wavetable card PLAY's bands were approved under, 28 px warp rows and 12 px chip: the OSC tab's
         // cards are 6 px taller, and the oscillators scroll that little rather than the bands shrinking, ilana 2026-10-22.)
         const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * 28 + 1 + 3 + 12) + panelTail + 1 + cardPad + 1;
         // (Never more than the three cards PLAY shows at once: a fourth card, and the add row under a third, scroll.)
-        const auto counted = juce::jmin (numShown(), embeddedAddRowBelow);
+        const auto counted = juce::jmin (shown, embeddedAddRowBelow);
         auto total = topNow() + (embedded ? 0 : stripHeight()) + bottomNow() + counted * (wavetableCard + gapNow());
         if (counted < embeddedAddRowBelow)
             total += addRowHeight + gapNow();
@@ -1989,6 +2066,25 @@ public:
 
         embedded = shouldEmbed;
         updateModeVisibility();
+    }
+
+    // The drop tile: a new oscillator takes the file the way its picture would (a wavetable card asks what the
+    // audio is for; a SoundFont loads as a sample).
+    void addOscillatorFromFile (const juce::File& file)
+    {
+        if (! file.existsAsFile() || ! canAdd())
+            return;
+        const auto before = numShown();
+        addOscillatorOfType (-1);
+        if (numShown() == before)
+            return;
+        juce::Component::SafePointer<OscPage> safeThis (this);
+        const auto index = selected;
+        juce::MessageManager::callAsync ([safeThis, index, file]
+        {
+            if (safeThis != nullptr)
+                safeThis->waveDisplay (index).filesDropped ({ file.getFullPathName() }, 0, 0);
+        });
     }
 
     // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
@@ -2604,13 +2700,44 @@ private:
                     break;
                 }
 
-            // The row adds a Wavetable; its right end the same as FM / DX7.
-            addArea = { sideMargin, y, width, addRowHeight };
-            auto row = addArea;
-            addFmButton.setBounds (row.removeFromRight (addFmWidth));
-            row.removeFromRight (gap);
-            addButton.setBounds (row);
-            y += addRowHeight + gapNow();
+            // On PLAY with fewer than three cards, the room left under them is one drop tile (mockup v4) with the
+            // two buttons side by side in its middle; otherwise the row adds a Wavetable, its right end FM / DX7.
+            const auto tileHeight = getHeight() - y - 2;
+            const auto tile = embedded && numShown() < embeddedAddRowBelow && tileHeight >= tileMinHeight;
+            auto* host = tile ? static_cast<juce::Component*> (&dropTile) : static_cast<juce::Component*> (this);
+            for (auto* button : { &addButton, &addFmButton })
+            {
+                if (button->getParentComponent() != host)
+                    host->addAndMakeVisible (button);
+                button->setSolid (tile);
+            }
+            dropTile.setVisible (tile);
+
+            if (tile)
+            {
+                addArea = { sideMargin, y, width, tileHeight };
+                dropTile.setBounds (addArea);
+                const auto buttonsWidth = 2 * tileButtonWidth + 10;
+                const auto buttonsTop = (tileHeight - tileButtonHeight - 22) / 2;
+                auto row = juce::Rectangle<int> ((width - buttonsWidth) / 2, buttonsTop, buttonsWidth, tileButtonHeight);
+                addButton.setBounds (row.removeFromLeft (tileButtonWidth));
+                addFmButton.setBounds (row.removeFromRight (tileButtonWidth));
+                dropTile.setCaptionTop (buttonsTop + tileButtonHeight + 6);
+                y += tileHeight;
+            }
+            else
+            {
+                addArea = { sideMargin, y, width, addRowHeight };
+                auto row = addArea;
+                addFmButton.setBounds (row.removeFromRight (addFmWidth));
+                row.removeFromRight (gap);
+                addButton.setBounds (row);
+                y += addRowHeight + gapNow();
+            }
+        }
+        else
+        {
+            dropTile.setVisible (false);
         }
 
         // (Embedded on PLAY: the cards alone, no strip below them.)
@@ -2859,12 +2986,14 @@ private:
         // UNISON
         {
             const auto c = addPanel (3, "UNISON");
-            const auto cell = 33;
+            // (The six knobs share the panel's whole width and the mode menu moves down beside the SPREAD picture:
+            // with the menu on the knob row the cells were 34 px and SPREAD / FRAME ± stood 9 px apart at 175 %,
+            // UI review 26.)
+            const auto menuW = 54;
+            const auto cell = juce::jmin (44, c.getWidth() / 6);
             const auto cellH = mainDial + nameLine;
             const auto top = middle (c, cellH + 4 + spreadH);
-            const auto menuW = 52;
-            osc.uniMode.setBounds ({ c.getX(), top + 4, menuW, menuH });
-            auto x = c.getX() + menuW + 3;
+            auto x = c.getX() + (c.getWidth() - cell * 6) / 2;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {
                 placeKnob (*knob, x, top, cell, mainDial);
@@ -2872,8 +3001,10 @@ private:
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
-            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
-            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
+            osc.uniMode.setBounds ({ c.getX(), spreadY + (spreadH - menuH) / 2, menuW, menuH });
+            card.labels.push_back ({ { c.getX() + menuW + 6, spreadY, labelW, spreadH }, "SPREAD" });
+            const auto barX = c.getX() + menuW + 6 + labelW;
+            pieces.spreadView.setBounds ({ barX, spreadY, c.getRight() - barX, spreadH });
         }
 
         pieces.status.setBounds (card.statusArea);
@@ -2970,7 +3101,8 @@ private:
             auto x = tonePanel.getX() + 7;
             for (auto* knob : toneKnobs)
             {
-                placeKnob (*knob, x, tonePanel.getY() + 17, 46, mainDial);
+                // (19, not 17: a modulated RING TIME's ring and live dot touched the TONE title, UI review 26.)
+                placeKnob (*knob, x, tonePanel.getY() + 19, 46, mainDial);
                 x += 46;
             }
             if (! electric)
@@ -4293,8 +4425,8 @@ private:
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        // (The OSC tab's wavetable and live cards draw VOICES smaller; the others at the full dial, as the v2 mockup.)
-        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain || kind == Kind::physical ? (float) mainDial : 25.0f) : 0.0f);
+        // (VOICES at the same dial as its row on every card, as mockup v4: UI review 26 found it 7 px off the row's baseline.)
+        osc.unison.setPackedDial (panels ? (float) mainDial : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
         // (The unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every packed dial,
@@ -4868,6 +5000,8 @@ private:
     DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
     DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
     static constexpr int addFmWidth = 150;
+    static constexpr int tileMinHeight = 56, tileButtonWidth = 104, tileButtonHeight = 26;
+    OscDropTile dropTile;
     juce::TextButton tuneButton { juce::String::fromUTF8 ("\xe2\x80\xba") };
     OscPicker oscTabs;
     std::unique_ptr<juce::FileChooser> tableChooser, exportChooser;

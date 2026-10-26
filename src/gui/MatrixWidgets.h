@@ -42,15 +42,33 @@ public:
         const float dashes[] { 3.0f, 3.0f };
         juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
         g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::line.withMultipliedAlpha (quiet ? 0.45f : 1.0f));
-        g.fillPath (dashed);
+        if (solid)
+        {
+            // (On PLAY's dashed drop tile the buttons are solid, as in mockup v4.)
+            g.setColour (highlighted || down ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised);
+            g.fillRoundedRectangle (area, 5.0f);
+            g.setColour (highlighted || down ? IlanaTheme::Ui::text3 : IlanaTheme::Ui::hover);
+            g.drawRoundedRectangle (area, 5.0f, 1.2f);
+        }
+        else
+            g.fillPath (dashed);
         if (highlighted || down)
         {
             g.setColour (juce::Colours::white.withAlpha (down ? 0.08f : 0.04f));
             g.fillRoundedRectangle (area, 5.0f);
         }
-        g.setColour (highlighted || down ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.withMultipliedAlpha (quiet ? 0.55f : 1.0f));
+        g.setColour (highlighted || down || solid ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.withMultipliedAlpha (quiet ? 0.55f : 1.0f));
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::minInteractive, true));
         g.drawText (highlighted || down ? hoverText : text, getLocalBounds(), juce::Justification::centred, false);
+    }
+
+    void setSolid (bool shouldBeSolid)
+    {
+        if (solid != shouldBeSolid)
+        {
+            solid = shouldBeSolid;
+            repaint();
+        }
     }
 
     // A tile nobody has used: its rim and "+" step back until the pointer is on it.
@@ -65,7 +83,7 @@ public:
 
 private:
     juce::String text, hoverText;
-    bool quiet = false;
+    bool quiet = false, solid = false;
 };
 
 namespace MatrixMenus

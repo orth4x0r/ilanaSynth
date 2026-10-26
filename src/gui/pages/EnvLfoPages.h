@@ -1010,7 +1010,7 @@ public:
     }
 
     static constexpr float compactDial = 28.0f;
-    static constexpr int compactPitch = 40, compactRow = 39, compactGap = 10; // (40: VELOCITY and KEY RATE side by side at the real fonts)
+    static constexpr int compactPitch = 41, compactRow = 39, compactGap = 10; // (41: VELOCITY and KEY RATE 12 px apart at 175 %, UI review 26)
     static constexpr int compactKnobsWidth = 4 * compactPitch, compactHeight = 2 * compactRow;
 
     // What the section needs below its cards: the panel's header and one

@@ -5,7 +5,10 @@ it a new sound, usually by bringing in one of the newer features. Values:
 a number, (low, high), ("log", low, high), ("int", low, high) or
 ("pick", a, b, ...); a string is a choice's name (a table, an FX...).
 "scale" multiplies the seed's value. Macros: (NAME, [(target, amount)...]),
-a target being a parameter id or a modulation destination's name.
+a target being a parameter id or a modulation destination's name. "mods":
+[(source, target, amount)...] adds routings from a source by name (LFO 1,
+Mod Env, Filter Env, Amp Env, Velocity, Random...); the amount may be a range.
+LFO shapes: 17 Sine Random, 18 Perlin, 20 Lorenz, 21 Rossler, 22 Duffing.
 
 FX slot types: 2 Drive, 7 Chorus, 9 Delay, 11 Smear, 13 Reverb, 15 Dimension,
 16 Trance Gate, 20 OTT, 27 Vowel, 32 Tape, 33 Saturation, 34 Spaces,
@@ -30,6 +33,15 @@ CRAZY = "crazy bass"
 PATCHER = "patcher bass"
 ARPBASS = "ARPed pluck Bass"
 FMARP = "fm arp"
+# Synced 2026-10-25 (PR #165).
+EUCLID = "euclidian random keys"
+ILANAKEYS = "ilanakeys"
+NOTA = "nOta Pluck"
+SUPERSAW = "supersaw plucked lead"
+TRESILLO = "Tresillo Gate_edited"
+WIDEPAD = "Wide Chord Pad - Warmed"
+REESE = "detuned reese plus saw bass"
+BIGKEYS = "big KEYS"
 
 POLY = {"voice_mode": 0, "poly_voices": 16}
 MONO = {"voice_mode": 2, "poly_voices": 1, "glide": ("pick", 0.0, 0.002, 0.003), "glide_legato": 1}
@@ -641,4 +653,63 @@ CONCEPTS += [
              "fx_slot2": 36, "fx_slot2_mix": (0.2, 0.4)},
      "macros": [("VOWEL", [("fx_slot1_mix", 0.5)]), ("PRESSURE", [("osc2_bow_pressure", 0.5)]),
                 ("WIDTH", [("fx_slot2_mix", 0.5)]), ("TONE", [("osc2_string_damp", 0.4)])]},
+
+    # ------------------------------------------- Her 2026-10-25 tricks
+    # From her eight new presets: chaos LFOs moving the timbre (big KEYS),
+    # envelopes on frames and vowels (ilanakeys, the reese), per-note random
+    # (euclidian random keys) and macros to play live (Tresillo Gate).
+    {"name": "Lorenz Chord Pad", "category": "Pad", "seed": WIDEPAD,
+     "about": "her warm chord pad with chaos LFOs moving the frames and the filter, so it never loops",
+     "set": {**POLY, "lfo1_shape": 20, "lfo1_sync": 1, "lfo1_div": ("pick", 0, 1), "lfo2_shape": 22,
+             "lfo2_sync": 1, "lfo2_div": ("pick", 0, 1, 2)},
+     "mods": [("LFO 1", "Osc1 Frame", (0.4, 0.7)), ("LFO 1", "Osc3 Frame", (0.3, 0.6)),
+              ("LFO 2", "Filter1 Cutoff", (0.1, 0.25))],
+     "macros": [("TONE", [("Filter1 Cutoff", 0.4)]), ("FRAME", [("Osc1 Frame", 0.5)]),
+                ("RESO", [("Filter1 Reso", 0.3)]), ("SPACE", [("Reverb Mix", 0.4)])]},
+    {"name": "Chaos Bell Keys", "category": "Keys", "seed": BIGKEYS,
+     "about": "big KEYS with its chaos LFOs kept and the comb filter tuned higher into a bell",
+     "set": {"f2_cutoff": ("log", 1800, 4000), "f2_reso": (0.3, 0.55), "amp_decay": (0.25, 0.6),
+             "amp_sustain": (0.2, 0.45)},
+     "macros": [("TONE", [("Filter1 Cutoff", 0.4)]), ("BELL", [("Filter2 Reso", 0.4)]),
+                ("FRAME", [("Osc1 Frame", 0.5)]), ("DRY", [("fx_slot1_mix", -0.5)])]},
+    {"name": "Chaos Saw Pluck", "category": "Lead", "seed": SUPERSAW,
+     "about": "her trance supersaw pluck with slow random drift on the cutoff and the detune",
+     "set": {"lfo3_shape": ("pick", 17, 18), "lfo3_sync": 1, "lfo3_div": ("pick", 1, 2), "lfo4_shape": 20,
+             "lfo4_sync": 1, "lfo4_div": ("pick", 0, 1), "fe_decay": (0.8, 1.6)},
+     "mods": [("LFO 3", "Filter1 Cutoff", (0.08, 0.2)), ("LFO 4", "Osc2 Detune", (0.15, 0.35))],
+     "macros": [("CUTOFF", [("Filter1 Cutoff", 0.5)]), ("DECAY", [("Filt Env Decay", 0.5)]),
+                ("WIDTH", [("Osc1 Spread", 0.5)]), ("SPACE", [("Reverb Mix", 0.4)])]},
+    {"name": "Frame Snap Reese", "category": "Bass", "seed": REESE,
+     "about": "her reese with both envelopes moving the wavetable frames: the growl opens on every note",
+     "set": {"fe_decay": (0.2, 0.6), "fe_sustain": (0.1, 0.4), "me_attack": (0.001, 0.02),
+             "me_decay": (0.3, 0.9), "me_sustain": (0.0, 0.3)},
+     "mods": [("Filter Env", "Osc1 Frame", (0.5, 0.9)), ("Mod Env", "Osc2 Frame", (0.4, 0.8))],
+     "macros": [("GROWL", [("Filter1 Drive", 0.5)]), ("CUTOFF", [("Filter1 Cutoff", 0.5)]),
+                ("FRAME", [("Osc1 Frame", 0.5)]), ("SUB", [("subosc_level", 0.4)])]},
+    {"name": "Vowel Strike Keys", "category": "Keys", "seed": ILANAKEYS,
+     "about": "her keys with harder hits opening the vowel and the frame further",
+     "set": {"me_decay": (0.4, 1.4)},
+     "mods": [("Velocity", "Filter1 Morph", (0.2, 0.5)), ("Velocity", "Osc1 Frame", (0.2, 0.4))],
+     "macros": [("VOWEL", [("Filter1 Morph", 0.5)]), ("STRIKE", [("Mod Env Decay", 0.5)]),
+                ("BITE", [("Filter2 Reso", 0.3)]), ("SPACE", [("Reverb Mix", 0.4)])]},
+    {"name": "Build Gate Chords", "category": "Chords", "seed": TRESILLO,
+     "about": "her tresillo chords with macros to play: BUILD fades the gate out, SPACE opens delay and reverb",
+     "set": {"fx_gate_pattern": ("pick", 1, 3, 5, 8), "f1_type": ("pick", 4, 15, 33)},
+     "mods": [("Random", "Osc1 Pan", (0.2, 0.4))],
+     "macros": [("BUILD", [("fx_gate_mix", -0.85)]), ("SMOOTH", [("fx_gate_smooth", 0.6)]),
+                ("FILTER", [("Filter1 Cutoff", 0.45), ("Filter1 Morph", 0.1)]),
+                ("SPACE", [("Delay Mix", 0.3), ("Reverb Mix", 0.25)])]},
+    {"name": "Euclid Vowel Glass", "category": "Generative", "seed": EUCLID,
+     "about": "her euclid random keys on another pattern, each hit also panned and voiced at random",
+     "set": {"euc_hits": ("int", 5, 9), "euc_rotate": ("int", 0, 15), "fx_slot5_mix": (0.3, 0.5)},
+     "mods": [("Random", "Osc1 Pan", (0.3, 0.6)), ("Random", "Osc2 Pan", (-0.6, -0.3))],
+     "macros": [("VOWEL", [("fx_vowel_morph", 0.5)]), ("WARP", [("Osc1 Warp", 0.5)]),
+                ("TONE", [("Filter1 Cutoff", 0.4)]), ("SPACE", [("fx_slot5_mix", 0.5)])]},
+    {"name": "Feedback Bow Pluck", "category": "Pluck", "seed": NOTA,
+     "about": "her feedback and bowed strings with the mod envelope striking the west fold",
+     "set": {"west_fold": (0.2, 0.5), "body_type": ("pick", 4, 5), "me_attack": 0.001, "me_decay": (0.2, 0.6),
+             "me_sustain": 0.0, "amp_release": (0.3, 0.8), "osc1_string_sustain": (0.2, 0.5), "fx_slot1": 34, "fx_slot1_mix": (0.12, 0.25)},
+     "mods": [("Mod Env", "west_fold", (0.2, 0.45))],
+     "macros": [("FOLD", [("west_fold", 0.5)]), ("BUZZ", [("osc2_bridge_buzz", 0.5)]),
+                ("BODY", [("body_size", 0.4)]), ("SPACE", [("fx_slot1_mix", 0.5)])]},
 ]

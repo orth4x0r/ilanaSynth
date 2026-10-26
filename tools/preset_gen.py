@@ -71,7 +71,25 @@ REF_CATEGORY = {
     "real piano SOUND": "Keys",
     "trancey pad": "Pad",
     "velocity warp physical pluck": "Pluck",
+    # Synced 2026-10-25 (PR #165). big KEYS also saves an edited table
+    # (Ghostly Voices edit, User 1) that none of its oscillators plays, so
+    # dropping it, as a factory preset must, does not change its sound.
+    "big KEYS": "Keys",
+    "euclidian random keys": "Keys",
+    "ilanakeys": "Keys",
+    "nOta Pluck": "Pluck",
+    "supersaw plucked lead": "Lead",
+    "Tresillo Gate_edited": "Chords",
+    "Wide Chord Pad - Warmed": "Pad",
+    "detuned reese plus saw bass": "Bass",
 }
+
+
+# Modulation sources by name (Mod::getSourceNames; the first 22, append only).
+SOURCES = {name: index for index, name in enumerate([
+    "None", "LFO 1", "LFO 2", "Mod Env", "Filter Env", "Amp Env", "Velocity", "Key Track", "Random",
+    "Mod Wheel", "Aftertouch", "Expression", "Macro 1", "Macro 2", "Macro 3", "Macro 4", "Clocked S&H",
+    "MSEG", "Env 5", "Filter 2 Env", "LFO 3", "LFO 4"])}
 
 # Attributes that are a preset's sound and that a factory preset can carry.
 CURVE_ATTRS = [f"lfo{i}Curve" for i in range(1, 5)]
@@ -171,6 +189,26 @@ def wire_macros(params, macros):
             params[f"mod{slot}_src"] = float(MOD["macros"][index])
             params[f"mod{slot}_dst"] = float(dest)
             params[f"mod{slot}_amt"] = float(amount)
+    return params
+
+
+def wire_mods(params, mods):
+    """Adds the concept's own routings, [(source name, parameter id or
+    destination name, amount), ...], in the slots still free after the
+    macros (her presets move timbre with LFOs and envelopes, not only
+    cutoff)."""
+    used = {slot for slot in range(1, MOD["slots"] + 1) if round(params.get(f"mod{slot}_src", 0)) != 0}
+    free = [slot for slot in range(1, MOD["slots"] + 1) if slot not in used]
+    for source, target, amount in mods:
+        dest = MOD["pdests"].get(target, MOD["dests"].get(target))
+        if source not in SOURCES or dest is None:
+            sys.exit(f"routing {source} -> {target}: unknown source or target")
+        if not free:
+            sys.exit(f"routing {source} -> {target}: no free modulation slot")
+        slot = free.pop(0)
+        params[f"mod{slot}_src"] = float(SOURCES[source])
+        params[f"mod{slot}_dst"] = float(dest)
+        params[f"mod{slot}_amt"] = float(amount)
     return params
 
 
@@ -307,6 +345,7 @@ def cmd_draft(args):
             params = style_rules(params, concept["category"], rng)
             macros = [m for m, _ in concept.get("macros", [])]
             params = wire_macros(params, concept.get("macros", []))
+            params = wire_mods(params, [(s, d, sample(a, rng)) for s, d, a in concept.get("mods", [])])
             for macro in range(8):  # macros start at 0 (the seed's knob positions go)
                 if f"macro{macro + 1}" in params:
                     params[f"macro{macro + 1}"] = defaults[f"macro{macro + 1}"]

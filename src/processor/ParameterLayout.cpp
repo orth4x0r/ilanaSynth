@@ -740,6 +740,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addFloat (id ("string_pick_hardness"), name + " Pick Hardness", 0.0f, 1.0f, 1.0f);
         addFloat (id ("string_pick_pos"), name + " Pick Position", 0.0f, 1.0f, 0.0f);
         addBool (id ("string_slap"), name + " Slap", false);
+        addFloat (id ("string_click"), name + " String Click", 0.0f, 1.0f, 1.0f);
         addFloat (id ("bow_pressure"), name + " Bow Pressure", 0.0f, 1.0f, 0.5f);
         addFloat (id ("bow_speed"), name + " Bow Speed", 0.0f, 1.0f, 0.5f);
         addFloat (id ("bridge_buzz"), name + " Bridge Buzz", 0.0f, 1.0f, 0.0f);

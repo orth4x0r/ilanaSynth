@@ -1028,6 +1028,7 @@ class OscPage : public juce::Component,
         PhysicalControls (juce::AudioProcessorValueTreeState& state, const juce::String& prefix)
             : stiffness (state, prefix + "_string_stiffness", "STIFF"),
               pickup (state, prefix + "_string_pickup", "PICKUP"),
+              click (state, prefix + "_string_click", "CLICK"),
               excitePos (state, prefix + "_string_excite_pos", "EXCITE POS"),
               hardness (state, prefix + "_string_pick_hardness", "HARDNESS"),
               pickPos (state, prefix + "_string_pick_pos", "PICK POS"),
@@ -1051,13 +1052,13 @@ class OscPage : public juce::Component,
 
         void setColour (juce::Colour colour)
         {
-            for (auto* knob : { &stiffness, &pickup, &excitePos, &hardness, &pickPos, &bowPressure, &bowSpeed,
+            for (auto* knob : { &stiffness, &pickup, &click, &excitePos, &hardness, &pickPos, &bowPressure, &bowSpeed,
                                 &bridgeBuzz, &fretRattle, &hammer, &couple, &damper, &registerMap,
                                 &epDistance, &epPosition, &fbGain, &fbDistance })
                 knob->setIdentityColour (colour);
         }
 
-        KnobControl stiffness, pickup, excitePos, hardness, pickPos;
+        KnobControl stiffness, pickup, click, excitePos, hardness, pickPos;
         KnobControl bowPressure, bowSpeed, bridgeBuzz, fretRattle;
         KnobControl hammer, couple, damper, registerMap;
         KnobControl epDistance, epPosition; // M7.3 Tine / Reed pickup
@@ -1220,7 +1221,7 @@ public:
             physical[(size_t) i] = std::make_unique<PhysicalControls> (p.apvts, prefix);
             physical[(size_t) i]->setColour (oscColour (i));
             auto& physicalControls = *physical[(size_t) i];
-            addChildComponents (physicalControls.stiffness, physicalControls.pickup, physicalControls.excitePos,
+            addChildComponents (physicalControls.stiffness, physicalControls.pickup, physicalControls.click, physicalControls.excitePos,
                                 physicalControls.hardness, physicalControls.pickPos, physicalControls.slap,
                                 physicalControls.bowPressure, physicalControls.bowSpeed,
                                 physicalControls.bridgeBuzz, physicalControls.fretRattle,
@@ -1235,7 +1236,7 @@ public:
             physicalControls.resAmount.setInlineKnob (true);
             physicalControls.resBoard.setCompactLayout (true);
             // The card's one inline style, as the string's DECAY and DAMP.
-            for (auto* knob : { &physicalControls.stiffness, &physicalControls.pickup, &physicalControls.excitePos, &physicalControls.hardness,
+            for (auto* knob : { &physicalControls.stiffness, &physicalControls.pickup, &physicalControls.click, &physicalControls.excitePos, &physicalControls.hardness,
                                 &physicalControls.pickPos, &physicalControls.bowPressure, &physicalControls.bowSpeed, &physicalControls.bridgeBuzz,
                                 &physicalControls.fretRattle, &physicalControls.hammer, &physicalControls.couple, &physicalControls.damper,
                                 &physicalControls.registerMap, &physicalControls.epDistance, &physicalControls.epPosition, &physicalControls.fbGain,
@@ -1272,6 +1273,7 @@ public:
             lookup["_fb_gain"] = &physicalControls.fbGain;
             lookup["_fb_distance"] = &physicalControls.fbDistance;
             lookup["_string_pickup"] = &physicalControls.pickup;
+            lookup["_string_click"] = &physicalControls.click;
             lookup["_bridge_buzz"] = &physicalControls.bridgeBuzz;
             lookup["_fret_rattle"] = &physicalControls.fretRattle;
             lookup["_ep_distance"] = &physicalControls.epDistance;
@@ -2828,6 +2830,13 @@ private:
             const auto amp = std::find (exciterKnobs.begin(), exciterKnobs.end(), &phys.fbGain);
             exciterKnobs.insert (amp, &phys.pickup);
         }
+        // (CLICK is the pickup's: it reads right after it.)
+        if (auto click = std::find (exciterKnobs.begin(), exciterKnobs.end(), &phys.click); click != exciterKnobs.end())
+        {
+            exciterKnobs.erase (click);
+            const auto pickup = std::find (exciterKnobs.begin(), exciterKnobs.end(), &phys.pickup);
+            exciterKnobs.insert (pickup == exciterKnobs.end() ? pickup : pickup + 1, &phys.click);
+        }
 
         // TONE: RING TIME, DARKEN, STIFF in 46 px cells; the partials' strip under them, named at its left.
         {
@@ -4117,7 +4126,7 @@ private:
                  &osc.grainPosition, &osc.grainScan, &osc.grainFreeze, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch,
                  &osc.grainSpread, &osc.grainLive, &osc.warp2, &osc.warp2Amt,
                  &osc.tune, &osc.ratio, &osc.fixedHz, &osc.egOut, &osc.trim, &osc.feedback, &osc.feedbackType,
-                 &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness,
+                 &phys.stiffness, &phys.pickup, &phys.click, &phys.excitePos, &phys.hardness,
                  &phys.pickPos, &phys.bowPressure, &phys.bowSpeed, &phys.bridgeBuzz, &phys.fretRattle,
                  &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap, &phys.slap,
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
@@ -4164,7 +4173,7 @@ private:
         // Physical (review 23): its own knobs packed too, the switch with its name under it.
         const auto string = kind == Kind::physical;
         auto& phys = *physical[(size_t) index];
-        for (auto* knob : { &phys.stiffness, &phys.pickup, &phys.excitePos, &phys.hardness, &phys.pickPos, &phys.bowPressure, &phys.bowSpeed,
+        for (auto* knob : { &phys.stiffness, &phys.pickup, &phys.click, &phys.excitePos, &phys.hardness, &phys.pickPos, &phys.bowPressure, &phys.bowSpeed,
                             &phys.bridgeBuzz, &phys.fretRattle, &phys.hammer, &phys.couple, &phys.damper, &phys.registerMap,
                             &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &phys.resAmount,
                             &osc.stringDecay, &osc.stringDamp, &osc.stringSustain })
@@ -4379,7 +4388,7 @@ private:
             const juce::String prefix (OscillatorIds::prefixes[(size_t) index]);
             const auto enabled = readBool (prefix + "_on");
             auto& physicalControls = *physical[(size_t) index];
-            setGroupEnabled ({ &physicalControls.stiffness, &physicalControls.pickup,
+            setGroupEnabled ({ &physicalControls.stiffness, &physicalControls.pickup, &physicalControls.click,
                                &physicalControls.excitePos, &physicalControls.hardness,
                                &physicalControls.pickPos, &physicalControls.slap,
                                &physicalControls.bowPressure, &physicalControls.bowSpeed,

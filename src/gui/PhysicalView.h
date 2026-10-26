@@ -449,6 +449,8 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
     if (! piano)
     {
         exciter.push_back ({ "_string_pickup", "PICKUP" });
+        if (plucked && excite != 10)
+            exciter.push_back ({ "_string_click", "CLICK" }); // (the pickup hears the pluck's raw snap)
         string.insert (string.end(), { { "_bridge_buzz", "BUZZ" }, { "_fret_rattle", "RATTLE" } });
     }
 

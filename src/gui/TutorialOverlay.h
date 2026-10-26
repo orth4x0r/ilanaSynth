@@ -16,7 +16,7 @@ public:
     // tooltip. Update the list and its version together with the changelog;
     // the UI test checks the version against the header's and that every
     // page exists.
-    static constexpr const char* whatsNewVersion = "1.3";
+    static constexpr const char* whatsNewVersion = "1.4 BETA";
 
     struct NewFeature
     {
@@ -26,21 +26,23 @@ public:
     static const std::vector<NewFeature>& whatsNew()
     {
         static const std::vector<NewFeature> list {
+            { "ONE-TAB PLAY", "MAIN", "The oscillators, filters, strings, west coast, envelopes, LFOs and the body are all on PLAY. "
+                                      "The OSC, FILTER and MOD tabs are gone." },
+            { "EDIT POP-UPS", "MAIN", "EDIT on the ENVELOPE or LFO card (or a click on a dock chip) opens that source's whole editor, on any page." },
+            { "FRAME BLEND", "MAIN", "In a wavetable card's header: Crossfade between frames, Spectral (the harmonics glide) or Stepped." },
+            { "FULL-RANGE MODULATION", "MATRIX", "A route at 100 % now sweeps the knob's whole range. Old routes were rescaled and sound the same." },
+            { "CLICK + LOOSE", "MAIN", "CLICK takes the slap out of a pluck (the EXCITER row); LOOSE, in the dock's STEREO pop-up, detunes every note a little." },
+            { "447 WAVETABLES", "MAIN", "The Surge XT packs are factory tables now; LIBRARY in the table browser loads your own." },
             { "DX7 BANKS + OPERATOR ENV", "FM", "288 DX7 voices load as normal presets (find them by sound in the browser, or under its DX7 chip); "
                                                 "any oscillator can use the DX7's envelope (ENVELOPE: Operator Env). Import more .syx banks from the browser." },
-            { "AIRWINDOWS", "FX", "Airwindows effect modules, and character filters in FILTER's TYPE menu." },
-            { juce::String (FilterType::Count) + " FILTERS", "MAIN", "The filter list, grouped by family in the FILTER card's type menu." },
+            { "AIRWINDOWS", "FX", "Airwindows effect modules (their delays sync to tempo), and character filters in the FILTER band's TYPE menu." },
+            { juce::String (FilterType::Count) + " FILTERS", "MAIN", "The filter list, grouped by family in the FILTER band's type menu." },
             { "CLIP SEQUENCER", "ARP/SEQ", "Piano-roll clips under SEQ > CLIP, with MIDI file import." },
             { "SF2 / SFZ", "MAIN", "Drop an .sf2 or .sfz on an oscillator in Sample mode to play it across the keys." },
             { "VOCODER", "FX", "A vocoder effect module." },
-            { "PHYSICAL STRINGS", "MAIN", "Strings struck, plucked or bowed: pick Physical in an oscillator's menu." },
+            { "PATCH + EFFECTS", "PATCH", "Cable the signal path by hand, the body included, and drag effects in from the carousel underneath." },
             { "FELT HAMMER BOARD", "MAIN", "The reworked piano exciter: try the Felt Hammer Board preset." },
-            { "FEEDBACK GUITAR", "MAIN", "A string that feeds back through its amp." },
-            { "CHAOS LFO SHAPES", "MAIN", "LFOs that run a simulation: Lorenz, pendulums, bouncing balls." },
-            { "WEST COAST", "MAIN", "A wavefolder and low-pass gate after (or in place of) the filters." },
-            { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad; EVOLVE is on each macro's card." },
-            { "RESAMPLE", "MAIN", "Resample the whole patch into an oscillator." },
-            { "WAVETABLE EDITOR", "MAIN", "Draw and edit wavetables from an oscillator's table." }
+            { "VECTOR + EVOLVE", "VECTOR", "Morph four oscillators from a pad; EVOLVE is on each macro's card." }
         };
         return list;
     }

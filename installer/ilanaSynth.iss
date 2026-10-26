@@ -1,5 +1,5 @@
 #define AppName "ilanaSynth"
-#define AppVersion "1.3"
+#define AppVersion "1.4"
 #define AppPublisher "Ilana Audio"
 #define RepoRoot ".."
 
@@ -20,7 +20,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\ilanaSynth.exe
-VersionInfoVersion=1.3.0.0
+VersionInfoVersion=1.4.0.0
 VersionInfoProductName={#AppName}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription=ilanaSynth v{#AppVersion} installer

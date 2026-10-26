@@ -1374,7 +1374,22 @@ public:
         repaint();
     }
 
-    ~KnobControl() override { closeModCard(); }
+    ~KnobControl() override
+    {
+        closeModCard();
+        // (A packed knob's "+N" may stand in the parent: take it back.)
+        if (auto* holder = dotStrip.getParentComponent(); holder != nullptr && holder != this)
+            holder->removeChildComponent (&dotStrip);
+    }
+
+    // The lifted "+N" follows the knob when it moves, hides or changes parent.
+    void moved() override { if (dotStrip.getParentComponent() != this) layoutDots(); }
+    void visibilityChanged() override { if (dotStrip.getParentComponent() != this) layoutDots(); }
+    void parentHierarchyChanged() override
+    {
+        if (auto* holder = dotStrip.getParentComponent(); holder != nullptr && holder != this && holder != getParentComponent())
+            addChildComponent (dotStrip);
+    }
 
     // Opens the card listing this knob's sources (hover does it after a
     // short rest). Held: it stays until closeModCard (tests, snapshots).
@@ -2263,8 +2278,28 @@ private:
             bounds = { getWidth() - stripW, packedD > 0.0f ? 0 : y, stripW, pitch };
         }
 
-        dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
-        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings));
+        // A packed knob's "+N" sat on its own rings (its cell has no room round them, UI review 26): it goes up into
+        // the parent, just clear of the outer ring's top right, so it can stand outside the knob's box.
+        const auto wantsVisible = ! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings);
+        auto* parent = getParentComponent();
+        const auto lifted = packedD > 0.0f && ! roomBeside && parent != nullptr;
+        auto* host = lifted ? parent : static_cast<juce::Component*> (this);
+        if (dotStrip.getParentComponent() != host)
+            host->addChildComponent (dotStrip);
+
+        if (lifted)
+        {
+            const auto ring = outerRingRadius();
+            bounds = juce::Rectangle<int> (stripW, pitch).withPosition ((int) std::round (centre.x + ring * 0.45f), (int) std::floor (centre.y - ring) - pitch - 1)
+                     + getPosition();
+            dotStrip.setBounds (bounds);
+            dotStrip.setVisible (wantsVisible && isVisible());
+        }
+        else
+        {
+            dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
+            dotStrip.setVisible (wantsVisible);
+        }
 
         ringOverlay.setBounds (getLocalBounds());
         ringOverlay.setVisible (! routings.empty());

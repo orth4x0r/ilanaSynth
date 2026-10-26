@@ -123,4 +123,50 @@ void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         settle (300);
     }
     expect (uneven.isEmpty(), "PLAY: every card's ink has equal left and right margins, within 2 px (" + uneven + ")");
+
+    // UI review 26: a preset that loads with three oscillators squashed the module bands (band 2 at 89 px, not
+    // 104), so ENVELOPE, LFO and BODY's second rows sat on their first rows' names. The bands are one height on
+    // every patch, and no two of PLAY's knobs overlap.
+    {
+        const auto cardHeights = [page]
+        {
+            std::map<juce::String, int> heights;
+            for (const auto& entry : juce::StringArray::fromTokens (page->getProperties()["playCards"].toString(), ";", ""))
+                if (const auto parts = juce::StringArray::fromTokens (entry, ",", ""); parts.size() == 5)
+                    heights[parts[0]] = parts[4].getIntValue();
+            return heights;
+        };
+        const auto twoOscs = cardHeights();
+        const auto threeIndex = processor.getFactoryPresetNames().indexOf ("Neuro Wobble");
+        expect (threeIndex >= 0, "PLAY: Neuro Wobble (three oscillators) is a factory preset");
+        if (threeIndex >= 0)
+        {
+            processor.loadFactoryPreset (threeIndex);
+            settle (400);
+            editor.setSize (1061, 721);
+            settle (200);
+            editor.setSize (1060, 720);
+            settle (400);
+            const auto threeOscs = cardHeights();
+            juce::String changed;
+            for (const auto& [name, height] : twoOscs)
+                if (threeOscs.count (name) == 0 || threeOscs.at (name) != height)
+                    changed << name << " " << height << " -> " << (threeOscs.count (name) != 0 ? threeOscs.at (name) : -1) << ", ";
+            expect (changed.isEmpty(), "PLAY: the module bands keep their height with three oscillators (" + changed + ")");
+
+            std::vector<KnobControl*> shown;
+            for (auto* knob : knobs)
+                if (knob->getParentComponent() == page && knob->isPacked() && visibleInTree (knob))
+                    shown.push_back (knob);
+            juce::String overlaps;
+            for (size_t a = 0; a < shown.size(); ++a)
+                for (size_t b = a + 1; b < shown.size(); ++b)
+                    if (shown[a]->getBounds().reduced (KnobControl::packedPadX, 0).withTrimmedTop (KnobControl::packedPadTop)
+                            .intersects (shown[b]->getBounds().reduced (KnobControl::packedPadX, 0).withTrimmedTop (KnobControl::packedPadTop)))
+                        overlaps << shown[a]->getParameterId() << " / " << shown[b]->getParameterId() << ", ";
+            expect (overlaps.isEmpty(), "PLAY: no two knobs overlap on a three-oscillator preset (" + overlaps + ")");
+            processor.loadFactoryPreset (0);
+            settle (400);
+        }
+    }
 }

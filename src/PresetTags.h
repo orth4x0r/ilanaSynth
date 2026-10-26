@@ -275,6 +275,7 @@ inline const FactoryTagRow factoryTagRows[] {
     { "Felt Hammer Board", "Physical, Warm, Sustained" },
     { "Nylon Twelve", "Physical, Bright, Sustained" },
     { "Cello Section", "Strings, Detuned, Physical, Warm, Slow Attack" },
+    { "Solo Cello", "Strings, Physical, Warm, Slow Attack" },
     { "Harp Cascade", "Harp, Physical, Bright, Percussive, Wide, Echo" },
     { "Viola Drone", "Strings, Physical, Warm, Slow Attack" },
     { "Detuned Zither", "Detuned, Physical, Warm, Percussive" },

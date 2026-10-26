@@ -1145,7 +1145,8 @@ public:
     }
 
     static juce::Colour colour() { return juce::Colour (0xff3fd0e6); }
-    static constexpr int width = 262, height = 98, headerHeight = 22, cell = 60;
+    // (Packed as the other pop-ups, UI review 26: four 48 px cells, PLAY's knob pitch, not spread over 262 px.)
+    static constexpr int cell = 48, width = 4 * cell + 2 * 12 + 6, height = 98, headerHeight = 22;
     static constexpr float dialSize = 28.0f;
 
     void paint (juce::Graphics& g) override
@@ -1183,8 +1184,8 @@ public:
             knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + 3, cell, (int) dialSize + 10 }));
             x += cell;
         }
-        // (Under LOOSE, the knob it belongs to.)
-        looseBoth.setBounds (foot.withLeft (knobs.back()->getBounds().getCentreX() - 50).withWidth (100));
+        // (Under LOOSE, the knob it belongs to, its right edge on the knobs'.)
+        looseBoth.setBounds (foot.withLeft (juce::jmax (foot.getX(), x - 100)).withRight (x));
     }
 
     bool keyPressed (const juce::KeyPress& key) override

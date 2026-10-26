@@ -318,6 +318,9 @@ public:
         edit.setTooltip (kind == Kind::envelope ? "Edit\nThis envelope's pop-up editor, with its rarer settings a click away"
                                                 : "Edit\nThis LFO's pop-up editor, with its rarer settings a click away");
         edit.setName (kind == Kind::envelope ? "PLAY envelope EDIT" : "PLAY LFO EDIT");
+        setName (kind == Kind::envelope ? "PLAY envelope card" : "PLAY LFO card");
+        previous.setName (getName() + " previous");
+        next.setName (getName() + " next");
         edit.onClick = [this] { if (onEdit != nullptr && ! sources.empty()) onEdit (selected, edit); };
         addAndMakeVisible (edit);
         refreshSources();
@@ -375,21 +378,35 @@ public:
         previous.setBounds ({ x, centre - 7, 14, 14 });
         x += 17;
         const auto tabWidth = kind == Kind::envelope ? 42 : 20;
-        hiddenCount = 0;
-        for (auto& tab : tabs)
+        // As many pills as fit before "+", ">" and EDIT; when there are more, the row shows a window of them
+        // that always holds the selected one (the arrows scroll it), so every source can be seen and picked.
+        const auto room = getWidth() - 14 - edit.idealWidth() - 17 - 17 - 8 - x;
+        const auto capacity = juce::jlimit (1, juce::jmax (1, (int) tabs.size()), (room + 3) / (tabWidth + 3));
+        const auto selectedIndex = (int) (std::find (sources.begin(), sources.end(), selected) - sources.begin());
+        if (selectedIndex < (int) sources.size())
         {
-            const auto fits = x + tabWidth + 17 + 17 + 8 <= getWidth() - 14 - edit.idealWidth();
-            tab->setVisible (fits);
-            if (fits)
+            if (selectedIndex < firstShown)
+                firstShown = selectedIndex;
+            else if (selectedIndex >= firstShown + capacity)
+                firstShown = selectedIndex - capacity + 1;
+        }
+        firstShown = juce::jlimit (0, juce::jmax (0, (int) tabs.size() - capacity), firstShown);
+        juce::String shownList;
+        for (int i = 0; i < (int) tabs.size(); ++i)
+        {
+            auto& tab = tabs[(size_t) i];
+            const auto shown = i >= firstShown && i < firstShown + capacity;
+            tab->setVisible (shown);
+            if (shown)
             {
                 tab->setBounds ({ x, centre - 8, tabWidth, 16 });
                 x += tabWidth + 3;
-            }
-            else
-            {
-                ++hiddenCount;
+                shownList << tab->getSource() << ",";
             }
         }
+        // For the UI tests: the selected source and the sources with a pill on screen.
+        getProperties().set ("selectedSource", selected);
+        getProperties().set ("shownSources", shownList);
         add.setBounds ({ x, centre - 7, 14, 14 });
         next.setBounds ({ x + 17, centre - 7, 14, 14 });
         edit.setBounds ({ getWidth() - 7 - edit.idealWidth(), centre - 8, edit.idealWidth(), 16 });
@@ -666,7 +683,7 @@ private:
     std::vector<std::unique_ptr<SourceTab>> tabs;
     GlyphButton previous { juce::String::fromUTF8 ("\xe2\x80\xb9") }, next { juce::String::fromUTF8 ("\xe2\x80\xba") }, add { "+" };
     PopButton edit { "EDIT", IlanaTheme::accent() };
-    int selected = 0, hiddenCount = 0;
+    int selected = 0, firstShown = 0;
     juce::Rectangle<int> chipBounds;
     juce::String chipText;
     std::unique_ptr<juce::Component> graph;

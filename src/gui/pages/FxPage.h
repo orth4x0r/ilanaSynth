@@ -461,6 +461,7 @@ public:
         stackContent.addChildComponent (filterCategories);
         stackContent.addChildComponent (filterSlopePills);
         filterSlopePills.setStacked ("SLOPE");
+        filterSlopePills.getProperties().set ("packedCell", true); // (placed as a packed knob: the UI test judges its cell)
         stackContent.painter = [this] (juce::Graphics& g) { paintStack (g); };
         stackContent.overPainter = [this] (juce::Graphics& g) { paintDragGhost (g); };
         stackContent.onDown = [this] (const juce::MouseEvent& event) { stackMouseDown (event); };
@@ -2064,6 +2065,14 @@ private:
         if (filterFront && filterFxHasSlope())
             knobs.insert (knobs.begin() + juce::jmin ((int) knobs.size(), 4), &filterSlopePills); // (where MORPH goes on a model that morphs)
         auto plan = packedPlanFor ((int) knobs.size(), (int) sides.size(), inner.getWidth() - minDisplayWidth - 10 - (filterFront ? filterTypeBlockWidth + sideColumnGap : 0));
+        // A row grown tall (a short rack's) takes its knobs in two rows, so they fill it and the picture widens.
+        if (plan.knobRows == 1 && knobs.size() >= 4 && inner.getHeight() >= 2 * knobRowHeight)
+        {
+            plan.knobRows = 2;
+            plan.knobColumns = ((int) knobs.size() + 1) / 2;
+            plan.sidePerColumn = 5;
+            plan.sideColumns = ((int) sides.size() + 4) / 5;
+        }
         const auto blockWidth = filterFront ? filterTypeBlockWidth + sideColumnGap : 0;
         auto knobsArea = plan.width() > 0 ? inner.removeFromRight (plan.width() + blockWidth) : juce::Rectangle<int>();
         if (plan.width() > 0)

@@ -896,17 +896,20 @@ public:
     static constexpr int padding = 4, sideInset = 14, bottomInset = 14;
     static constexpr int compactHeader = 26, compactInset = 8, compactTop = 6, routesGap = 6;
     static constexpr int envCardWidth = 330, lfoCardWidth = 410; // (410: five switch pills in the LFO column at the real fonts)
-    // (OP PITCH's and OP LFO's DX7 editors: the graph and every knob with its whole name.)
-    static constexpr int operatorHeight = 180, operatorWidth = 760;
+    // (OP PITCH's and OP LFO's DX7 editors, compact as the others (UI review 26): the graph and a column of ring knobs.)
+    static constexpr int operatorGraphWidth = 196;
 
     juce::Point<int> preferredSize() const
     {
         if (kind == Kind::other)
             return { preferredWidth, preferredHeight };
         const auto opPitch = kind == Kind::envelope && source == (int) Mod::Source::OpPitchEnv;
-        const auto operatorSource = opPitch || source == (int) Mod::Source::OpLfo;
-        const auto editorHeight = operatorSource ? operatorHeight : kind == Kind::lfo ? (lfoSection != nullptr ? lfoSection->compactHeight() : 120) : EnvSection::compactHeight;
-        return { 2 * padding + (operatorSource ? operatorWidth : kind == Kind::lfo ? lfoCardWidth : envCardWidth),
+        const auto opLfo = source == (int) Mod::Source::OpLfo;
+        const auto editorHeight = opPitch ? OperatorEnvEditor::compactHeight : kind == Kind::lfo ? (lfoSection != nullptr ? lfoSection->compactHeight() : 120) : EnvSection::compactHeight;
+        const auto width = opPitch ? 2 * compactInset + operatorGraphWidth + OperatorEnvEditor::compactGap + OperatorEnvEditor::compactColumn
+                         : opLfo   ? 2 * compactInset + operatorGraphWidth + OperatorLfoEditor::compactGap + OperatorLfoEditor::compactColumn
+                         : kind == Kind::lfo ? lfoCardWidth : envCardWidth;
+        return { 2 * padding + width,
                  2 * padding + compactHeader + compactTop + editorHeight + routesGap + routesHeight() + compactInset };
     }
 

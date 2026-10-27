@@ -1001,6 +1001,7 @@ public:
     {
         compact = shouldBeCompact;
         thumbs.setVisible (! compact);
+        opEditor.setCompact (compact);
         for (auto& unit : units)
             for (auto* knob : unit.knobs)
                 if (auto* dial = dynamic_cast<KnobControl*> (knob))
@@ -1475,6 +1476,7 @@ public:
     {
         compact = shouldBeCompact;
         thumbs.setVisible (! compact);
+        opLfoEditor.setCompact (compact);
         const auto dial = compact ? compactDial : 0.0f;
         for (size_t lfo = 0; lfo < controlsList.size(); ++lfo)
         {
@@ -1511,7 +1513,7 @@ public:
     int compactHeight() const
     {
         if (selected == opLfoId)
-            return 150;
+            return OperatorLfoEditor::compactHeight;
         if (selected == msegId)
             return compactRowsTop (2) + compactRow;
         if (selected == clockId)

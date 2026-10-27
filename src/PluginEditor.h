@@ -237,6 +237,7 @@ private:
     // The dock's STEREO tag under VOICES and the pop-up it opens (SPREAD, PHASE, DRIFT, LOOSE).
     std::unique_ptr<juce::Button> stereoButton;
     std::unique_ptr<juce::Component> stereoPopover;
+    std::unique_ptr<IlanaAnim::PopGrow> stereoGrow; // (grows from STEREO, folds back into it)
     void setStereoOpen (bool open);
     juce::Rectangle<int> stereoPopoverBounds() const;
     int visibleTabCount = 0; // the tabs with a button in the row; the rest (OSC, FILTER, MOD) sit behind it
@@ -340,6 +341,7 @@ private:
     void showChipPicker();
     // A chip's click: its source's editor floating over the page (SourcePopover).
     std::unique_ptr<juce::Component> sourcePopover;
+    std::unique_ptr<IlanaAnim::PopGrow> sourceGrow; // (grows from its chip or EDIT button)
     juce::Rectangle<int> sourcePopoverAnchor;
     void closeSourcePopover();
 

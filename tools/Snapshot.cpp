@@ -7580,6 +7580,11 @@ struct HostWindow : juce::Component
         setOpaque (true);
         addAndMakeVisible (editor);
         setSize (editor.getWidth(), editor.getHeight());
+#if JUCE_LINUX
+        // (A bare Xvfb has no window manager: the title bar's property names a missing atom.)
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
         addToDesktop (juce::ComponentPeer::windowHasTitleBar);
         setVisible (true);
         toFront (true); // a background window may get fewer vblanks
@@ -8451,6 +8456,167 @@ int runEnvDot (const juce::File& outDir, float curve)
     return 0;
 }
 
+// --motion <dir>: frames of the review-26 flair (Motion: Full), 30 a
+// second, one folder per scene, for the PR's recordings.
+juce::Button* findButtonWithText (juce::Component& parent, const juce::String& text)
+{
+    for (auto* child : parent.getChildren())
+    {
+        if (auto* button = dynamic_cast<juce::Button*> (child); button != nullptr && (button->getButtonText() == text || button->getName() == text) && IlanaAnim::showing (*button))
+            return button;
+        if (auto* nested = findButtonWithText (*child, text))
+            return nested;
+    }
+    return nullptr;
+}
+
+int runMotion (const juce::File& outDir)
+{
+    IlanaAnim::fullMotion() = true;
+    // A frame here takes about 150 ms to render: the timed motions (pop-ups,
+    // tabs, cards, shapes) run 10 times slower and a frame is taken every
+    // 330 ms, so the GIFs at 30 fps play them at their real speed.
+    IlanaAnim::motionClockRate() = 0.1;
+    outDir.createDirectory();
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+    // A bare window, so the editor counts as on screen and animates (the
+    // missing window manager's atom is ignored, as for ILANA_SNAPSHOT_FLASH).
+#if JUCE_LINUX
+    if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+        setHandler ([] (void*, void*) { return 0; });
+#endif
+    editor->addToDesktop (0);
+    editor->setVisible (true);
+    settle (800);
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+    auto* shell = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+
+    std::atomic<bool> running { true }, playing { false };
+    std::thread audio ([&]
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto wasPlaying = false;
+        auto next = juce::Time::getMillisecondCounterHiRes();
+        while (running)
+        {
+            juce::MidiBuffer midi;
+            const auto now = playing.load();
+            if (now != wasPlaying)
+                for (auto note : { 48, 55, 60, 64 })
+                    midi.addEvent (now ? juce::MidiMessage::noteOn (1, note, 0.9f) : juce::MidiMessage::noteOff (1, note), 0);
+            wasPlaying = now;
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            next += 256.0 / 48.0;
+            const auto wait = next - juce::Time::getMillisecondCounterHiRes();
+            if (wait > 0.0)
+                std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
+        }
+    });
+
+    const auto record = [&] (const juce::String& scene, int frames, std::function<void (int)> atFrame)
+    {
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        auto dir = outDir.getChildFile (scene);
+        dir.deleteRecursively();
+        dir.createDirectory();
+        // (Kept in memory and written afterwards: a PNG per frame took longer than the motion.)
+        std::vector<juce::Image> images;
+        auto lastFrame = juce::Time::getMillisecondCounterHiRes();
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            atFrame (frame);
+            settle (juce::jmax (1, 330 - (int) (juce::Time::getMillisecondCounterHiRes() - lastFrame)));
+            lastFrame = juce::Time::getMillisecondCounterHiRes();
+            images.push_back (editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f));
+        }
+        for (size_t frame = 0; frame < images.size(); ++frame)
+        {
+            juce::FileOutputStream stream (dir.getChildFile (juce::String::formatted ("f%03d.png", (int) frame)));
+            if (stream.openedOk())
+            {
+                stream.setPosition (0);
+                stream.truncate();
+                juce::PNGImageFormat().writeImageToStream (images[frame], stream);
+            }
+        }
+        std::cout << scene << ": " << frames << " frames in " << (int) (juce::Time::getMillisecondCounterHiRes() - started) << " ms" << std::endl;
+    };
+    const auto set = [&processor] (const char* id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+
+    shell->showPage ("MAIN");
+    settle (600);
+    set ("west_on", 0.0f);
+    set ("subosc_on", 0.0f);
+    settle (600);
+    record ("switch", 30, [&] (int f) { if (f == 4) set ("west_on", 1.0f); if (f == 6) set ("subosc_on", 1.0f); if (f == 20) set ("west_on", 0.0f); });
+    record ("breathe", 45, [&] (int f) { if (f == 2) playing = true; if (f == 30) playing = false; });
+    record ("stereo", 30, [&] (int f)
+    {
+        if (f == 3 || f == 18)
+            if (auto* button = findButtonWithText (*editor, "STEREO"))
+                button->triggerClick();
+    });
+    record ("tabs", 36, [&] (int f) { if (f == 3) shell->showPage ("FX"); if (f == 15) shell->showPage ("MATRIX"); if (f == 27) shell->showPage ("MAIN"); });
+    shell->showPage ("MAIN");
+    settle (600);
+    record ("morph", 24, [&] (int f)
+    {
+        if (f == 4 || f == 14)
+        {
+            IlanaAnim::armMorphs();
+            processor.loadFactoryPreset (juce::jmin (f == 4 ? 30 : 60, (int) processor.getFactoryPresetNames().size() - 1));
+            IlanaAnim::playMorphs();
+        }
+    });
+    shell->showPage ("ENV/LFO");
+    playing = true;
+    settle (500);
+    record ("lfo-trail", 30, [&] (int f) { if (f == 29) playing = false; });
+    shell->showPage ("OSC");
+    settle (500);
+    record ("cards", 36, [&] (int f)
+    {
+        if (f == 3)
+        {
+            auto* add = findButtonWithText (*editor, "+  ADD OSC");
+            if (add != nullptr)
+                add->triggerClick();
+        }
+        if (f == 22)
+        {
+            // The last card's header x.
+            juce::Button* last = nullptr;
+            std::function<void (juce::Component&)> scan = [&] (juce::Component& parent)
+            {
+                for (auto* child : parent.getChildren())
+                {
+                    if (auto* button = dynamic_cast<juce::Button*> (child); button != nullptr && IlanaAnim::showing (*button)
+                        && button->getTooltip().startsWith ("Remove this oscillator"))
+                        last = button;
+                    scan (*child);
+                }
+            };
+            scan (*editor);
+            if (last != nullptr)
+                last->triggerClick();
+        }
+    });
+
+    running = false;
+    audio.join();
+    std::cout << "motion frames in " << outDir.getFullPathName() << std::endl;
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -8465,14 +8631,26 @@ int main (int argc, char** argv)
     if (juce::String (argv[1]) == "--uitest")
         return runUiTests();
 
+    if (juce::String (argv[1]) == "--motion" && argc > 2)
+        return runMotion (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
+
     if (juce::String (argv[1]) == "--envdot" && argc > 2)
         return runEnvDot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]), argc > 3 ? juce::String (argv[3]).getFloatValue() : 0.0f);
+
+    // (ILANA_MOTION_LESS=1: --idlecpu and --fps measured with Motion: Less, to weigh the flair.)
+    if (std::getenv ("ILANA_MOTION_LESS") != nullptr)
+        IlanaAnim::fullMotion() = false;
 
     if (juce::String (argv[1]) == "--idlecpu")
         return runIdleCpu();
 
     if (juce::String (argv[1]) == "--fps")
         return runFps();
+
+    // Still pictures are taken with Motion: Less, so a pop-up or a card is
+    // drawn where it ends, not partway through growing or sliding in
+    // (ILANA_SNAPSHOT_MOTION=1 keeps the motion, for recordings).
+    IlanaAnim::fullMotion() = std::getenv ("ILANA_SNAPSHOT_MOTION") != nullptr;
 
     if (juce::String (argv[1]) == "--loadtime")
         return runLoadTime();

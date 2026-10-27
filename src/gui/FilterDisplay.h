@@ -22,6 +22,8 @@ class FilterDisplay : public juce::Component,
                       private IlanaAnim::FrameTimer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one: preset load, type change)
+
     explicit FilterDisplay (IlanaSynthAudioProcessor& processor) : processorRef (processor)
     {
         scopeL.assign (fftSize, 0.0f);

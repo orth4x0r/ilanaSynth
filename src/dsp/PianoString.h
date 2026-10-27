@@ -63,6 +63,7 @@ public:
             for (int lane = 0; lane < 4; ++lane)
                 chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
+        dipX1 = dipX2 = dipY1 = dipY2 = 0.0f;
         bridgeReturn = 0.0f;
         bridgeInput = 0.0f;
         hammerActive = false;
@@ -322,6 +323,18 @@ public:
             knockEnvelope *= knockDecay;
         }
 
+        // The fundamental's dip: a peaking cut at the pitch, so partials 2 to
+        // 4 stand against it as they do on a real grand's mid register.
+        if (dipActive)
+        {
+            const auto dipped = dipB0 * output + dipB1 * dipX1 + dipB2 * dipX2 - dipA1 * dipY1 - dipA2 * dipY2;
+            dipX2 = dipX1;
+            dipX1 = output;
+            dipY2 = dipY1;
+            dipY1 = isFinite (dipped) ? dipped : 0.0f;
+            output = dipY1;
+        }
+
         // DC (the hammer leaves the string displaced for a moment).
         const auto blocked = output - dcIn + 0.9987f * dcOut;
         dcIn = output;
@@ -472,7 +485,7 @@ private:
         // Decay: DECAY sets the fundamental's T60 at C4; it shortens up the
         // keyboard. DAMP sets how fast the upper partials go (T60 at 3 kHz).
         const auto t60 = juce::jlimit (0.2, 60.0, (double) t.t60C4 * std::pow (4.0, ((double) decay - 0.5) * 2.0)
-                                                      * std::pow (261.63 / frequency, (double) t.t60Register));
+                                                      * std::pow (261.63 / frequency, (double) (frequency > 261.63 ? t.t60RegisterTreble : t.t60Register)));
         const auto upper = juce::jlimit (frequency * 1.5, sampleRate * 0.4, 3000.0);
         const auto upperT60 = (double) t.t60Upper * std::pow (8.0, (0.5 - (double) damp) * 2.0);
         designLoss (juce::jmax (0.1, t60 * (double) t.promptRatio), upperT60 * (double) t.promptRatio, upper, lossCoefficient, lossGain);
@@ -550,6 +563,49 @@ private:
         knockCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * knockHz / sampleRate));
         knockDecay = (float) std::exp (-1.0 / (sampleRate * 0.004 * std::pow (2.0, -octavesFromC4 * 0.3)));
         outputGain = t.outputGain * (float) std::pow (2.0, octavesFromC4 * (double) t.balance);
+
+        // The fundamental's dip (dB cut at the pitch, joined in a line between
+        // the anchor notes) and the level trim that goes with it.
+        {
+            const auto& anchors = PianoModelTuning::dipNotes;
+            auto cutDb = (double) t.dip.back();
+            if (note <= anchors.front())
+                cutDb = (double) t.dip.front();
+            for (size_t i = 1; i < anchors.size(); ++i)
+                if (note <= anchors[i])
+                {
+                    const auto f = ((double) note - anchors[i - 1]) / (double) (anchors[i] - anchors[i - 1]);
+                    cutDb = (double) t.dip[i - 1] + ((double) t.dip[i] - (double) t.dip[i - 1]) * f;
+                    break;
+                }
+            auto trimDb = (double) t.dipTrim.back();
+            if (note <= anchors.front())
+                trimDb = (double) t.dipTrim.front();
+            for (size_t i = 1; i < anchors.size(); ++i)
+                if (note <= anchors[i])
+                {
+                    const auto f = ((double) note - anchors[i - 1]) / (double) (anchors[i] - anchors[i - 1]);
+                    trimDb = (double) t.dipTrim[i - 1] + ((double) t.dipTrim[i] - (double) t.dipTrim[i - 1]) * f;
+                    break;
+                }
+            // The trim keeps the note's level where the dip leaves it.
+            outputGain *= (float) std::pow (10.0, trimDb / 20.0);
+
+            dipActive = cutDb > 0.05 && frequency < sampleRate * 0.3;
+            if (dipActive)
+            {
+                // RBJ peaking filter, gain -cutDb at the pitch.
+                const auto a = std::pow (10.0, -cutDb / 40.0);
+                const auto w = juce::MathConstants<double>::twoPi * frequency / sampleRate;
+                const auto alpha = std::sin (w) / (2.0 * (double) t.dipQ);
+                const auto a0 = 1.0 + alpha / a;
+                dipB0 = (float) ((1.0 + alpha * a) / a0);
+                dipB1 = (float) ((-2.0 * std::cos (w)) / a0);
+                dipB2 = (float) ((1.0 - alpha * a) / a0);
+                dipA1 = dipB1;
+                dipA2 = (float) ((1.0 - alpha / a) / a0);
+            }
+        }
     }
 
     // A redesign every 3 %, half a semitone.
@@ -616,6 +672,8 @@ private:
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;
     float aftersound = 0.3f, horizontalMix = 1.0f;
+    bool dipActive = false;
+    float dipB0 = 1.0f, dipB1 = 0.0f, dipB2 = 0.0f, dipA1 = 0.0f, dipA2 = 0.0f, dipX1 = 0.0f, dipX2 = 0.0f, dipY1 = 0.0f, dipY2 = 0.0f;
     DamperTaper::Cache damperTrip;
 
     static constexpr int forceHistorySize = 4096;

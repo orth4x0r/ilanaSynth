@@ -544,7 +544,8 @@ private:
         retune();
 
         aftersound = t.aftersound;
-        horizontalMix = t.horizontalMix;
+        // The aftersound fades out up the keyboard (dB per octave above C5).
+        horizontalMix = t.horizontalMix * (float) std::pow (10.0, -(double) t.horizontalTrebleFall * juce::jmax (0.0, ((double) note - 72.0) / 12.0) / 20.0);
 
         // The bass bark: tension modulation and longitudinal modes, fading
         // out by the tenor.

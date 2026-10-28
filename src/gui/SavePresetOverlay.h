@@ -200,8 +200,26 @@ public:
         nameField.selectAll();
     }
 
+    // RENAME OR EDIT INFO on your own preset (the browser's row menu, once
+    // it is loaded): the same sheet, named after its file; SAVE rewrites that
+    // file, and a new name renames it (its favourite star goes with it).
+    void showForEdit (const juce::File& own)
+    {
+        show();
+        editing = own;
+        nameField.setText (own.getFileNameWithoutExtension(), false);
+        authorField.setText (processorRef.getPresetAuthor(), false);
+        commentField.setText (processorRef.getPresetComment(), false);
+        nameField.selectAll();
+        updateNote();
+        repaint();
+    }
+
+    bool isEditing() const { return editing != juce::File(); }
+
     void cancel()
     {
+        editing = juce::File();
         const auto wasShowing = isVisible();
         setAsking (false);
         setVisible (false);
@@ -271,6 +289,25 @@ public:
         if (processorRef.getFactoryPresetNames().contains (name, true))
         {
             setNote ("A factory preset is called '" + name + "'. Pick another name.", true);
+            return;
+        }
+
+        if (editing.existsAsFile())
+        {
+            // Its own name (in any case) rewrites the file where it is.
+            if (name.equalsIgnoreCase (editing.getFileNameWithoutExtension()))
+            {
+                write (editing.getSiblingFile (name + ".ilanapreset"), editing);
+                return;
+            }
+
+            if (PresetFiles::findUserPreset (processorRef, name).existsAsFile())
+            {
+                setNote ("You already have a preset called '" + name + "'. Pick another name.", true);
+                return;
+            }
+
+            write (editing.getSiblingFile (name + ".ilanapreset"), editing);
             return;
         }
 
@@ -362,7 +399,7 @@ public:
             return;
         }
 
-        g.drawText ("Save preset as", area.removeFromTop (24), juce::Justification::centredLeft);
+        g.drawText (isEditing() ? "Rename or edit info" : "Save preset as", area.removeFromTop (24), juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
         // The preset's own level (output_trim) goes with it (review 7).
@@ -537,7 +574,9 @@ private:
         return boxes;
     }
 
-    void write (const juce::File& file)
+    // replacing: the file a rename or edit leaves behind (deleted once the
+    // new one is written; the favourite moves to the new name).
+    void write (const juce::File& file, const juce::File& replacing = {})
     {
         processorRef.setPresetMeta (categoryBox.getText(), currentTags().joinIntoString (", "));
         processorRef.setPresetInfo (authorField.getText().trim(), commentField.getText().trim());
@@ -554,10 +593,28 @@ private:
             return;
         }
 
+        if (replacing.existsAsFile() && replacing != file)
+        {
+            // (A case-only rename on a case-blind disk is the same file: kept.)
+            if (! file.getFullPathName().equalsIgnoreCase (replacing.getFullPathName()))
+                replacing.deleteFile();
+
+            const auto oldName = replacing.getFileNameWithoutExtension(), newName = file.getFileNameWithoutExtension();
+
+            if (settings != nullptr && settings->getValue ("fav_" + oldName) == "1")
+            {
+                settings->removeValue ("fav_" + oldName);
+                settings->setValue ("fav_" + newName, "1");
+                settings->saveIfNeeded();
+            }
+        }
+
         setVisible (false);
 
         if (onSaved != nullptr)
-            onSaved (file);
+            onSaved (file); // (isEditing() still tells an edit from a new preset here)
+
+        editing = juce::File();
     }
 
     void setAsking (bool shouldAsk)
@@ -654,6 +711,7 @@ private:
     juce::Rectangle<int> noteArea, chipArea, authorLabel, hoveredChip;
     juce::ComboBox categoryBox;
     juce::TextButton saveButton { "SAVE" }, cancelButton { "CANCEL" };
+    juce::File editing; // the preset showForEdit opened on, until it saves or cancels
     juce::File target;
     juce::String note;
     bool noteIsWarning = false;

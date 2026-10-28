@@ -155,6 +155,7 @@ void expect (bool condition, const juce::String& message)
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
 #include "OscSlotUiTests.h"
+#include "WorkflowUiTests.h"
 #include "FxLfoUiTests.h"
 #include "FxCarouselUiTests.h"
 #include "LayoutUiTests10.h"
@@ -1065,6 +1066,15 @@ int runUiTests()
     if (only == "PG")
     {
         runPatchCableTests (processor);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "WF")
+    {
+        runWorkflowUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7458,6 +7468,8 @@ int runUiTests()
     runOscRoutingUiTests (processor, *pages);
     // Duplicate, drag to reorder, x to remove (2026-10-26).
     runOscSlotUiTests (processor, *pages);
+    // The RC 1.0 workflow fixes (2026-10-28).
+    runWorkflowUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.
     runFxLfoUiTests (processor, *pages);
     runFxCarouselUiTests (processor, *pages);

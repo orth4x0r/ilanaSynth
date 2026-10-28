@@ -709,20 +709,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     prevButton.setFlat (true);
     nextButton.setFlat (true);
 
-    prevButton.onClick = [this]
-    {
-        const auto count = processorRef.getNumAllPresets();
-
-        if (count > 0)
-            loadPresetIndex ((juce::jmax (0, currentPresetIndex) + count - 1) % count);
-    };
-    nextButton.onClick = [this]
-    {
-        const auto count = processorRef.getNumAllPresets();
-
-        if (count > 0)
-            loadPresetIndex ((currentPresetIndex + 1) % count);
-    };
+    // Both arrows walk the browser's list (its filter, search and sort), so
+    // they follow what the browser shows; the panel is made (closed) first.
+    prevButton.onClick = [this] { stepPreset (-1); };
+    nextButton.onClick = [this] { stepPreset (1); };
     favButton.setClickingTogglesState (true);
     favButton.onClick = [this] { toggleFavourite(); updateHeaderButtons(); };
     saveButton.setText ("SAVE");
@@ -836,7 +826,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     saveOverlay.setSettings (settings.get());
     saveOverlay.onSaved = [this] (const juce::File&)
     {
-        presetSaved (false);
+        presetSaved (saveOverlay.isEditing());
 
         if (auto then = std::exchange (afterSave, nullptr))
             then();
@@ -2346,22 +2336,30 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
                                   if (! file.existsAsFile() || safeThis == nullptr)
                                       return;
 
-                                  safeThis->confirmReplacingPatch ("Loading '" + file.getFileNameWithoutExtension() + "'", "Load anyway",
-                                                                   [safeThis, file] (bool confirmed)
-                                                                   {
-                                                                       if (! confirmed || safeThis == nullptr)
-                                                                           return;
-
-                                                                       auto& processor = safeThis->processorRef;
-                                                                       safeThis->closeWavetableEditor(); // it works on the old patch's table
-                                                                       processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
-                                                                       const auto loaded = processor.loadPresetFromFile (file);
-                                                                       processor.endEdit();
-
-                                                                       if (! loaded)
-                                                                           safeThis->presetDisplay.showNotice ("COULDN'T LOAD");
-                                                                   });
+                                  safeThis->loadPresetFile (file);
                               });
+}
+
+// Loads a preset file (chosen, or dropped on the window), asking first over
+// an edited patch.
+void IlanaSynthAudioProcessorEditor::loadPresetFile (const juce::File& file)
+{
+    juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
+    confirmReplacingPatch ("Loading '" + file.getFileNameWithoutExtension() + "'", "Load anyway",
+                           [safeThis, file] (bool confirmed)
+                           {
+                               if (! confirmed || safeThis == nullptr)
+                                   return;
+
+                               auto& processor = safeThis->processorRef;
+                               safeThis->closeWavetableEditor(); // it works on the old patch's table
+                               processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
+                               const auto loaded = processor.loadPresetFromFile (file);
+                               processor.endEdit();
+
+                               if (! loaded)
+                                   safeThis->presetDisplay.showNotice ("COULDN'T LOAD");
+                           });
 }
 
 void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<void (bool loaded)> then)
@@ -2932,6 +2930,21 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                         });
 }
 
+void IlanaSynthAudioProcessorEditor::stepPreset (int delta)
+{
+    createPresetPanel();
+
+    if (const auto next = presetPanel->presetBeside (currentPresetIndex, delta); next >= 0)
+    {
+        loadPresetIndex (next);
+        return;
+    }
+
+    // Nothing listed (a search that matches nothing): every preset, in order.
+    if (const auto count = processorRef.getNumAllPresets(); count > 0)
+        loadPresetIndex ((juce::jmax (0, currentPresetIndex) + count + delta) % count);
+}
+
 void IlanaSynthAudioProcessorEditor::createPresetPanel()
 {
     if (presetPanel != nullptr)
@@ -2953,6 +2966,27 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
     };
     presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
     presetPanel->onSaveAs = [this] { savePresetAs(); };
+    // Rename or edit info: the preset loads (asking over an edited patch),
+    // then the save sheet opens on its own file.
+    presetPanel->onEditInfo = [this] (int index)
+    {
+        loadPresetIndex (index, [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (bool loaded)
+        {
+            if (safeThis == nullptr || ! loaded)
+                return;
+
+            const auto own = PresetFiles::loadedUserPreset (safeThis->processorRef);
+
+            if (! own.existsAsFile())
+                return;
+
+            if (safeThis->presetPanel != nullptr && safeThis->presetPanel->isOpen() && ! safeThis->presetPanel->isDocked())
+                safeThis->presetPanel->close();
+
+            safeThis->saveOverlay.setBounds (safeThis->content.getLocalBounds());
+            safeThis->saveOverlay.showForEdit (own);
+        });
+    };
     presetPanel->onImportSyx = [this] { chooseSyxFile(); };
     presetPanel->setAnchor (&presetDisplay);
     presetPanel->onDockRequest = [this] (bool dock)
@@ -3092,7 +3126,7 @@ void IlanaSynthAudioProcessorEditor::importSyxFile (const juce::File& file)
 bool IlanaSynthAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& path : files)
-        if (path.endsWithIgnoreCase (".syx"))
+        if (path.endsWithIgnoreCase (".syx") || path.endsWithIgnoreCase (".ilanapreset"))
             return true;
 
     return false;
@@ -3105,6 +3139,14 @@ void IlanaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& file
         {
             importSyxFile (juce::File (path));
             return; // one bank at a time: the confirm names it
+        }
+
+    // A preset file dropped anywhere loads, as Vital's does (the first one).
+    for (const auto& path : files)
+        if (path.endsWithIgnoreCase (".ilanapreset"))
+        {
+            loadPresetFile (juce::File (path));
+            return;
         }
 }
 

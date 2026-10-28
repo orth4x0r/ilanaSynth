@@ -71,7 +71,7 @@ public:
           freezeOn (p.apvts, "fx_freeze_on", "HOLD"),
           freezeMix (p.apvts, "fx_freeze_mix", "MIX"),
           reverbOn (p.apvts, "fx_reverb_on", "ON"),
-          reverbType (p.apvts, "fx_reverb_type", "ALGORITHM"),
+          reverbType (p.apvts, "fx_reverb_type", "TYPE"),
           reverbSize (p.apvts, "fx_reverb_size", "SIZE"),
           reverbDamping (p.apvts, "fx_reverb_damping", "DAMPING"),
           reverbWidth (p.apvts, "fx_reverb_width", "WIDTH"),
@@ -130,7 +130,7 @@ public:
           eqMidQ (p.apvts, "fx_eq_mid_q", "MID Q"),
           eqHighFreq (p.apvts, "fx_eq_high_freq", "HIGH FREQ"), eqHighGain (p.apvts, "fx_eq_high_gain", "HIGH GAIN"),
           eqCurve (p),
-          awAlgo (p.apvts, "fx_aw_algo", "ALGORITHM"),
+          awAlgo (p.apvts, "fx_aw_algo", "TYPE"),
           awP1 (p.apvts, "fx_aw_p1", "1"), awP2 (p.apvts, "fx_aw_p2", "2"), awP3 (p.apvts, "fx_aw_p3", "3"),
           awP4 (p.apvts, "fx_aw_p4", "4"), awP5 (p.apvts, "fx_aw_p5", "5"),
           awMix (p.apvts, "fx_aw_mix", "MIX"),
@@ -227,7 +227,7 @@ public:
         {
             const juce::String prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
             auto& controls = awCategories.emplace_back();
-            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "ALGORITHM");
+            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "TYPE");
             for (int k = 0; k < airwindows::Module::numKnobs; ++k)
                 controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
             controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
@@ -1529,7 +1529,12 @@ private:
     // PLAY's packed style (review 23): ring knobs with the value inside and the
     // name under, menus with their name inside the box, switches named at the right.
     static constexpr float packedDial = 28.0f;
-    static constexpr int knobPitch = 50, knobRowHeight = 56, sideWidth = 112, sideRow = 18, sideGap = 5, sideColumnGap = 8;
+    static constexpr int knobPitch = 56, knobRowHeight = 56, sideWidth = 104, sideRow = 18, sideGap = 5, sideColumnGap = 8;
+    // (One grid on every card, counted from the right: a side column is two knob columns, so menus,
+    // knobs and the pictures' right edges land on the same 56 px lines from card to card.)
+    static_assert (sideWidth + sideColumnGap == 2 * knobPitch);
+    // A knob's drawn height (the dial and a one-line name): rows centre on it, not on its cell.
+    static constexpr int knobDrawnHeight = (int) packedDial + 10;
 
     static void packControl (juce::Component* item)
     {
@@ -1547,7 +1552,7 @@ private:
 
     // A card's controls on PLAY's grid: menus, switches and buttons in side
     // columns at the left (three to a column on one row of knobs, five on two),
-    // the knobs at 50 px in one row, or two when one would leave the picture
+    // the knobs at 56 px in one row, or two when one would leave the picture
     // under its minimum width.
     struct PackedPlan
     {
@@ -1578,7 +1583,7 @@ private:
         return ! filterFxMorphs() && type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant
                && FilterType::usesSlope (type);
     }
-    static constexpr int filterTypeBlockWidth = 2 * sideWidth + sideColumnGap;
+    static constexpr int filterTypeBlockWidth = 4 * knobPitch - sideColumnGap;
 
     static bool isSideItem (const juce::Component* item) { return dynamic_cast<const KnobControl*> (item) == nullptr; }
 
@@ -2124,12 +2129,14 @@ private:
             sideArea = sideArea.withWidth (sideArea.getWidth() + blockWidth);
         }
 
-        // Knobs: one or two rows at 50 px, the dial 28 with its value inside, the name under.
+        // Knobs: one or two rows at 56 px, the dial 28 with its value inside, the name under.
         const auto knobsX = sideArea.getRight();
         for (size_t i = 0; i < knobs.size(); ++i)
         {
             const auto column = (int) i % juce::jmax (1, plan.knobColumns), row = (int) i / juce::jmax (1, plan.knobColumns);
-            const auto cell = juce::Rectangle<int> (knobsX + column * knobPitch, band.getY() + row * knobRowHeight + 2, knobPitch, (int) packedDial + 10 + 13);
+            // (Each row's dial and name centred on the row, as the menus beside them are.)
+            const auto rowCentre = band.getY() + knobRowHeight / 2 + row * knobRowHeight;
+            const auto cell = juce::Rectangle<int> (knobsX + column * knobPitch, rowCentre - knobDrawnHeight / 2, knobPitch, (int) packedDial + 10 + 13);
             knobs[i]->setBounds (KnobControl::packedBoundsFor (cell));
         }
 

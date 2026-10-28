@@ -12,7 +12,7 @@ colors:
   track: "#262a33"
   text-primary: "#eef0f4"
   text-label: "#aab0bb"
-  text-hint: "#7a8190"
+  text-hint: "#868d9b"
   accent-ember: "#ff6a3d"
   accent-ice: "#35c8ff"
   accent-acid: "#8fff3b"
@@ -64,7 +64,7 @@ Oscillators (osc-1..6) and envelopes (env-*) have fixed identity colours, used a
 Surfaces step from header (darkest) to page, panel, raised and hover. Text has three steps: primary for values and titles, label for labels, hint for hints and disabled.
 
 ### Named Rules
-- A switched-off section dims to 60 % alpha (`dimmedAlpha`), still about 4:1 for its labels.
+- A switched-off section dims to 65 % alpha (`dimmedAlpha`), about 4.2:1 for its labels.
 - A card without a family colour has no tag in its title (a grey dot read as "off").
 
 ## Typography

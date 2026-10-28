@@ -41,9 +41,10 @@ public:
         {
             for (const auto& entry : group.entries)
             {
-                allTiles.push_back ({ entry.type, entry.name, false, index });
+                // Effect names are module names: upper case, as on FX (UI-CONVENTIONS, Casing).
+                allTiles.push_back ({ entry.type, juce::String (entry.name).toUpperCase(), false, index });
                 if (entry.twin > 0)
-                    allTiles.push_back ({ entry.twin, entry.twinName, true, index });
+                    allTiles.push_back ({ entry.twin, juce::String (entry.twinName).toUpperCase(), true, index });
             }
             ++index;
         }

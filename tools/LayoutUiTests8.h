@@ -367,7 +367,7 @@ void runLayoutReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
 
         // The all-in-one Airwindows module isn't offered to a new rack.
         loadFx ({ 2 });
-        if (auto* add = buttonNamed ("+ ADD"); add != nullptr)
+        if (auto* add = buttonNamed ("+ ADD EFFECT"); add != nullptr)
         {
             add->triggerClick();
             settle (80); // (a call-out closes itself soon under xvfb)

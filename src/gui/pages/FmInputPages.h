@@ -492,6 +492,16 @@ private:
         return fmIn[(size_t) target] && playing[(size_t) target] && (source < 0 || playing[(size_t) source]);
     }
 
+    // The readout of an empty matrix: how to add a route, or why none can be
+    // added (no shown oscillator takes FM in, e.g. a Physical one).
+    juce::String noRoutesText() const
+    {
+        for (const auto target : shown)
+            if (fmIn[(size_t) target] && playing[(size_t) target])
+                return "No FM routes yet: click a cell's + to add one.";
+        return "No FM routes: these oscillators don't take FM in. Switch one to FM / DX7.";
+    }
+
     float cellAmount (int source, int target) const
     {
         return read (source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target));
@@ -840,8 +850,13 @@ private:
         // three-oscillator matrix has modest cells, a six-operator one larger
         // than its minimum, so neither is a grid of empty boxes or leaves the
         // card's foot bare: V10-13.)
-        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 100 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - readoutHeight) / rows);
-        const auto columnWidth = juce::jmin (fewOperators ? (count <= 2 ? 100 : 124) : 76, (inner.getWidth() - headWidth) / count);
+        // (One or two oscillators: 140 px cells, still near-square, so the card isn't
+        // two thirds bare: Impeccable audit, FM matrix 69 % bare at 100 px.)
+        // (They leave the routing picture its room under the grid and the pair
+        // row, or it drops out and the readout is a bare band; cells stay square.)
+        const auto reserve = count <= 2 ? readoutHeight + 90 : readoutHeight;
+        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 140 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - reserve) / rows);
+        const auto columnWidth = juce::jmin (fewOperators ? (count <= 2 ? juce::jmax (100, rowHeight) : 124) : 76, (inner.getWidth() - headWidth) / count);
         const auto gridWidth = headWidth + columnWidth * count;
         // The grid centred between the FM MODE line and the bottom row.
         const auto gridHeight = 22 + rowHeight * rows;
@@ -1043,8 +1058,8 @@ private:
         g.setColour (IlanaTheme::Ui::text3);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
         IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's OUTPUT (on its card) "
-                                                                             "\xc3\x97 this cell. Hover a dot to add a route."))
-                                           : juce::String ("Each cell is how deeply its row modulates its column. Hover a dot to add a route."),
+                                                                             "\xc3\x97 this cell. Click a cell's + to add a route."))
+                                           : juce::String ("Each cell is how deeply its row modulates its column. Click a cell's + to add a route."),
                           topNote, juce::Justification::topLeft, 3);
 
         if (! readoutArea.isEmpty())
@@ -1075,7 +1090,7 @@ private:
                 // words, or how to make one.
                 auto area = readoutArea;
                 if (routes.isEmpty())
-                    IlanaTheme::drawFitted (g, "No FM routes yet: hover a cell and click its dot.", area.removeFromTop (lineHeight),
+                    IlanaTheme::drawFitted (g, noRoutesText(), area.removeFromTop (lineHeight),
                                             juce::Justification::centredLeft, 1);
                 else
                 {
@@ -1091,13 +1106,13 @@ private:
                 paintRoutingPicture (g, area.withTrimmedTop (4));
             }
             else
-                IlanaTheme::drawFitted (g, routes.isEmpty() ? juce::String ("No FM routes yet: hover a cell and click its dot.")
+                IlanaTheme::drawFitted (g, routes.isEmpty() ? noRoutesText()
                                                              : best + (routes.size() > 1 ? ", and " + juce::String (routes.size() - 1) + " more." : "."),
                                         readoutArea, juce::Justification::centredLeft, 1);
         }
 
         // Matrix cells: tinted by the source, brighter the deeper the route;
-        // an empty one is a dot until the mouse is over it.
+        // an empty one shows its + until the mouse brings up its knob.
         const auto paintCell = [&g, this] (int source, int target, juce::Rectangle<float> cell, juce::Colour colour)
         {
             const auto amount = cellAmount (source, target);
@@ -1120,11 +1135,14 @@ private:
 
             if (cellKnob (source, target).getAlpha() < 0.01f)
             {
+                // The add target shows at rest, a ring with a plus, so the cell
+                // says "click me" without a hover (Impeccable audit, FM).
                 const auto centre = cellKnob (source, target).getBounds().toFloat().getCentre();
-                g.setColour (colour.withAlpha (0.12f));
-                g.drawEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre), 1.0f);
-                g.setColour (colour.withAlpha (0.5f));
-                g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (centre));
+                g.setColour (colour.withAlpha (0.45f));
+                g.drawEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (centre), 1.2f);
+                g.setColour (colour.withAlpha (0.8f));
+                g.fillRect (juce::Rectangle<float> (7.0f, 1.4f).withCentre (centre));
+                g.fillRect (juce::Rectangle<float> (1.4f, 7.0f).withCentre (centre));
             }
         };
 

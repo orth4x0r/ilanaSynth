@@ -28,6 +28,7 @@
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
 #include "PluginEditor.h"
+#include "gui/SectionColourPicker.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/FmWidgets.h"
 #include "gui/FmDiagram.h"
@@ -8719,6 +8720,13 @@ int main (int argc, char** argv)
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (assignment.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
 
+    // ILANA_SNAPSHOT_COLOURS="0:ffff6fa8,14:ff3fc7e8": section colours picked
+    // (keys as in SectionColours.h) after the preset loads.
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_COLOURS", ""), ",", ""))
+        if (pair.containsChar (':'))
+            processor.setSectionColour (pair.upToFirstOccurrenceOf (":", false, false).getIntValue(),
+                                        (juce::uint32) pair.fromFirstOccurrenceOf (":", false, false).getHexValue64());
+
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))
         shape->setValueNotifyingHost (shape->convertTo0to1 (7.0f));
@@ -8780,6 +8788,26 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_PICKER: the section colour picker (OSC 1's, on the
+    // pop-up's card) into colour-picker.png at the snapshot scale.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PICKER", "").isNotEmpty())
+    {
+        struct Card : juce::Component
+        {
+            void paint (juce::Graphics& g) override
+            {
+                g.fillAll (IlanaTheme::Ui::bg);
+                g.setColour (IlanaTheme::Ui::raised);
+                g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (8.0f), 8.0f);
+            }
+        } card;
+        SectionColourPicker picker (processor, SectionColours::oscKey (0), "OSC 1");
+        card.setSize (picker.getWidth() + 16, picker.getHeight() + 16);
+        card.addAndMakeVisible (picker);
+        picker.setTopLeftPosition (8, 8);
+        save (card, outDir.getChildFile ("colour-picker.png"));
+    }
 
     // ILANA_SNAPSHOT_PRESET: every page of one factory preset, into
     // preset-<PAGE>.png; then stop (a failing layout test's patch, seen).

@@ -19,6 +19,12 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
     // Stacked (FILTER's SLOPE): the pills one over the other in a knob's cell, the caption under them
     // where a knob's name sits.
     void setStacked (const juce::String& captionText)
@@ -334,6 +340,17 @@ public:
 
     int getSelectedSource() const { return selected; }
 
+    // Colour coding: the card, its tabs and controls in the source's new colour.
+    void refreshColours()
+    {
+        edit.setColour (sourceTabColour (selected));
+        buildBody();
+        resized();
+        repaint();
+        for (auto& tab : tabs)
+            tab->repaint();
+    }
+
     void select (int source)
     {
         selected = source;
@@ -414,11 +431,19 @@ public:
     }
 
     // A right-click on the title or a pill: Copy, Paste and Init that
-    // envelope or LFO (ilana 2026-10-28).
+    // envelope or LFO (ilana 2026-10-28); on the dot, its colour.
     void mouseDown (const juce::MouseEvent& event) override
     {
         if (! event.mods.isPopupMenu() || sources.empty())
             return;
+
+        // Colour coding: on the card's dot, the source's colour instead.
+        if (event.eventComponent == this && event.y < headerHeight && event.x < 28)
+            if (const auto key = SectionColours::keyForSource (selected); key >= 0)
+            {
+                SectionColourPicker::show (processorRef, key, ModNames::source (selected, &processorRef), *this, { 4, 0, 20, headerHeight });
+                return;
+            }
 
         auto source = selected;
         for (auto& tab : tabs)
@@ -923,8 +948,8 @@ public:
                 path.lineTo (point);
         }
         g.setOpacity (on);
-        IlanaTrace::paintArea (g, path, juce::Colour (0xffff6a2a), plot.getBottom(), plot.getX(), plot.getRight());
-        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+        IlanaTrace::paintArea (g, path, IlanaTheme::subNoiseColour(), plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
     }
 };
 
@@ -957,7 +982,7 @@ public:
                 path.lineTo (point);
         }
         g.setOpacity (read ("subosc_on") > 0.5f ? 1.0f : 0.45f);
-        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
     }
 };
 
@@ -992,8 +1017,8 @@ public:
                 path.lineTo (point);
         }
         g.setOpacity (read ("noise_on") > 0.5f ? 1.0f : 0.45f);
-        IlanaTrace::paintArea (g, path, juce::Colour (0xffff6a2a), plot.getBottom(), plot.getX(), plot.getRight());
-        IlanaTrace::paintTrace (g, path, juce::Colour (0xffff6a2a));
+        IlanaTrace::paintArea (g, path, IlanaTheme::subNoiseColour(), plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
     }
 };
 
@@ -1026,7 +1051,7 @@ public:
         const auto scale = std::exp2 (0.6 - 1.2 * size);
         const auto corner = 450.0 + 6000.0 * tone * tone;
         constexpr auto lowHz = 70.0, highHz = 3600.0;
-        const auto colour = juce::Colour (0xffff6a2a);
+        const auto colour = IlanaTheme::subNoiseColour();
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getBottom() - 1.0f, plot.getWidth(), 1.0f));
         for (int m = 0; m < count; ++m)
@@ -1254,6 +1279,7 @@ private:
 
 class PlayPage : public juce::Component,
                  private juce::ScrollBar::Listener,
+                 private IlanaTheme::IdentityColourListener,
                  private juce::AudioProcessorValueTreeState::Listener,
                  private juce::AsyncUpdater,
                  private juce::Timer
@@ -1263,6 +1289,7 @@ public:
         : processorRef (p), oscView (p), envelopeCard (p, SourceCarouselCard::Kind::envelope), lfoCard (p, SourceCarouselCard::Kind::lfo),
           filterDisplay (p)
     {
+        IlanaTheme::identityColourListeners (&p).add (this);
         if (auto* page = oscView.getPage())
             page->setEmbedded (true);
         oscView.setMaximumScale (1.0f);
@@ -1499,11 +1526,84 @@ public:
 
     ~PlayPage() override
     {
+        IlanaTheme::identityColourListeners (&processorRef).remove (this);
         for (const auto* id : dotSwitchIds)
             processorRef.apvts.removeParameterListener (id, this);
         cancelPendingUpdate();
         stopTimer();
         dotClock.stopTimer();
+    }
+
+    // A right-click on a card's dot picks that section's colour (colour
+    // coding); elsewhere on the FILTER header, the filter's menu.
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu())
+            return;
+
+        const struct { juce::Rectangle<int> card; int key; const char* name; } tags[]
+        {
+            { filterBounds, SectionColours::envKey (filterTabs.getSelected() == 0 ? 1 : 2), filterTabs.getSelected() == 0 ? "Filter 1" : "Filter 2" },
+            { stringsBounds, SectionColours::physicalKey, "Strings and body" },
+            { bodyBounds, SectionColours::physicalKey, "Strings and body" },
+            { westBounds, SectionColours::westKey, "West coast" },
+            { subBounds, SectionColours::subKey, "Sub and noise" },
+            { noiseBounds, SectionColours::subKey, "Sub and noise" },
+        };
+
+        for (const auto& tag : tags)
+        {
+            const auto dot = juce::Rectangle<int> (tag.card.getX() + 4, tag.card.getY(), 22, headerHeight);
+            if (event.eventComponent == this && ! tag.card.isEmpty() && dot.contains (event.getPosition()))
+            {
+                SectionColourPicker::show (processorRef, tag.key, tag.name, *this, dot);
+                return;
+            }
+        }
+
+        showFilterMenuFor (event);
+    }
+
+    // Colour coding: the cards whose section was given another colour.
+    void identityColoursChanged() override
+    {
+        envelopeCard.refreshColours();
+        lfoCard.refreshColours();
+
+        for (int f = 0; f < 2; ++f)
+        {
+            const auto colour = filterColour (f);
+            filters[(size_t) f].slope->setColour (colour);
+            for (auto& knob : filters[(size_t) f].knobs)
+                knob->setIdentityColour (colour);
+        }
+        filterTabs.setColour (filterColour (filterTabs.getSelected()));
+        if (balance != nullptr)
+            balance->setColour (filterColour (filterTabs.getSelected()));
+
+        const auto physical = stringsColour();
+        stringsTabs.setColour (physical);
+        bodyTab.setColour (physical);
+        boardTab.setColour (physical);
+        for (auto* toggle : { stringsOn.get(), bodyOn.get(), boardOn.get() })
+            toggle->setSwitchColour (physical);
+        stringsManual->setColour (physical);
+        for (auto* list : { &stringsKnobs, &keysKnobs, &tuningNotes, &bodyKnobs, &boardKnobs })
+            for (auto& knob : *list)
+                knob->setIdentityColour (physical);
+
+        westOn->setSwitchColour (westColour());
+        for (auto& knob : westKnobs)
+            knob->setIdentityColour (westColour());
+
+        const auto sub = subColour();
+        for (auto* toggle : { subOn.get(), noiseOn.get() })
+            toggle->setSwitchColour (sub);
+        subOctave->setColour (sub);
+        for (auto* knob : { subLevel.get(), subColourKnob.get(), noiseLevel.get(), noiseColour.get() })
+            knob->setIdentityColour (sub);
+
+        repaint();
     }
 
     std::function<void (int)> onEditOperator;
@@ -1513,11 +1613,8 @@ public:
 
     // A right-click on the FILTER card's header (or its F1 / F2 pills): Copy,
     // Paste and Init that filter (ilana 2026-10-28).
-    void mouseDown (const juce::MouseEvent& event) override
+    void showFilterMenuFor (const juce::MouseEvent& event)
     {
-        if (! event.mods.isPopupMenu())
-            return;
-
         auto filter = filterTabs.getSelected();
 
         if (event.eventComponent == &filterTabs)
@@ -1677,9 +1774,9 @@ private:
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
     static juce::Colour westColour() { return FilterColours::west(); }
-    static juce::Colour stringsColour() { return juce::Colour (0xffff8a5c); }
-    static juce::Colour bodyColour() { return juce::Colour (0xffff6a2a); }
-    static juce::Colour subColour() { return juce::Colour (0xffff6a2a); }
+    static juce::Colour stringsColour() { return IlanaTheme::physicalColour(); }
+    static juce::Colour bodyColour() { return IlanaTheme::physicalColour(); }
+    static juce::Colour subColour() { return IlanaTheme::subNoiseColour(); }
 
     void timerCallback() override
     {

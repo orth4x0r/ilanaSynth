@@ -9,6 +9,8 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "SectionColours.h"
+
 #include <array>
 #include <deque>
 #include <memory>
@@ -650,6 +652,29 @@ public:
     // Colours for LFO cards and chips: the first four as before, the rest
     // around the hue wheel.
     static juce::Colour lfoColour (int index);
+
+    // Colour coding: the colour this patch gives a section
+    // (SectionColours keys; 0 = its default), saved with the patch.
+    juce::uint32 getSectionColour (int key) const
+    {
+        return key >= 0 && key < SectionColours::count ? sectionColours[(size_t) key].load() : 0u;
+    }
+    void setSectionColour (int key, juce::uint32 argb)
+    {
+        if (key >= 0 && key < SectionColours::count)
+        {
+            sectionColours[(size_t) key].store (argb);
+            ++sectionColourVersion;
+        }
+    }
+    SectionColours::Table getSectionColours() const
+    {
+        SectionColours::Table table {};
+        for (int key = 0; key < SectionColours::count; ++key)
+            table[(size_t) key] = sectionColours[(size_t) key].load();
+        return table;
+    }
+    int getSectionColourVersion() const { return sectionColourVersion.load(); }
 
     bool loadUserWavetable (int slot, const juce::File& file,
                             Wavetable::LoadMode mode = Wavetable::LoadMode::Automatic);
@@ -1494,6 +1519,8 @@ private:
     std::atomic<int> noteSerial { 0 };
     std::array<std::atomic<int>, 3> revealMasks { newPatchOscRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
+    std::array<std::atomic<juce::uint32>, SectionColours::count> sectionColours {};
+    std::atomic<int> sectionColourVersion { 0 };
 
     struct ParamEpoch : juce::AudioProcessorParameter::Listener
     {

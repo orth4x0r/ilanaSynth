@@ -49,6 +49,7 @@
 #include "gui/SubTabBar.h"
 #include "gui/FxCarousel.h"
 #include "gui/PatchCableView.h"
+#include "gui/SectionColourPicker.h"
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
 #include "gui/XtraDisplays.h"
@@ -304,6 +305,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, settings->getIntValue ("themeIndex", 0));
     IlanaAnim::fullMotion() = settings->getBoolValue ("fullMotion", IlanaAnim::fullMotion()); // (the snapshot tool turns it off first: still pictures)
     lookAndFeel.setAccent (juce::Colour (IlanaTheme::palette[themeIndex]));
+
+    // The pages are built in this patch's colour coding.
+    shownSectionColourVersion = processorRef.getSectionColourVersion();
+    if (processorRef.getSectionColours() != SectionColours::shown())
+    {
+        SectionColours::shown() = processorRef.getSectionColours();
+        ++SectionColours::version();
+    }
 
     addAndMakeVisible (content);
     content.onPaint = [this] (juce::Graphics& g) { paintHeader (g); };
@@ -857,6 +866,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     setResizable (true, true);
 
     startTimer (250);
+    addMouseListener (this, true); // mouseEnter: back from another instance's window
     frameSource = std::make_unique<IlanaAnim::FrameClock::Source> (*this);
     animator.onFrame = [this] { animate(); };
 
@@ -1560,6 +1570,32 @@ void IlanaSynthAudioProcessorEditor::updateMacroStrip()
         macroKnobs[(size_t) macro]->setQuietAssign (! anyAssigned && macro % MacroPager::perPage > 0);
 }
 
+void IlanaSynthAudioProcessorEditor::syncSectionColours (bool force)
+{
+    const auto version = processorRef.getSectionColourVersion();
+
+    if (! force && version == shownSectionColourVersion)
+        return;
+
+    shownSectionColourVersion = version;
+    const auto table = processorRef.getSectionColours();
+
+    if (! force && table == SectionColours::shown())
+        return;
+
+    SectionColours::shown() = table;
+    ++SectionColours::version();
+    IlanaTheme::identityColourListeners (&processorRef).call ([] (IlanaTheme::IdentityColourListener& listener) { listener.identityColoursChanged(); });
+    repaint();
+}
+
+void IlanaSynthAudioProcessorEditor::mouseEnter (const juce::MouseEvent&)
+{
+    // Back from another instance's window: this patch's colours again.
+    if (processorRef.getSectionColours() != SectionColours::shown())
+        syncSectionColours (true);
+}
+
 void IlanaSynthAudioProcessorEditor::timerCallback()
 {
     applyDisplayScale();
@@ -1572,6 +1608,11 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         settings->saveIfNeeded();
     }
 
+
+    // Colour coding: a picked colour, a loaded patch, an undo or an A/B swap
+    // (or another instance's editor painted last): the pages set their
+    // colours again.
+    syncSectionColours (false);
 
     // Program changes, host state restores and A/B swaps change the preset
     // behind the editor's back.

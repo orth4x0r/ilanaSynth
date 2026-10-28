@@ -162,4 +162,35 @@ void runOscSlotTests()
             std::cout << "  (per-oscillator settings missing on some slots: " << missing.joinIntoString (", ") << ")" << std::endl;
         check (missing.isEmpty(), "every OSC 1 setting exists on all six oscillators");
     }
+
+    // Colour coding (2026-10-28): picked colours are saved with the patch,
+    // follow their oscillator and are cleared by a factory preset.
+    {
+        using namespace SectionColours;
+        const auto pink = swatches[9], cyan = swatches[4];
+        IlanaSynthAudioProcessor p;
+        p.setSectionColour (oscKey (0), pink);
+        p.setSectionColour (lfoKey (2), cyan);
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+        IlanaSynthAudioProcessor loaded;
+        loaded.setStateInformation (state.getData(), (int) state.getSize());
+        check (loaded.getSectionColour (oscKey (0)) == pink && loaded.getSectionColour (lfoKey (2)) == cyan
+                   && loaded.getSectionColour (oscKey (1)) == 0,
+               "picked section colours are saved and loaded with the patch");
+
+        p.swapOscillators (0, 1);
+        check (p.getSectionColour (oscKey (1)) == pink && p.getSectionColour (oscKey (0)) == 0,
+               "a picked colour moves with its oscillator");
+        p.removeOscillator (2);
+        const auto copy = p.duplicateOscillator (1);
+        check (copy >= 0 && p.getSectionColour (oscKey (copy)) == pink && p.getSectionColour (oscKey (1)) == pink,
+               "a duplicate keeps the original's colour");
+
+        p.loadFactoryPreset (0);
+        auto anyPicked = false;
+        for (int key = 0; key < count; ++key)
+            anyPicked = anyPicked || p.getSectionColour (key) != 0;
+        check (! anyPicked, "a factory preset uses the default colours");
+    }
 }

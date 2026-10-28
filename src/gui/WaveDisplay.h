@@ -179,6 +179,20 @@ public:
         repaint();
     }
 
+    // The trace and the view pills in another colour (colour coding).
+    void setTraceColour (juce::Colour colour)
+    {
+        if (followsTheme || colour == traceColour)
+            return;
+
+        traceColour = colour;
+
+        for (auto& button : viewButtons)
+            IlanaTheme::makePill (button, traceColour);
+
+        repaint();
+    }
+
     void setViewMode (int mode)
     {
         viewMode = juce::jlimit (0, 2, mode);

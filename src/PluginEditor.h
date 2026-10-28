@@ -189,6 +189,11 @@ private:
     juce::int64 parameterFingerprint() const;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
+    void mouseEnter (const juce::MouseEvent&) override;
+    // Copies the patch's colour coding to what the pages paint with and
+    // tells them (when it changed, or always with `force`).
+    void syncSectionColours (bool force);
+    int shownSectionColourVersion = -1;
     void startTabTransition (juce::Component* page = nullptr);
     void layoutTabRow();
     SectionPage* currentSection() const;

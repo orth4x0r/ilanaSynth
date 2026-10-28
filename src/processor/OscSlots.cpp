@@ -231,6 +231,11 @@ void IlanaSynthAudioProcessor::swapOscillators (int a, int b)
     for (const auto& [id, value] : writes)
         writeNormalised (id, value);
     restorePatchData (after, before);
+
+    // A picked colour moves with its oscillator.
+    const auto colourA = getSectionColour (SectionColours::oscKey (a));
+    setSectionColour (SectionColours::oscKey (a), getSectionColour (SectionColours::oscKey (b)));
+    setSectionColour (SectionColours::oscKey (b), colourA);
 }
 
 int IlanaSynthAudioProcessor::moveOscillator (int osc, int position)
@@ -321,6 +326,7 @@ int IlanaSynthAudioProcessor::duplicateOscillator (int from)
     after.sampleOptions[(size_t) copy] = before.sampleOptions[(size_t) from];
     after.reveal[(size_t) Module::Oscillator] |= 1 << copy;
     restorePatchData (after, before);
+    setSectionColour (SectionColours::oscKey (copy), getSectionColour (SectionColours::oscKey (from)));
 
     // The copy's card comes right after the original's.
     auto position = 0;

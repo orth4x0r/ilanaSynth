@@ -15,10 +15,10 @@ struct PianoModelTuning
     // C8; HAMMER multiplies the felt by 4^(+-hardnessRange).
     float massBass = 11.889f, massTreble = 7.03f;
     float exponentBass = 1.6076f, exponentTreble = 2.7426f;
-    float feltBass = 65.0f, feltTreble = 20.0f;
+    float feltBass = 65.0f, feltTreble = 17.813f;
     float hardnessRange = 2.0f;
     // Felt hysteresis (units of 1e-4 s).
-    float hysteresis = 0.57f;
+    float hysteresis = 0.47f;
     // Hammer speed at velocity 0 and 127 (m/s).
     float speedLow = 0.2f, speedHigh = 3.5686f;
     // String impedance sqrt(T mu) at C4 and at A0 (kg/s).
@@ -30,10 +30,10 @@ struct PianoModelTuning
     float inharmonicityC4 = 0.00015378f, inharmonicityTreble = 1.036f, inharmonicityBass = -0.16085f;
     // The fundamental's T60 at C4 (DECAY 0.5), how it scales with pitch (below and above C4),
     // and the T60 at 3 kHz (DAMP 0.5); the vertical polarisation's share.
-    float t60C4 = 9.3004f, t60Register = 0.77409f, t60RegisterTreble = 0.784f, t60Upper = 18.45f, promptRatio = 0.0625f;
+    float t60C4 = 17.3f, t60Register = 0.56409f, t60RegisterTreble = 0.574f, t60Upper = 19.407f, promptRatio = 0.2f;
     // The horizontal polarisation: how much of the strike, its level and
     // its detuning (cents).
-    float aftersound = 0.12967f, horizontalMix = 0.2f, horizontalCents = 0.3098f;
+    float aftersound = 0.13f, horizontalMix = 2.3f, horizontalCents = 0.6718f;
     // The bass bark: tension modulation and the longitudinal modes.
     float tensionModulation = 0.017f, longitudinal = 0.03993f, longitudinalRatio = 15.0f;
     // Knock (level, frequency at C4, level per octave), level and balance
@@ -133,7 +133,7 @@ public:
     // The level back: dB added at the same notes, after the dip.
     std::array<float, 8> dipTrim { 0.0f, 0.0f, 2.0f, 4.0f, 4.0f, 8.0f, 0.0f, -0.5f };
     // The dense soundboard (a later part of M8.2).
-    float boardMix = 2.952f, boardDecay = 0.6f, boardLowCut = 125.428f, boardTilt = 0.56931f, boardDensity = 0.641009f;
+    float boardMix = 2.952f, boardDecay = 0.6f, boardLowCut = 125.428f, boardTilt = 0.49641f, boardDensity = 0.641009f;
     // The measured colour: dB per octave band, 31 Hz .. 16 kHz.
-    std::array<float, 10> boardEq { 9.0f, 0.65f, -6.93f, 3.16f, 6.09f, 6.74f, -1.33f, -9.23f, -7.2f, -9.0f };
+    std::array<float, 10> boardEq { 9.0f, 0.65f, -6.93f, 3.16f, 5.3726f, 6.74f, -2.0474f, -9.23f, -7.2f, -9.0f };
 };

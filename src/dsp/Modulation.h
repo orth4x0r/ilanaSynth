@@ -809,6 +809,12 @@ constexpr int remapSize = 256;
 // left channel gets +sum, the right -sum. Returns the internal index
 // (Count or Count + 1) for a stereo slot on Filter 1 / 2 Cutoff, else -1.
 constexpr int numStereoDestinations = 2;
+// Whether a route into this destination can be stereo (the menus grey the choice elsewhere).
+inline bool canBeStereo (int destination)
+{
+    return destination == (int) Destination::Filter1Cutoff || destination == (int) Destination::Filter2Cutoff;
+}
+
 inline int stereoTargetFor (const Slot& slot)
 {
     if (! slot.stereo)

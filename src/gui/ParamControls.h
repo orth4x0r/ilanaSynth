@@ -909,6 +909,8 @@ public:
         // (a popup-menu press or a ctrl-click reset is not the start of a drag)
         dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
         lastY = event.position.y;
+        if (auto* owner = getParentComponent()) // (the grab: the value grows, the name turns white)
+            owner->repaint();
         proportion = valueToProportionOfLength (getValue());
     }
 
@@ -931,7 +933,11 @@ public:
         dragging = false;
         juce::Slider::mouseUp (event);
         event.source.enableUnboundedMouseMovement (false);
+        if (auto* owner = getParentComponent())
+            owner->repaint();
     }
+
+    bool isGrabbed() const { return dragging; }
 
 private:
     bool dragging = false;
@@ -1628,8 +1634,10 @@ public:
         if (value.length() == 4 && juce::CharacterFunctions::isDigit (value[0]) && value[1] == '.')
             value = juce::String (value.getDoubleValue(), 1);
 
+        // Grabbed, the number grows a little and the name turns white; released, both settle back (~150 ms).
+        const auto grab = IlanaTheme::fade (const_cast<KnobControl&> (*this), 77, slider.isGrabbed() ? 1.0f : 0.0f, 24.0f);
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        const auto drawn = IlanaTheme::font (packedD * kPackedValueScale, true, true);
+        const auto drawn = IlanaTheme::font (packedD * kPackedValueScale * (1.0f + 0.07f * grab), true, true);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {
@@ -1650,7 +1658,7 @@ public:
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
         {
-            g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
+            g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, grab).withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
             const auto nameFont = IlanaTheme::font (packedNameUnits(), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
@@ -3105,8 +3113,16 @@ private:
 public:
     // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
     // (Public for the dropdown UI test.)
-    struct PopupCombo : public juce::ComboBox
+    struct PopupCombo : public juce::ComboBox,
+                        private juce::ComboBox::Listener
     {
+        PopupCombo() { addListener (this); }
+        ~PopupCombo() override { removeListener (this); }
+
+        // A list opening pictures the shown displays; the choice landing
+        // fades the old pictures out over the new shapes (IlanaAnim::MorphSource).
+        void comboBoxChanged (juce::ComboBox*) override { IlanaAnim::playMorphs(); }
+
         std::function<void()> popupOverride;
         double lastOverrideOpen = 0.0;
         double lastPopupOpen = -1.0e9; // (when the person last opened this list)
@@ -3187,6 +3203,7 @@ public:
             if (popupOverride == nullptr)
             {
                 lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
+                IlanaAnim::armMorphs();
                 juce::ComboBox::showPopup();
                 return;
             }
@@ -3208,6 +3225,7 @@ public:
                 return;
 
             lastOverrideOpen = now;
+            IlanaAnim::armMorphs();
             popupOverride();
         }
     };
@@ -3295,7 +3313,11 @@ public:
         if (! isEnabled())
             return;
         if (const auto index = segmentAt (event.position); index >= 0 && onChoose != nullptr)
+        {
+            IlanaAnim::armMorphs(); // (the old shapes fade out over the new: MorphSource)
             onChoose (index);
+            IlanaAnim::playMorphs();
+        }
         repaint();
     }
 
@@ -3418,7 +3440,9 @@ public:
     {
         if (const auto index = pillAt (event.getPosition()); isEnabled() && index >= 0 && onChoose != nullptr)
         {
+            IlanaAnim::armMorphs();
             onChoose (index);
+            IlanaAnim::playMorphs();
             repaint();
         }
     }
@@ -3530,7 +3554,9 @@ public:
     {
         if (const auto index = tileAt (event.position); isEnabled() && index >= 0 && onChoose != nullptr)
         {
+            IlanaAnim::armMorphs();
             onChoose (index);
+            IlanaAnim::playMorphs();
             repaint();
         }
     }
@@ -3830,7 +3856,7 @@ private:
         {
             const auto target = on ? 1.0f : 0.0f;
             switchMoving = std::abs (switchAmount - target) > 0.001f;
-            switchAmount = switchMoving ? IlanaAnim::approach (switchAmount, target, 0.3f, frameTicks()) : target;
+            switchAmount = switchMoving && IlanaAnim::fullMotion() ? IlanaAnim::approach (switchAmount, target, 0.3f, frameTicks()) : target;
             button.getProperties().set ("switchAmount", switchAmount);
 
             if (switchMoving)
@@ -4043,8 +4069,8 @@ public:
             const auto acts = rule.hasEffect();
             const auto alpha = acts ? 1.0f : rule.offAlpha != nullptr ? rule.offAlpha() : IlanaTheme::dimmedAlpha;
 
-            if (rule.control->getAlpha() != alpha)
-                rule.control->setAlpha (alpha);
+            // (A card switched on or off fades its controls over 180 ms.)
+            IlanaAnim::fadeAlpha (*rule.control, alpha);
 
             if (auto* knob = dynamic_cast<KnobControl*> (rule.control))
                 knob->setInactiveNote (acts ? juce::String() : rule.why);

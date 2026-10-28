@@ -1550,13 +1550,7 @@ public:
 
             // The header's x removes the oscillator (ilana 2026-10-26: "an easier way to ... delete oscs").
             card.removeButton.setTooltip ("Remove this oscillator (undo brings it back). Drag the header to move the card; right-click it to duplicate");
-            card.removeButton.onClick = [this, i]
-            {
-                auto& p = processorRef;
-                p.performEdit ("Remove OSC " + juce::String (i + 1), [&p, i] { p.removeOscillator (i); });
-                updateModeVisibility();
-                updateEnabled();
-            };
+            card.removeButton.onClick = [this, i] { removeOscillatorCard (i); };
             styleHeaderButton (card.removeButton);
             card.removeButton.getProperties().set ("packedButton", true);
             addChildComponent (card.removeButton);
@@ -1684,7 +1678,7 @@ public:
         sbOn.getButton().setTooltip ("The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises");
 
         tuneButton.setTooltip ("The sympathetic strings' six notes (with Manual tuning on)");
-        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible()); };
+        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible() || tuningGrow.isClosing()); };
         tuningPopover.isOwnButton = [this] (juce::Component* c) { return c == &tuneButton || tuneButton.isParentOf (c) || c == &symManual || symManual.isParentOf (c); };
         tuningPopover.onClose = [this] { showTuning (false); };
         styleHeaderButton (tuneButton);
@@ -2107,6 +2101,27 @@ public:
 
         updateModeVisibility();
         updateEnabled();
+        // The new card scrolls into view, then slides down and fades in.
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<OscPage> (this), osc = selected]
+        {
+            if (safe == nullptr)
+                return;
+            safe->scrollTo (osc);
+            IlanaAnim::CardMotion::reveal (*safe, safe->getCardBounds (osc), [page = safe.getComponent()] (juce::Graphics& g)
+                                           { IlanaTheme::paintPageBackground (g, page->getLocalBounds()); });
+        });
+    }
+
+    // Removes an oscillator (one undo step); its card folds away.
+    void removeOscillatorCard (int osc)
+    {
+        auto picture = IlanaAnim::CardMotion::picture (*this, getCardBounds (osc));
+        const auto area = getCardBounds (osc);
+        auto& p = processorRef;
+        p.performEdit ("Remove OSC " + juce::String (osc + 1), [&p, osc] { p.removeOscillator (osc); });
+        updateModeVisibility();
+        updateEnabled();
+        IlanaAnim::CardMotion::collapse (*this, area, std::move (picture));
     }
 
     // The strip under the cards: one row (STEREO, NOISE, SUB, STRINGS,
@@ -3903,20 +3918,23 @@ private:
     void showTuning (bool show)
     {
         show = show && readBool ("sym_manual") && ! embedded;
-        if (show == tuningPopover.isVisible())
+        if (show == (tuningPopover.isVisible() && ! tuningGrow.isClosing()))
             return;
 
         if (show)
         {
             tuningPopover.setBounds (tuningBounds());
-            tuningPopover.setAlpha (0.0f);
             tuningPopover.setVisible (true);
             tuningPopover.toFront (false);
-            juce::Desktop::getInstance().getAnimator().fadeIn (&tuningPopover, 120);
+            tuningGrow.open (getLocalPoint (&tuneButton, tuneButton.getLocalBounds().getCentre()).toFloat());
         }
         else
         {
-            tuningPopover.setVisible (false);
+            tuningGrow.close ([safe = juce::Component::SafePointer<juce::Component> (&tuningPopover)]
+                              {
+                                  if (safe != nullptr)
+                                      safe->setVisible (false);
+                              });
         }
         tuneButton.setToggleState (show, juce::dontSendNotification);
     }
@@ -4231,7 +4249,7 @@ private:
                                 const auto name = "OSC " + juce::String (band + 1);
 
                                 if (result == 2)
-                                    p.performEdit ("Remove " + name, [&p, band] { p.removeOscillator (band); });
+                                    safe->removeOscillatorCard (band);
                                 else if (result == 3)
                                     safe->duplicate (band);
                                 else if (auto* parameter = p.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) band]) + "_on"))
@@ -5031,6 +5049,7 @@ private:
     std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
     ComboControl subShape, subOctave, noiseType;
     TuningPopover tuningPopover;
+    IlanaAnim::PopGrow tuningGrow { tuningPopover }; // (NOTES grows from its button)
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> laneLabels;
 };
 

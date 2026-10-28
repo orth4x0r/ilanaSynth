@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <deque>
 #include <vector>
 
 #include "../PluginProcessor.h"
@@ -19,6 +20,8 @@ class LfoDisplay : public juce::Component,
                    private IlanaAnim::FrameTimer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one: preset load, type change)
+
     LfoDisplay (IlanaSynthAudioProcessor& processor, int lfoIndex, juce::Colour traceColourIn = IlanaTheme::accent(),
                 bool followsThemeIn = false)
         : processorRef (processor),
@@ -273,6 +276,24 @@ public:
 
         if (! minimal || isMouseOver())
         {
+            // A short fading tail, about 120 ms of the dot's travel (as
+            // Vital's): fresher points bigger and brighter. A wrap or a jump
+            // starts it over; Motion: Less draws the dot alone.
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            if (! IlanaAnim::fullMotion() || (! trail.empty() && std::abs (trail.back().x - dotX) > plot.getWidth() * 0.4f))
+                trail.clear();
+            if (IlanaAnim::fullMotion())
+                trail.push_back ({ dotX, dotY, now });
+            while (! trail.empty() && now - trail.front().time > 120.0)
+                trail.pop_front();
+            for (size_t i = 0; i + 1 < trail.size(); ++i)
+            {
+                const auto age = (float) ((now - trail[i].time) / 120.0);
+                const auto fresh = juce::jlimit (0.0f, 1.0f, 1.0f - age);
+                g.setColour (juce::Colours::white.withAlpha (0.35f * fresh));
+                g.drawLine (trail[i].x, trail[i].y, trail[i + 1].x, trail[i + 1].y, 1.5f + 4.0f * fresh);
+            }
+
             g.setColour (juce::Colours::white.withAlpha (0.9f));
             g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, dotY }));
         }
@@ -1528,5 +1549,7 @@ private:
     int cycleCount = 0;
     LfoSimPreview simPreview;
     IlanaAnim::PhaseTracker phaseSmoother; // the published phase, run on between audio blocks
+    struct TrailPoint { float x, y; double time; };
+    std::deque<TrailPoint> trail; // the dot's last 120 ms
     double lastTimerMs = juce::Time::getMillisecondCounterHiRes();
 };

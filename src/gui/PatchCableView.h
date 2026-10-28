@@ -852,7 +852,7 @@ private:
 
     void wakeCables()
     {
-        if (motion && ! isTimerRunning() && isShowing())
+        if (motion && IlanaAnim::fullMotion() && ! isTimerRunning() && isShowing())
             startTimerHz (60);
     }
 

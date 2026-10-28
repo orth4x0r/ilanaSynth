@@ -1202,7 +1202,7 @@ class OscPage : public juce::Component,
               egOut (state, prefix + "_eg_out", "OUTPUT"), // one level name (UI review 9, I9-7)
               trim (state, prefix + "_level", "VOICE LEVEL"),
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
-              feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
+              feedbackType (state, prefix + "_fb_type", "FEEDBACK TYPE") {}
 
         // Every knob in the oscillator's own colour, as on PLAY.
         void setColour (juce::Colour colour)

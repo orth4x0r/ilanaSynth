@@ -408,7 +408,7 @@ public:
         // folds to its title line and the roll takes the page.
         constexpr int knobRowHeight = 13 + 58 + 16 + 6;
         const auto folded = generateFolded();
-        const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + (13 + 48 + 16) + 16;
+        const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + 66 + 10; // (a row of 40 px rings, their names under them)
         generateCard = right.removeFromBottom (generateHeight);
         right.removeFromBottom (8);
         arpCard = right;
@@ -456,8 +456,8 @@ public:
         {
             layoutRow (row, items, true);
             for (auto* item : items)
-                if (dynamic_cast<KnobControl*> (item) != nullptr)
-                    item->setBounds (item->getBounds().withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
+                if (auto* knob = dynamic_cast<KnobControl*> (item))
+                    knob->placeAsRing (row.withX (item->getX()).withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
         };
         const auto engineRow = [&] (const std::vector<juce::Component*>& items)
         {
@@ -605,10 +605,16 @@ public:
                 const auto cell = juce::Rectangle<int> (juce::roundToInt (left), row.getY(), juce::roundToInt (item.weight * unit),
                                                         row.getHeight()).reduced (3, 0);
                 left += item.weight * unit;
+                // PLAY's ring knobs; a menu or a switch level with the rings' middle (so SNAP TO KEY's
+                // menus don't leave its box's bottom third empty, UI review 26).
+                if (auto* knob = dynamic_cast<KnobControl*> (item.control))
+                {
+                    knob->placeAsRing (cell, 40);
+                    continue;
+                }
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
-                auto bounds = cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight());
-                // (Every box's names on the common top line, menus or knobs: V11-5.)
-                item.control->setBounds (bounds);
+                const auto height = preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight();
+                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height));
             }
         }
     }

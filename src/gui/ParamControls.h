@@ -1198,6 +1198,10 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    float getPackedDial() const { return packedD; }
+    // The packed name's size in units, and on screen in device pixels (the text floor test's measure).
+    float packedNameUnits() const { return packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f); }
+    float packedNameDevicePx() const { return IlanaTheme::font (packedNameUnits(), true).getHeight() * IlanaTheme::uiScaleRef(); }
     // The packed number's height on screen in device pixels, and the dial's (a layout test's measure:
     // the number keeps its share of the dial at every zoom).
     float packedNumberDevicePx() const { return IlanaTheme::font (packedD * kPackedValueScale, true, true).getHeight() * IlanaTheme::uiScaleRef(); }
@@ -1226,6 +1230,20 @@ public:
     // The cell a packed knob stands in, without the room round it for the rings (a layout test's measure).
     juce::Rectangle<int> packedCell() const { return isPacked() ? getLocalBounds().reduced (packedPadX, 0).withTrimmedTop (packedPadTop) : getLocalBounds(); }
     static juce::Rectangle<int> packedBoundsFor (juce::Rectangle<int> cell) { return cell.expanded (packedPadX, 0).withTrimmedTop (-packedPadTop); }
+    // PLAY's ring knob in a page's cell (one knob style, UI review 26): the dial grows with the cell's
+    // height up to `maxDial`, the value inside it, the name under it at the menus' label size.
+    void placeAsRing (juce::Rectangle<int> area, int maxDial = 46)
+    {
+        // (The room round the ring for the modulation rings stays inside the area: a row's knobs never overlap the next's.)
+        const auto inner = area.reduced (packedPadX, 0).withTrimmedTop (packedPadTop);
+        const auto dial = (float) juce::jlimit (26, juce::jmax (26, maxDial), juce::roundToInt ((float) inner.getHeight() / 1.42f));
+        setPackedDial (dial);
+        setPackedValueRoom (12);
+        setPackedNameSize (juce::jlimit (11.5f, 12.5f, dial * 0.28f));
+        const auto width = juce::jmin (inner.getWidth(), juce::roundToInt (dial) + 40);
+        const auto height = juce::jmin (inner.getHeight(), juce::roundToInt (dial * 1.42f));
+        setBounds (packedBoundsFor (inner.withSizeKeepingCentre (width, height)));
+    }
     // Opens the value for typing over the dial (double-click, as the text box did).
     void showValueEditor()
     {
@@ -1567,7 +1585,7 @@ public:
         {
             g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
-            const auto nameFont = IlanaTheme::font (packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
+            const auto nameFont = IlanaTheme::font (packedNameUnits(), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             const auto lineHeight = (int) std::ceil (nameFont.getHeight()) + 1;
             if (packedNameWrap && name.containsChar (' ')

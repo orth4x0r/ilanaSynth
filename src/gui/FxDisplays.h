@@ -671,7 +671,7 @@ private:
             }
             else
             {
-                rows.push_back ({ "AMOUNT", juce::String (juce::roundToInt (param ("fx_ott_amount") * 100.0f)) + "%" });
+                // (AMOUNT is the knob beside the picture: the readout lists only what no knob shows, UI review 26.)
                 static const char* const bandNames[] { "LOW", "MID", "HIGH" };
                 for (size_t band = 0; band < 3; ++band)
                     rows.push_back ({ bandNames[band], dbText (meterGr[band], true) + " dB" });

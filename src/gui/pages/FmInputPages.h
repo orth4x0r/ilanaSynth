@@ -606,7 +606,11 @@ private:
     {
         for (auto* knob : { &controls.ratio, &controls.fixedHz, &controls.semi, &controls.fine, &controls.level,
                             &controls.keyLevel, &controls.feedback })
+        {
             knob->setInlineKnob (grid);
+            if (! grid)
+                knob->setPackedDial (0.0f); // (the grid's are PLAY's rings: layoutPlainOperator)
+        }
         controls.feedbackType.setCompactLayout (grid);
     }
 
@@ -659,11 +663,11 @@ private:
         {
             const auto column = (int) i % columns, row = (int) i / columns;
             auto cell = juce::Rectangle<int> (left.getX() + column * cellWidth, left.getY() + row * (rowHeight + gap), cellWidth, rowHeight);
-            if (knobsInGrid[i] == &controls.feedbackType)
-                cell = cell.withSizeKeepingCentre (cell.getWidth() - 8, 30);
+            // PLAY's ring knobs (one knob style, UI review 26); FB TYPE level with their middles.
+            if (auto* knob = dynamic_cast<KnobControl*> (knobsInGrid[i]))
+                knob->placeAsRing (cell.reduced (2, 0));
             else
-                cell = cell.reduced (2, 0);
-            knobsInGrid[i]->setBounds (cell);
+                knobsInGrid[i]->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 8, 30));
         }
 
         if (fbInGrid)
@@ -936,10 +940,10 @@ private:
             // controls parked at the far edge with air between: V11-3).
             pairText = row.removeFromLeft (juce::jmin (row.getWidth() - 200, 300));
             row.removeFromLeft (8);
-            ringMod->setBounds (row.removeFromLeft (80));
+            ringMod->placeAsRing (row.removeFromLeft (80), 38);
             row.removeFromLeft (12);
-            // (Top-aligned with RING MOD's name, so the two names share one line, P-7.)
-            hardSync.setBounds (row.removeFromLeft (100).withHeight (37));
+            // (Level with RING MOD's ring, PLAY's knob beside it: UI review 26.)
+            hardSync.setBounds (row.removeFromLeft (100).withSizeKeepingCentre (100, 37));
             const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
                                                                            moreButton.getButtonText()) + 34;
             moreButton.setBounds (juce::Rectangle<int> (pairText.getX(), pairText.getY() + 2, juce::jmin (pairText.getWidth(), width), 22));

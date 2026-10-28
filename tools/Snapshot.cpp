@@ -642,6 +642,19 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                     small.add (key);
             }
 
+            // PLAY's ring knobs paint their names themselves (FX, SEQ, VECTOR and FM too since review 26):
+            // held to the 10 px screen floor, as the packed buttons.
+            std::vector<KnobControl*> rings;
+            findAll<KnobControl> (editor, rings);
+            for (auto* knob : rings)
+            {
+                if (! knob->isPacked() || ! visibleInTree (knob) || knob->getWidth() <= 0)
+                    continue;
+                ++checked;
+                if (knob->packedNameDevicePx() < IlanaTheme::TextSize::screenFloorPx - 0.6f)
+                    small.add (page + ": (" + knob->getLabelText() + ") ring " + juce::String (knob->packedNameDevicePx(), 1) + " px");
+            }
+
             for (auto* button : buttons)
             {
                 if (! visibleInTree (button) || button->getWidth() <= 0 || button->getButtonText().trim().isEmpty()

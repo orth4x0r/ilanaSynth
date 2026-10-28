@@ -693,7 +693,7 @@ public:
         toolbar.removeFromLeft (10);
         diceButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
         toolbar.removeFromRight (6);
-        addButton.setBounds (toolbar.removeFromRight (62).reduced (0, 2));
+        addButton.setBounds (toolbar.removeFromRight (112).reduced (0, 2));
         toolbar.removeFromRight (6);
         fileButton.setBounds (toolbar.removeFromRight (84).reduced (0, 2));
         routingHint = toolbar.withTrimmedRight (10);
@@ -2960,7 +2960,7 @@ private:
     std::unique_ptr<juce::ParameterAttachment> routingAttachment, patcherAttachment;
     bool parallelRouting = false, patcherOn = false;
     juce::TextButton copyChainButton { "COPY TO 2" };
-    juce::TextButton addButton { "+ ADD" };
+    juce::TextButton addButton { "+ ADD EFFECT" };
     DashedAddButton addTile { "+  ADD EFFECT", "+  ADD EFFECT" };
     std::vector<std::unique_ptr<FxSuggestTile>> suggestTiles;
     juce::Rectangle<int> suggestCaption;

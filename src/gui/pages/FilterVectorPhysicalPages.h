@@ -32,7 +32,7 @@ public:
           cutoff (p.apvts, prefix + "_cutoff", "CUTOFF", colourIn, false),
           reso (p.apvts, prefix + "_reso", "RESO", colourIn, false),
           drive (p.apvts, prefix + "_drive", "DRIVE", colourIn, false),
-          key (p.apvts, prefix + "_keytrack", "KEY TRK", colourIn, false),
+          key (p.apvts, prefix + "_keytrack", "KEY TRACK", colourIn, false),
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
         addAll (*this, picker, slope, cutoff, reso, drive, key, morph);

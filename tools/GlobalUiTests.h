@@ -124,6 +124,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     // And at the 1.5 x pixel scale of the review's screenshots
                     // (A16-2: "PRESSUR" was only cut there).
                     editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
+                    // And at ilana's own 175 % (Impeccable audit: never tested there).
+                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.75f);
                     probe.armed = false;
                     ++painted;
                     shrunkCount += probe.shrunk.size();
@@ -139,7 +141,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         editor.showPage ("MAIN");
         settle (300);
         std::cout << "  (text fitting: " << painted << " pages painted, " << shrunkCount << " lines shrunk to fit)" << std::endl;
-        expect (cutText.isEmpty() && painted >= 30, "no text is squeezed or cut on any page at 100 % or 75 % ("
+        expect (cutText.isEmpty() && painted >= 30, "no text is squeezed or cut on any page at 100 % or 75 %, drawn at 1x, 1.5x and 1.75x ("
                                                         + juce::String (painted) + " pages)"
                                                         + (cutText.isEmpty() ? juce::String() : ": " + cutText.joinIntoString (", ")));
     }
@@ -308,7 +310,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         findAll<juce::TextButton> (editor, addButtons);
         auto tallAdd = false, anyAdd = false;
         for (auto* add : addButtons)
-            if (visibleInTree (add) && add->getButtonText() == "+ ADD")
+            if (visibleInTree (add) && add->getButtonText() == "+ ADD EFFECT")
             {
                 anyAdd = true;
                 tallAdd = add->getHeight() > 32;

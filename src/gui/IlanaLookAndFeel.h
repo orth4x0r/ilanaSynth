@@ -47,7 +47,7 @@ namespace Ui
     inline const juce::Colour track   { 0xff262a33 }; // knob and slider tracks, a switch while off (ink 4)
     inline const juce::Colour text    { 0xffeef0f4 }; // values, titles
     inline const juce::Colour text2   { 0xffaab0bb }; // labels
-    inline const juce::Colour text3   { 0xff7a8190 }; // hints, disabled
+    inline const juce::Colour text3   { 0xff868d9b }; // hints, disabled (4.9:1 on raised; Impeccable audit)
     inline const juce::Colour accent2 { 0xffff8a63 }; // the accent as text on a tinted fill
 }
 
@@ -131,7 +131,7 @@ inline bool isOscIdentityColour (juce::Colour colour)
 
 // How opaque a control is while it does nothing (its section is off): dimmed,
 // but still readable against the card (about 4:1 for the label text).
-inline constexpr float dimmedAlpha = 0.6f;
+inline constexpr float dimmedAlpha = 166.0f / 255.0f; // about 65 %, exact in a component's 8-bit alpha
 
 // Knob sizes by role (UI review 4, V22), the same on every page: the largest
 // dial a knob takes (its cell; the ring drawn inside is 8 px smaller). A
@@ -175,6 +175,12 @@ namespace TextSize
     // the smallest sizes grow to 10 px there (UI review 9, V9-26).
     // The packed OSC panels' button and segment text (review 23's 9.5 px at 1.5x); font() holds the screen floor.
     inline constexpr float packedTextHeight = 7.8f;
+
+    // The packed (PLAY / review-23) cards' own steps, named so a page doesn't
+    // type them (Impeccable audit: 47 raw sizes). Same values as before.
+    inline constexpr float packedLabel = 7.5f;  // section names, switch and bar names, OUT
+    inline constexpr float packedBody  = 8.5f;  // pills, chips, menu text in the packed cards
+    inline constexpr float packedTitle = 10.0f; // a packed card's own title
 
     inline constexpr float smallestZoom  = 0.75f;
     inline constexpr float screenFloorPx = 10.0f;
@@ -1078,7 +1084,7 @@ public:
         {
             const auto text = button.getButtonText();
             if (text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
-                return juce::Font (IlanaTheme::font (10.0f, true));
+                return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
             return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f));
         }
 

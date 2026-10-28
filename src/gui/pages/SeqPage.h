@@ -103,8 +103,8 @@ public:
         spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), true);
         strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "TIME", generateColour(), true);
         // Not a second bare CHANCE on the page (the arp has one).
-        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "SPRAY %", generateColour(), true);
-        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), true);
+        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), true);
+        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VELOCITY", generateColour(), true);
         // (NOTES and RANGE take no ring: they keep the ring knobs' spacing, so the SPRAY row shares one line.)
         for (auto* knob : { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
             knob->setMatchRingSpacing (true);
@@ -530,7 +530,9 @@ public:
                 const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
                 // (Review 22 #9: at most 8 px each, so STEPS/GATE/OCTAVES/CHANCE stay a compact block, centred.)
                 const auto extra = juce::jmin (8, juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount));
-                column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed + extra * rowCount));
+                // (Top-aligned with the lanes, one shared top edge, instead of floating in the
+                // column's middle with a floor above and below: Impeccable audit, SEQ.)
+                column = column.withTrimmedTop (2).withHeight (juce::jmin (column.getHeight() - 2, needed + extra * rowCount));
                 menuRowHeight = menuRow + extra;
                 rowHeight += extra;
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)

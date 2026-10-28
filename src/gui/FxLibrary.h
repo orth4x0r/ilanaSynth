@@ -505,7 +505,8 @@ public:
         // On the page (an empty rack) the rows take the spare height, up to a
         // roomy entry: the library fills its page rather than its top half.
         const auto spare = area.getHeight() - preferredHeight();
-        const auto rowStep = juce::jlimit (buttonHeight + rowGap, 44, buttonHeight + rowGap + spare / 9);
+        // (Up to 50, so an empty rack at 1060 x 720 has no bare band under the legend: Impeccable audit.)
+        const auto rowStep = juce::jlimit (buttonHeight + rowGap, 50, buttonHeight + rowGap + spare / 9);
         const auto entryHeight = rowStep - rowGap;
         const auto columnWidth = (area.getWidth() - columnGap * (columns - 1)) / columns;
         std::array<int, columns> y {};

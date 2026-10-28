@@ -3717,13 +3717,13 @@ public:
             if (packedPlace == NamePlace::below)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, packedPlace == NamePlace::leftFlush ? juce::Justification::centredLeft : juce::Justification::centredRight, 1);
             }
             else
@@ -3968,7 +3968,7 @@ public:
         // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
         // by its ink: the caps' middle on the bar's middle.
         const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
-        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (7.3f) : IlanaTheme::font (6.5f, true).withKerningFactor (0.08f);
+        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (IlanaTheme::TextSize::packedLabel) : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f);
         g.setFont (font);
         g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
         const juce::Font f (font);

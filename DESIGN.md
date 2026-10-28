@@ -27,8 +27,8 @@ colors:
   env-amp: "#ff5a4a"
   env-filt: "#b46bff"
   env-filt2: "#7d86ff"
-  env-mod: "#8fff3b"
-  env-4: "#5b8cff"
+  env-mod: "#9bdb63"
+  env-4: "#59eb89"
 typography:
   tiny: { fontFamily: Manrope, fontSize: 12.1px, fontWeight: 500 }
   label: { fontFamily: Manrope, fontSize: 12.65px, fontWeight: 500 }

@@ -342,7 +342,8 @@ public:
         {
             // A menu, not a label: the pill ends in a chevron (V10-20).
             const auto chip = gridChipBounds();
-            IlanaTheme::paintPill (g, chip.withTrimmedRight (6.0f), gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
+            IlanaTheme::paintPill (g, chip.withTrimmedRight (6.0f), brush != brushOff ? "PAINT " + juce::String (paintCells())
+                                                                    : gridDivisions > 0 ? "GRID " + juce::String (gridDivisions) : juce::String ("GRID OFF"),
                                    traceColour, shape == IlanaSynthAudioProcessor::curveShape && gridDivisions > 0,
                                    chip.contains (getMouseXYRelative().toFloat()) ? 1.0f : 0.0f);
             juce::Path chevron;
@@ -479,10 +480,12 @@ public:
             menu.addItem (200 + divisions, divisions == 0 ? juce::String ("Off") : juce::String (divisions) + " columns",
                           true, gridDivisions == divisions);
 
+        addBrushItems (menu);
+
         juce::Component::SafePointer<LfoDisplay> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safeThis] (int result)
         {
-            if (safeThis != nullptr && result >= 200)
+            if (safeThis != nullptr && result >= 200 && result < 300)
             {
                 safeThis->gridDivisions = result - 200;
                 safeThis->repaint();
@@ -846,9 +849,75 @@ private:
         curvePress (event.position);
     }
 
+public:
+    // The paint brush (ilana 2026-10-28, as Vital's LFO paint): with one on,
+    // a press or drag on the curve stamps the brush into each grid cell it
+    // crosses (16 cells while the grid is off), as tall as the pointer is
+    // high. It writes ordinary curve points, so patches keep their format.
+    enum Brush { brushOff = 0, brushStep, brushRampUp, brushRampDown, brushTriangle, brushBump, brushCount };
+    static juce::StringArray brushNames() { return { "Off", "Step", "Ramp up", "Ramp down", "Triangle", "Bump" }; }
+    int getBrush() const { return brush; }
+    void setBrush (int newBrush) { brush = juce::jlimit (0, brushCount - 1, newBrush); repaint(); }
+    int paintCells() const { return gridDivisions > 0 ? gridDivisions : 16; }
+
+    // Stamps the brush into the cell under `position` (and the ones a fast
+    // stroke skipped since the last), then commits the curve.
+    void paintAt (juce::Point<float> position)
+    {
+        const auto plot = plotArea();
+        const auto cells = paintCells();
+        const auto cell = juce::jlimit (0, cells - 1, (int) std::floor ((position.x - plot.getX()) / plot.getWidth() * (float) cells));
+        const auto level = valueFromY (position.y, plot);
+        curve = processorRef.getLfoCurve (index);
+        const auto from = lastPaintCell < 0 ? cell : lastPaintCell;
+
+        for (int c = juce::jmin (from, cell); c <= juce::jmax (from, cell); ++c)
+            if (c == cell || c != lastPaintCell)
+                stampCell (curve, c, cells, level);
+
+        lastPaintCell = cell;
+        commitCurve();
+    }
+
+    void stampCell (LfoCurve& target, int cell, int cells, float level) const
+    {
+        const auto x0 = (float) cell / (float) cells, x1 = (float) (cell + 1) / (float) cells;
+        const auto end = x1 - 0.0005f, mid = 0.5f * (x0 + x1);
+        auto& points = target.points;
+        points.erase (std::remove_if (points.begin(), points.end(), [x0, x1] (const LfoCurve::Point& p) { return p.x >= x0 && p.x < x1; }),
+                      points.end());
+        std::vector<LfoCurve::Point> stamp;
+
+        switch (brush)
+        {
+            case brushStep:     stamp = { { x0, level, 0.0f }, { end, level, 0.0f } }; break;
+            case brushRampUp:   stamp = { { x0, 0.0f, 0.0f }, { end, level, 0.0f } }; break;
+            case brushRampDown: stamp = { { x0, level, 0.0f }, { end, 0.0f, 0.0f } }; break;
+            case brushTriangle: stamp = { { x0, 0.0f, 0.0f }, { mid, level, 0.0f }, { end, 0.0f, 0.0f } }; break;
+            case brushBump:     stamp = { { x0, 0.0f, -0.5f }, { mid, level, 0.5f }, { end, 0.0f, 0.0f } }; break;
+            default: return;
+        }
+
+        points.insert (points.end(), stamp.begin(), stamp.end());
+        std::stable_sort (points.begin(), points.end(), [] (const LfoCurve::Point& a, const LfoCurve::Point& b) { return a.x < b.x; });
+
+        // The end point stays at 1 (the curve's shape is a cycle): the last cell's stamp ends on it.
+        if (points.back().x < 1.0f)
+            points.push_back ({ 1.0f, cell == cells - 1 ? stamp.back().y : points.front().y, 0.0f });
+    }
+
+private:
     // Grabs the point or bend handle under `position`, or adds a point there.
     void curvePress (juce::Point<float> position)
     {
+        if (brush != brushOff)
+        {
+            lastPaintCell = -1;
+            dragPoint = dragTension = -1;
+            paintAt (position);
+            return;
+        }
+
         curve = processorRef.getLfoCurve (index);
         curveAtDown = curve;
         dragPoint = hitPoint (position);
@@ -877,6 +946,12 @@ private:
 
     void curveMouseDrag (const juce::MouseEvent& event)
     {
+        if (brush != brushOff)
+        {
+            paintAt (event.position);
+            return;
+        }
+
         const auto plot = plotArea();
 
         if (dragPoint >= 0 && dragPoint < (int) curve.points.size())
@@ -913,6 +988,103 @@ private:
         repaint();
     }
 
+    void addBrushItems (juce::PopupMenu& menu, bool header = true)
+    {
+        if (header)
+            menu.addSectionHeader ("Paint brush");
+
+        juce::Component::SafePointer<LfoDisplay> safeThis (this);
+        const auto names = brushNames();
+        for (int b = 0; b < brushCount; ++b)
+            menu.addItem (names[b], true, brush == b, [safeThis, b] { if (safeThis != nullptr) safeThis->setBrush (b); });
+    }
+
+    // Your own shapes (ilana 2026-10-28, as Vital's and Serum's LFO shape
+    // libraries): .ilanalfo files (the curve's points as text) in an
+    // "LFO Shapes" folder beside your presets, listed in the curve's menu.
+    juce::File shapesFolder() const { return processorRef.getUserPresetDirectory().getChildFile ("LFO Shapes"); }
+
+    juce::Array<juce::File> savedShapes() const
+    {
+        auto files = shapesFolder().findChildFiles (juce::File::findFiles, false, "*.ilanalfo");
+        std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
+                   { return a.getFileNameWithoutExtension().compareNatural (b.getFileNameWithoutExtension(), false) < 0; });
+        return files;
+    }
+
+public:
+    bool saveShapeTo (const juce::File& file) const
+    {
+        file.getParentDirectory().createDirectory();
+        return file.replaceWithText (processorRef.getLfoCurve (index).toString());
+    }
+
+    void loadShapeFrom (const juce::File& file)
+    {
+        const auto text = file.loadFileAsString().trim();
+
+        if (text.isEmpty())
+            return;
+
+        processorRef.performEdit ("LFO " + juce::String (index + 1) + " shape " + file.getFileNameWithoutExtension(), [this, &text]
+        {
+            if ((int) readParam ("_shape") != IlanaSynthAudioProcessor::curveShape)
+                setShape (IlanaSynthAudioProcessor::curveShape);
+            curve = LfoCurve::fromString (text);
+            commitCurve();
+        });
+    }
+
+private:
+    void addShapeLibraryItems (juce::PopupMenu& menu)
+    {
+        juce::Component::SafePointer<LfoDisplay> safeThis (this);
+        juce::PopupMenu mine;
+
+        for (const auto& file : savedShapes())
+            mine.addItem (file.getFileNameWithoutExtension(), true, false, [safeThis, file] { if (safeThis != nullptr) safeThis->loadShapeFrom (file); });
+
+        if (mine.getNumItems() == 0)
+            mine.addItem ("None saved yet", false, false, nullptr);
+
+        mine.addSeparator();
+        mine.addItem (juce::String (juce::CharPointer_UTF8 ("Load a shape file\xe2\x80\xa6")), true, false, [safeThis]
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->shapeChooser = std::make_unique<juce::FileChooser> ("Load LFO shape", safeThis->shapesFolder(), "*.ilanalfo");
+            safeThis->shapeChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                                 [safeThis] (const juce::FileChooser& chooser)
+                                                 {
+                                                     if (safeThis != nullptr && chooser.getResult().existsAsFile())
+                                                         safeThis->loadShapeFrom (chooser.getResult());
+                                                 });
+        });
+        mine.addItem ("Open the shapes folder", true, false, [safeThis]
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->shapesFolder().createDirectory();
+            safeThis->shapesFolder().revealToUser();
+        });
+        menu.addSubMenu ("My shapes", mine);
+
+        menu.addItem (juce::String (juce::CharPointer_UTF8 ("Save shape\xe2\x80\xa6")), true, false, [safeThis]
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->shapesFolder().createDirectory();
+            safeThis->shapeChooser = std::make_unique<juce::FileChooser> ("Save LFO shape", safeThis->shapesFolder().getChildFile ("My Shape.ilanalfo"), "*.ilanalfo");
+            safeThis->shapeChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                                     | juce::FileBrowserComponent::warnAboutOverwriting,
+                                                 [safeThis] (const juce::FileChooser& chooser)
+                                                 {
+                                                     if (safeThis != nullptr && chooser.getResult() != juce::File())
+                                                         safeThis->saveShapeTo (chooser.getResult().withFileExtension ("ilanalfo"));
+                                                 });
+        });
+    }
+
     // The shape menu. On a preset wave (`converting`) every edit first
     // turns it into a Curve with the wave's points, in the same undo step.
     void showCurveMenu (bool converting)
@@ -935,7 +1107,13 @@ private:
             menu.addItem (400, "Edit as an MSEG (same points)");
 
         menu.addSubMenu ("Load shape", shapes);
+        addShapeLibraryItems (menu);
         menu.addSubMenu ("Snap to grid", grid);
+        {
+            juce::PopupMenu brushes;
+            addBrushItems (brushes, false);
+            menu.addSubMenu ("Paint brush", brushes, true, nullptr, brush != brushOff);
+        }
         menu.addSeparator();
         menu.addItem (300, "Flip vertically");
         menu.addItem (301, "Reverse");
@@ -1331,6 +1509,9 @@ private:
     int dragTension = -1;
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
+    int brush = 0;                     // the paint brush (Brush), 0: off
+    int lastPaintCell = -1;            // the cell the stroke last stamped
+    std::unique_ptr<juce::FileChooser> shapeChooser;
     bool minimal = false;
     bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
     int pendingOutputDrag = -1;        // a press on a simulated shape's output tag (0 A, 1 B)

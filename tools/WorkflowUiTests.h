@@ -214,4 +214,37 @@ inline void runWorkflowUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         expect (processor.getLfoCurve (0).points.size() == LfoCurve {}.points.size(), "Init LFO 1 gives its curve back");
 
     }
+
+    // 7. The LFO paint brush and your own shapes.
+    {
+        processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
+        settle (100);
+        if (auto* shape = processor.apvts.getParameter ("lfo1_shape"))
+            shape->setValueNotifyingHost (shape->convertTo0to1 ((float) IlanaSynthAudioProcessor::curveShape));
+        LfoDisplay display (processor, 0, juce::Colours::orange);
+        display.setSize (400, 200);
+        display.setGridDivisions (8);
+        display.setBrush (LfoDisplay::brushStep);
+        const auto plot = juce::Rectangle<float> (0.0f, 0.0f, 400.0f, 200.0f).reduced (10.0f, 36.0f);
+        processor.beginEdit ("paint");
+        display.paintAt ({ 400.0f * 2.5f / 8.0f, plot.getY() + 4.0f }); // cell 2, near the top
+        processor.endEdit();
+        const auto painted = processor.getLfoCurve (0);
+        auto inCell = 0;
+        auto high = true;
+        for (const auto& point : painted.points)
+            if (point.x >= 0.25f && point.x < 0.375f)
+            {
+                ++inCell;
+                high = high && point.y > 0.5f;
+            }
+        expect (inCell == 2 && high, "the Step brush stamps a high step into the cell under the pointer (" + painted.toString() + ")");
+
+        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-wf-shape.ilanalfo");
+        expect (display.saveShapeTo (file) && file.loadFileAsString() == painted.toString(), "Save shape writes the curve's points");
+        processor.performEdit ("Init", [&] { processor.initModule (IlanaSynthAudioProcessor::ModuleKind::Lfo, 0); });
+        display.loadShapeFrom (file);
+        expect (processor.getLfoCurve (0).toString() == painted.toString(), "a saved shape loads back");
+        file.deleteFile();
+    }
 }

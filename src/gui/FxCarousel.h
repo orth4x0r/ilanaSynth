@@ -114,7 +114,7 @@ public:
         for (int i = 0; i < numTiles(); ++i)
         {
             const auto box = tileArea (i).toFloat();
-            if (! box.intersects (strip.toFloat()))
+            if (! box.intersects (strip.toFloat()) || ! shownWhole (i))
                 continue;
             const auto colour = fxColour (tiles[(size_t) i].type);
             const auto over = i == hovered && ! full;
@@ -174,6 +174,7 @@ public:
             return page (1);
         pressed = tileIndexAt (e.getPosition());
         dragScroll = scroll;
+        dragging = true;
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
@@ -204,6 +205,8 @@ public:
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        dragging = false;
+        repaint();
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         if (grabbed)
         {
@@ -232,7 +235,7 @@ private:
     juce::Rectangle<int> leftArrow, rightArrow, strip, picker;
     float scroll = 0.0f, dragScroll = 0.0f;
     int hovered = -1, pressed = -1;
-    bool grabbed = false;
+    bool grabbed = false, dragging = false;
 
     static int tileWidthOf (const Tile& tile)
     {
@@ -294,7 +297,7 @@ private:
         if (! strip.contains (point))
             return -1;
         for (int i = 0; i < numTiles(); ++i)
-            if (tileArea (i).contains (point))
+            if (tileArea (i).contains (point) && shownWhole (i))
                 return i;
         return -1;
     }
@@ -307,7 +310,50 @@ private:
         repaint();
     }
 
-    void page (int direction) { scrollTo (scroll + (float) direction * (float) strip.getWidth() * 0.8f); }
+    // At rest the row shows whole tiles only: one cut by an end waits behind the arrow (UI review 26: the
+    // last tile was cut in half). While the row is dragged, every tile slides through.
+    bool shownWhole (int index) const
+    {
+        if (dragging)
+            return true;
+        const auto box = tileArea (index);
+        return box.getX() >= strip.getX() - 1 && box.getRight() <= strip.getRight() + 1;
+    }
+
+    // A page starts on a tile: the first one the row cut, or the one a row's width back.
+    void page (int direction)
+    {
+        auto start = 0;
+        std::vector<int> starts;
+        for (const auto& tile : tiles)
+        {
+            starts.push_back (start);
+            start += tileWidthOf (tile) + gap;
+        }
+        const auto now = (int) std::round (scroll);
+        auto target = now;
+        if (direction > 0)
+        {
+            // (The first tile not wholly shown.)
+            for (size_t i = 0; i < starts.size(); ++i)
+                if (starts[i] + tileWidthOf (tiles[i]) > now + strip.getWidth())
+                {
+                    target = starts[i];
+                    break;
+                }
+        }
+        else
+        {
+            target = 0;
+            for (const auto x : starts)
+                if (x >= now - strip.getWidth())
+                {
+                    target = x;
+                    break;
+                }
+        }
+        scrollTo ((float) target);
+    }
 
     void forward (const juce::MouseEvent& e, const std::function<void (const juce::MouseEvent&)>& to)
     {

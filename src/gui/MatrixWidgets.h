@@ -951,7 +951,8 @@ public:
         area.removeFromLeft (Columns::gap);
         stereo.setBounds (area.removeFromLeft (Columns::stereo).reduced (0, 2));
         area.removeFromLeft (Columns::gap * 2);
-        destination.setBounds (area.removeFromLeft (Columns::destination));
+        // (DESTINATION takes the row's spare width, the cross at the row's end: no empty column after it, UI review 26.)
+        destination.setBounds (area.removeFromLeft (juce::jmax (Columns::destination, area.getWidth() - Columns::gap - Columns::remove - 4)));
         area.removeFromLeft (Columns::gap);
         remove.setBounds (area.removeFromLeft (Columns::remove));
     }

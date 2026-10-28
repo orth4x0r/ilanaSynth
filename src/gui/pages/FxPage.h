@@ -2023,10 +2023,13 @@ private:
                                               cellWidth, rowHeight);
             auto* item = items[(size_t) i];
 
-            // The dial grows with the row (a short rack's rows are taller), so
-            // a tall row's knobs fill it instead of floating in a band.
+            // PLAY's knob (one knob style, UI review 26): the value inside the ring, the name under it. The
+            // dial grows with the row (a short rack's rows are taller), so a tall row's knobs fill it.
             if (auto* knob = dynamic_cast<KnobControl*> (item))
-                knob->setInlineDial (juce::jlimit (40, 56, rowHeight - 16));
+            {
+                knob->placeAsRing (cell.reduced (2, 0));
+                continue;
+            }
 
             if (dynamic_cast<ComboControl*> (item) != nullptr)
                 item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));

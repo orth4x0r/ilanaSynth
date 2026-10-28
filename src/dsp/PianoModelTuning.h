@@ -35,6 +35,8 @@ struct PianoModelTuning
     // its detuning (cents).
     float horizontalTrebleFall = 0.0f; // dB per octave above C5
     float toneCutoff = 10116.0f; // Hz: the two-pole low-pass on the string's output
+    float quadrature = 0.0f; // 1: the two string directions are heard a quarter turn apart (no partial cancels)
+    float toneCutoffBass = 10116.0f; // Hz at A1 (toneCutoff is the cutoff from C5 up)
     float strikeBandwidth = 4870.5f; // Hz: the felt's rounding of the strike pulse
     float aftersound = 0.18f, horizontalMix = 1.448f, horizontalCents = 0.23987f;
     // The bass bark: tension modulation and the longitudinal modes.
@@ -98,9 +100,9 @@ struct PianoModelTuning
 
 private:
     using Field = std::pair<const char*, float PianoModelTuning::*>;
-    static const std::array<Field, 42>& fields()
+    static const std::array<Field, 44>& fields()
     {
-        static const std::array<Field, 42> list {
+        static const std::array<Field, 44> list {
             Field { "massBass", &PianoModelTuning::massBass }, Field { "massTreble", &PianoModelTuning::massTreble },
             Field { "exponentBass", &PianoModelTuning::exponentBass }, Field { "exponentTreble", &PianoModelTuning::exponentTreble },
             Field { "feltBass", &PianoModelTuning::feltBass }, Field { "feltTreble", &PianoModelTuning::feltTreble },
@@ -123,7 +125,7 @@ private:
             Field { "boardMix", &PianoModelTuning::boardMix }, Field { "boardDecay", &PianoModelTuning::boardDecay },
             Field { "boardLowCut", &PianoModelTuning::boardLowCut }, Field { "boardTilt", &PianoModelTuning::boardTilt },
             Field { "boardDensity", &PianoModelTuning::boardDensity },
-            Field { "dipQ", &PianoModelTuning::dipQ }, Field { "strikeBandwidth", &PianoModelTuning::strikeBandwidth }, Field { "toneCutoff", &PianoModelTuning::toneCutoff }, Field { "horizontalTrebleFall", &PianoModelTuning::horizontalTrebleFall }, Field { "t60RegisterTreble", &PianoModelTuning::t60RegisterTreble },
+            Field { "dipQ", &PianoModelTuning::dipQ }, Field { "strikeBandwidth", &PianoModelTuning::strikeBandwidth }, Field { "toneCutoff", &PianoModelTuning::toneCutoff }, Field { "quadrature", &PianoModelTuning::quadrature }, Field { "toneCutoffBass", &PianoModelTuning::toneCutoffBass }, Field { "horizontalTrebleFall", &PianoModelTuning::horizontalTrebleFall }, Field { "t60RegisterTreble", &PianoModelTuning::t60RegisterTreble },
         };
         return list;
     }

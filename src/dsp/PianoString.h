@@ -63,6 +63,9 @@ public:
             for (int lane = 0; lane < 4; ++lane)
                 chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
+        for (auto& path : quarterState)
+            for (auto& stage : path)
+                stage = {};
         pushState1 = pushState2 = 0.0f;
         toneX1 = toneX2 = toneY1 = toneY2 = 0.0f;
         dipX1 = dipX2 = dipY1 = dipY2 = 0.0f;
@@ -278,7 +281,7 @@ public:
             atBridge *= damperTrip.get (damper, period, sampleRate);
         bridgeReturn = -atBridge;
 
-        auto output = atBridge;
+        auto output = quadrature ? quarterTurn (atBridge, 0) : atBridge;
 
         // The horizontal polarisation: the same string, driven by a share of
         // the strike through the strike-point comb, losing energy slowly.
@@ -299,7 +302,7 @@ public:
             buffer[horizontalOffset + horizontalWrite] = loop + drive;
             if (++horizontalWrite >= horizontalSize)
                 horizontalWrite = 0;
-            output += loop * horizontalMix;
+            output += (quadrature ? quarterTurn (loop, 1) : loop) * horizontalMix;
 
             // Phantom partials: the longitudinal modes, driven by the square
             // of the motion (sum and difference tones of the partials).
@@ -560,10 +563,13 @@ private:
         retune();
 
         aftersound = t.aftersound;
-        toneActive = (double) t.toneCutoff < sampleRate * 0.3;
+        quadrature = t.quadrature > 0.5f;
+        // The cutoff opens from the bass (A1) to the middle (C5): low notes have very many partials in the top octaves.
+        const auto toneCutoffHz = (double) t.toneCutoffBass * std::pow ((double) t.toneCutoff / (double) t.toneCutoffBass, juce::jlimit (0.0, 1.0, ((double) note - 33.0) / 39.0));
+        toneActive = toneCutoffHz < sampleRate * 0.3;
         if (toneActive)
         {
-            const auto w = juce::MathConstants<double>::twoPi * (double) t.toneCutoff / sampleRate;
+            const auto w = juce::MathConstants<double>::twoPi * toneCutoffHz / sampleRate;
             const auto alpha = std::sin (w) / (2.0 * 0.7071);
             const auto a0 = 1.0 + alpha;
             toneB0 = (float) ((1.0 - std::cos (w)) * 0.5 / a0);
@@ -701,6 +707,25 @@ private:
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;
     float aftersound = 0.3f, horizontalMix = 1.0f;
+    bool quadrature = false;
+    // Two all-pass chains whose outputs stay 90 degrees apart over the whole
+    // audible range (Niemitalo's Hilbert pair), one per string direction.
+    struct QuarterStage { float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f; };
+    QuarterStage quarterState[2][4];
+    float quarterTurn (float x, int path) noexcept
+    {
+        static constexpr float a[2][4] = { { 0.6923878f, 0.9360654f, 0.9882295f, 0.9987488f }, { 0.4021921f, 0.8561711f, 0.9722910f, 0.9952885f } };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& s = quarterState[path][i];
+            const auto c = a[path][i] * a[path][i];
+            const auto y = c * (x + s.y2) - s.x2;
+            s.x2 = s.x1; s.x1 = x;
+            s.y2 = s.y1; s.y1 = y;
+            x = y;
+        }
+        return x;
+    }
     bool toneActive = false;
     float toneB0 = 1.0f, toneA1 = 0.0f, toneA2 = 0.0f, toneX1 = 0.0f, toneX2 = 0.0f, toneY1 = 0.0f, toneY2 = 0.0f;
     bool dipActive = false;

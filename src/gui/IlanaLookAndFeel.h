@@ -815,7 +815,7 @@ inline float fadeValue (const void* key, int channel, float target, float rate, 
 
     auto& state = states[{ key, channel }];
 
-    if (! fresh || state.time <= 0.0 || now - state.time > 2000.0)
+    if (! fresh || ! IlanaAnim::fullMotion() || state.time <= 0.0 || now - state.time > 2000.0)
     {
         state = { target, now };
         return target;
@@ -1181,17 +1181,56 @@ public:
         g.setFont (tabFont());
         g.drawText (button.getButtonText(), bounds.withTrimmedBottom (1.0f), juce::Justification::centred);
 
-        if (lit > 0.01f)
-        {
-            const auto width = (bounds.getWidth() - 20.0f) * lit;
-            const auto bar = juce::Rectangle<float> (width, 2.0f).withCentre ({ bounds.getCentreX(), bounds.getBottom() - 1.0f });
-            g.setColour (IlanaTheme::accent());
-            g.fillRoundedRectangle (bar, 1.0f);
-        }
+        // (The underline is the bar's: drawTabAreaBehindFrontButton.)
 
         if ((hover > 0.01f && hover < 0.99f) || (lit > 0.01f && lit < 0.99f))
             button.repaint();
     }
+
+    // The chosen tab's 2 px accent underline, drawn by the bar so it glides
+    // to a new tab (about 160 ms, review 26 flair) instead of jumping.
+    void drawTabAreaBehindFrontButton (juce::TabbedButtonBar& bar, juce::Graphics& g, int w, int h) override
+    {
+        juce::LookAndFeel_V4::drawTabAreaBehindFrontButton (bar, g, w, h);
+
+        const auto* front = bar.getTabButton (bar.getCurrentTabIndex());
+        const auto shown = front != nullptr && ! (bool) front->getProperties()["hiddenTab"] && front->getWidth() > 20;
+        const auto alpha = IlanaTheme::fade (bar, 902, shown ? 1.0f : 0.0f);
+
+        if (! shown && alpha < 0.01f)
+            return;
+
+        // (Its own state, not the shared fade: a bar unpainted for a while must still glide.)
+        auto& glide = tabGlides[&bar];
+        if (shown)
+        {
+            const auto target = front->getBounds().toFloat();
+            const auto to = juce::Point<float> (target.getCentreX(), target.getWidth() - 20.0f);
+            if (to != glide.to)
+            {
+                glide.from = glide.to.x < 0.0f ? to : glide.shown;
+                glide.to = to;
+                glide.tween.start (160.0f);
+            }
+            glide.shown = glide.from + (glide.to - glide.from) * IlanaAnim::easeOutCubic (glide.tween.linear());
+            if (glide.tween.running())
+                bar.repaint();
+        }
+        const auto centre = glide.shown.x, width = glide.shown.y;
+
+        if (width < 1.0f)
+            return;
+
+        g.setColour (IlanaTheme::accent().withMultipliedAlpha (alpha));
+        g.fillRoundedRectangle (juce::Rectangle<float> (width, 2.0f).withCentre ({ centre, (float) h - 1.0f }), 1.0f);
+    }
+
+    struct TabGlide
+    {
+        juce::Point<float> from, to { -1.0f, 0.0f }, shown; // (centre x, width)
+        IlanaAnim::Tween tween;
+    };
+    std::map<const juce::TabbedButtonBar*, TabGlide> tabGlides;
 
     // Check boxes (the tour's "Don't show this again") in the theme's font
     // and colours; the stock one drew its text in the default typeface.
@@ -1259,7 +1298,7 @@ public:
         const auto stroke = juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
         juce::Path backgroundArc;
         backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.05f * hover));
+        g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.14f * hover));
         if (slider.getProperties().getWithDefault ("notModulatable", false))
         {
             juce::Path dotted;
@@ -1283,7 +1322,7 @@ public:
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                     juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
-            g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
+            g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, stroke);
         }
 
@@ -1391,7 +1430,7 @@ public:
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                     juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
-            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
+            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 

@@ -302,6 +302,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     }
 
     themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, settings->getIntValue ("themeIndex", 0));
+    IlanaAnim::fullMotion() = settings->getBoolValue ("fullMotion", IlanaAnim::fullMotion()); // (the snapshot tool turns it off first: still pictures)
     lookAndFeel.setAccent (juce::Colour (IlanaTheme::palette[themeIndex]));
 
     // The pages are built in this patch's colour coding.
@@ -539,6 +540,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         };
         content.addChildComponent (*popover);
         sourcePopover = std::move (popover);
+        sourceGrow = std::make_unique<IlanaAnim::PopGrow> (*sourcePopover);
     }
 
     // Bottom strip: macros, then performance controls, then master.
@@ -601,7 +603,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         auto button = std::make_unique<PopButton> ("STEREO", StereoPopover::colour());
         button->setTagStyle (true);
         button->setTooltip ("Stereo settings\nSPREAD, PHASE, DRIFT and LOOSE: how wide and how loose the voices play.");
-        button->onClick = [this] { setStereoOpen (stereoPopover == nullptr || ! stereoPopover->isVisible()); };
+        button->onClick = [this] { setStereoOpen (stereoPopover == nullptr || ! stereoPopover->isVisible() || stereoGrow->isClosing()); };
         content.addAndMakeVisible (*button);
         stereoButton = std::move (button);
         auto popover = std::make_unique<StereoPopover> (p);
@@ -609,6 +611,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         popover->isOwnButton = [this] (juce::Component* c) { return c == stereoButton.get(); };
         content.addChildComponent (*popover);
         stereoPopover = std::move (popover);
+        stereoGrow = std::make_unique<IlanaAnim::PopGrow> (*stereoPopover);
     }
     // Master is a setting rather than a sound control: neutral, so it doesn't
     // outshine the page (and yellow stays the macros' colour).
@@ -1448,7 +1451,7 @@ void IlanaSynthAudioProcessorEditor::toggleSourcePopover (int source, juce::Comp
     if (popover == nullptr)
         return;
 
-    if (popover->isVisible() && popover->getSource() == source)
+    if (popover->isVisible() && ! sourceGrow->isClosing() && popover->getSource() == source)
     {
         closeSourcePopover();
         return;
@@ -1458,11 +1461,10 @@ void IlanaSynthAudioProcessorEditor::toggleSourcePopover (int source, juce::Comp
     popover->setSource (source);
     popover->setBounds (popover->placeIn (pageArea(), sourcePopoverAnchor));
     pinnedModSource() = source;
-    if (! popover->isVisible())
+    if (! popover->isVisible() || sourceGrow->isClosing())
     {
-        popover->setAlpha (0.0f);
         popover->setVisible (true);
-        juce::Desktop::getInstance().getAnimator().fadeIn (popover, 140);
+        sourceGrow->open (sourcePopoverAnchor.getCentre().toFloat());
     }
     popover->toFront (true);
     content.repaint();
@@ -1470,18 +1472,22 @@ void IlanaSynthAudioProcessorEditor::toggleSourcePopover (int source, juce::Comp
 
 void IlanaSynthAudioProcessorEditor::closeSourcePopover()
 {
-    if (sourcePopover == nullptr || ! sourcePopover->isVisible())
+    if (sourcePopover == nullptr || ! sourcePopover->isVisible() || sourceGrow->isClosing())
         return;
 
     if (pinnedModSource() == static_cast<SourcePopover*> (sourcePopover.get())->getSource())
         pinnedModSource() = 0;
-    sourcePopover->setVisible (false);
+    sourceGrow->close ([safe = juce::Component::SafePointer<juce::Component> (sourcePopover.get())]
+                       {
+                           if (safe != nullptr)
+                               safe->setVisible (false);
+                       });
     content.repaint();
 }
 
 int IlanaSynthAudioProcessorEditor::getSourcePopoverSource() const
 {
-    return sourcePopover != nullptr && sourcePopover->isVisible() ? static_cast<SourcePopover*> (sourcePopover.get())->getSource() : 0;
+    return sourcePopover != nullptr && sourcePopover->isVisible() && ! sourceGrow->isClosing() ? static_cast<SourcePopover*> (sourcePopover.get())->getSource() : 0;
 }
 
 // The macro pages: + ASSIGN shows on the first idle macro only, and the page
@@ -1923,10 +1929,16 @@ void IlanaSynthAudioProcessorEditor::setStereoOpen (bool open)
         stereoPopover->setBounds (stereoPopoverBounds());
         stereoPopover->setVisible (true);
         stereoPopover->toFront (true);
+        stereoGrow->open (stereoButton != nullptr ? stereoButton->getBounds().getCentre().toFloat()
+                                                  : stereoPopover->getBounds().getCentre().toFloat());
     }
-    else
+    else if (stereoPopover->isVisible() && ! stereoGrow->isClosing())
     {
-        stereoPopover->setVisible (false);
+        stereoGrow->close ([safe = juce::Component::SafePointer<juce::Component> (stereoPopover.get())]
+                           {
+                               if (safe != nullptr)
+                                   safe->setVisible (false);
+                           });
     }
     stereoButton->setToggleState (open, juce::dontSendNotification);
 }
@@ -2432,6 +2444,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
             // One undo step for the whole preset, its data included.
             auto& self = *safeThis;
             self.closeWavetableEditor(); // it works on the old patch's table
+            IlanaAnim::armMorphs(); // (the old shapes fade out over the new ones)
             self.processorRef.beginEdit ("Load " + name);
             loaded = userFile != juce::File() ? self.processorRef.loadUserPreset (userFile) : self.processorRef.loadPresetByIndex (index);
             self.processorRef.endEdit();
@@ -2440,6 +2453,7 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
             {
                 self.presetLoadFlash = 1.0f;
                 IlanaAnim::notePresetLoad();
+                IlanaAnim::playMorphs();
                 self.animator.startTimerHz (60);
 
                 self.updateHeaderButtons();
@@ -2837,6 +2851,9 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
     // The live waveform under the preset name moves all the time beside
     // the most-read text: it can be turned off (review 8, S8-41).
     menu.addItem (320, "Waveform under the preset name", true, headerScope.isVisible());
+    // Motion: Full or Less (review 26). Less keeps the meters and the live
+    // dots and drops the fades, glides, morphs, trails and pop-up growth.
+    menu.addItem (330, "Full motion (animations)", true, IlanaAnim::fullMotion());
    #if ILANA_GPU_UI
     menu.addItem (310, "GPU rendering (OpenGL)", true, openGL != nullptr);
    #endif
@@ -2871,6 +2888,13 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                                 safeThis->applyUiZoom (zooms[juce::jlimit (0, 5, result - 200)]);
                             else if (result == 300)
                                 safeThis->setKeyboardVisible (! safeThis->keyboardVisible);
+                            else if (result == 330)
+                            {
+                                IlanaAnim::fullMotion() = ! IlanaAnim::fullMotion();
+                                safeThis->settings->setValue ("fullMotion", IlanaAnim::fullMotion());
+                                safeThis->settings->saveIfNeeded();
+                                safeThis->repaint();
+                            }
                             else if (result == 320)
                             {
                                 const auto show = ! safeThis->headerScope.isVisible();

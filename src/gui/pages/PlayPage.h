@@ -728,6 +728,8 @@ class WestDisplay : public juce::Component,
                     private juce::Timer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
+
     explicit WestDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
         setInterceptsMouseClicks (false, false);
@@ -810,6 +812,8 @@ class ParamPicture : public juce::Component,
                      private juce::Timer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
+
     ParamPicture (IlanaSynthAudioProcessor& p, std::vector<juce::String> idsIn, const juce::String& tip)
         : processorRef (p), ids (std::move (idsIn))
     {
@@ -1235,6 +1239,8 @@ private:
 class PlayPage : public juce::Component,
                  private juce::ScrollBar::Listener,
                  private IlanaTheme::IdentityColourListener,
+                 private juce::AudioProcessorValueTreeState::Listener,
+                 private juce::AsyncUpdater,
                  private juce::Timer
 {
 public:
@@ -1344,7 +1350,7 @@ public:
                                                       "TUNING\nAUTO tunes the strings to what you play; MANUAL to the six NOTES you pick.");
         addAndMakeVisible (*stringsManual);
         tuneButton.setTooltip ("NOTES\nThe sympathetic strings' six notes (MANUAL tuning)");
-        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible()); };
+        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible() || tuningGrow.isClosing()); };
         addAndMakeVisible (tuneButton);
         for (const auto& [id, label] : { std::pair<const char*, const char*> { "sym_amount", "AMOUNT" }, { "sym_count", "COUNT" }, { "sym_decay", "DECAY" } })
             stringsKnobs.push_back (knob (id, label, stringsColour()));
@@ -1470,13 +1476,20 @@ public:
         showFilter (0);
         showStrings (0);
         showBody (0);
+        dotClock.tick = [this] { tickDots(); };
+        for (const auto* id : dotSwitchIds)
+            processorRef.apvts.addParameterListener (id, this);
         startTimerHz (4);
     }
 
     ~PlayPage() override
     {
         IlanaTheme::identityColourListeners (&processorRef).remove (this);
+        for (const auto* id : dotSwitchIds)
+            processorRef.apvts.removeParameterListener (id, this);
+        cancelPendingUpdate();
         stopTimer();
+        dotClock.stopTimer();
     }
 
     // Colour coding: a right-click on a card's dot picks that section's colour.
@@ -1557,13 +1570,22 @@ public:
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()));
+        for (size_t i = 0; i < dots.size(); ++i)
+        {
+            if (dots[i].lit < 0.0f)
+            {
+                dots[i].target = dotTarget (i);
+                dots[i].lit = dots[i].target ? 1.0f : 0.0f;
+            }
+        }
+
         // (A switched-off card's dot dims as an off oscillator's does: UI review 26.)
-        paintCardWithHeader (g, stringsBounds, {}, stringsColour(), stringsTabs.getSelected() != 0 || readInt ("sym_on") != 0);
-        paintCardWithHeader (g, westBounds, "WEST COAST", westColour(), readInt ("west_on") != 0);
-        paintCardWithHeader (g, bodyBounds, {}, bodyColour(), readInt (boardTab.getSelected() == 0 ? "sb_on" : "res_on") != 0);
-        paintCardWithHeader (g, subBounds, "SUB", subColour(), readInt ("subosc_on") != 0);
-        paintCardWithHeader (g, noiseBounds, "NOISE", subColour(), readInt ("noise_on") != 0);
+        paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()), dots[0]);
+        paintCardWithHeader (g, stringsBounds, {}, stringsColour(), dots[1]);
+        paintCardWithHeader (g, westBounds, "WEST COAST", westColour(), dots[2]);
+        paintCardWithHeader (g, bodyBounds, {}, bodyColour(), dots[3]);
+        paintCardWithHeader (g, subBounds, "SUB", subColour(), dots[4]);
+        paintCardWithHeader (g, noiseBounds, "NOISE", subColour(), dots[5]);
 
         // STRINGS' TUNING over AUTO / MANUAL and NOTES; KEYS' NOISE over KEY, DAMPER and PEDAL.
         const auto strings = stringsTabs.getSelected() == 0;
@@ -1691,6 +1713,7 @@ private:
 
     void timerCallback() override
     {
+        wakeDots();
         operatorFilterOff = operatorVoiceFilterOff (processorRef);
         filterDisplay.setVoiceOff (operatorFilterOff);
         effectRules.apply();
@@ -1803,7 +1826,107 @@ private:
                + 16 * readInt ("subosc_on") + 32 * readInt ("noise_on");
     }
 
-    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, bool lit = true) const
+    // The cards' header dots (review 26 flair): a dot fades over 180 ms as
+    // its card is switched, glows once as it comes on, and while notes
+    // sound its halo breathes with the synth's output level.
+    struct HeaderDot
+    {
+        float lit = -1.0f, glow = 0.0f, breath = 0.0f;
+        bool target = false;
+    };
+    std::array<HeaderDot, 6> dots;
+
+    struct DotClock : IlanaAnim::FrameTimer
+    {
+        std::function<void()> tick;
+        void timerCallback() override { tick(); }
+    } dotClock;
+
+    bool dotTarget (size_t index) const
+    {
+        switch (index)
+        {
+            case 1: return stringsTabs.getSelected() != 0 || readInt ("sym_on") != 0;
+            case 2: return readInt ("west_on") != 0;
+            case 3: return readInt (boardTab.getSelected() == 0 ? "sb_on" : "res_on") != 0;
+            case 4: return readInt ("subosc_on") != 0;
+            case 5: return readInt ("noise_on") != 0;
+            default: return true;
+        }
+    }
+
+    juce::Rectangle<int> dotArea (size_t index) const
+    {
+        const std::array<juce::Rectangle<int>, 6> cards { filterBounds, stringsBounds, westBounds, bodyBounds, subBounds, noiseBounds };
+        const auto& card = cards[index];
+        return juce::Rectangle<int> (28, 28).withCentre ({ card.getX() + 14, card.getY() + headerHeight / 2 });
+    }
+
+    // A card's switch moved (from any thread): its dot fades at once, not on the next page tick.
+    static constexpr const char* dotSwitchIds[] { "sym_on", "west_on", "sb_on", "res_on", "subosc_on", "noise_on" };
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { wakeDots(); }
+
+    // Starts the dots' clock when a switch moved or notes sound (the 4 Hz page timer asks).
+    void wakeDots()
+    {
+        auto changed = false;
+        for (size_t i = 0; i < dots.size(); ++i)
+            changed = changed || dots[i].lit < 0.0f || dotTarget (i) != dots[i].target;
+
+        if (changed || (IlanaAnim::fullMotion() && processorRef.getActiveVoiceCount() > 0))
+            if (! dotClock.isTimerRunning())
+                dotClock.startTimerHz (60);
+    }
+
+    void tickDots()
+    {
+        const auto seconds = dotClock.frameSeconds();
+        const auto full = IlanaAnim::fullMotion() && IlanaAnim::showing (*this);
+        const auto level = full && processorRef.getActiveVoiceCount() > 0 ? juce::jlimit (0.0f, 1.0f, processorRef.getOutputPeak() * 1.5f) : 0.0f;
+        auto busy = level > 0.0f;
+
+        for (size_t i = 0; i < dots.size(); ++i)
+        {
+            auto& dot = dots[i];
+            const auto target = dotTarget (i);
+            const auto before = dot;
+
+            if (dot.lit < 0.0f || ! full)
+            {
+                dot.lit = target ? 1.0f : 0.0f;
+                dot.glow = 0.0f;
+            }
+            else
+            {
+                if (target && ! dot.target)
+                    dot.glow = 1.0f;
+                dot.lit += ((target ? 1.0f : 0.0f) - dot.lit) * (1.0f - std::exp (-seconds / 0.05f)); // ~180 ms to settle
+                dot.glow *= std::exp (-seconds / 0.18f);
+                if (dot.glow < 0.01f)
+                    dot.glow = 0.0f;
+            }
+
+            dot.target = target;
+            const auto breathTarget = target ? level : 0.0f;
+            dot.breath += (breathTarget - dot.breath) * (1.0f - std::exp (-seconds / (breathTarget > dot.breath ? 0.03f : 0.25f)));
+            if (dot.breath < 0.01f && breathTarget == 0.0f)
+                dot.breath = 0.0f;
+
+            const auto moving = std::abs (dot.lit - (target ? 1.0f : 0.0f)) > 0.004f || dot.glow > 0.0f || dot.breath > 0.0f;
+            if (! moving)
+                dot.lit = target ? 1.0f : 0.0f;
+            busy = busy || moving;
+
+            if (std::abs (dot.lit - before.lit) > 0.002f || std::abs (dot.glow - before.glow) > 0.002f || std::abs (dot.breath - before.breath) > 0.004f)
+                repaint (dotArea (i));
+        }
+
+        if (! busy)
+            dotClock.stopTimer();
+    }
+
+    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, const HeaderDot& dot) const
     {
         if (card.isEmpty())
             return;
@@ -1812,7 +1935,15 @@ private:
         g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
         g.fillRect (juce::Rectangle<int> (card.getX() + 1, card.getY() + headerHeight - 1, card.getWidth() - 2, 1));
         const auto centre = card.getY() + headerHeight / 2;
-        IlanaTheme::paintTag (g, { (float) card.getX() + 14.0f, (float) centre }, lit ? tint : tint.withMultipliedSaturation (0.6f).withMultipliedBrightness (0.5f));
+        const auto lit = dot.lit < 0.0f ? 1.0f : dot.lit;
+        const auto dotCentre = juce::Point<float> ((float) card.getX() + 14.0f, (float) centre);
+        const auto colour = tint.withMultipliedSaturation (0.6f).withMultipliedBrightness (0.5f).interpolatedWith (tint, lit);
+        // (paintTag's dot, its halo bigger and brighter while it glows or breathes.)
+        const auto swell = juce::jmax (dot.glow, dot.breath * 0.8f);
+        g.setColour (colour.withAlpha (0.2f + 0.3f * swell));
+        g.fillEllipse (juce::Rectangle<float> (14.0f + 8.0f * swell, 14.0f + 8.0f * swell).withCentre (dotCentre));
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f * dot.glow));
+        g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (dotCentre));
         if (title.isEmpty())
             return;
         g.setColour (IlanaTheme::Ui::text);
@@ -2042,17 +2173,22 @@ private:
     void showTuning (bool show)
     {
         show = show && readInt ("sym_manual") != 0;
-        if (show == tuningPopover.isVisible())
+        if (show == (tuningPopover.isVisible() && ! tuningGrow.isClosing()))
             return;
         if (show)
         {
             tuningPopover.setBounds (tuningBounds());
             tuningPopover.setVisible (true);
             tuningPopover.toFront (false);
+            tuningGrow.open (getLocalPoint (&tuneButton, tuneButton.getLocalBounds().getCentre()).toFloat());
         }
         else
         {
-            tuningPopover.setVisible (false);
+            tuningGrow.close ([safe = juce::Component::SafePointer<juce::Component> (&tuningPopover)]
+                              {
+                                  if (safe != nullptr)
+                                      safe->setVisible (false);
+                              });
         }
         tuneButton.setToggleState (show, juce::dontSendNotification);
     }
@@ -2132,6 +2268,7 @@ private:
     std::unique_ptr<PillChoice> stringsManual;
     NoteButton tuneButton;
     TuningPopover tuningPopover;
+    IlanaAnim::PopGrow tuningGrow { tuningPopover }; // (NOTES grows from its button)
     std::vector<std::unique_ptr<KnobControl>> stringsKnobs, keysKnobs, tuningNotes;
     juce::Rectangle<int> filterBounds, stringsBounds, westBounds, bodyBounds, subBounds, noiseBounds, tuningGroup, noiseGroup;
     ViewPills bodyTab { { "BODY" }, bodyColour(), "Show BODY's controls (its switch is beside it)" };

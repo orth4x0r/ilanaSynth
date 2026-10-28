@@ -1035,6 +1035,15 @@ private:
         scrollToSlot (slot);
         dropSlot = slot;
         dropFlash = 1.0f;
+
+        // A new card slides down and fades in (review 26 flair).
+        if (replacingSlot < 0)
+            for (const auto& panel : stackPanels)
+                if (panel.slot == slot && ! panel.bounds.isEmpty())
+                {
+                    IlanaAnim::CardMotion::reveal (stackContent, panel.bounds, [] (juce::Graphics& g) { g.fillAll (IlanaTheme::Ui::bg); });
+                    break;
+                }
     }
 
     void removeSlot (int slot)

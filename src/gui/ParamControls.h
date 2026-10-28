@@ -332,8 +332,9 @@ inline juce::String& knobClipboard()
 // for the knob's rings, shown while the knob is hovered (V7-27), and
 // controls too:
 // drag one up or down to set that routing's depth, double-click it to zero
-// the depth (as knobs, rings and the source card do), right-click it to
-// bypass or remove the routing. More routings than fit show as a "+N"
+// the depth (as knobs, rings and the source card do), right-click it for
+// the routing's menu (polarity, stereo, amount, bypass, remove; the rings
+// share it). More routings than fit show as a "+N"
 // badge, which opens the knob's source card with all of them.
 class ModDotStrip : public juce::Component,
                     public juce::SettableTooltipClient
@@ -346,6 +347,9 @@ public:
         float depth = 0.0f;
         bool bypass = false;
         bool bipolar = false;
+        int polarity = 0;           // Mod::Polarity
+        bool stereo = false;
+        bool stereoAllowed = false; // Mod::canBeStereo (its destination)
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
@@ -354,11 +358,60 @@ public:
     // The right-click menu's choices.
     std::function<void (int slot)> onRemove;
     std::function<void (int slot, bool bypass)> onBypass;
+    std::function<void (int slot, int polarity)> onPolarity;
+    std::function<void (int slot, bool stereo)> onStereo;
+    std::function<void (int slot)> onTypeAmount;
     // A depth drag's start and end (one undo step).
     std::function<void (int source)> onDragStart;
     std::function<void()> onDragEnd;
     // The "+N" badge: show every routing (the knob's source card).
     std::function<void()> onShowAll;
+
+    // A routing's right-click menu, on its ring or its badge (Vital's):
+    // polarity, stereo, then the amount, bypass and remove.
+    static void addRouteItems (juce::PopupMenu& menu, const Dot& dot)
+    {
+        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
+
+        const auto add = [&menu] (int id, const juce::String& text, const juce::String& hint, bool enabled, bool ticked)
+        {
+            juce::PopupMenu::Item item (text);
+            item.itemID = id;
+            item.shortcutKeyDescription = hint;
+            item.isEnabled = enabled;
+            item.isTicked = ticked;
+            menu.addItem (std::move (item));
+        };
+
+        add (11, "Unipolar", "one way, up", true, dot.polarity == (int) Mod::Polarity::Unipolar);
+        add (12, "Negative", "one way, down", true, dot.polarity == (int) Mod::Polarity::Negative);
+        add (13, "Bipolar", "both sides", true, dot.polarity == (int) Mod::Polarity::Bipolar);
+        add (14, "Auto", "source's range", true, dot.polarity == (int) Mod::Polarity::Natural);
+        menu.addSeparator();
+        add (15, "Stereo", dot.stereoAllowed ? "left up, right down" : "filter cutoffs only", dot.stereoAllowed, dot.stereo);
+        menu.addSeparator();
+        add (10, "Type an amount...", {}, true, false);
+        add (1, "Bypass", {}, true, dot.bypass);
+        add (2, "Remove", {}, true, false);
+    }
+
+    // Acts on a choice from addRouteItems' menu.
+    void handleRouteChoice (int result, const Dot& dot)
+    {
+        if (result == 1 && onBypass != nullptr)
+            onBypass (dot.slot, ! dot.bypass);
+        else if (result == 2 && onRemove != nullptr)
+            onRemove (dot.slot);
+        else if (result == 10 && onTypeAmount != nullptr)
+            onTypeAmount (dot.slot);
+        else if (result >= 11 && result <= 14 && onPolarity != nullptr)
+        {
+            const Mod::Polarity choices[] { Mod::Polarity::Unipolar, Mod::Polarity::Negative, Mod::Polarity::Bipolar, Mod::Polarity::Natural };
+            onPolarity (dot.slot, (int) choices[result - 11]);
+        }
+        else if (result == 15 && onStereo != nullptr)
+            onStereo (dot.slot, ! dot.stereo);
+    }
 
     void setDots (const std::vector<Dot>& newDots)
     {
@@ -568,20 +621,13 @@ private:
 
         const auto dot = dots[(size_t) index];
         juce::PopupMenu menu;
-        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
-        menu.addItem (1, "Bypass", true, dot.bypass);
-        menu.addItem (2, "Remove");
+        addRouteItems (menu, dot);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                                 .withTargetScreenArea (localAreaToGlobal (dotBounds (index).expanded (2.0f).getSmallestIntegerContainer())),
                             [safeThis = juce::Component::SafePointer<ModDotStrip> (this), dot] (int result)
                             {
-                                if (safeThis == nullptr)
-                                    return;
-
-                                if (result == 1 && safeThis->onBypass != nullptr)
-                                    safeThis->onBypass (dot.slot, ! dot.bypass);
-                                else if (result == 2 && safeThis->onRemove != nullptr)
-                                    safeThis->onRemove (dot.slot);
+                                if (safeThis != nullptr)
+                                    safeThis->handleRouteChoice (result, dot);
                             });
     }
 
@@ -616,14 +662,16 @@ private:
 
         if (! juce::isPositiveAndBelow (index, (int) dots.size()))
         {
-            setTooltip ("Modulation\nDrag a badge (or the knob's ring) to set its depth, double-click it to zero it, right-click to bypass or remove.");
+            setTooltip ("Modulation\nDrag a badge (or the knob's ring) to set its depth, double-click it to zero it, right-click for polarity, stereo, bypass or remove.");
             return;
         }
 
         const auto& dot = dots[(size_t) index];
         setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (dot.depth, dot.bipolar))
                     + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "") + (dot.bypass ? "  (bypassed)" : "")
-                    + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
+                    + (dot.stereo ? "  (stereo: left up, right down)" : "")
+                    + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, "
+                      "right-click for unipolar, bipolar, stereo, bypass or remove.");
     }
 
     std::vector<Dot> dots;
@@ -956,6 +1004,16 @@ public:
 
             refreshRoutings();
         };
+        dotStrip.onPolarity = [this] (int slot, int polarity) { setRoutePolarity (slot, polarity); };
+        dotStrip.onStereo = [this] (int slot, bool stereo)
+        {
+            if (processorRef != nullptr)
+                processorRef->performEdit (stereo ? "Stereo modulation" : "Mono modulation",
+                                           [this, slot, stereo] { processorRef->setModSlotValue (slot, "stereo", stereo ? 1.0f : 0.0f); });
+
+            refreshRoutings();
+        };
+        dotStrip.onTypeAmount = [this] (int slot) { beginAmountEntry (slot); };
         dotStrip.onDragStart = [this] (int source)
         {
             if (processorRef != nullptr)
@@ -1031,6 +1089,7 @@ public:
     // The modulation destination whose depth the knob's ring shows (0: none).
     int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
+    const ModDotStrip::Dot& getRouting (int index) const { return routings[(size_t) index]; }
     // The depth rings (one per routing, up to three), for the tests: how
     // many, a point on one (0..1 along its sweep, local to the knob), the
     // component that takes presses on them, and the badge strip.
@@ -1676,6 +1735,22 @@ public:
             g.setColour (colour.withAlpha (((0.95f + 0.05f * hotAmount) * (1.0f - quietAmount) + 0.3f * quietAmount) * ringIn));
             g.strokePath (range, rounded);
 
+            // A stereo route moves the right channel the other way: that
+            // half of the ring is dashed (a both-sides ring already covers it).
+            if (dot.stereo && ! dot.bipolar)
+            {
+                const auto mirrored = angleOf (normAt (-dot.depth)), baseAt = angleOf (baseNorm);
+
+                if (std::abs (mirrored - baseAt) >= 0.06f)
+                {
+                    juce::Path half, dashed;
+                    half.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (mirrored, baseAt), juce::jmax (mirrored, baseAt), true);
+                    const float dashes[] { 3.0f, 3.0f };
+                    juce::PathStrokeType (width).createDashedStroke (dashed, half, dashes, 2);
+                    g.fillPath (dashed);
+                }
+            }
+
             if (dot.bypass)
                 continue;
 
@@ -2160,44 +2235,21 @@ private:
             const auto& dot = owner.routings[(size_t) ring];
             setTooltip (ModNames::source (dot.source, owner.processorRef) + "  " + (dot.depth >= 0.0f ? "+" : "")
                         + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "")
-                        + (dot.bypass ? "  (bypassed)" : "")
+                        + (dot.bypass ? "  (bypassed)" : "") + (dot.stereo ? "  (stereo: left up, right down)" : "")
                         + "\nDrag the ring up or right to deepen it (Shift for fine), double-click to zero it, "
-                          "right-click to bypass or remove it.");
+                          "right-click for unipolar, bipolar, stereo, bypass or remove.");
         }
 
         void showMenu (int ring)
         {
             const auto dot = owner.routings[(size_t) ring];
             juce::PopupMenu menu;
-            menu.addSectionHeader (ModNames::source (dot.source, owner.processorRef) + "  ("
-                                   + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
-            menu.addItem (1, "Bypass", true, dot.bypass);
-            menu.addItem (2, "Remove");
-            menu.addSeparator();
-
-            if (owner.processorRef != nullptr)
-            {
-                const auto polarity = (int) owner.processorRef->readModSlot (dot.slot).polarity;
-                menu.addItem (10, "Type an amount...");
-                menu.addItem (11, "Polarity: positive (up)", true, polarity == 1);
-                menu.addItem (12, "Polarity: negative (down)", true, polarity == 3);
-                menu.addItem (13, "Polarity: bipolar (both sides)", true, polarity == 2);
-                menu.addItem (14, "Polarity: auto (the source's range)", true, polarity == 0);
-            }
+            ModDotStrip::addRouteItems (menu, dot);
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                                 [safeOwner = juce::Component::SafePointer<KnobControl> (&owner), dot] (int result)
                                 {
-                                    if (safeOwner == nullptr)
-                                        return;
-
-                                    if (result == 1 && safeOwner->dotStrip.onBypass != nullptr)
-                                        safeOwner->dotStrip.onBypass (dot.slot, ! dot.bypass);
-                                    else if (result == 2 && safeOwner->dotStrip.onRemove != nullptr)
-                                        safeOwner->dotStrip.onRemove (dot.slot);
-                                    else if (result == 10)
-                                        safeOwner->beginAmountEntry (dot.slot);
-                                    else if (result >= 11 && result <= 14)
-                                        safeOwner->setRoutePolarity (dot.slot, result == 11 ? 1 : result == 12 ? 3 : result == 13 ? 2 : 0);
+                                    if (safeOwner != nullptr)
+                                        safeOwner->dotStrip.handleRouteChoice (result, dot);
                                 });
         }
 
@@ -2411,7 +2463,8 @@ private:
                 continue;
 
             const auto bipolar = Mod::isBipolarRoute (slot);
-            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar });
+            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar, (int) slot.polarity,
+                               slot.stereo && Mod::canBeStereo (slot.destination), Mod::canBeStereo (slot.destination) });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -2424,7 +2477,8 @@ private:
                              || ! std::equal (found.begin(), found.end(), routings.begin(),
                                               [] (const auto& a, const auto& b)
                                               { return a.slot == b.slot && a.source == b.source && a.bypass == b.bypass
-                                                       && a.bipolar == b.bipolar && std::abs (a.depth - b.depth) < 1.0e-4f; });
+                                                       && a.bipolar == b.bipolar && a.polarity == b.polarity && a.stereo == b.stereo
+                                                       && std::abs (a.depth - b.depth) < 1.0e-4f; });
 
         // Mid-drag the ring keeps its own depth (the parameter catches up).
         if (! changed || draggedRing >= 0)

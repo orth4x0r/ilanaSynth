@@ -113,6 +113,65 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
                     "double-clicking the outer ring zeroes LFO 2's depth and keeps the routing");
         }
 
+        // A ring's (or badge's) right-click menu, as Vital's: Unipolar,
+        // Negative, Bipolar, Auto and Stereo; Stereo greyed off the filter
+        // cutoffs; each choice is one undo step (ilana, 2026-10-28).
+        if (cutoff != nullptr && cutoff->getNumRoutings() == 2)
+        {
+            cutoff->syncRoutings();
+            const auto itemsOf = [] (const ModDotStrip::Dot& dot)
+            {
+                juce::PopupMenu menu;
+                ModDotStrip::addRouteItems (menu, dot);
+                std::map<juce::String, juce::PopupMenu::Item> items;
+                for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+                    if (! it.getItem().isSectionHeader && ! it.getItem().isSeparator)
+                        items[it.getItem().text] = it.getItem();
+                return items;
+            };
+            const auto items = itemsOf (cutoff->getRouting (0));
+            auto named = true;
+            for (const auto* name : { "Unipolar", "Negative", "Bipolar", "Auto", "Stereo", "Type an amount...", "Bypass", "Remove" })
+                named = named && items.count (name) == 1;
+            expect (named && items.at ("Stereo").isEnabled && items.at ("Auto").isTicked && ! items.at ("Stereo").isTicked,
+                    "a cutoff ring's menu has Unipolar / Negative / Bipolar / Auto / Stereo, Auto ticked, Stereo offered");
+
+            auto& strip = cutoff->getDotStrip();
+            clearHistory();
+            strip.handleRouteChoice (15, cutoff->getRouting (0));
+            settle (100);
+            const auto stereoSteps = undoSteps().size();
+            cutoff->syncRoutings();
+            const auto stereoOn = processor.readModSlot (0).stereo && cutoff->getRouting (0).stereo
+                                  && itemsOf (cutoff->getRouting (0)).at ("Stereo").isTicked;
+            strip.handleRouteChoice (13, cutoff->getRouting (0));
+            settle (100);
+            cutoff->syncRoutings();
+            const auto bipolar = processor.readModSlot (0).polarity == Mod::Polarity::Bipolar && cutoff->getRouting (0).bipolar;
+            processor.getUndoManager().undo();
+            processor.getUndoManager().undo();
+            settle (100);
+            cutoff->syncRoutings();
+            expect (stereoOn && stereoSteps == 1 && bipolar && ! processor.readModSlot (0).stereo
+                        && processor.readModSlot (0).polarity == Mod::Polarity::Natural,
+                    "Stereo and Bipolar from the ring menu set the route, one undo step each");
+
+            routeSlot (2, Mod::Source::Lfo3, Mod::Destination::Filter1Reso, 0.3f);
+            settle (200);
+            if (auto* reso = findKnob ("f1_reso"); reso != nullptr)
+            {
+                reso->syncRoutings();
+                expect (reso->getNumRoutings() == 1 && ! itemsOf (reso->getRouting (0)).at ("Stereo").isEnabled,
+                        "Stereo is greyed on a knob that can't split left and right (F1 RESO)");
+            }
+            else
+            {
+                expect (false, "the filter page shows F1 RESO");
+            }
+            processor.clearModSlot (2);
+            settle (100);
+        }
+
         // Badges: 14 px or more, and past what fits a "+N" badge (S5-5, S6-11).
         const Mod::Source more[] { Mod::Source::Lfo3, Mod::Source::Lfo4, Mod::Source::ModWheel, Mod::Source::Velocity,
                                    Mod::Source::Random, Mod::Source::Aftertouch, Mod::Source::KeyTrack };

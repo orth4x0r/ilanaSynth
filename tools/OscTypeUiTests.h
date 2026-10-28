@@ -97,7 +97,7 @@ void runOscTypeTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProces
                 "OSC: a Wavetable's ENVELOPE has no OP ENV");
         expect (knobIn ("osc1_ratio", 0) == nullptr && knobIn ("osc1_fixed_hz", 0) == nullptr && knobIn ("osc1_eg_out", 0) == nullptr
                     && comboIn ("osc1_fb_type", 0) == nullptr && ! envGraphIn (0) && knobIn ("osc1_detune", 0) != nullptr,
-                "OSC: a Wavetable card has no RATIO, FIXED, OUTPUT, FB TYPE or OP ENV graph");
+                "OSC: a Wavetable card has no RATIO, FIXED, OUTPUT, FEEDBACK TYPE or OP ENV graph");
 
         // The arrow key steps the menu's order: Wavetable, FM / DX7, ...
         press (mode, juce::KeyPress (juce::KeyPress::downKey));
@@ -107,7 +107,7 @@ void runOscTypeTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProces
         expect (tune != nullptr && tune->getComboBox().isItemEnabled (2) && tune->getComboBox().isItemEnabled (3)
                     && envelope != nullptr && envelope->getComboBox().indexOfItemId (OperatorEg::envelopeChoice + 1) >= 0
                     && comboIn ("osc1_fb_type", 0) != nullptr && knobIn ("fm_feedback", 0) != nullptr,
-                "OSC: an FM / DX7 card has the operator's TUNING, OP ENV, FEEDBACK and FB TYPE, and no FRAME");
+                "OSC: an FM / DX7 card has the operator's TUNING, OP ENV, FEEDBACK and FEEDBACK TYPE, and no FRAME");
         processor.getUndoManager().undo();
         settle (400);
         expect (read ("osc1_mode") == 0, "OSC: undo takes the type back to Wavetable");

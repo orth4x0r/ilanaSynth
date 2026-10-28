@@ -423,7 +423,7 @@ public:
     }
 
 private:
-    static juce::Font font() { return IlanaTheme::font (8.5f, true); }
+    static juce::Font font() { return IlanaTheme::font (IlanaTheme::TextSize::packedBody, true); }
 
     // Pills as wide as their names, the spare width shared out, so the row fills its bounds.
     juce::Rectangle<float> pillBounds (int page) const

@@ -157,7 +157,7 @@ public:
             const auto width = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (font, label) + 2);
             assignBounds = text.withWidth (width).expanded (3, 1).getIntersection (getLocalBounds());
             const auto over = hover && assignBounds.contains (getMouseXYRelative());
-            g.setColour (over ? IlanaTheme::accent() : hover ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
+            g.setColour (over ? IlanaTheme::accent() : hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
             g.setFont (font);
             IlanaTheme::drawFitted (g, label, text, juce::Justification::topLeft, 1);
             return;
@@ -599,7 +599,7 @@ public:
             g.setColour (lit ? IlanaTheme::accent() : IlanaTheme::Ui::line);
             g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 1.0f);
             g.setColour (lit ? IlanaTheme::accent() : (over ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2));
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             g.drawText (juce::String (index + 1), area, juce::Justification::centred, false);
             if (used[(size_t) index] && ! lit)
             {

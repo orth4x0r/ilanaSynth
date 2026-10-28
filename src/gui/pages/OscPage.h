@@ -849,7 +849,7 @@ public:
         {
             // The packed MIX panel's row: OUT, the bar, the level in dB.
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
             const auto valueW = valueWidth;
@@ -859,7 +859,7 @@ public:
             g.setColour (colour.withAlpha (0.95f));
             g.fillRoundedRectangle (track.withWidth (juce::jmax (5.0f, track.getWidth() * level)), 2.5f);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (7.5f, false, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, false, true));
             IlanaTheme::drawFitted (g, db, area.withLeft (area.getRight() - valueW).toNearestInt(), juce::Justification::centredRight, 1);
             return;
         }
@@ -986,7 +986,7 @@ public:
         g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
         g.drawRoundedRectangle (area, 7.0f, 1.0f);
         g.setColour (IlanaTheme::accent());
-        g.setFont (IlanaTheme::font (8.5f, true).withKerningFactor (0.06f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true).withKerningFactor (0.06f));
         g.drawText ("STRING TUNING", juce::Rectangle<int> (pad, 0, getWidth() - 2 * pad, headerH), juce::Justification::centredLeft, false);
         g.setColour (IlanaTheme::Ui::line);
         g.fillRect (1, headerH, getWidth() - 2, 1);
@@ -3706,7 +3706,7 @@ private:
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 14.0f, (float) centre }, tint);
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
         IlanaTheme::drawFitted (g, "OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 23, centre - 9, 38, 18), juce::Justification::centredLeft, 1);
 
         if (usesPanels (card.kind))
@@ -3767,7 +3767,7 @@ private:
         for (const auto& label : card.labels)
         {
             g.setColour (label.bright ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-            g.setFont (label.size > 0.0f ? IlanaTheme::font (label.size) : label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+            g.setFont (label.size > 0.0f ? IlanaTheme::font (label.size) : label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, label.text, label.area, label.hint && label.size <= 0.0f ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
         }
     }
@@ -3801,7 +3801,7 @@ private:
             if (panel.note.isNotEmpty())
             {
                 g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (7.5f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel));
                 IlanaTheme::drawFitted (g, panel.note, titleArea.withTrimmedLeft (titleWidth), juce::Justification::centredLeft, 1);
             }
         }
@@ -4752,6 +4752,11 @@ private:
             pieces.sampleExportButton.setAlpha (alpha);
             pieces.sampleZonesButton.setAlpha (alpha);
             pieces.sampleDetectButton.setAlpha (alpha);
+            // The FILTER choice, the OUT bar and the remove cross dim too, so an
+            // off card reads as off at a glance (Impeccable audit, P1).
+            pieces.routeBar.setAlpha (alpha);
+            pieces.outBar.setAlpha (alpha);
+            pieces.removeButton.setAlpha (alpha);
         }
 
         effectRules.apply();

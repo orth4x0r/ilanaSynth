@@ -1911,7 +1911,7 @@ int runUiTests()
             std::vector<juce::Button*> allButtons;
             findAll<juce::Button> (*editor, allButtons);
             for (auto* button : allButtons)
-                if (button->getButtonText() == "+ ADD" && visibleInTree (button))
+                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
                     addEffect = button;
             expect (addEffect != nullptr, "the rack's top bar has + ADD");
 
@@ -8760,6 +8760,24 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_PRESET: every page of one factory preset, into
+    // preset-<PAGE>.png; then stop (a failing layout test's patch, seen).
+    if (const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PRESET", ""); only.isNotEmpty())
+    {
+        const auto program = processor.getFactoryPresetNames().indexOf (only);
+        if (program < 0)
+            return 1;
+        processor.loadFactoryPreset (program);
+        settle (500);
+        for (const auto& page : pages->getPageIds())
+        {
+            pages->showPage (page);
+            settle (400);
+            save (*editor, outDir.getChildFile ("preset-" + page + ".png"));
+        }
+        return 0;
+    }
 
     // ILANA_SNAPSHOT_MENU: a menu drawn by the look-and-feel as the component
     // sheet's MENU (a section name, a hovered item, a tick, a separator, a

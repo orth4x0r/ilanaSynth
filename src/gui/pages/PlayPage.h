@@ -55,7 +55,7 @@ public:
                 g.drawRoundedRectangle (cellBounds.reduced (0.5f), 4.0f, 1.0f);
             }
             g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             g.drawText (labels[option], cellBounds, juce::Justification::centred);
         }
     }
@@ -105,7 +105,7 @@ public:
         g.setColour (IlanaTheme::Ui::line);
         g.drawEllipse (bounds.reduced (0.5f), 1.0f);
         g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
         g.drawText (glyph, bounds.translated (0.0f, -0.5f), juce::Justification::centred);
     }
 
@@ -152,7 +152,7 @@ public:
 
     static int wordWidth (const juce::String& text)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (8.5f, true)), text) + 2;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true)), text) + 2;
     }
 
     int idealWidth() const
@@ -179,7 +179,7 @@ public:
                 g.drawRoundedRectangle (cell.reduced (0.5f), 4.0f, 1.0f);
             }
             g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             g.drawText (labels[option], cell, juce::Justification::centred);
         }
     }
@@ -226,7 +226,7 @@ public:
     // Filled in the colour (the dock's STEREO tag), not only outlined.
     void setTagStyle (bool tag) { tagStyle = tag; }
 
-    int idealWidth() const { return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (8.5f, true)), getButtonText()) + 25; }
+    int idealWidth() const { return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true)), getButtonText()) + 25; }
 
     void paintButton (juce::Graphics& g, bool hovered, bool down) override
     {
@@ -239,7 +239,7 @@ public:
         g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
         const auto ink = tagStyle ? colour.brighter (0.2f) : IlanaTheme::Ui::text;
         g.setColour (ink);
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         auto text = bounds.reduced (6.0f, 0.0f);
         const auto arrow = text.removeFromRight (7.0f).withSizeKeepingCentre (6.0f, 6.0f);
         g.drawText (getButtonText(), text, juce::Justification::centred);
@@ -278,7 +278,7 @@ public:
         // Wide enough, the note says NOTES after it.
         if (bounds.getWidth() > 40.0f)
         {
-            const auto font = IlanaTheme::font (8.5f, true);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedBody, true);
             const auto textW = juce::GlyphArrangement::getStringWidth (font, "NOTES");
             const auto left = c.x - (textW + 10.0f) * 0.5f;
             g.setFont (font);
@@ -366,7 +366,7 @@ public:
             g.drawRoundedRectangle (chip, chip.getHeight() * 0.5f, 1.0f);
             g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ chip.getX() + 8.0f, chip.getCentreY() }));
             g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             IlanaTheme::drawFitted (g, chipText, chipBounds.withTrimmedLeft (14).withTrimmedRight (4), juce::Justification::centredLeft, 1);
         }
     }
@@ -969,7 +969,7 @@ public:
         IlanaTheme::paintWell (g, bounds, 4.0f);
         const auto on = read ("sb_on") > 0.5f ? 1.0f : 0.45f;
         g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-        g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
         g.drawText ("BOARD RESPONSE", bounds.reduced (6.0f, 3.0f), juce::Justification::topLeft, false);
 
         const auto plot = bounds.reduced (6.0f, 3.0f).withTrimmedTop (12.0f);
@@ -1027,7 +1027,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
-        const auto font = IlanaTheme::font (8.5f, true);
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedBody, true);
         g.setFont (font);
         g.setColour (IlanaTheme::Ui::text2);
         g.drawText ("F1", bounds.withWidth (labelWidth), juce::Justification::centredLeft, false);
@@ -1171,7 +1171,7 @@ public:
         const auto title = juce::String ("VOICE");
         g.drawText (title, header.withTrimmedLeft (21), juce::Justification::centredLeft, false);
         g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         g.drawText ("STEREO SETTINGS", header.withTrimmedLeft (21 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.0f, true)), title) + 8),
                     juce::Justification::centredLeft, false);
     }
@@ -1382,7 +1382,7 @@ public:
             box.setSelectedId (selectedId, juce::dontSendNotification);
         }
         for (const auto& spec : { std::pair<const char*, const char*> { "res_amount", "AMOUNT" }, { "res_decay", "DECAY" }, { "body_coupling", "COUPLE" },
-                                  { "body_material", "MATERIAL" }, { "body_size", "SIZE" }, { "res_offset", "OFFSET" }, { "res_keytrack", "KEY TRK" } })
+                                  { "body_material", "MATERIAL" }, { "body_size", "SIZE" }, { "res_offset", "OFFSET" }, { "res_keytrack", "KEY TRACK" } })
             bodyKnobs.push_back (knob (spec.first, spec.second, bodyColour()));
         boardModel = menuFor ("sb_model", "MODEL", "SOUNDBOARD MODEL\nClassic, or Dense for a thicker board.");
         for (const auto& spec : { std::pair<const char*, const char*> { "sb_size", "SIZE" }, { "sb_tone", "TONE" }, { "sb_mix", "MIX" } })
@@ -1497,7 +1497,7 @@ public:
     {
         if (area.isEmpty())
             return;
-        const auto font = IlanaTheme::font (7.5f, true).withKerningFactor (0.09f);
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f);
         const auto textW = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 2.0f;
         const auto r = area.toFloat();
         const auto alpha = lit ? 1.0f : IlanaTheme::dimmedAlpha;

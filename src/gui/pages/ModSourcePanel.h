@@ -1171,7 +1171,7 @@ private:
             g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         }
         g.setColour (selected ? IlanaTheme::Ui::header : (hot ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2));
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         IlanaTheme::drawFitted (g, compactLabel, getLocalBounds().reduced (3, 0), juce::Justification::centred, 1);
     }
 

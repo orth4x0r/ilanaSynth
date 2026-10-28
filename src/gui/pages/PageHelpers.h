@@ -159,7 +159,7 @@ public:
             g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         }
         g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         g.drawText (label, bounds, juce::Justification::centred);
     }
 
@@ -175,7 +175,7 @@ public:
     }
 
     // The text's width, so a row of pills can be sized to what they say.
-    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (8.5f, true)), label) + 2.0f; }
+    float textWidth() const { return juce::GlyphArrangement::getStringWidth (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true)), label) + 2.0f; }
 
 private:
     juce::String label;

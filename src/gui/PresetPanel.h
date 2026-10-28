@@ -164,6 +164,8 @@ public:
     std::function<void()> onFavouriteChanged;
     // SAVE AS pressed (the editor opens its save panel).
     std::function<void()> onSaveAs;
+    // A user preset's "Rename or edit info..." (its index).
+    std::function<void (int)> onEditInfo;
     // IMPORT .SYX pressed (the editor asks for the file and imports it).
     std::function<void()> onImportSyx;
     // DOCK / FLOAT pressed (true: dock over the page), and the docked cross.
@@ -635,6 +637,26 @@ public:
         const auto next = current < 0 ? (delta > 0 ? 0 : filtered.size() - 1)
                                       : juce::jlimit (0, filtered.size() - 1, current + delta);
         list.selectRow (next);
+    }
+
+    // The preset before (-1) or after (1) `current` in the list the browser
+    // shows (its category, search, tags and sort), wrapping at the ends: the
+    // header arrows step through it, as Vital's and Serum 2's do. A preset
+    // that isn't listed steps to the first or last; -1 when the list is empty.
+    int presetBeside (int current, int delta)
+    {
+        if (names.isEmpty())
+            refresh(); // never opened yet: list it as it would show
+
+        if (filtered.isEmpty())
+            return -1;
+
+        const auto row = filtered.indexOf (current);
+
+        if (row < 0)
+            return delta > 0 ? filtered.getFirst() : filtered.getLast();
+
+        return filtered[(row + delta + filtered.size()) % filtered.size()];
     }
 
     // Clicks anywhere in the window outside the browser close it.
@@ -1962,7 +1984,10 @@ private:
         menu.addItem (2, favourite ? "Remove from favourites" : "Add to favourites");
 
         if (isUser)
+        {
+            menu.addItem (4, juce::String (juce::CharPointer_UTF8 ("Rename or edit info\xe2\x80\xa6")), onEditInfo != nullptr);
             menu.addItem (3, "Delete");
+        }
 
         juce::Component::SafePointer<PresetPanel> safeThis (this);
 
@@ -1984,6 +2009,10 @@ private:
                                 else if (result == 3)
                                 {
                                     safeThis->deletePresetByIndex (presetIndex);
+                                }
+                                else if (result == 4 && safeThis->onEditInfo != nullptr)
+                                {
+                                    safeThis->onEditInfo (presetIndex);
                                 }
                             });
     }

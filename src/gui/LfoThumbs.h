@@ -15,6 +15,7 @@
 #include "ParamControls.h"
 #include "LfoSimView.h"
 #include "AnimationUtils.h"
+#include "ModuleMenu.h"
 
 // The mod slots a source takes part in (as the source or the VIA aux), and
 // a one-step removal of those routes: a slot the source drives is cleared,
@@ -426,8 +427,16 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
+        // A right-click: Copy, Paste, Init and Remove (it used to remove
+        // straight away; ilana 2026-10-28). The tile's x still removes.
+        if (index >= 0 && index < IlanaSynthAudioProcessor::numLfos && event.mods.isPopupMenu())
+        {
+            showTileMenu (index);
+            return;
+        }
+
         if (index >= 0 && index < IlanaSynthAudioProcessor::numLfos
-            && (event.mods.isPopupMenu() || PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position)))
+            && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position))
         {
             removeLfo (index);
             return;
@@ -644,6 +653,22 @@ private:
 
     // The "x": an unrouted LFO goes at once, a routed one asks first and
     // takes its routes with it (one undo step).
+    juce::PopupMenu buildTileMenu (int lfo)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("LFO " + juce::String (lfo + 1));
+        juce::Component::SafePointer<LfoThumbBar> safeThis (this);
+        ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Lfo, lfo, [safeThis] { if (safeThis != nullptr) safeThis->repaint(); });
+        menu.addSeparator();
+        menu.addItem ("Remove LFO " + juce::String (lfo + 1), true, false, [safeThis, lfo] { if (safeThis != nullptr) safeThis->removeLfo (lfo); });
+        return menu;
+    }
+
+    void showTileMenu (int lfo)
+    {
+        buildTileMenu (lfo).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+    }
+
     void removeLfo (int lfo)
     {
         const auto slots = modSlotsUsing (processorRef, { Mod::lfoSourceFor (lfo), Mod::lfoBSourceFor (lfo) });

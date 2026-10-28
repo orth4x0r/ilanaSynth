@@ -167,4 +167,51 @@ inline void runWorkflowUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
 
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
     settle (200);
+
+    // 6. Copy, Paste and Init on modules, each one undo step.
+    {
+        using K = IlanaSynthAudioProcessor::ModuleKind;
+        const auto set = [&processor] (const juce::String& id, float plain)
+        {
+            if (auto* parameter = processor.apvts.getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+        };
+        const auto get = [&processor] (const juce::String& id) { return processor.apvts.getRawParameterValue (id)->load(); };
+
+        processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
+        settle (100);
+        set ("lfo1_smooth", 0.4f);
+        auto curve = processor.getLfoCurve (0);
+        curve.points = { { 0.0f, -1.0f, 0.0f }, { 0.5f, 1.0f, 0.3f }, { 1.0f, -1.0f, 0.0f } };
+        processor.setLfoCurve (0, curve);
+        const auto lfo = processor.copyModule (K::Lfo, 0);
+        processor.performEdit ("Paste LFO 1 onto LFO 3", [&] { processor.pasteModule (lfo, 2); });
+        expect (std::abs (get ("lfo3_smooth") - 0.4f) < 0.01f && processor.getLfoCurve (2).points.size() == 3,
+                "pasting LFO 1 onto LFO 3 copies its knobs and its drawn curve");
+        processor.getUndoManager().undo();
+        expect (std::abs (get ("lfo3_smooth") - 0.4f) > 0.01f && processor.getLfoCurve (2).points.size() != 3, "one undo takes the paste back");
+
+        set ("amp_attack", 1.2f);
+        const auto amp = processor.copyModule (K::Envelope, 0);
+        processor.performEdit ("Paste", [&] { processor.pasteModule (amp, 5); });
+        expect (std::abs (get ("env6_attack") - 1.2f) < 0.01f, "the amp envelope pastes onto ENV 6 (" + juce::String (get ("env6_attack")) + " s)");
+
+        set ("f1_cutoff", 640.0f);
+        set ("f1_reso", 0.7f);
+        processor.performEdit ("Paste", [&] { processor.pasteModule (processor.copyModule (K::Filter, 0), 1); });
+        expect (std::abs (get ("f2_cutoff") - 640.0f) < 2.0f && std::abs (get ("f2_reso") - 0.7f) < 0.01f, "Filter 1 pastes onto Filter 2");
+
+        set ("osc1_semi", 7.0f);
+        processor.performEdit ("Paste", [&] { processor.pasteModule (processor.copyModule (K::Oscillator, 0), 1); });
+        expect (std::abs (get ("osc2_semi") - 7.0f) < 0.01f, "OSC 1 pastes onto OSC 2 (" + juce::String (get ("osc2_semi")) + " st)");
+
+        processor.performEdit ("Init", [&] { processor.initModule (K::Filter, 0); });
+        auto* cutoffParameter = processor.apvts.getParameter ("f1_cutoff");
+        expect (std::abs (get ("f1_cutoff") - cutoffParameter->convertFrom0to1 (cutoffParameter->getDefaultValue())) < 1.0f
+                    && std::abs (get ("f2_cutoff") - 640.0f) < 2.0f,
+                "Init Filter 1 resets Filter 1 only");
+        processor.performEdit ("Init", [&] { processor.initModule (K::Lfo, 0); });
+        expect (processor.getLfoCurve (0).points.size() == LfoCurve {}.points.size(), "Init LFO 1 gives its curve back");
+
+    }
 }

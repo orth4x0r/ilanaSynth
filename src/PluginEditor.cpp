@@ -38,6 +38,7 @@
 #include "gui/SampleBrowser.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
+#include "gui/ModuleMenu.h"
 #include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"

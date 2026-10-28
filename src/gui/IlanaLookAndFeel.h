@@ -98,7 +98,9 @@ inline juce::Colour physicalColour()
 // ENV, 1 = FILT ENV, 2 = FILT 2, 3 = MOD ENV, 4 = ENV 4.
 inline juce::Colour envIdentityColour (int index)
 {
-    static const juce::uint32 colours[] { 0xffff5a4a, 0xffb46bff, 0xff7d86ff, 0xff8fff3b, 0xff5b8cff };
+    // (MOD ENV a softer lime than the Acid skin's accent, ENV 4 green rather than
+    // OSC 2's blue: Impeccable audit, identity colours shared.)
+    static const juce::uint32 colours[] { 0xffff5a4a, 0xffb46bff, 0xff7d86ff, 0xff9bdb63, 0xff59eb89 };
     index = juce::jlimit (0, 4, index);
     if (const auto picked = SectionColours::pickedFor (SectionColours::envKey (index)); picked != 0)
         return juce::Colour (picked);

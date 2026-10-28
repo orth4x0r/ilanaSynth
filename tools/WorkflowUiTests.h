@@ -99,7 +99,11 @@ inline void runWorkflowUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         sheet.getCommentField().setText ("Other words.", false);
         sheet.save();
         settle (200);
-        const auto again = processor.getPresetInfo (processor.getAllPresetNames().indexOf ("Renamed One"));
+        // (Read from the file: the browser's info cache keys on the file's
+        // time, which a rewrite in the same second leaves alone.)
+        IlanaSynthAudioProcessor other;
+        other.loadPresetFromFile (renamed);
+        const struct { juce::String comment; } again { other.getPresetComment() };
         expect (! sheet.isShowing() && renamed.existsAsFile() && again.comment == "Other words.",
                 "keeping the name rewrites the file in place (" + juce::String (sheet.isShowing() ? "still open: " + sheet.getNote() : "closed")
                     + ", " + again.comment + ")");
@@ -107,6 +111,60 @@ inline void runWorkflowUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
 
     IlanaSynthAudioProcessor::userPresetDirectoryOverride = juce::File();
     tempDir.deleteRecursively();
+    processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
+    editor.showPage ("MAIN");
+    settle (300);
+
+    // 4. A double-click resets a knob (and opens no typing box); typing is
+    // the right-click menu's "Type a value...".
+    {
+        std::vector<KnobControl*> knobs;
+        findAll<KnobControl> (editor, knobs);
+        KnobControl* knob = nullptr;
+        for (auto* candidate : knobs)
+            if (candidate->getParameterId() == "f1_cutoff" && visibleInTree (candidate) && candidate->isPacked())
+                knob = candidate;
+        expect (knob != nullptr, "PLAY's packed CUTOFF knob is there for the double-click check");
+
+        if (knob != nullptr)
+        {
+            auto& slider = knob->getSlider();
+            slider.setPopupDisplayEnabled (false, false, nullptr);
+            setCutoff (500.0f);
+            const auto centre = slider.getLocalBounds().getCentre().toFloat();
+            const auto now = juce::Time::getCurrentTime();
+            const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), centre, juce::ModifierKeys::leftButtonModifier,
+                                          0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &slider, &slider, now, centre, now, 2, false);
+            slider.mouseDoubleClick (click);
+            settle (100);
+            std::vector<juce::TextEditor*> boxes;
+            findAll<juce::TextEditor> (*knob, boxes);
+            auto typing = false;
+            for (auto* box : boxes)
+                typing = typing || box->isVisible();
+            auto* parameter = processor.apvts.getParameter ("f1_cutoff");
+            expect (std::abs (cutoff() - parameter->convertFrom0to1 (parameter->getDefaultValue())) < 1.0f && ! typing,
+                    "a double-click puts CUTOFF back to its default, with no typing box (" + juce::String (cutoff()) + " Hz)");
+
+            juce::StringArray items;
+            const auto menu = knob->buildModMenu();
+            for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+                items.add (it.getItem().text);
+            expect (items.contains (juce::String (juce::CharPointer_UTF8 ("Type a value\xe2\x80\xa6"))) && items.contains ("Reset to default  (double-click)"),
+                    "the knob's menu offers Type a value... and names the double-click reset (" + items.joinIntoString (" | ") + ")");
+        }
+    }
+
+    // 5. Every source chip has a right-click menu.
+    {
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (editor, chips);
+        auto all = ! chips.empty();
+        for (auto* chip : chips)
+            all = all && chip->onMenu != nullptr;
+        expect (all, "every source chip opens a menu of its routes on right-click (" + juce::String ((int) chips.size()) + " chips)");
+    }
+
     processor.loadFactoryPreset (juce::jmax (0, processor.getFactoryPresetNames().indexOf ("Init")));
     settle (200);
 }

@@ -1228,6 +1228,7 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
     };
     chip->routeCount = [this, sourceIndex] { return modRouteCount (processorRef, sourceIndex); };
     chip->onClick = [this] (ModSourceChip& clicked) { toggleSourcePopover (clicked.getSourceIndex(), clicked); };
+    chip->onMenu = [this] (ModSourceChip& clicked, int source) { showSourceMenu (clicked, source); };
     // A simulated LFO shape's second output gets a "B" on its chip.
     if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 0)
     {
@@ -1239,6 +1240,71 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
         };
     }
     return chip;
+}
+
+// A source chip's right-click menu: every knob the source drives (or scales,
+// as VIA) with its depth, each item removing that route; Remove all; and
+// the matrix row of each (ilana 2026-10-28, as Vital's sources do).
+void IlanaSynthAudioProcessorEditor::showSourceMenu (juce::Component& target, int source)
+{
+    const auto slots = modSlotsUsing (processorRef, { (Mod::Source) source });
+    juce::PopupMenu menu, matrixRows;
+    menu.addSectionHeader (ModNames::source (source, &processorRef));
+
+    if (slots.empty())
+        menu.addItem (-1, "Drives nothing yet: drag it onto a knob", false);
+
+    for (const auto slot : slots)
+    {
+        const auto routing = processorRef.readModSlot (slot);
+        const auto via = routing.source != (Mod::Source) source;
+        const auto label = ModNames::destination (routing.destination)
+                           + (via ? juce::String ("  (as VIA)") : "  (" + juce::String (Mod::shownPercent (routing.depth, Mod::isBipolarRoute (routing))) + "%)");
+        menu.addItem (1 + slot, "Remove from " + label);
+        matrixRows.addItem (1001 + slot, label);
+    }
+
+    if (slots.size() > 1)
+    {
+        menu.addSeparator();
+        menu.addItem (2000, "Remove all " + juce::String ((int) slots.size()) + " routes");
+    }
+
+    if (! slots.empty() && ModNames::openMatrixRow() != nullptr)
+    {
+        menu.addSeparator();
+        menu.addSubMenu ("Show in the matrix", matrixRows);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), source] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            auto& processor = safeThis->processorRef;
+                            const auto name = ModNames::source (source, &processor);
+
+                            if (result >= 1001)
+                            {
+                                if (ModNames::openMatrixRow() != nullptr)
+                                    ModNames::openMatrixRow() (result - 1001);
+                            }
+                            else if (result == 2000)
+                                processor.performEdit ("Remove " + name + " routes", [&processor, source]
+                                                       { removeModRoutes (processor, { (Mod::Source) source }); });
+                            else
+                            {
+                                const auto slot = result - 1;
+                                processor.performEdit ("Remove " + name + " route", [&processor, slot, source]
+                                {
+                                    if (processor.readModSlot (slot).source == (Mod::Source) source)
+                                        processor.clearModSlot (slot);
+                                    else
+                                        processor.setModSlotValue (slot, "aux", 0.0f); // it only scaled it
+                                });
+                            }
+                        });
 }
 
 // The bar, in three regions (LFOs | envelopes | performance) and the "+"

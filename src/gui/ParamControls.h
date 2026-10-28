@@ -1346,10 +1346,18 @@ public:
         repaint();
     }
 
-    void mouseDoubleClick (const juce::MouseEvent& event) override
+    // A double-click puts the knob back to its default (the slider's own
+    // double-click return, as in Vital and Serum 2; ilana 2026-10-28). A
+    // typed value is the right-click menu's "Type a value...".
+    void showTypedValueBox()
     {
-        if (isPacked() && ! event.mods.isCtrlDown() && ! event.mods.isCommandDown() && knobBounds.expanded (4).contains (event.getEventRelativeTo (this).getPosition()))
+        if (! isEnabled())
+            return;
+
+        if (isPacked())
             showValueEditor();
+        else
+            slider.showTextBox();
     }
 
     // A row mixing modulatable and fixed knobs: the fixed ones draw the same
@@ -2572,8 +2580,9 @@ public:
         }
 
         if (parameter != nullptr)
-            menu.addItem (2000, "Reset to default");
+            menu.addItem (2000, "Reset to default  (double-click)");
 
+        menu.addItem (3500, juce::String (juce::CharPointer_UTF8 ("Type a value\xe2\x80\xa6")));
         menu.addSeparator();
         menu.addItem (3000, "Copy value");
 
@@ -2625,6 +2634,12 @@ private:
 
                                 if (handleMidiLearnResult (result, processor, safeThis->parameterId))
                                     return;
+
+                                if (result == 3500)
+                                {
+                                    safeThis->showTypedValueBox();
+                                    return;
+                                }
 
                                 // "Modulate with" a source that already drives
                                 // the knob edits that routing instead.

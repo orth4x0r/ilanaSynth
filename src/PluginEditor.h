@@ -337,6 +337,7 @@ private:
     static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
+    void showSourceMenu (juce::Component& target, int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
     GhostButton moreChipsButton;
     void updateChipVisibility();

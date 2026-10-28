@@ -2009,6 +2009,15 @@ int runUiTests()
             settle (100);
             const auto controls = cardControls (*viewport);
             const auto view = viewport->getViewArea();
+            // (A packed knob's bounds reach packedPadX past its cell for the ring's room, as on PLAY:
+            // neighbours are judged by their cells. A stacked choice in a knob's cell says so.)
+            const auto cellOf = [] (juce::Component* control)
+            {
+                const auto* knob = dynamic_cast<KnobControl*> (control);
+                if ((knob != nullptr && knob->isPacked()) || (bool) control->getProperties().getWithDefault ("packedCell", false))
+                    return control->getBounds().reduced (KnobControl::packedPadX, 0).withTrimmedTop (KnobControl::packedPadTop);
+                return control->getBounds();
+            };
             juce::String clipped, overlapping;
             for (size_t i = 0; i < controls.size(); ++i)
             {
@@ -2016,7 +2025,7 @@ int runUiTests()
                 if (! viewport->getViewedComponent()->getLocalBounds().contains (bounds) || (allInView && ! view.contains (bounds)))
                     clipped << controls[i]->getName() << typeid (*controls[i]).name() << bounds.toString() << " ";
                 for (size_t j = i + 1; j < controls.size(); ++j)
-                    if (bounds.intersects (controls[j]->getBounds()))
+                    if (cellOf (controls[i]).intersects (cellOf (controls[j])))
                         overlapping << bounds.toString() << "/" << controls[j]->getBounds().toString() << " ";
             }
             expect (clipped.isEmpty(), what + ": no FX card control is clipped " + clipped);

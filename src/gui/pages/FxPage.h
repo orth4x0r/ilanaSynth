@@ -71,7 +71,7 @@ public:
           freezeOn (p.apvts, "fx_freeze_on", "HOLD"),
           freezeMix (p.apvts, "fx_freeze_mix", "MIX"),
           reverbOn (p.apvts, "fx_reverb_on", "ON"),
-          reverbType (p.apvts, "fx_reverb_type", "ALGORITHM"),
+          reverbType (p.apvts, "fx_reverb_type", "TYPE"),
           reverbSize (p.apvts, "fx_reverb_size", "SIZE"),
           reverbDamping (p.apvts, "fx_reverb_damping", "DAMPING"),
           reverbWidth (p.apvts, "fx_reverb_width", "WIDTH"),
@@ -130,7 +130,7 @@ public:
           eqMidQ (p.apvts, "fx_eq_mid_q", "MID Q"),
           eqHighFreq (p.apvts, "fx_eq_high_freq", "HIGH FREQ"), eqHighGain (p.apvts, "fx_eq_high_gain", "HIGH GAIN"),
           eqCurve (p),
-          awAlgo (p.apvts, "fx_aw_algo", "ALGORITHM"),
+          awAlgo (p.apvts, "fx_aw_algo", "TYPE"),
           awP1 (p.apvts, "fx_aw_p1", "1"), awP2 (p.apvts, "fx_aw_p2", "2"), awP3 (p.apvts, "fx_aw_p3", "3"),
           awP4 (p.apvts, "fx_aw_p4", "4"), awP5 (p.apvts, "fx_aw_p5", "5"),
           awMix (p.apvts, "fx_aw_mix", "MIX"),
@@ -142,7 +142,11 @@ public:
           filterType (p.apvts, "fx_filter_type", "TYPE"), filterSlope (p.apvts, "fx_filter_slope", "SLOPE"),
           filterCutoff (p.apvts, "fx_filter_cutoff", "CUTOFF"), filterReso (p.apvts, "fx_filter_reso", "RESO"),
           filterDrive (p.apvts, "fx_filter_drive", "DRIVE"), filterMorph (p.apvts, "fx_filter_morph", "MORPH"),
-          filterSpread (p.apvts, "fx_filter_spread", "SPREAD")
+          filterSpread (p.apvts, "fx_filter_spread", "SPREAD"),
+          filterPicker (p, "fx_filter_type", fxColour (42), "Filter FX type"),
+          filterCategories (p, "fx_filter_type", fxColour (42), "Filter FX type"),
+          filterSlopePills (p.apvts, "fx_filter_slope", { "12 dB", "24 dB" }, fxColour (42),
+                            "Slope: 12 dB per octave, or 24 dB for a steeper cut.")
     {
         addAll (*this, eqLowFreq, eqLowGain, eqMidFreq, eqMidGain, eqMidQ, eqHighFreq, eqHighGain);
         addChildComponent (eqCurve);
@@ -223,7 +227,7 @@ public:
         {
             const juce::String prefix = juce::String ("fx_") + airwindows::categoryModules()[(size_t) c].id;
             auto& controls = awCategories.emplace_back();
-            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "ALGORITHM");
+            controls.algo = std::make_unique<ComboControl> (p.apvts, prefix + "_algo", "TYPE");
             for (int k = 0; k < airwindows::Module::numKnobs; ++k)
                 controls.knobs[(size_t) k] = std::make_unique<KnobControl> (p.apvts, prefix + "_p" + juce::String (k + 1), juce::String (k + 1));
             controls.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX");
@@ -247,7 +251,7 @@ public:
 
         // FILTER (type 42): the voice's filter models on the rack.
         addAll (*this, filterType, filterSlope, filterCutoff, filterReso, filterDrive, filterMorph, filterSpread);
-        slotGroups.push_back ({ &filterType, &filterSlope, &filterCutoff, &filterReso, &filterDrive, &filterMorph, &filterSpread });
+        slotGroups.push_back ({ &filterType, &filterSlope, &filterCutoff, &filterReso, &filterDrive, &filterSpread, &filterMorph });
         {
             // The tiles' short names, and the FILTER page's grouped list.
             auto& box = filterType.getComboBox();
@@ -294,18 +298,10 @@ public:
                         ownMix[type] = true;
                 }
 
-        // The rack's row grid: knobs with their name and value beside the dial,
-        // menus 18 px under a small name, switches with their name beside them.
+        // The rack's controls in PLAY's packed style.
         for (auto& group : slotGroups)
             for (auto* item : group)
-            {
-                if (auto* knob = dynamic_cast<KnobControl*> (item))
-                    knob->setInlineKnob (true);
-                else if (auto* combo = dynamic_cast<ComboControl*> (item))
-                    combo->setCompactLayout (true);
-                else if (auto* toggle = dynamic_cast<ToggleControl*> (item))
-                    toggle->setInlineLabel (true);
-            }
+                packControl (item);
 
         diceButton.setTooltip ("Randomise FX\nRandomises the FX chain: new effects (each once) in every slot of this chain. Undo brings the old chain back.");
         diceButton.onClick = [this]
@@ -461,6 +457,11 @@ public:
         stackContent.addChildComponent (tapGrid);
         stackContent.addChildComponent (eqCurve);
         stackContent.addChildComponent (loadIrButton);
+        stackContent.addChildComponent (filterPicker);
+        stackContent.addChildComponent (filterCategories);
+        stackContent.addChildComponent (filterSlopePills);
+        filterSlopePills.setStacked ("SLOPE");
+        filterSlopePills.getProperties().set ("packedCell", true); // (placed as a packed knob: the UI test judges its cell)
         stackContent.painter = [this] (juce::Graphics& g) { paintStack (g); };
         stackContent.overPainter = [this] (juce::Graphics& g) { paintDragGhost (g); };
         stackContent.onDown = [this] (const juce::MouseEvent& event) { stackMouseDown (event); };
@@ -495,12 +496,15 @@ public:
                 header.soloAttachment = std::make_unique<juce::ButtonParameterAttachment> (*solo, header.solo, nullptr);
             stackContent.addChildComponent (header.solo);
 
-            header.band.addItemList ({ "Full Band", "Low Band", "Mid Band", "High Band", "M/S Mid", "M/S Side" }, 1);
+            header.band.addItemList ({ "Full", "Low", "Mid", "High", "M/S Mid", "M/S Side" }, 1);
             header.band.setTooltip ("Band: the part of the signal this slot works on (the full signal, the LOW / MID / HIGH band, "
                                     "or the Mid or Side of the stereo image); the rest passes around it. Banded slots next to "
                                     "each other form a split group, with its crossovers above them.");
             if (auto* band = p.apvts.getParameter (prefix + "_band"))
                 header.bandAttachment = std::make_unique<juce::ComboBoxParameterAttachment> (*band, header.band, nullptr);
+            // (A packed menu, as the card's others: its name inside the box.)
+            header.band.getProperties().set ("packedMenu", true);
+            header.band.getProperties().set ("textPrefix", "BAND");
             stackContent.addChildComponent (header.band);
 
             if (auto* blend = p.apvts.getParameter (prefix + "_mix"))
@@ -510,7 +514,7 @@ public:
             // effect has no MIX of its own: one widget, one name and one
             // place for dry / wet on every card (UI review 8, S8-6).
             header.mix = std::make_unique<KnobControl> (p.apvts, prefix + "_mix", "MIX", IlanaTheme::accent(), false);
-            header.mix->setInlineKnob (true);
+            packControl (header.mix.get());
             stackContent.addChildComponent (*header.mix);
 
             header.model.onSwitch = [this, slot]
@@ -1401,6 +1405,8 @@ private:
         gateGrid->setVisible (shown[16]);
         eqCurve.setVisible (shown[29]);
         loadIrButton.setVisible (shown[13]);
+        for (juce::Component* part : { (juce::Component*) &filterPicker, (juce::Component*) &filterCategories, (juce::Component*) &filterSlopePills })
+            part->setVisible (false); // (placeCard shows them on the FILTER card in front)
 
         library->refresh();
         copyChainButton.setButtonText (processorRef.isShowingChainA() ? "COPY TO 2" : "COPY TO 1");
@@ -1480,19 +1486,19 @@ private:
             {
                 auto made = std::make_unique<KnobControl> (state, knob->getParameterId(), knob->getLabelText());
                 made->setIdentityColour (fxColour (type));
-                made->setInlineKnob (true);
+                packControl (made.get());
                 copy = std::move (made);
             }
             else if (auto* combo = dynamic_cast<ComboControl*> (item); combo != nullptr && state.getParameter (combo->getParameterId()) != nullptr)
             {
                 auto made = std::make_unique<ComboControl> (state, combo->getParameterId(), combo->getLabelText());
-                made->setCompactLayout (true);
+                packControl (made.get());
                 copy = std::move (made);
             }
             else if (auto* toggle = dynamic_cast<ToggleControl*> (item); toggle != nullptr && state.getParameter (toggle->getParameterId()) != nullptr)
             {
                 auto made = std::make_unique<ToggleControl> (state, toggle->getParameterId(), toggle->getButton().getButtonText());
-                made->setInlineLabel (true);
+                packControl (made.get());
                 copy = std::move (made);
             }
             if (copy == nullptr)
@@ -1519,19 +1525,92 @@ private:
     // 116 x 44 cells with the dial's name and value beside it.
     // The parallel ladder's buses, x in the rail (inside the IN / OUT pills).
     static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
-    static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156, cellHeight = 44;
+    static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156;
     static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 88, duplicateHeight = 56, addTileMinimum = 40;
     // The add area under a short rack: the target, a caption, the suggested tiles; and how far a card's picture and dials may grow into spare height.
     static constexpr int addTileHeight = 36, suggestCaptionHeight = 22, suggestMinHeight = 70, suggestMaxHeight = 104, rowGrowMax = 90;
-    static constexpr int minDisplayWidth = 150, knobCellWidth = 116, tapGridHeight = 56;
+    static constexpr int minDisplayWidth = 150, tapGridHeight = 56;
     static constexpr int splitHeaderHeight = 38, splitInsetLeft = 18, splitInsetRight = 6;
     static constexpr int toolbarHeight = 28, outputHeight = 44, stackTopMargin = 4, stackFootMargin = 14;
 
     static int splitKind (int band) { return band >= 1 && band <= 3 ? 1 : (band >= 4 ? 2 : 0); }
 
-    // The knob grid: up to five across, as many rows as the controls need.
-    static int columnsFor (int count) { return count <= 5 ? juce::jmax (1, count) : (count == 6 ? 3 : (count <= 8 ? 4 : 5)); }
-    static int rowsFor (int count) { return count <= 0 ? 1 : (count + columnsFor (count) - 1) / columnsFor (count); }
+    // PLAY's packed style (review 23): ring knobs with the value inside and the
+    // name under, menus with their name inside the box, switches named at the right.
+    static constexpr float packedDial = 28.0f;
+    static constexpr int knobPitch = 56, knobRowHeight = 56, sideWidth = 104, sideRow = 18, sideGap = 5, sideColumnGap = 8;
+    // (One grid on every card, counted from the right: a side column is two knob columns, so menus,
+    // knobs and the pictures' right edges land on the same 56 px lines from card to card.)
+    static_assert (sideWidth + sideColumnGap == 2 * knobPitch);
+    // A knob's drawn height (the dial and a one-line name): rows centre on it, not on its cell.
+    static constexpr int knobDrawnHeight = (int) packedDial + 10;
+
+    static void packControl (juce::Component* item)
+    {
+        if (auto* knob = dynamic_cast<KnobControl*> (item))
+        {
+            knob->setPackedDial (packedDial);
+            knob->setPackedValueRoom (12);
+            knob->setPackedNameWrap (true);
+        }
+        else if (auto* combo = dynamic_cast<ComboControl*> (item))
+            combo->setPackedMenu (true);
+        else if (auto* toggle = dynamic_cast<ToggleControl*> (item))
+            toggle->setPackedName (ToggleControl::NamePlace::right);
+    }
+
+    // A card's controls on PLAY's grid: menus, switches and buttons in side
+    // columns at the left (three to a column on one row of knobs, five on two),
+    // the knobs at 56 px in one row, or two when one would leave the picture
+    // under its minimum width.
+    struct PackedPlan
+    {
+        int knobRows = 1, knobColumns = 0, sideColumns = 0, sidePerColumn = 3;
+        int width() const { return knobColumns * knobPitch + sideColumns * (sideWidth + sideColumnGap); }
+    };
+
+    static PackedPlan packedPlanFor (int knobs, int sides, int room)
+    {
+        PackedPlan plan;
+        plan.knobColumns = knobs;
+        plan.sideColumns = (sides + 2) / 3;
+        if (plan.width() <= room || knobs < 2)
+            return plan;
+        plan.knobRows = 2;
+        plan.knobColumns = (knobs + 1) / 2;
+        plan.sidePerColumn = 5;
+        plan.sideColumns = (sides + 4) / 5;
+        return plan;
+    }
+
+    // FILTER as PLAY's filter card: MORPH only on a model that morphs, SLOPE only on a classic one.
+    int filterFxType() const { return juce::jlimit (0, FilterType::Count - 1, juce::roundToInt (processorRef.apvts.getRawParameterValue ("fx_filter_type")->load())); }
+    bool filterFxMorphs() const { return FilterType::usesMorph (filterFxType()); }
+    bool filterFxHasSlope() const
+    {
+        const auto type = filterFxType();
+        return ! filterFxMorphs() && type != FilterType::CombPlus && type != FilterType::CombMinus && type != FilterType::Formant
+               && FilterType::usesSlope (type);
+    }
+    static constexpr int filterTypeBlockWidth = 4 * knobPitch - sideColumnGap;
+
+    static bool isSideItem (const juce::Component* item) { return dynamic_cast<const KnobControl*> (item) == nullptr; }
+
+    // The room a card's controls have beside its picture (the rack's width).
+    int controlsRoom() const
+    {
+        const auto width = stackView.getWidth() > 0 ? stackView.getWidth() : 990;
+        return width - (railWidth + railGap) - 20 - leftWidth - 10 - minDisplayWidth - 10;
+    }
+
+    PackedPlan packedPlanFor (const StackPanel& panel) const
+    {
+        auto knobs = 0, sides = 0;
+        for (const auto* item : cardItems (panel))
+            (isSideItem (item) ? sides : knobs) += 1;
+        sides += (showsBand (panel.slot) ? 1 : 0) + (panel.type == 13 && ! panel.duplicate && ! panel.instance ? 1 : 0);
+        return packedPlanFor (knobs, sides, controlsRoom());
+    }
 
     // The controls a card lays out in its rows (its on switch goes in the
     // left block; an Airwindows knob the algorithm doesn't use is skipped).
@@ -1611,11 +1690,6 @@ private:
         return items;
     }
 
-    int gridCount (const StackPanel& panel) const
-    {
-        return (int) cardItems (panel).size() + (showsBand (panel.slot) ? 1 : 0) + (panel.type == 13 && ! panel.duplicate && ! panel.instance ? 1 : 0);
-    }
-
     static bool hasCardDisplay (int type) { return type == 29 || type == 16 || FxDisplay::hasDisplay (type); }
 
     // Every row has a picture in its middle: the effect's display, or for one
@@ -1676,8 +1750,8 @@ private:
         if (panel.duplicate)
             return duplicateHeight;
 
-        const auto rows = rowsFor (gridCount (panel));
-        return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * cellHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
+        const auto rows = packedPlanFor (panel).knobRows;
+        return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * knobRowHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
     }
 
     // The least a row compresses to when the rack is long: a single line of
@@ -1687,14 +1761,14 @@ private:
         if (panel.duplicate)
             return duplicateHeight;
 
-        const auto rows = rowsFor (gridCount (panel));
-        return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * 40) + (hasTapGrid (panel) ? tapGridHeight : 0);
+        const auto rows = packedPlanFor (panel).knobRows;
+        return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * knobRowHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
     }
 
     // The delay's tap grid edits the type's parameters: on the card in front.
     bool hasTapGrid (const StackPanel& panel) const { return panel.type == 9 && ! panel.instance && tapsEnabled(); }
 
-    bool isStretchy (const StackPanel& panel) const { return ! panel.duplicate && rowsFor (gridCount (panel)) == 1; }
+    bool isStretchy (const StackPanel& panel) const { return ! panel.duplicate && packedPlanFor (panel).knobRows == 1; }
 
     void layoutStack()
     {
@@ -1988,13 +2062,34 @@ private:
         if (hasTapGrid (panel))
             tapGrid.setBounds (inner.removeFromBottom (tapGridHeight - 4).withTrimmedBottom (2).withTrimmedTop (2));
 
-        // The knobs in their cells at the right, the picture taking the rest.
-        const auto count = (int) items.size();
-        const auto columns = columnsFor (count), rows = rowsFor (count);
-        const auto room = inner.getWidth() - minDisplayWidth - 10;
-        const auto cellWidth = juce::jlimit (92, knobCellWidth, count > 0 ? room / juce::jmax (1, columns) : knobCellWidth);
-        auto knobsArea = count > 0 ? inner.removeFromRight (columns * cellWidth) : juce::Rectangle<int>();
-        if (count > 0)
+        // The controls at the right on PLAY's grid, the picture taking the rest.
+        std::vector<juce::Component*> knobs, sides;
+        // FILTER in front: the categories and the picker in a block at the left of its knobs.
+        const auto filterFront = type == 42 && ! panel.instance;
+        for (auto* item : items)
+        {
+            packControl (item);
+            if (filterFront && (item == &filterType || item == &filterSlope || (item == &filterMorph && ! filterFxMorphs())))
+            {
+                item->setVisible (false);
+                continue;
+            }
+            (isSideItem (item) ? sides : knobs).push_back (item);
+        }
+        if (filterFront && filterFxHasSlope())
+            knobs.insert (knobs.begin() + juce::jmin ((int) knobs.size(), 4), &filterSlopePills); // (where MORPH goes on a model that morphs)
+        auto plan = packedPlanFor ((int) knobs.size(), (int) sides.size(), inner.getWidth() - minDisplayWidth - 10 - (filterFront ? filterTypeBlockWidth + sideColumnGap : 0));
+        // A row grown tall (a short rack's) takes its knobs in two rows, so they fill it and the picture widens.
+        if (plan.knobRows == 1 && knobs.size() >= 4 && inner.getHeight() >= 2 * knobRowHeight)
+        {
+            plan.knobRows = 2;
+            plan.knobColumns = ((int) knobs.size() + 1) / 2;
+            plan.sidePerColumn = 5;
+            plan.sideColumns = ((int) sides.size() + 4) / 5;
+        }
+        const auto blockWidth = filterFront ? filterTypeBlockWidth + sideColumnGap : 0;
+        auto knobsArea = plan.width() > 0 ? inner.removeFromRight (plan.width() + blockWidth) : juce::Rectangle<int>();
+        if (plan.width() > 0)
             inner.removeFromRight (10);
 
         panel.well = {};
@@ -2019,37 +2114,39 @@ private:
                 panel.well = displayArea;
         }
 
-        const auto rowHeight = knobsArea.getHeight() / juce::jmax (1, rows);
-        // An Airwindows card's algorithm menu stands alone in the first column and its knobs
-        // fill the other columns in every row, so the rows share columns (P-6).
-        const auto menuLead = isAirwindowsType (type) && columns > 1 && rows > 1 && dynamic_cast<ComboControl*> (items[0]) != nullptr
-                              && (count - 1 + columns - 2) / (columns - 1) == rows;
-        for (int i = 0; i < count; ++i)
+        // Side columns: their items from the top of the knob rows' band, one under the other.
+        const auto band = knobsArea.withSizeKeepingCentre (knobsArea.getWidth(), plan.knobRows * knobRowHeight);
+        auto sideArea = band.withWidth (plan.sideColumns * (sideWidth + sideColumnGap));
+        const auto sideHeight = juce::jmin ((int) sides.size(), plan.sidePerColumn) * (sideRow + sideGap) - sideGap;
+        for (size_t i = 0; i < sides.size(); ++i)
         {
-            const auto column = menuLead && i > 0 ? 1 + (i - 1) % (columns - 1) : i % columns;
-            const auto rowIndex = menuLead && i > 0 ? (i - 1) / (columns - 1) : i / columns;
-            auto cell = juce::Rectangle<int> (knobsArea.getX() + column * cellWidth, knobsArea.getY() + rowIndex * rowHeight,
-                                              cellWidth, rowHeight);
-            auto* item = items[(size_t) i];
+            const auto column = (int) i / plan.sidePerColumn, row = (int) i % plan.sidePerColumn;
+            const auto top = band.getCentreY() - sideHeight / 2;
+            const auto cell = juce::Rectangle<int> (sideArea.getX() + column * (sideWidth + sideColumnGap), top + row * (sideRow + sideGap), sideWidth, sideRow);
+            sides[i]->setBounds (sides[i] == &loadIrButton ? cell.withSizeKeepingCentre (sideWidth, sideRow + 2) : cell);
+        }
 
-            // PLAY's knob (one knob style, UI review 26): the value inside the ring, the name under it. The
-            // dial grows with the row (a short rack's rows are taller), so a tall row's knobs fill it.
-            if (auto* knob = dynamic_cast<KnobControl*> (item))
-            {
-                knob->placeAsRing (cell.reduced (2, 0));
-                continue;
-            }
+        if (filterFront)
+        {
+            // The categories over the picker, centred on the knobs' band.
+            const auto block = juce::Rectangle<int> (sideArea.getRight(), band.getCentreY() - (sideRow + sideGap + 22) / 2, filterTypeBlockWidth, sideRow + sideGap + 22);
+            filterCategories.setBounds (block.withHeight (sideRow));
+            filterPicker.setBounds (block.withTrimmedTop (sideRow + sideGap));
+            for (juce::Component* part : { (juce::Component*) &filterCategories, (juce::Component*) &filterPicker })
+                part->setVisible (true);
+            filterSlopePills.setVisible (filterFxHasSlope());
+            sideArea = sideArea.withWidth (sideArea.getWidth() + blockWidth);
+        }
 
-            if (dynamic_cast<ComboControl*> (item) != nullptr)
-                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 30));
-            else if (dynamic_cast<ToggleControl*> (item) != nullptr)
-                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 24));
-            else if (item == &cardHeaders[(size_t) slot].band)
-                item->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 10, 22));
-            else if (item == &loadIrButton)
-                item->setBounds (cell.withSizeKeepingCentre (86, 22));
-            else
-                item->setBounds (cell.reduced (2, 0));
+        // Knobs: one or two rows at 56 px, the dial 28 with its value inside, the name under.
+        const auto knobsX = sideArea.getRight();
+        for (size_t i = 0; i < knobs.size(); ++i)
+        {
+            const auto column = (int) i % juce::jmax (1, plan.knobColumns), row = (int) i / juce::jmax (1, plan.knobColumns);
+            // (Each row's dial and name centred on the row, as the menus beside them are.)
+            const auto rowCentre = band.getY() + knobRowHeight / 2 + row * knobRowHeight;
+            const auto cell = juce::Rectangle<int> (knobsX + column * knobPitch, rowCentre - knobDrawnHeight / 2, knobPitch, (int) packedDial + 10 + 13);
+            knobs[i]->setBounds (KnobControl::packedBoundsFor (cell));
         }
 
         stackPanels.push_back (panel);
@@ -2631,6 +2728,7 @@ private:
         for (int c = 0; c < (int) awCategories.size(); ++c)
             signature += "," + juce::String (categoryChoice (c));
         signature += tapsEnabled() ? ",taps" : ",-"; // the tap grid comes and goes
+        signature += ",f" + juce::String ((filterFxMorphs() ? 2 : 0) + (filterFxHasSlope() ? 1 : 0)); // FILTER's MORPH or SLOPE
         signature += showingA ? ",A" : ",B";
 
         if (signature != lastSignature)
@@ -2789,6 +2887,14 @@ private:
                 }
             }
 
+            if (panel.type == 42 && ! panel.instance)
+                for (juce::Component* part : { (juce::Component*) &filterPicker, (juce::Component*) &filterCategories, (juce::Component*) &filterSlopePills })
+                    if (part->getAlpha() != alpha)
+                    {
+                        part->setAlpha (alpha);
+                        changed = true;
+                    }
+
             ToggleControl* power = nullptr;
             const auto& group = groupFor (panel);
             rowItems (group, panel.type, &power);
@@ -2924,6 +3030,12 @@ private:
     KnobControl vocBands, vocWidth, vocAttack, vocRelease, vocFormant, vocUnvoiced, vocRate, vocLevel, vocMix;
     ComboControl filterType, filterSlope;
     KnobControl filterCutoff, filterReso, filterDrive, filterMorph, filterSpread;
+    // The FILTER card in front: the voice filter's own picker, the categories
+    // over it and the slope as PLAY's stacked pills (an instance's card keeps
+    // the TYPE and SLOPE menus, which its shadow settings can drive).
+    FilterTypePicker filterPicker;
+    FilterCategoryTabs filterCategories;
+    PillChoice filterSlopePills;
 
     int airwindowsAlgorithm() const
     {

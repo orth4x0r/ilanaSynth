@@ -479,8 +479,19 @@ void runLayoutReview10Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
         settle (500);
         std::vector<FxDisplay*> displays;
         findAll<FxDisplay> (editor, displays);
-        std::vector<KnobControl*> knobs;
-        findAll<KnobControl> (editor, knobs);
+        // (The card's controls: its knobs and, on PLAY's grid, the menus and switches in the column before them.)
+        std::vector<juce::Component*> knobs;
+        {
+            std::vector<KnobControl*> found;
+            findAll<KnobControl> (editor, found);
+            knobs.insert (knobs.end(), found.begin(), found.end());
+            std::vector<ComboControl*> menus;
+            findAll<ComboControl> (editor, menus);
+            knobs.insert (knobs.end(), menus.begin(), menus.end());
+            std::vector<ToggleControl*> toggles;
+            findAll<ToggleControl> (editor, toggles);
+            knobs.insert (knobs.end(), toggles.begin(), toggles.end());
+        }
         auto cards = 0, loose = 0;
         juce::String detail;
         for (auto* display : displays)

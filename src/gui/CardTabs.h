@@ -90,26 +90,49 @@ public:
     {
         const auto mouse = getMouseXYRelative().toFloat();
 
+        // The chosen pill's fill glides to a new choice (about 160 ms, review
+        // 26 flair) instead of one pill fading out while another fades in.
+        const auto glide = names.isEmpty() ? 0.0f : glidePosition();
+        const auto chosenAt = [glide] (int i) { return juce::jmax (0.0f, 1.0f - std::abs (glide - (float) i)); };
+
+        for (int i = 0; i < names.size(); ++i)
+            IlanaTheme::paintPill (g, pillBounds (i), {}, colourFor (i), 0.0f,
+                                   IlanaTheme::fade (*this, 1000 + i, isMouseOver() && pillBounds (i).contains (mouse) ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
+
+        if (! names.isEmpty())
+        {
+            const auto from = juce::jlimit (0, names.size() - 1, (int) std::floor (glide));
+            const auto to = juce::jmin (names.size() - 1, from + 1);
+            const auto t = glide - (float) from;
+            const auto a = pillBounds (from), b = pillBounds (to);
+            const auto slider = juce::Rectangle<float> (a.getX() + (b.getX() - a.getX()) * t, a.getY(),
+                                                        a.getWidth() + (b.getWidth() - a.getWidth()) * t, a.getHeight());
+            const auto colour = colourFor (from).interpolatedWith (colourFor (to), t);
+            const auto radius = slider.getHeight() * 0.5f;
+            g.setColour (IlanaTheme::Ui::raised.interpolatedWith (colour, 0.22f));
+            g.fillRoundedRectangle (slider, radius);
+            g.setColour (colour.withAlpha (0.75f));
+            g.drawRoundedRectangle (slider.reduced (0.5f), radius - 0.5f, 1.0f);
+        }
+
         for (int i = 0; i < names.size(); ++i)
         {
             const auto pill = pillBounds (i);
-            const auto active = i == selected;
             const auto colour = colourFor (i);
             const auto hovered = isMouseOver() && pill.contains (mouse);
-
-            // The choice and the hover fade as every pill's do (the shared animator).
-            const auto chosen = IlanaTheme::fade (*this, i, active ? 1.0f : 0.0f);
+            const auto chosen = chosenAt (i);
             const auto hover = IlanaTheme::fade (*this, 1000 + i, hovered ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover);
 
             if (! hasDots())
             {
-                IlanaTheme::paintPill (g, pill, names[i], colour, chosen, hover);
+                g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (chosen, 0.5f * hover)));
+                g.setFont (IlanaTheme::pillFont());
+                g.drawText (names[i], pill, juce::Justification::centred);
                 continue;
             }
 
             // The name shifts right of its dot: lit while on, a quiet ring
             // while off.
-            IlanaTheme::paintPill (g, pill, {}, colour, chosen, hover);
             g.setColour (IlanaTheme::Ui::text2.interpolatedWith (IlanaTheme::Ui::text, juce::jmax (chosen, 0.5f * hover)));
             g.setFont (IlanaTheme::pillFont());
             g.drawText (names[i], pill.withTrimmedLeft ((float) dotSpace()), juce::Justification::centred);
@@ -248,5 +271,23 @@ private:
     std::vector<juce::Colour> colours;
     bool hasOpen = false;
     int selected = 0;
+    // Where the chosen pill's fill is drawn while it glides (160 ms, eased).
+    float glideFrom = 0.0f, glideShown = -1.0f;
+    int glideTarget = -1;
+    IlanaAnim::Tween glideTween;
+    float glidePosition()
+    {
+        if (glideTarget != selected)
+        {
+            glideFrom = glideTarget < 0 || ! IlanaAnim::showing (*this) ? (float) selected : glideShown;
+            glideTarget = selected;
+            glideTween.start (160.0f);
+        }
+        const auto t = IlanaAnim::easeOutCubic (glideTween.linear());
+        glideShown = glideFrom + ((float) selected - glideFrom) * t;
+        if (glideTween.running())
+            repaint();
+        return glideShown;
+    }
     std::vector<int> tabOn; // per tab: -1 no dot, 0 off, 1 on
 };

@@ -3148,8 +3148,16 @@ int runUiTests()
         {
             button->triggerClick();
             settle (400);
-            expect (processor.getCurrentPresetName() == names[neuroWobble + 1],
-                    "next-preset button loads the following preset ('" + processor.getCurrentPresetName() + "')");
+            // (the arrows walk the browser's list, which the click made)
+            juce::String following;
+            if (auto* panel = findChild<PresetPanel> (*editor))
+            {
+                const auto listed = panel->getListedNames();
+                following = listed[(listed.indexOf (names[neuroWobble]) + 1) % juce::jmax (1, listed.size())];
+            }
+            expect (following.isNotEmpty() && processor.getCurrentPresetName() == following,
+                    "next-preset button loads the browser's following preset ('" + processor.getCurrentPresetName() + "', expected '"
+                        + following + "')");
         }
     }
 

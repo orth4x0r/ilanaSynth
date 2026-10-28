@@ -117,6 +117,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/FxPatcher.cpp
     src/processor/OscRouting.cpp
     src/processor/OscSlots.cpp
+    src/processor/ModuleClipboard.cpp
     src/processor/Sequencers.cpp
     src/processor/Presets.cpp
     src/processor/State.cpp

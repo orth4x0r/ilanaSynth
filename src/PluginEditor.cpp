@@ -38,6 +38,7 @@
 #include "gui/SampleBrowser.h"
 #include "gui/LfoShapeMenu.h"
 #include "gui/LfoThumbs.h"
+#include "gui/ModuleMenu.h"
 #include "gui/ModulationCardView.h"
 #include "gui/MatrixWidgets.h"
 #include "gui/ParamControls.h"
@@ -712,20 +713,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     prevButton.setFlat (true);
     nextButton.setFlat (true);
 
-    prevButton.onClick = [this]
-    {
-        const auto count = processorRef.getNumAllPresets();
-
-        if (count > 0)
-            loadPresetIndex ((juce::jmax (0, currentPresetIndex) + count - 1) % count);
-    };
-    nextButton.onClick = [this]
-    {
-        const auto count = processorRef.getNumAllPresets();
-
-        if (count > 0)
-            loadPresetIndex ((currentPresetIndex + 1) % count);
-    };
+    // Both arrows walk the browser's list (its filter, search and sort), so
+    // they follow what the browser shows; the panel is made (closed) first.
+    prevButton.onClick = [this] { stepPreset (-1); };
+    nextButton.onClick = [this] { stepPreset (1); };
     favButton.setClickingTogglesState (true);
     favButton.onClick = [this] { toggleFavourite(); updateHeaderButtons(); };
     saveButton.setText ("SAVE");
@@ -839,7 +830,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     saveOverlay.setSettings (settings.get());
     saveOverlay.onSaved = [this] (const juce::File&)
     {
-        presetSaved (false);
+        presetSaved (saveOverlay.isEditing());
 
         if (auto then = std::exchange (afterSave, nullptr))
             then();
@@ -1241,6 +1232,7 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
     };
     chip->routeCount = [this, sourceIndex] { return modRouteCount (processorRef, sourceIndex); };
     chip->onClick = [this] (ModSourceChip& clicked) { toggleSourcePopover (clicked.getSourceIndex(), clicked); };
+    chip->onMenu = [this] (ModSourceChip& clicked, int source) { showSourceMenu (clicked, source); };
     // A simulated LFO shape's second output gets a "B" on its chip.
     if (const auto lfo = Mod::lfoIndexFor ((Mod::Source) sourceIndex); lfo >= 0)
     {
@@ -1252,6 +1244,71 @@ std::unique_ptr<ModSourceChip> IlanaSynthAudioProcessorEditor::makeSourceChip (i
         };
     }
     return chip;
+}
+
+// A source chip's right-click menu: every knob the source drives (or scales,
+// as VIA) with its depth, each item removing that route; Remove all; and
+// the matrix row of each (ilana 2026-10-28, as Vital's sources do).
+void IlanaSynthAudioProcessorEditor::showSourceMenu (juce::Component& target, int source)
+{
+    const auto slots = modSlotsUsing (processorRef, { (Mod::Source) source });
+    juce::PopupMenu menu, matrixRows;
+    menu.addSectionHeader (ModNames::source (source, &processorRef));
+
+    if (slots.empty())
+        menu.addItem (-1, "Drives nothing yet: drag it onto a knob", false);
+
+    for (const auto slot : slots)
+    {
+        const auto routing = processorRef.readModSlot (slot);
+        const auto via = routing.source != (Mod::Source) source;
+        const auto label = ModNames::destination (routing.destination)
+                           + (via ? juce::String ("  (as VIA)") : "  (" + juce::String (Mod::shownPercent (routing.depth, Mod::isBipolarRoute (routing))) + "%)");
+        menu.addItem (1 + slot, "Remove from " + label);
+        matrixRows.addItem (1001 + slot, label);
+    }
+
+    if (slots.size() > 1)
+    {
+        menu.addSeparator();
+        menu.addItem (2000, "Remove all " + juce::String ((int) slots.size()) + " routes");
+    }
+
+    if (! slots.empty() && ModNames::openMatrixRow() != nullptr)
+    {
+        menu.addSeparator();
+        menu.addSubMenu ("Show in the matrix", matrixRows);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                        [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this), source] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            auto& processor = safeThis->processorRef;
+                            const auto name = ModNames::source (source, &processor);
+
+                            if (result >= 1001)
+                            {
+                                if (ModNames::openMatrixRow() != nullptr)
+                                    ModNames::openMatrixRow() (result - 1001);
+                            }
+                            else if (result == 2000)
+                                processor.performEdit ("Remove " + name + " routes", [&processor, source]
+                                                       { removeModRoutes (processor, { (Mod::Source) source }); });
+                            else
+                            {
+                                const auto slot = result - 1;
+                                processor.performEdit ("Remove " + name + " route", [&processor, slot, source]
+                                {
+                                    if (processor.readModSlot (slot).source == (Mod::Source) source)
+                                        processor.clearModSlot (slot);
+                                    else
+                                        processor.setModSlotValue (slot, "aux", 0.0f); // it only scaled it
+                                });
+                            }
+                        });
 }
 
 // The bar, in three regions (LFOs | envelopes | performance) and the "+"
@@ -2358,22 +2415,30 @@ void IlanaSynthAudioProcessorEditor::loadPreset()
                                   if (! file.existsAsFile() || safeThis == nullptr)
                                       return;
 
-                                  safeThis->confirmReplacingPatch ("Loading '" + file.getFileNameWithoutExtension() + "'", "Load anyway",
-                                                                   [safeThis, file] (bool confirmed)
-                                                                   {
-                                                                       if (! confirmed || safeThis == nullptr)
-                                                                           return;
-
-                                                                       auto& processor = safeThis->processorRef;
-                                                                       safeThis->closeWavetableEditor(); // it works on the old patch's table
-                                                                       processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
-                                                                       const auto loaded = processor.loadPresetFromFile (file);
-                                                                       processor.endEdit();
-
-                                                                       if (! loaded)
-                                                                           safeThis->presetDisplay.showNotice ("COULDN'T LOAD");
-                                                                   });
+                                  safeThis->loadPresetFile (file);
                               });
+}
+
+// Loads a preset file (chosen, or dropped on the window), asking first over
+// an edited patch.
+void IlanaSynthAudioProcessorEditor::loadPresetFile (const juce::File& file)
+{
+    juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> safeThis (this);
+    confirmReplacingPatch ("Loading '" + file.getFileNameWithoutExtension() + "'", "Load anyway",
+                           [safeThis, file] (bool confirmed)
+                           {
+                               if (! confirmed || safeThis == nullptr)
+                                   return;
+
+                               auto& processor = safeThis->processorRef;
+                               safeThis->closeWavetableEditor(); // it works on the old patch's table
+                               processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
+                               const auto loaded = processor.loadPresetFromFile (file);
+                               processor.endEdit();
+
+                               if (! loaded)
+                                   safeThis->presetDisplay.showNotice ("COULDN'T LOAD");
+                           });
 }
 
 void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<void (bool loaded)> then)
@@ -2956,6 +3021,21 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                         });
 }
 
+void IlanaSynthAudioProcessorEditor::stepPreset (int delta)
+{
+    createPresetPanel();
+
+    if (const auto next = presetPanel->presetBeside (currentPresetIndex, delta); next >= 0)
+    {
+        loadPresetIndex (next);
+        return;
+    }
+
+    // Nothing listed (a search that matches nothing): every preset, in order.
+    if (const auto count = processorRef.getNumAllPresets(); count > 0)
+        loadPresetIndex ((juce::jmax (0, currentPresetIndex) + count + delta) % count);
+}
+
 void IlanaSynthAudioProcessorEditor::createPresetPanel()
 {
     if (presetPanel != nullptr)
@@ -2977,6 +3057,27 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
     };
     presetPanel->onFavouriteChanged = [this] { updateHeaderButtons(); };
     presetPanel->onSaveAs = [this] { savePresetAs(); };
+    // Rename or edit info: the preset loads (asking over an edited patch),
+    // then the save sheet opens on its own file.
+    presetPanel->onEditInfo = [this] (int index)
+    {
+        loadPresetIndex (index, [safeThis = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)] (bool loaded)
+        {
+            if (safeThis == nullptr || ! loaded)
+                return;
+
+            const auto own = PresetFiles::loadedUserPreset (safeThis->processorRef);
+
+            if (! own.existsAsFile())
+                return;
+
+            if (safeThis->presetPanel != nullptr && safeThis->presetPanel->isOpen() && ! safeThis->presetPanel->isDocked())
+                safeThis->presetPanel->close();
+
+            safeThis->saveOverlay.setBounds (safeThis->content.getLocalBounds());
+            safeThis->saveOverlay.showForEdit (own);
+        });
+    };
     presetPanel->onImportSyx = [this] { chooseSyxFile(); };
     presetPanel->setAnchor (&presetDisplay);
     presetPanel->onDockRequest = [this] (bool dock)
@@ -3116,7 +3217,7 @@ void IlanaSynthAudioProcessorEditor::importSyxFile (const juce::File& file)
 bool IlanaSynthAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& path : files)
-        if (path.endsWithIgnoreCase (".syx"))
+        if (path.endsWithIgnoreCase (".syx") || path.endsWithIgnoreCase (".ilanapreset"))
             return true;
 
     return false;
@@ -3129,6 +3230,14 @@ void IlanaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& file
         {
             importSyxFile (juce::File (path));
             return; // one bank at a time: the confirm names it
+        }
+
+    // A preset file dropped anywhere loads, as Vital's does (the first one).
+    for (const auto& path : files)
+        if (path.endsWithIgnoreCase (".ilanapreset"))
+        {
+            loadPresetFile (juce::File (path));
+            return;
         }
 }
 

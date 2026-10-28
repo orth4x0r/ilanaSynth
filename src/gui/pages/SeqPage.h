@@ -4,7 +4,48 @@
 
 namespace
 {
+// EXPORT MIDI drags the clip out as a .mid file (into a Live track, as
+// Serum 2's clips do) and saves one on a click; a .mid dropped on the page
+// imports into the chosen clip (ilana 2026-10-28).
+class ClipDragButton : public juce::TextButton
+{
+public:
+    // Writes the file to drag (empty: nothing to drag).
+    std::function<juce::File()> makeFile;
+    bool justDragged = false; // a drag, not a click: onClick skips it
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        juce::TextButton::mouseDrag (event);
+
+        if (dragging || event.getDistanceFromDragStart() < 6 || makeFile == nullptr)
+            return;
+
+        dragging = true;
+        justDragged = true;
+
+        if (const auto file = makeFile(); file.existsAsFile())
+            juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        dragging = justDragged = false;
+        juce::TextButton::mouseDown (event);
+    }
+
+    void mouseEnter (const juce::MouseEvent& event) override
+    {
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        juce::TextButton::mouseEnter (event);
+    }
+
+private:
+    bool dragging = false;
+};
+
 class SeqPage : public juce::Component,
+                public juce::FileDragAndDropTarget,
                 private juce::Timer
 {
 public:
@@ -100,9 +141,14 @@ public:
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
         clipImport.onClick = [this] { importMidiFile(); };
         clipExport.setButtonText ("EXPORT MIDI");
-        clipExport.setTooltip ("Export MIDI\nWrites the chosen clip as a .mid file (the clip's own length and notes, 120 BPM), "
-                               "to drag into a track in your DAW.");
-        clipExport.onClick = [this] { exportMidiFile(); };
+        clipExport.setTooltip ("Export MIDI\nDrag this onto a MIDI track in your DAW to drop the chosen clip there, or click to save "
+                               "it as a .mid file (the clip's own length and notes, 120 BPM). A .mid dropped on this page imports.");
+        clipExport.onClick = [this]
+        {
+            if (! std::exchange (clipExport.justDragged, false))
+                exportMidiFile();
+        };
+        clipExport.makeFile = [this] { return writeClipForDrag(); };
         clipQuantise.setButtonText ("QUANTISE");
         clipQuantise.setTooltip ("Quantise\nMoves the selected notes' starts (every note's, with none selected) to the nearest "
                                  "GRID line, in one undo step. Q in the roll does the same.");
@@ -918,32 +964,76 @@ private:
         clipChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                   [safeThis] (const juce::FileChooser& chooser)
                                   {
-                                      const auto file = chooser.getResult();
-
-                                      if (safeThis == nullptr || ! file.existsAsFile())
-                                          return;
-
-                                      Clip imported;
-                                      juce::String error;
-
-                                      if (! ClipState::importMidi (file, imported, error))
-                                      {
-                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
-                                          return;
-                                      }
-
-                                      auto& processor = safeThis->processorRef;
-                                      const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) safeThis->readValue ("clip_index"));
-                                      processor.performEdit ("Import MIDI clip", [&]
-                                      {
-                                          processor.getClipState().setClip (index, std::move (imported));
-                                          processor.clipsEdited();
-                                      });
-                                      safeThis->clipEditor.reload (true);
-                                      safeThis->clipBars.refresh();
+                                      if (safeThis != nullptr && chooser.getResult().existsAsFile())
+                                          safeThis->importMidi (chooser.getResult());
                                   });
     }
 
+public:
+    // Reads `file` into the chosen clip, one undo step (IMPORT MIDI, or a
+    // .mid dropped on the page).
+    bool importMidi (const juce::File& file)
+    {
+        Clip imported;
+        juce::String error;
+
+        if (! ClipState::importMidi (file, imported, error))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
+            return false;
+        }
+
+        const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) readValue ("clip_index"));
+        processorRef.performEdit ("Import MIDI clip", [&]
+        {
+            processorRef.getClipState().setClip (index, std::move (imported));
+            processorRef.clipsEdited();
+        });
+        clipEditor.reload (true);
+        clipBars.refresh();
+        return true;
+    }
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        if (part != Part::notes)
+            return false;
+
+        for (const auto& path : files)
+            if (path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi"))
+                return true;
+        return false;
+    }
+
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        for (const auto& path : files)
+            if (path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi"))
+            {
+                importMidi (juce::File (path));
+                return;
+            }
+    }
+
+    // The chosen clip as a .mid in a temporary folder, named after the
+    // patch, for a drag out (File() when the clip has no notes).
+    juce::File writeClipForDrag()
+    {
+        const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) readValue ("clip_index"));
+        const auto clip = processorRef.getClipState().getClip (index);
+
+        if (clip.notes.empty())
+            return {};
+
+        const auto name = processorRef.getCurrentPresetName().replaceCharacters ("\\/:*?\"<>|", "---------").trim();
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilanaSynth MIDI");
+        folder.createDirectory();
+        const auto file = folder.getChildFile ((name.isEmpty() ? juce::String ("ilanaSynth") : name) + " clip " + juce::String (index + 1) + ".mid");
+        juce::String error;
+        return ClipState::exportMidi (clip, file, error) ? file : juce::File();
+    }
+
+private:
     // Writes the chosen clip to a .mid file (EXPORT MIDI).
     void exportMidiFile()
     {
@@ -1004,7 +1094,8 @@ private:
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
     ClipGridControl clipGrid;
-    juce::TextButton clipImport, clipExport;
+    juce::TextButton clipImport;
+    ClipDragButton clipExport;
     KnobControl arpSteps;
     NoteChainView noteChain;
     ChoiceSwitch scaleSwitch, strumSwitch;

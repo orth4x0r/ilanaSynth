@@ -104,14 +104,17 @@ public:
     void savePreset();
     void savePresetAs();
     SavePresetOverlay& getSaveOverlay() { return saveOverlay; }
+    // The header arrows: the preset before (-1) or after (1) in the browser's list.
+    void stepPreset (int delta);
 
     // Review 6: the header's EDITED badge as drawn (the confirm reads the
     // same isPatchEdited, and refreshes the badge before it asks); the
     // DX7 bank import (the browser's IMPORT .SYX); the docked browser.
     bool isEditedBadgeShown() const { return presetDisplay.isShowingModified(); }
     void importSyxFile (const juce::File& file);
-    // A .syx bank dropped anywhere on the window imports like IMPORT .SYX
-    // (the oscillators' sample drop zones take their own files first).
+    // A .syx bank dropped anywhere on the window imports like IMPORT .SYX, and
+    // an .ilanapreset loads (the oscillators' sample drop zones take their own
+    // files first).
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     bool isPresetDockOpen() const { return presetDockShown; }
@@ -156,6 +159,7 @@ private:
     void togglePresetPanel();
     // The browser docked over the page area (the window keeps its size).
     void createPresetPanel();
+    void loadPresetFile (const juce::File& file);
     void setPresetDockShown (bool shown);
     bool isPresetDockShown() const { return presetDockShown; }
     juce::Rectangle<int> pageArea() const;
@@ -339,6 +343,7 @@ private:
     static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
+    void showSourceMenu (juce::Component& target, int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
     GhostButton moreChipsButton;
     void updateChipVisibility();

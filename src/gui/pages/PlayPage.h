@@ -430,12 +430,52 @@ public:
         layoutBody();
     }
 
-    // Colour coding: a right-click on the card's dot picks the source's colour.
+    // A right-click on the title or a pill: Copy, Paste and Init that
+    // envelope or LFO (ilana 2026-10-28); on the dot, its colour.
     void mouseDown (const juce::MouseEvent& event) override
     {
-        if (event.mods.isPopupMenu() && event.y < headerHeight && event.x < 28 && ! sources.empty())
+        if (! event.mods.isPopupMenu() || sources.empty())
+            return;
+
+        // Colour coding: on the card's dot, the source's colour instead.
+        if (event.eventComponent == this && event.y < headerHeight && event.x < 28)
             if (const auto key = SectionColours::keyForSource (selected); key >= 0)
+            {
                 SectionColourPicker::show (processorRef, key, ModNames::source (selected, &processorRef), *this, { 4, 0, 20, headerHeight });
+                return;
+            }
+
+        auto source = selected;
+        for (auto& tab : tabs)
+            if (event.eventComponent == tab.get())
+                source = tab->getSource();
+
+        if (event.eventComponent == this && event.y >= headerHeight)
+            return;
+
+        showModuleMenu (source);
+    }
+
+    juce::PopupMenu buildModuleMenu (int source)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader (sourceTabName (source, processorRef));
+        const auto lfo = Mod::lfoIndexFor ((Mod::Source) source);
+        const auto env = SourceEditor::envelopeOf (source);
+        juce::Component::SafePointer<SourceCarouselCard> safeThis (this);
+        const auto changed = [safeThis] { if (safeThis != nullptr) safeThis->buildBody(); };
+
+        if (kind == Kind::lfo && lfo >= 0)
+            ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Lfo, lfo, changed);
+        else if (kind == Kind::envelope && env >= 0)
+            ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Envelope, env, changed);
+
+        return menu;
+    }
+
+    void showModuleMenu (int source)
+    {
+        buildModuleMenu (source).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
     }
 
     // The title opens the pop-up editor too.
@@ -550,6 +590,7 @@ private:
                 auto tab = std::make_unique<SourceTab> (processorRef, source);
                 tab->setCompactLabel (compactName (source));
                 tab->onSelect = [this] (int picked) { select (picked); };
+                tab->addMouseListener (this, false); // (its right-click: the module menu)
                 addAndMakeVisible (*tab);
                 tabs.push_back (std::move (tab));
             }
@@ -1292,6 +1333,7 @@ public:
         // MORPH on the types that morph, Filter 2's switch in its view.
         addAndMakeVisible (filterDisplay);
         filterTabs.onPick = [this] (int index) { showFilter (index); };
+        filterTabs.addMouseListener (this, false); // (its right-click: the filter's module menu)
         addAndMakeVisible (filterTabs);
         for (int f = 0; f < 2; ++f)
         {
@@ -1492,7 +1534,8 @@ public:
         dotClock.stopTimer();
     }
 
-    // Colour coding: a right-click on a card's dot picks that section's colour.
+    // A right-click on a card's dot picks that section's colour (colour
+    // coding); elsewhere on the FILTER header, the filter's menu.
     void mouseDown (const juce::MouseEvent& event) override
     {
         if (! event.mods.isPopupMenu())
@@ -1511,12 +1554,14 @@ public:
         for (const auto& tag : tags)
         {
             const auto dot = juce::Rectangle<int> (tag.card.getX() + 4, tag.card.getY(), 22, headerHeight);
-            if (! tag.card.isEmpty() && dot.contains (event.getPosition()))
+            if (event.eventComponent == this && ! tag.card.isEmpty() && dot.contains (event.getPosition()))
             {
                 SectionColourPicker::show (processorRef, tag.key, tag.name, *this, dot);
                 return;
             }
         }
+
+        showFilterMenuFor (event);
     }
 
     // Colour coding: the cards whose section was given another colour.
@@ -1565,6 +1610,28 @@ public:
     std::function<void (const juce::String&)> onOpenPage;
     // EDIT on ENVELOPE or LFO: the source's floating editor, by the button.
     std::function<void (int source, juce::Component& anchor)> onEditSource;
+
+    // A right-click on the FILTER card's header (or its F1 / F2 pills): Copy,
+    // Paste and Init that filter (ilana 2026-10-28).
+    void showFilterMenuFor (const juce::MouseEvent& event)
+    {
+        auto filter = filterTabs.getSelected();
+
+        if (event.eventComponent == &filterTabs)
+            filter = event.x < filterTabs.getWidth() / 2 ? 0 : 1;
+        else if (event.eventComponent != this || ! filterBounds.withHeight (headerHeight).contains (event.getPosition()))
+            return;
+
+        buildFilterMenu (filter).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&filterTabs).withMousePosition());
+    }
+
+    juce::PopupMenu buildFilterMenu (int filter)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("FILTER " + juce::String (filter + 1));
+        ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Filter, filter);
+        return menu;
+    }
 
     void paint (juce::Graphics& g) override
     {

@@ -4279,6 +4279,7 @@ private:
         menu.addItem (1, on ? "Switch off" : "Switch on");
         menu.addItem (3, "Duplicate oscillator", canAdd());
         menu.addItem (2, "Remove oscillator", numShown() > 1);
+        ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Oscillator, band);
         menu.addSeparator();
         menu.addItem (4, "Colour...");
         juce::Component::SafePointer<OscPage> safe (this);

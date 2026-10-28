@@ -595,6 +595,30 @@ public:
     void swapOscillators (int a, int b);
     int moveOscillator (int osc, int position);
     int duplicateOscillator (int from);
+
+    // Copy, Paste and Init on one module (src/processor/ModuleClipboard.cpp):
+    // its parameters by suffix, plus an oscillator's sample and patch table
+    // and an LFO's drawn curve and steps. Pastes onto the same kind of
+    // module, in any patch. Message thread; wrap each in performEdit.
+    enum class ModuleKind { Oscillator, Filter, Envelope, Lfo };
+    struct ModuleSnapshot
+    {
+        ModuleKind kind = ModuleKind::Oscillator;
+        juce::String name; // "LFO 2", for the Paste item
+        std::vector<std::pair<juce::String, float>> values; // suffix, normalised value
+        LfoCurve curve;
+        std::array<float, lfoDrawSteps> draw {};
+        std::shared_ptr<SampleData> embedded, liveSample;
+        juce::String samplePath, sampleOptions;
+        int tableSlot = -1;
+        std::shared_ptr<const WavetableDoc> table;
+    };
+    static juce::String modulePrefix (ModuleKind kind, int index);
+    static juce::String moduleName (ModuleKind kind, int index);
+    std::vector<juce::String> moduleParameterIds (ModuleKind kind, int index) const;
+    ModuleSnapshot copyModule (ModuleKind kind, int index) const;
+    bool pasteModule (const ModuleSnapshot& snapshot, int index);
+    void initModule (ModuleKind kind, int index);
     // Sets an oscillator's type (OscMode). Leaving FM / DX7 drops what only
     // an operator has, so the new type's card shows everything that plays:
     // TUNING goes back to semitones, and a Wavetable leaves the Operator EG

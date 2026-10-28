@@ -247,4 +247,48 @@ inline void runWorkflowUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthA
         expect (processor.getLfoCurve (0).toString() == painted.toString(), "a saved shape loads back");
         file.deleteFile();
     }
+
+    // 8. A .mid dropped on SEQ imports into the chosen clip; EXPORT MIDI drags.
+    {
+        editor.showPage ("ARP/SEQ");
+        settle (300);
+        Clip source;
+        source.bars = 1;
+        source.notes.push_back ({ 0.0f, 0.5f, 64, 100 });
+        source.notes.push_back ({ 1.0f, 0.5f, 67, 100 });
+        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-wf-clip.mid");
+        juce::String error;
+        expect (ClipState::exportMidi (source, file, error), "a test clip writes as MIDI (" + error + ")");
+
+        std::vector<juce::Component*> all;
+        findAll<juce::Component> (editor, all);
+        juce::FileDragAndDropTarget* target = nullptr;
+        for (auto* component : all)
+            if (auto* t = dynamic_cast<juce::FileDragAndDropTarget*> (component); t != nullptr && component != &editor && visibleInTree (component)
+                                                                                   && t->isInterestedInFileDrag ({ file.getFullPathName() }))
+                target = t;
+        expect (target != nullptr, "the SEQ page takes a dropped .mid");
+
+        if (target != nullptr)
+        {
+            const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) processor.apvts.getRawParameterValue ("clip_index")->load());
+            target->filesDropped ({ file.getFullPathName() }, 10, 10);
+            settle (100);
+            const auto clip = processor.getClipState().getClip (index);
+            expect (clip.notes.size() == 2 && clip.notes[1].note == 67, "the dropped file's notes land in the chosen clip ("
+                                                                             + juce::String ((int) clip.notes.size()) + " notes)");
+        }
+
+        // EXPORT MIDI is the drag handle: a drag writes the clip to a file first.
+        std::vector<juce::TextButton*> buttons;
+        findAll<juce::TextButton> (editor, buttons);
+        auto dragHandle = false;
+        for (auto* button : buttons)
+            if (button->getButtonText() == "EXPORT MIDI" && button->getTooltip().contains ("Drag this"))
+                dragHandle = true;
+        expect (dragHandle, "EXPORT MIDI says it drags the clip into a track");
+        file.deleteFile();
+        editor.showPage ("MAIN");
+        settle (200);
+    }
 }

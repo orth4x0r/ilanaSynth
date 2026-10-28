@@ -63,6 +63,8 @@ public:
             for (int lane = 0; lane < 4; ++lane)
                 chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
+        pushState1 = pushState2 = 0.0f;
+        toneX1 = toneX2 = toneY1 = toneY2 = 0.0f;
         dipX1 = dipX2 = dipY1 = dipY2 = 0.0f;
         bridgeReturn = 0.0f;
         bridgeInput = 0.0f;
@@ -224,7 +226,10 @@ public:
                 hammerActive = false;
         }
 
-        const auto push = (float) (force / (2.0 * impedance));
+        // The felt rounds the strike: two poles take the sharp edge off the pulse.
+        pushState1 += ((float) (force / (2.0 * impedance)) - pushState1) * pushCoefficient;
+        pushState2 += (pushState1 - pushState2) * pushCoefficient;
+        const auto push = pushState2;
         const auto aOut = bIn + push;
         const auto bOut = aIn + push;
         buffer[nutOffset + nutWrite] = aOut;
@@ -333,6 +338,17 @@ public:
             dipY2 = dipY1;
             dipY1 = isFinite (dipped) ? dipped : 0.0f;
             output = dipY1;
+        }
+
+        // The tone: a two-pole low-pass, the felt and board taking the sharp top off.
+        if (toneActive)
+        {
+            const auto toned = toneB0 * (output + 2.0f * toneX1 + toneX2) - toneA1 * toneY1 - toneA2 * toneY2;
+            toneX2 = toneX1;
+            toneX1 = output;
+            toneY2 = toneY1;
+            toneY1 = isFinite (toned) ? toned : 0.0f;
+            output = toneY1;
         }
 
         // DC (the hammer leaves the string displaced for a moment).
@@ -544,6 +560,17 @@ private:
         retune();
 
         aftersound = t.aftersound;
+        toneActive = (double) t.toneCutoff < sampleRate * 0.3;
+        if (toneActive)
+        {
+            const auto w = juce::MathConstants<double>::twoPi * (double) t.toneCutoff / sampleRate;
+            const auto alpha = std::sin (w) / (2.0 * 0.7071);
+            const auto a0 = 1.0 + alpha;
+            toneB0 = (float) ((1.0 - std::cos (w)) * 0.5 / a0);
+            toneA1 = (float) (-2.0 * std::cos (w) / a0);
+            toneA2 = (float) ((1.0 - alpha) / a0);
+        }
+        pushCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * juce::jmin (0.45 * sampleRate, (double) t.strikeBandwidth) / sampleRate));
         // The aftersound fades out up the keyboard (dB per octave above C5).
         horizontalMix = t.horizontalMix * (float) std::pow (10.0, -(double) t.horizontalTrebleFall * juce::jmax (0.0, ((double) note - 72.0) / 12.0) / 20.0);
 
@@ -670,9 +697,12 @@ private:
        #endif
     }
     float lossCoefficient = 0.5f, lossGain = 0.99f, lossState = 0.0f;
+    float pushState1 = 0.0f, pushState2 = 0.0f, pushCoefficient = 1.0f;
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;
     float aftersound = 0.3f, horizontalMix = 1.0f;
+    bool toneActive = false;
+    float toneB0 = 1.0f, toneA1 = 0.0f, toneA2 = 0.0f, toneX1 = 0.0f, toneX2 = 0.0f, toneY1 = 0.0f, toneY2 = 0.0f;
     bool dipActive = false;
     float dipB0 = 1.0f, dipB1 = 0.0f, dipB2 = 0.0f, dipA1 = 0.0f, dipA2 = 0.0f, dipX1 = 0.0f, dipX2 = 0.0f, dipY1 = 0.0f, dipY2 = 0.0f;
     DamperTaper::Cache damperTrip;

@@ -99,6 +99,26 @@ public:
                  "Every edit can be undone (" + commandKey() + "+Z), preset loads too, so try things: RANDOMISE (the dice) rolls a fresh patch." };
     }
 
+    // The hidden mouse moves, for MOUSE MOVES (Impeccable re-score, H7: the
+    // help for what the screen doesn't show). Key caps, then what it does.
+    struct Move
+    {
+        juce::StringArray keys;
+        juce::String what;
+    };
+
+    static std::vector<Move> moves()
+    {
+        return { { { "Double-click" }, "a knob: back to its default" },
+                 { { "Shift", "drag" }, "a knob, ring or slider: fine moves" },
+                 { { "Right-click" }, "a knob: modulate, type a value, copy, MIDI learn" },
+                 { { "Drag" }, "a ring around a knob: how far its source moves it (double-click: zero)" },
+                 { { "Right-click" }, "a ring: one way up, one way down or both sides" },
+                 { { "Right-click" }, "a source chip: where it goes, each route with Remove" },
+                 { { "Right-click" }, "a card's name: copy, paste or init that module" },
+                 { { commandKey(), "wheel" }, "turn a knob on a page that scrolls" } };
+    }
+
     // For the tests: whether "Don't show this again" is ticked.
     bool isDontShowTicked() const { return dontShowAgain.getToggleState(); }
 
@@ -118,7 +138,7 @@ public:
         auto area = getLocalBounds().reduced (70);
         area = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 720), area.getHeight());
         const auto tipsWidth = area.getWidth() - 56;
-        const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + newBandHeight() + 12 + 18 + 44 + 28;
+        const auto contentHeight = 28 + 34 + 18 + 14 + tipColumnHeight (tipsWidth, getTips()) + 10 + movesBandHeight() + 6 + newBandHeight() + 12 + 18 + 44 + 28;
         return area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), contentHeight));
     }
 
@@ -145,6 +165,7 @@ public:
 
         appear = 0.0f;
         newOpen = false;
+        movesOpen = false;
         closeButton.setAlpha (0.0f);
         dontShowAgain.setAlpha (0.0f);
 
@@ -202,31 +223,16 @@ public:
             auto shortcuts = area.removeFromBottom (18);
             area.removeFromBottom (12);
             auto newBand = area.removeFromBottom (newBandHeight());
+            area.removeFromBottom (6);
+            auto movesBand = area.removeFromBottom (movesBandHeight());
             area.removeFromBottom (10);
 
+            drawMoves (g, movesBand);
+
             {
-                g.setColour (IlanaTheme::accent());
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                const auto heading = newBand.removeFromTop (22);
-                const auto title = "WHAT'S NEW IN " + juce::String (whatsNewVersion);
-                const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (IlanaTheme::TextSize::body, true), title);
                 // A disclosure: the pills are behind it (review 9, S9-20).
-                const auto arrow = juce::Rectangle<float> (14.0f, 8.0f).withCentre ({ (float) heading.getX() + 7.0f, (float) heading.getCentreY() });
-                juce::Path triangle;
-                if (newOpen)
-                    triangle.addTriangle (arrow.getX() + 1.0f, arrow.getY() + 1.0f, arrow.getRight() - 1.0f, arrow.getY() + 1.0f,
-                                          arrow.getCentreX(), arrow.getBottom());
-                else
-                    triangle.addTriangle (arrow.getX() + 3.0f, arrow.getY() - 1.0f, arrow.getX() + 3.0f, arrow.getBottom() + 1.0f,
-                                          arrow.getRight() - 2.0f, arrow.getCentreY());
-                g.setColour (headingHover ? IlanaTheme::Ui::text : IlanaTheme::accent());
-                g.fillPath (triangle);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
-                g.drawText (title, heading.withTrimmedLeft (18), juce::Justification::centredLeft);
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-                g.drawText (newOpen ? "click one to open its page" : "click to show",
-                            heading.withTrimmedLeft (18 + titleWidth + 12), juce::Justification::centredLeft);
+                drawDisclosure (g, newBand.removeFromTop (22), "WHAT'S NEW IN " + juce::String (whatsNewVersion),
+                                newOpen ? "click one to open its page" : "click to show", newOpen, headingHover);
 
                 const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
                 const auto& features = whatsNew();
@@ -335,12 +341,35 @@ public:
 
     bool isWhatsNewOpen() const { return newOpen; }
 
+    // One of the two opens at a time, so the panel fits a 720 px window.
     void setWhatsNewOpen (bool open)
     {
         if (open == newOpen)
             return;
 
         newOpen = open;
+        movesOpen = movesOpen && ! open;
+        resized();
+        repaint();
+    }
+
+    // The MOUSE MOVES line, above WHAT'S NEW.
+    juce::Rectangle<int> movesHeadingBounds() const
+    {
+        auto area = panelBounds().reduced (28);
+        area.removeFromBottom (44 + 18 + 12 + newBandHeight() + 6);
+        return area.removeFromBottom (movesBandHeight()).removeFromTop (22);
+    }
+
+    bool isMovesOpen() const { return movesOpen; }
+
+    void setMovesOpen (bool open)
+    {
+        if (open == movesOpen)
+            return;
+
+        movesOpen = open;
+        newOpen = newOpen && ! open;
         resized();
         repaint();
     }
@@ -373,22 +402,25 @@ public:
     {
         const auto chip = chipAt (event.position);
         const auto onHeading = headingBounds().contains (event.getPosition());
+        const auto onMoves = movesHeadingBounds().contains (event.getPosition());
 
-        if (chip != hoverChip || onHeading != headingHover)
+        if (chip != hoverChip || onHeading != headingHover || onMoves != movesHover)
         {
             hoverChip = chip;
             headingHover = onHeading;
-            setMouseCursor (chip >= 0 || onHeading ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+            movesHover = onMoves;
+            setMouseCursor (chip >= 0 || onHeading || onMoves ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
             repaint();
         }
     }
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (hoverChip >= 0 || headingHover)
+        if (hoverChip >= 0 || headingHover || movesHover)
         {
             hoverChip = -1;
             headingHover = false;
+            movesHover = false;
             repaint();
         }
     }
@@ -397,6 +429,8 @@ public:
     {
         if (appear >= 1.0f && headingBounds().contains (event.getPosition()))
             setWhatsNewOpen (! newOpen);
+        else if (appear >= 1.0f && movesHeadingBounds().contains (event.getPosition()))
+            setMovesOpen (! movesOpen);
         else if (const auto chip = chipAt (event.position); chip >= 0 && appear >= 1.0f)
             openChip (chip);
     }
@@ -412,6 +446,90 @@ private:
     // The heading alone, or with two rows of chips under it.
     // (As many rows as the chips need at the column's width: review 11, S11-16.)
     int newBandHeight() const { return newOpen ? 22 + 3 + chipRows() * 26 + (chipRows() - 1) * 6 + 2 : 22; }
+
+    static constexpr int moveRowHeight = 24;
+    int movesBandHeight() const { return movesOpen ? 22 + 4 + (int) moves().size() * moveRowHeight : 22; }
+
+    // A disclosure heading: the triangle, the title and a hint after it.
+    static void drawDisclosure (juce::Graphics& g, juce::Rectangle<int> heading, const juce::String& title,
+                                const juce::String& hint, bool open, bool hover)
+    {
+        const auto titleFont = IlanaTheme::font (IlanaTheme::TextSize::body, true);
+        const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (titleFont, title);
+        const auto arrow = juce::Rectangle<float> (14.0f, 8.0f).withCentre ({ (float) heading.getX() + 7.0f, (float) heading.getCentreY() });
+        juce::Path triangle;
+        if (open)
+            triangle.addTriangle (arrow.getX() + 1.0f, arrow.getY() + 1.0f, arrow.getRight() - 1.0f, arrow.getY() + 1.0f,
+                                  arrow.getCentreX(), arrow.getBottom());
+        else
+            triangle.addTriangle (arrow.getX() + 3.0f, arrow.getY() - 1.0f, arrow.getX() + 3.0f, arrow.getBottom() + 1.0f,
+                                  arrow.getRight() - 2.0f, arrow.getCentreY());
+        g.setColour (hover ? IlanaTheme::Ui::text : IlanaTheme::accent());
+        g.fillPath (triangle);
+        g.setColour (IlanaTheme::accent());
+        g.setFont (titleFont);
+        g.drawText (title, heading.withTrimmedLeft (18), juce::Justification::centredLeft);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        g.drawText (hint, heading.withTrimmedLeft (18 + titleWidth + 12), juce::Justification::centredLeft);
+    }
+
+    // A key cap, as the shortcut line draws them; returns its width.
+    static float drawCap (juce::Graphics& g, const juce::String& key, float x, float cy)
+    {
+        const auto capFont = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        const auto width = juce::GlyphArrangement::getStringWidth (capFont, key) + 12.0f;
+        const auto cap = juce::Rectangle<float> (x, cy - 9.0f, width, 18.0f);
+        g.setColour (IlanaTheme::Ui::raised);
+        g.fillRoundedRectangle (cap, 4.0f);
+        g.setColour (IlanaTheme::Ui::line.brighter (0.2f));
+        g.drawRoundedRectangle (cap.reduced (0.5f), 4.0f, 1.0f);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (capFont);
+        g.drawText (key, cap, juce::Justification::centred);
+        return width;
+    }
+
+    // MOUSE MOVES: the heading, and while open one move a row, the caps in
+    // one column and what each does on one left edge after them.
+    void drawMoves (juce::Graphics& g, juce::Rectangle<int> band) const
+    {
+        drawDisclosure (g, band.removeFromTop (22), "MOUSE MOVES",
+                        movesOpen ? "what right-click, double-click and Shift do" : "click to show", movesOpen, movesHover);
+
+        if (! movesOpen)
+            return;
+
+        band.removeFromTop (4);
+        const auto capFont = IlanaTheme::font (IlanaTheme::TextSize::label, true);
+        const auto all = moves();
+        auto capsWidth = 0.0f;
+
+        for (const auto& move : all)
+        {
+            auto width = 0.0f;
+            for (const auto& key : move.keys)
+                width += juce::GlyphArrangement::getStringWidth (capFont, key) + 12.0f + 3.0f;
+            capsWidth = juce::jmax (capsWidth, width);
+        }
+
+        const auto textX = (float) band.getX() + 18.0f + capsWidth + 9.0f;
+
+        for (const auto& move : all)
+        {
+            const auto row = band.removeFromTop (moveRowHeight);
+            const auto cy = (float) row.getCentreY();
+            auto x = (float) row.getX() + 18.0f;
+
+            for (const auto& key : move.keys)
+                x += drawCap (g, key, x, cy) + 3.0f;
+
+            g.setColour (IlanaTheme::Ui::text);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+            g.drawText (move.what, juce::Rectangle<float> (textX, (float) row.getY(), (float) row.getRight() - textX, (float) row.getHeight()),
+                        juce::Justification::centredLeft);
+        }
+    }
 
     int chipRows() const
     {
@@ -505,6 +623,7 @@ private:
     int presetCount = 0;
     int hoverChip = -1;
     bool newOpen = false, headingHover = false;
+    bool movesOpen = false, movesHover = false;
     bool captureAttempted = false;
     juce::Image backdrop;
 };

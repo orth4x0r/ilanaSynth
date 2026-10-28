@@ -834,6 +834,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         tutorial.setPresetCount (listed);
     }
     content.addAndMakeVisible (tutorial);
+    content.addChildComponent (undoToast);
+    undoToast.onUndo = [this]
+    {
+        undoOrRedo (false);
+        updateHeaderButtons();
+    };
+    undoToastKey = undoToastKeyNow();
+    processorRef.getUndoManager().addChangeListener (this);
     content.addChildComponent (confirmOverlay);
     content.addChildComponent (saveOverlay);
     saveOverlay.setSettings (settings.get());
@@ -1030,11 +1038,18 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
     tableBrowserSettings() = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
+    processorRef.getUndoManager().removeChangeListener (this);
     setLookAndFeel (nullptr);
 }
 
-void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == &processorRef.getUndoManager())
+    {
+        updateUndoToast();
+        return;
+    }
+
     // Picking a tab shows its page: the docked browser over it steps aside,
     // and the wavetable editor over the old page closes.
     if (presetDockShown)
@@ -1867,6 +1882,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     }
 
     dockBounds = area.removeFromBottom (dockHeight);
+    layoutUndoToast();
 
     // The macro row (ilana 2026-10-22): a page of four macros and its 1 / 2
     // switch, a rule, VOICE (mode, voices, bend, glide, legato), a rule, then
@@ -2355,12 +2371,48 @@ void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& 
                         });
 }
 
+// The step on top of the history, with how deep it is: a new step changes it
+// even when it has the last one's name.
+juce::String IlanaSynthAudioProcessorEditor::undoToastKeyNow() const
+{
+    auto& undoManager = processorRef.getUndoManager();
+    return undoManager.getUndoDescription() + "|" + juce::String (undoManager.getUndoDescriptions().size());
+}
+
+// A new step that threw something away shows the undo note (an undo or redo
+// doesn't; nor does an edit that only joins the step on top).
+void IlanaSynthAudioProcessorEditor::updateUndoToast()
+{
+    const auto key = undoToastKeyNow();
+    const auto fromUndoOrRedo = std::exchange (undoToastSkip, false);
+
+    if (key == undoToastKey)
+        return;
+
+    undoToastKey = key;
+    const auto step = processorRef.getUndoManager().getUndoDescription();
+
+    if (! fromUndoOrRedo && processorRef.getUndoManager().canUndo() && UndoToast::isDestructive (step))
+    {
+        undoToast.show (step);
+        layoutUndoToast();
+    }
+}
+
+// Centred over the page, just above the dock.
+void IlanaSynthAudioProcessorEditor::layoutUndoToast()
+{
+    undoToast.setTopLeftPosition ((designWidth - undoToast.getWidth()) / 2, dockBounds.getY() - 10 - UndoToast::height);
+}
+
 // Edits still open (a gesture without its mouse-up, parameter changes not
 // yet in the tree) join their own step before it is undone.
 void IlanaSynthAudioProcessorEditor::undoOrRedo (bool redo)
 {
     processorRef.endEdit();
     processorRef.apvts.copyState();
+    undoToastSkip = true;
+    undoToast.hide();
 
     if (redo)
         processorRef.getUndoManager().redo();

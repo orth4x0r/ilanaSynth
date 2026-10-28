@@ -605,6 +605,18 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
                                                                           + juce::String ((int) tutorial->chipBounds().size()) + " of "
                                                                           + juce::String ((int) features.size()) + ")");
+            // Impeccable re-score (H7): MOUSE MOVES lists the hidden moves,
+            // folded until clicked; one of it and WHAT'S NEW opens at a time,
+            // so the panel is never cut by a 720 px window.
+            tutorial->setMovesOpen (true);
+            settle (100);
+            expect (tutorial->isMovesOpen() && ! tutorial->isWhatsNewOpen() && TutorialOverlay::moves().size() == 8
+                        && tutorial->panelBounds().getHeight() < tutorial->getHeight() - 140,
+                    "MOUSE MOVES opens its eight moves, folds WHAT'S NEW and fits ("
+                        + juce::String (tutorial->panelBounds().getHeight()) + " px)");
+            tutorial->setWhatsNewOpen (true);
+            settle (100);
+            expect (! tutorial->isMovesOpen() && tutorial->isWhatsNewOpen(), "opening WHAT'S NEW folds MOUSE MOVES");
             tutorial->openChip (labels.indexOf ("CLIP SEQUENCER"));
             settle (300);
             expect (! tutorial->isVisible() && editor.getCurrentPageId() == "ARP/SEQ",
@@ -614,6 +626,33 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         {
             expect (false, "the tour exists");
         }
+    }
+
+    // Impeccable re-score (H9): a step that throws something away shows the
+    // undo note with its name; UNDO takes it back; a plain edit shows none.
+    if (auto* toast = findChild<UndoToast> (editor); toast != nullptr)
+    {
+        auto* cutoff = processor.apvts.getParameter ("f1_cutoff");
+        const auto before = cutoff->getValue();
+        processor.performEdit ("Change cutoff", [cutoff, before] { cutoff->setValueNotifyingHost (before > 0.5f ? 0.2f : 0.8f); });
+        settle (200);
+        expect (! toast->isVisible(), "a plain edit shows no undo note");
+        processor.performEdit ("Remove test step", [cutoff] { cutoff->setValueNotifyingHost (0.5f); });
+        settle (200);
+        expect (toast->isVisible() && toast->getText() == "Remove test step" && toast->getBottom() <= editor.getHeight(),
+                "a Remove step shows the undo note with its name ('" + toast->getText() + "')");
+        toast->getUndoButton().triggerClick();
+        settle (200);
+        expect (! toast->isVisible() && processor.getUndoManager().getUndoDescription() == "Change cutoff",
+                "UNDO on the note takes the step back and closes the note ('" + processor.getUndoManager().getUndoDescription() + "')");
+        settle (200);
+        expect (! toast->isVisible(), "the undo itself shows no note");
+        processor.getUndoManager().undo();
+        settle (100);
+    }
+    else
+    {
+        expect (false, "the undo note exists");
     }
 
     // Text floors (S25): every visible label and button on every page, at
@@ -10286,7 +10325,23 @@ int main (int argc, char** argv)
             tutorial->setWhatsNewOpen (true);
             settle (200);
             save (*editor, outDir.getChildFile ("t2-tour-open.png"));
+            tutorial->setMovesOpen (true);
+            settle (200);
+            save (*editor, outDir.getChildFile ("t2-tour-moves.png"));
+            tutorial->setMovesOpen (false);
             tutorial->setVisible (false);
+        }
+
+        // The undo note after a Remove (then the step undone again).
+        if (auto* cutoff = processor.apvts.getParameter ("f1_cutoff"))
+        {
+            const auto before = cutoff->getValue();
+            processor.performEdit ("Remove REVERB", [cutoff] { cutoff->setValueNotifyingHost (0.3f); });
+            settle (300);
+            save (*editor, outDir.getChildFile ("t2-undo-note.png"));
+            processor.getUndoManager().undo();
+            cutoff->setValueNotifyingHost (before);
+            settle (200);
         }
 
         if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)

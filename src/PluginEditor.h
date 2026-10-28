@@ -31,6 +31,7 @@
 #include "gui/SavePresetOverlay.h"
 #include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
+#include "gui/UndoToast.h"
 
 class WavetableEditor;
 class ZoneMapEditor;
@@ -178,6 +179,9 @@ private:
     void confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
                                 std::function<void (bool confirmed)> then);
     void undoOrRedo (bool redo);
+    juce::String undoToastKeyNow() const;
+    void updateUndoToast();
+    void layoutUndoToast();
     void updateHeaderButtons();
     void updateUndoButtons();
     void showHistoryMenu();
@@ -224,6 +228,9 @@ private:
     LogoComponent logo;
     InfoStrip infoStrip;
     TutorialOverlay tutorial;
+    UndoToast undoToast;
+    juce::String undoToastKey;
+    bool undoToastSkip = false;
     ConfirmOverlay confirmOverlay;
     SavePresetOverlay saveOverlay { processorRef };
 

@@ -154,6 +154,8 @@ void expect (bool condition, const juce::String& message)
 #include "DropdownUiTests.h"
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
+#include "OscSlotUiTests.h"
+#include "WorkflowUiTests.h"
 #include "FxLfoUiTests.h"
 #include "FxCarouselUiTests.h"
 #include "LayoutUiTests10.h"
@@ -641,6 +643,19 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                     small.add (key);
             }
 
+            // PLAY's ring knobs paint their names themselves (FX, SEQ, VECTOR and FM too since review 26):
+            // held to the 10 px screen floor, as the packed buttons.
+            std::vector<KnobControl*> rings;
+            findAll<KnobControl> (editor, rings);
+            for (auto* knob : rings)
+            {
+                if (! knob->isPacked() || ! visibleInTree (knob) || knob->getWidth() <= 0)
+                    continue;
+                ++checked;
+                if (knob->packedNameDevicePx() < IlanaTheme::TextSize::screenFloorPx - 0.6f)
+                    small.add (page + ": (" + knob->getLabelText() + ") ring " + juce::String (knob->packedNameDevicePx(), 1) + " px");
+            }
+
             for (auto* button : buttons)
             {
                 if (! visibleInTree (button) || button->getWidth() <= 0 || button->getButtonText().trim().isEmpty()
@@ -1051,6 +1066,24 @@ int runUiTests()
     if (only == "PG")
     {
         runPatchCableTests (processor);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "WF")
+    {
+        runWorkflowUiTests (processor, *pages);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "OS")
+    {
+        runOscSlotUiTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -1888,7 +1921,7 @@ int runUiTests()
             std::vector<juce::Button*> allButtons;
             findAll<juce::Button> (*editor, allButtons);
             for (auto* button : allButtons)
-                if (button->getButtonText() == "+ ADD" && visibleInTree (button))
+                if (button->getButtonText() == "+ ADD EFFECT" && visibleInTree (button))
                     addEffect = button;
             expect (addEffect != nullptr, "the rack's top bar has + ADD");
 
@@ -1986,6 +2019,15 @@ int runUiTests()
             settle (100);
             const auto controls = cardControls (*viewport);
             const auto view = viewport->getViewArea();
+            // (A packed knob's bounds reach packedPadX past its cell for the ring's room, as on PLAY:
+            // neighbours are judged by their cells. A stacked choice in a knob's cell says so.)
+            const auto cellOf = [] (juce::Component* control)
+            {
+                const auto* knob = dynamic_cast<KnobControl*> (control);
+                if ((knob != nullptr && knob->isPacked()) || (bool) control->getProperties().getWithDefault ("packedCell", false))
+                    return control->getBounds().reduced (KnobControl::packedPadX, 0).withTrimmedTop (KnobControl::packedPadTop);
+                return control->getBounds();
+            };
             juce::String clipped, overlapping;
             for (size_t i = 0; i < controls.size(); ++i)
             {
@@ -1993,7 +2035,7 @@ int runUiTests()
                 if (! viewport->getViewedComponent()->getLocalBounds().contains (bounds) || (allInView && ! view.contains (bounds)))
                     clipped << controls[i]->getName() << typeid (*controls[i]).name() << bounds.toString() << " ";
                 for (size_t j = i + 1; j < controls.size(); ++j)
-                    if (bounds.intersects (controls[j]->getBounds()))
+                    if (cellOf (controls[i]).intersects (cellOf (controls[j])))
                         overlapping << bounds.toString() << "/" << controls[j]->getBounds().toString() << " ";
             }
             expect (clipped.isEmpty(), what + ": no FX card control is clipped " + clipped);
@@ -3115,8 +3157,16 @@ int runUiTests()
         {
             button->triggerClick();
             settle (400);
-            expect (processor.getCurrentPresetName() == names[neuroWobble + 1],
-                    "next-preset button loads the following preset ('" + processor.getCurrentPresetName() + "')");
+            // (the arrows walk the browser's list, which the click made)
+            juce::String following;
+            if (auto* panel = findChild<PresetPanel> (*editor))
+            {
+                const auto listed = panel->getListedNames();
+                following = listed[(listed.indexOf (names[neuroWobble]) + 1) % juce::jmax (1, listed.size())];
+            }
+            expect (following.isNotEmpty() && processor.getCurrentPresetName() == following,
+                    "next-preset button loads the browser's following preset ('" + processor.getCurrentPresetName() + "', expected '"
+                        + following + "')");
         }
     }
 
@@ -7433,6 +7483,10 @@ int runUiTests()
     runPatchCableTests (processor);
     // Step 16: the oscillators' ROUTING cables.
     runOscRoutingUiTests (processor, *pages);
+    // Duplicate, drag to reorder, x to remove (2026-10-26).
+    runOscSlotUiTests (processor, *pages);
+    // The RC 1.0 workflow fixes (2026-10-28).
+    runWorkflowUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.
     runFxLfoUiTests (processor, *pages);
     runFxCarouselUiTests (processor, *pages);
@@ -7555,6 +7609,11 @@ struct HostWindow : juce::Component
         setOpaque (true);
         addAndMakeVisible (editor);
         setSize (editor.getWidth(), editor.getHeight());
+#if JUCE_LINUX
+        // (A bare Xvfb has no window manager: the title bar's property names a missing atom.)
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
         addToDesktop (juce::ComponentPeer::windowHasTitleBar);
         setVisible (true);
         toFront (true); // a background window may get fewer vblanks
@@ -8426,6 +8485,167 @@ int runEnvDot (const juce::File& outDir, float curve)
     return 0;
 }
 
+// --motion <dir>: frames of the review-26 flair (Motion: Full), 30 a
+// second, one folder per scene, for the PR's recordings.
+juce::Button* findButtonWithText (juce::Component& parent, const juce::String& text)
+{
+    for (auto* child : parent.getChildren())
+    {
+        if (auto* button = dynamic_cast<juce::Button*> (child); button != nullptr && (button->getButtonText() == text || button->getName() == text) && IlanaAnim::showing (*button))
+            return button;
+        if (auto* nested = findButtonWithText (*child, text))
+            return nested;
+    }
+    return nullptr;
+}
+
+int runMotion (const juce::File& outDir)
+{
+    IlanaAnim::fullMotion() = true;
+    // A frame here takes about 150 ms to render: the timed motions (pop-ups,
+    // tabs, cards, shapes) run 10 times slower and a frame is taken every
+    // 330 ms, so the GIFs at 30 fps play them at their real speed.
+    IlanaAnim::motionClockRate() = 0.1;
+    outDir.createDirectory();
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+    // A bare window, so the editor counts as on screen and animates (the
+    // missing window manager's atom is ignored, as for ILANA_SNAPSHOT_FLASH).
+#if JUCE_LINUX
+    if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+        setHandler ([] (void*, void*) { return 0; });
+#endif
+    editor->addToDesktop (0);
+    editor->setVisible (true);
+    settle (800);
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+    auto* shell = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+
+    std::atomic<bool> running { true }, playing { false };
+    std::thread audio ([&]
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto wasPlaying = false;
+        auto next = juce::Time::getMillisecondCounterHiRes();
+        while (running)
+        {
+            juce::MidiBuffer midi;
+            const auto now = playing.load();
+            if (now != wasPlaying)
+                for (auto note : { 48, 55, 60, 64 })
+                    midi.addEvent (now ? juce::MidiMessage::noteOn (1, note, 0.9f) : juce::MidiMessage::noteOff (1, note), 0);
+            wasPlaying = now;
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            next += 256.0 / 48.0;
+            const auto wait = next - juce::Time::getMillisecondCounterHiRes();
+            if (wait > 0.0)
+                std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
+        }
+    });
+
+    const auto record = [&] (const juce::String& scene, int frames, std::function<void (int)> atFrame)
+    {
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        auto dir = outDir.getChildFile (scene);
+        dir.deleteRecursively();
+        dir.createDirectory();
+        // (Kept in memory and written afterwards: a PNG per frame took longer than the motion.)
+        std::vector<juce::Image> images;
+        auto lastFrame = juce::Time::getMillisecondCounterHiRes();
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            atFrame (frame);
+            settle (juce::jmax (1, 330 - (int) (juce::Time::getMillisecondCounterHiRes() - lastFrame)));
+            lastFrame = juce::Time::getMillisecondCounterHiRes();
+            images.push_back (editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f));
+        }
+        for (size_t frame = 0; frame < images.size(); ++frame)
+        {
+            juce::FileOutputStream stream (dir.getChildFile (juce::String::formatted ("f%03d.png", (int) frame)));
+            if (stream.openedOk())
+            {
+                stream.setPosition (0);
+                stream.truncate();
+                juce::PNGImageFormat().writeImageToStream (images[frame], stream);
+            }
+        }
+        std::cout << scene << ": " << frames << " frames in " << (int) (juce::Time::getMillisecondCounterHiRes() - started) << " ms" << std::endl;
+    };
+    const auto set = [&processor] (const char* id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+
+    shell->showPage ("MAIN");
+    settle (600);
+    set ("west_on", 0.0f);
+    set ("subosc_on", 0.0f);
+    settle (600);
+    record ("switch", 30, [&] (int f) { if (f == 4) set ("west_on", 1.0f); if (f == 6) set ("subosc_on", 1.0f); if (f == 20) set ("west_on", 0.0f); });
+    record ("breathe", 45, [&] (int f) { if (f == 2) playing = true; if (f == 30) playing = false; });
+    record ("stereo", 30, [&] (int f)
+    {
+        if (f == 3 || f == 18)
+            if (auto* button = findButtonWithText (*editor, "STEREO"))
+                button->triggerClick();
+    });
+    record ("tabs", 36, [&] (int f) { if (f == 3) shell->showPage ("FX"); if (f == 15) shell->showPage ("MATRIX"); if (f == 27) shell->showPage ("MAIN"); });
+    shell->showPage ("MAIN");
+    settle (600);
+    record ("morph", 24, [&] (int f)
+    {
+        if (f == 4 || f == 14)
+        {
+            IlanaAnim::armMorphs();
+            processor.loadFactoryPreset (juce::jmin (f == 4 ? 30 : 60, (int) processor.getFactoryPresetNames().size() - 1));
+            IlanaAnim::playMorphs();
+        }
+    });
+    shell->showPage ("ENV/LFO");
+    playing = true;
+    settle (500);
+    record ("lfo-trail", 30, [&] (int f) { if (f == 29) playing = false; });
+    shell->showPage ("OSC");
+    settle (500);
+    record ("cards", 36, [&] (int f)
+    {
+        if (f == 3)
+        {
+            auto* add = findButtonWithText (*editor, "+  ADD OSC");
+            if (add != nullptr)
+                add->triggerClick();
+        }
+        if (f == 22)
+        {
+            // The last card's header x.
+            juce::Button* last = nullptr;
+            std::function<void (juce::Component&)> scan = [&] (juce::Component& parent)
+            {
+                for (auto* child : parent.getChildren())
+                {
+                    if (auto* button = dynamic_cast<juce::Button*> (child); button != nullptr && IlanaAnim::showing (*button)
+                        && button->getTooltip().startsWith ("Remove this oscillator"))
+                        last = button;
+                    scan (*child);
+                }
+            };
+            scan (*editor);
+            if (last != nullptr)
+                last->triggerClick();
+        }
+    });
+
+    running = false;
+    audio.join();
+    std::cout << "motion frames in " << outDir.getFullPathName() << std::endl;
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -8440,14 +8660,26 @@ int main (int argc, char** argv)
     if (juce::String (argv[1]) == "--uitest")
         return runUiTests();
 
+    if (juce::String (argv[1]) == "--motion" && argc > 2)
+        return runMotion (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
+
     if (juce::String (argv[1]) == "--envdot" && argc > 2)
         return runEnvDot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]), argc > 3 ? juce::String (argv[3]).getFloatValue() : 0.0f);
+
+    // (ILANA_MOTION_LESS=1: --idlecpu and --fps measured with Motion: Less, to weigh the flair.)
+    if (std::getenv ("ILANA_MOTION_LESS") != nullptr)
+        IlanaAnim::fullMotion() = false;
 
     if (juce::String (argv[1]) == "--idlecpu")
         return runIdleCpu();
 
     if (juce::String (argv[1]) == "--fps")
         return runFps();
+
+    // Still pictures are taken with Motion: Less, so a pop-up or a card is
+    // drawn where it ends, not partway through growing or sliding in
+    // (ILANA_SNAPSHOT_MOTION=1 keeps the motion, for recordings).
+    IlanaAnim::fullMotion() = std::getenv ("ILANA_SNAPSHOT_MOTION") != nullptr;
 
     if (juce::String (argv[1]) == "--loadtime")
         return runLoadTime();
@@ -8548,6 +8780,24 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_PRESET: every page of one factory preset, into
+    // preset-<PAGE>.png; then stop (a failing layout test's patch, seen).
+    if (const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PRESET", ""); only.isNotEmpty())
+    {
+        const auto program = processor.getFactoryPresetNames().indexOf (only);
+        if (program < 0)
+            return 1;
+        processor.loadFactoryPreset (program);
+        settle (500);
+        for (const auto& page : pages->getPageIds())
+        {
+            pages->showPage (page);
+            settle (400);
+            save (*editor, outDir.getChildFile ("preset-" + page + ".png"));
+        }
+        return 0;
+    }
 
     // ILANA_SNAPSHOT_MENU: a menu drawn by the look-and-feel as the component
     // sheet's MENU (a section name, a hovered item, a tick, a separator, a

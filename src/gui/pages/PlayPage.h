@@ -55,7 +55,7 @@ public:
                 g.drawRoundedRectangle (cellBounds.reduced (0.5f), 4.0f, 1.0f);
             }
             g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             g.drawText (labels[option], cellBounds, juce::Justification::centred);
         }
     }
@@ -105,7 +105,7 @@ public:
         g.setColour (IlanaTheme::Ui::line);
         g.drawEllipse (bounds.reduced (0.5f), 1.0f);
         g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
         g.drawText (glyph, bounds.translated (0.0f, -0.5f), juce::Justification::centred);
     }
 
@@ -152,7 +152,7 @@ public:
 
     static int wordWidth (const juce::String& text)
     {
-        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (8.5f, true)), text) + 2;
+        return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true)), text) + 2;
     }
 
     int idealWidth() const
@@ -179,7 +179,7 @@ public:
                 g.drawRoundedRectangle (cell.reduced (0.5f), 4.0f, 1.0f);
             }
             g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             g.drawText (labels[option], cell, juce::Justification::centred);
         }
     }
@@ -226,7 +226,7 @@ public:
     // Filled in the colour (the dock's STEREO tag), not only outlined.
     void setTagStyle (bool tag) { tagStyle = tag; }
 
-    int idealWidth() const { return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (8.5f, true)), getButtonText()) + 25; }
+    int idealWidth() const { return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true)), getButtonText()) + 25; }
 
     void paintButton (juce::Graphics& g, bool hovered, bool down) override
     {
@@ -239,7 +239,7 @@ public:
         g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, 1.0f);
         const auto ink = tagStyle ? colour.brighter (0.2f) : IlanaTheme::Ui::text;
         g.setColour (ink);
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         auto text = bounds.reduced (6.0f, 0.0f);
         const auto arrow = text.removeFromRight (7.0f).withSizeKeepingCentre (6.0f, 6.0f);
         g.drawText (getButtonText(), text, juce::Justification::centred);
@@ -278,7 +278,7 @@ public:
         // Wide enough, the note says NOTES after it.
         if (bounds.getWidth() > 40.0f)
         {
-            const auto font = IlanaTheme::font (8.5f, true);
+            const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedBody, true);
             const auto textW = juce::GlyphArrangement::getStringWidth (font, "NOTES");
             const auto left = c.x - (textW + 10.0f) * 0.5f;
             g.setFont (font);
@@ -366,7 +366,7 @@ public:
             g.drawRoundedRectangle (chip, chip.getHeight() * 0.5f, 1.0f);
             g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ chip.getX() + 8.0f, chip.getCentreY() }));
             g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (8.5f, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
             IlanaTheme::drawFitted (g, chipText, chipBounds.withTrimmedLeft (14).withTrimmedRight (4), juce::Justification::centredLeft, 1);
         }
     }
@@ -413,9 +413,52 @@ public:
         layoutBody();
     }
 
+    // A right-click on the title or a pill: Copy, Paste and Init that
+    // envelope or LFO (ilana 2026-10-28).
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu() || sources.empty())
+            return;
+
+        auto source = selected;
+        for (auto& tab : tabs)
+            if (event.eventComponent == tab.get())
+                source = tab->getSource();
+
+        if (event.eventComponent == this && event.y >= headerHeight)
+            return;
+
+        showModuleMenu (source);
+    }
+
+    juce::PopupMenu buildModuleMenu (int source)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader (sourceTabName (source, processorRef));
+        const auto lfo = Mod::lfoIndexFor ((Mod::Source) source);
+        const auto env = SourceEditor::envelopeOf (source);
+        juce::Component::SafePointer<SourceCarouselCard> safeThis (this);
+        const auto changed = [safeThis] { if (safeThis != nullptr) safeThis->buildBody(); };
+
+        if (kind == Kind::lfo && lfo >= 0)
+            ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Lfo, lfo, changed);
+        else if (kind == Kind::envelope && env >= 0)
+            ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Envelope, env, changed);
+
+        return menu;
+    }
+
+    void showModuleMenu (int source)
+    {
+        buildModuleMenu (source).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+    }
+
     // The title opens the pop-up editor too.
     void mouseUp (const juce::MouseEvent& event) override
     {
+        if (event.mods.isPopupMenu())
+            return;
+
         if (event.mouseWasClicked() && event.y < headerHeight && event.x < previous.getX() && onEdit != nullptr && ! sources.empty())
             onEdit (selected, edit);
     }
@@ -522,6 +565,7 @@ private:
                 auto tab = std::make_unique<SourceTab> (processorRef, source);
                 tab->setCompactLabel (compactName (source));
                 tab->onSelect = [this] (int picked) { select (picked); };
+                tab->addMouseListener (this, false); // (its right-click: the module menu)
                 addAndMakeVisible (*tab);
                 tabs.push_back (std::move (tab));
             }
@@ -700,6 +744,8 @@ class WestDisplay : public juce::Component,
                     private juce::Timer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
+
     explicit WestDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
         setInterceptsMouseClicks (false, false);
@@ -782,6 +828,8 @@ class ParamPicture : public juce::Component,
                      private juce::Timer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
+
     ParamPicture (IlanaSynthAudioProcessor& p, std::vector<juce::String> idsIn, const juce::String& tip)
         : processorRef (p), ids (std::move (idsIn))
     {
@@ -965,7 +1013,7 @@ public:
         IlanaTheme::paintWell (g, bounds, 4.0f);
         const auto on = read ("sb_on") > 0.5f ? 1.0f : 0.45f;
         g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-        g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
         g.drawText ("BOARD RESPONSE", bounds.reduced (6.0f, 3.0f), juce::Justification::topLeft, false);
 
         const auto plot = bounds.reduced (6.0f, 3.0f).withTrimmedTop (12.0f);
@@ -1023,7 +1071,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
-        const auto font = IlanaTheme::font (8.5f, true);
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedBody, true);
         g.setFont (font);
         g.setColour (IlanaTheme::Ui::text2);
         g.drawText ("F1", bounds.withWidth (labelWidth), juce::Justification::centredLeft, false);
@@ -1145,7 +1193,8 @@ public:
     }
 
     static juce::Colour colour() { return juce::Colour (0xff3fd0e6); }
-    static constexpr int width = 262, height = 98, headerHeight = 22, cell = 60;
+    // (Packed as the other pop-ups, UI review 26: four 48 px cells, PLAY's knob pitch, not spread over 262 px.)
+    static constexpr int cell = 48, width = 4 * cell + 2 * 12 + 6, height = 98, headerHeight = 22;
     static constexpr float dialSize = 28.0f;
 
     void paint (juce::Graphics& g) override
@@ -1166,7 +1215,7 @@ public:
         const auto title = juce::String ("VOICE");
         g.drawText (title, header.withTrimmedLeft (21), juce::Justification::centredLeft, false);
         g.setColour (IlanaTheme::Ui::text2);
-        g.setFont (IlanaTheme::font (8.5f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
         g.drawText ("STEREO SETTINGS", header.withTrimmedLeft (21 + juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (13.0f, true)), title) + 8),
                     juce::Justification::centredLeft, false);
     }
@@ -1183,8 +1232,8 @@ public:
             knob->setBounds (KnobControl::packedBoundsFor ({ x, area.getY() + 3, cell, (int) dialSize + 10 }));
             x += cell;
         }
-        // (Under LOOSE, the knob it belongs to.)
-        looseBoth.setBounds (foot.withLeft (knobs.back()->getBounds().getCentreX() - 50).withWidth (100));
+        // (Under LOOSE, the knob it belongs to, its right edge on the knobs'.)
+        looseBoth.setBounds (foot.withLeft (juce::jmax (foot.getX(), x - 100)).withRight (x));
     }
 
     bool keyPressed (const juce::KeyPress& key) override
@@ -1205,6 +1254,8 @@ private:
 
 class PlayPage : public juce::Component,
                  private juce::ScrollBar::Listener,
+                 private juce::AudioProcessorValueTreeState::Listener,
+                 private juce::AsyncUpdater,
                  private juce::Timer
 {
 public:
@@ -1255,6 +1306,7 @@ public:
         // MORPH on the types that morph, Filter 2's switch in its view.
         addAndMakeVisible (filterDisplay);
         filterTabs.onPick = [this] (int index) { showFilter (index); };
+        filterTabs.addMouseListener (this, false); // (its right-click: the filter's module menu)
         addAndMakeVisible (filterTabs);
         for (int f = 0; f < 2; ++f)
         {
@@ -1313,7 +1365,7 @@ public:
                                                       "TUNING\nAUTO tunes the strings to what you play; MANUAL to the six NOTES you pick.");
         addAndMakeVisible (*stringsManual);
         tuneButton.setTooltip ("NOTES\nThe sympathetic strings' six notes (MANUAL tuning)");
-        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible()); };
+        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible() || tuningGrow.isClosing()); };
         addAndMakeVisible (tuneButton);
         for (const auto& [id, label] : { std::pair<const char*, const char*> { "sym_amount", "AMOUNT" }, { "sym_count", "COUNT" }, { "sym_decay", "DECAY" } })
             stringsKnobs.push_back (knob (id, label, stringsColour()));
@@ -1375,7 +1427,7 @@ public:
             box.setSelectedId (selectedId, juce::dontSendNotification);
         }
         for (const auto& spec : { std::pair<const char*, const char*> { "res_amount", "AMOUNT" }, { "res_decay", "DECAY" }, { "body_coupling", "COUPLE" },
-                                  { "body_material", "MATERIAL" }, { "body_size", "SIZE" }, { "res_offset", "OFFSET" }, { "res_keytrack", "KEY TRK" } })
+                                  { "body_material", "MATERIAL" }, { "body_size", "SIZE" }, { "res_offset", "OFFSET" }, { "res_keytrack", "KEY TRACK" } })
             bodyKnobs.push_back (knob (spec.first, spec.second, bodyColour()));
         boardModel = menuFor ("sb_model", "MODEL", "SOUNDBOARD MODEL\nClassic, or Dense for a thicker board.");
         for (const auto& spec : { std::pair<const char*, const char*> { "sb_size", "SIZE" }, { "sb_tone", "TONE" }, { "sb_mix", "MIX" } })
@@ -1439,26 +1491,71 @@ public:
         showFilter (0);
         showStrings (0);
         showBody (0);
+        dotClock.tick = [this] { tickDots(); };
+        for (const auto* id : dotSwitchIds)
+            processorRef.apvts.addParameterListener (id, this);
         startTimerHz (4);
     }
 
-    ~PlayPage() override { stopTimer(); }
+    ~PlayPage() override
+    {
+        for (const auto* id : dotSwitchIds)
+            processorRef.apvts.removeParameterListener (id, this);
+        cancelPendingUpdate();
+        stopTimer();
+        dotClock.stopTimer();
+    }
 
     std::function<void (int)> onEditOperator;
     std::function<void (const juce::String&)> onOpenPage;
     // EDIT on ENVELOPE or LFO: the source's floating editor, by the button.
     std::function<void (int source, juce::Component& anchor)> onEditSource;
 
+    // A right-click on the FILTER card's header (or its F1 / F2 pills): Copy,
+    // Paste and Init that filter (ilana 2026-10-28).
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (! event.mods.isPopupMenu())
+            return;
+
+        auto filter = filterTabs.getSelected();
+
+        if (event.eventComponent == &filterTabs)
+            filter = event.x < filterTabs.getWidth() / 2 ? 0 : 1;
+        else if (event.eventComponent != this || ! filterBounds.withHeight (headerHeight).contains (event.getPosition()))
+            return;
+
+        buildFilterMenu (filter).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&filterTabs).withMousePosition());
+    }
+
+    juce::PopupMenu buildFilterMenu (int filter)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("FILTER " + juce::String (filter + 1));
+        ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Filter, filter);
+        return menu;
+    }
+
     void paint (juce::Graphics& g) override
     {
         IlanaTheme::paintPageBackground (g, getLocalBounds());
 
-        paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()));
-        paintCardWithHeader (g, stringsBounds, {}, stringsColour());
-        paintCardWithHeader (g, westBounds, "WEST COAST", westColour());
-        paintCardWithHeader (g, bodyBounds, {}, bodyColour());
-        paintCardWithHeader (g, subBounds, "SUB", subColour());
-        paintCardWithHeader (g, noiseBounds, "NOISE", subColour());
+        for (size_t i = 0; i < dots.size(); ++i)
+        {
+            if (dots[i].lit < 0.0f)
+            {
+                dots[i].target = dotTarget (i);
+                dots[i].lit = dots[i].target ? 1.0f : 0.0f;
+            }
+        }
+
+        // (A switched-off card's dot dims as an off oscillator's does: UI review 26.)
+        paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()), dots[0]);
+        paintCardWithHeader (g, stringsBounds, {}, stringsColour(), dots[1]);
+        paintCardWithHeader (g, westBounds, "WEST COAST", westColour(), dots[2]);
+        paintCardWithHeader (g, bodyBounds, {}, bodyColour(), dots[3]);
+        paintCardWithHeader (g, subBounds, "SUB", subColour(), dots[4]);
+        paintCardWithHeader (g, noiseBounds, "NOISE", subColour(), dots[5]);
 
         // STRINGS' TUNING over AUTO / MANUAL and NOTES; KEYS' NOISE over KEY, DAMPER and PEDAL.
         const auto strings = stringsTabs.getSelected() == 0;
@@ -1470,7 +1567,7 @@ public:
     {
         if (area.isEmpty())
             return;
-        const auto font = IlanaTheme::font (7.5f, true).withKerningFactor (0.09f);
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f);
         const auto textW = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 2.0f;
         const auto r = area.toFloat();
         const auto alpha = lit ? 1.0f : IlanaTheme::dimmedAlpha;
@@ -1586,9 +1683,15 @@ private:
 
     void timerCallback() override
     {
+        wakeDots();
         operatorFilterOff = operatorVoiceFilterOff (processorRef);
         filterDisplay.setVoiceOff (operatorFilterOff);
         effectRules.apply();
+        if (const auto switches = switchesSignature(); switches != lastSwitches)
+        {
+            lastSwitches = switches;
+            repaint();
+        }
         // A type or the routing changed: the filter card's knobs follow (MORPH, BALANCE, the slope).
         const auto signature = readInt ("f1_type") * 7 + readInt ("f2_type") * 131 + readInt ("filters_parallel") * 30011;
         if (signature != filterSignature)
@@ -1653,6 +1756,7 @@ private:
     }
 
     float rememberedCutoff = 8000.0f;
+    int lastSwitches = -1;
 
     // The OSC area's own scroll bar (thin, over the cards' side margin), shown only while the cards overflow it.
     void syncOscBar()
@@ -1676,17 +1780,123 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
-    // What the bands may take: the oscillator cards' own height (their page's
-    // minimum, with its add row) first.
+    // What the bands may take: the page less two oscillator cards and their add row, whatever the
+    // oscillator count, so the bands are one height on every patch (a third card scrolls).
     int bandsHeightFor (int pageHeight) const
     {
         auto oscHeight = 0;
         if (auto* page = oscView.getPage())
-            oscHeight = page->getReferenceHeight();
+            oscHeight = page->getBandsReferenceHeight();
         return pageHeight - bottomMargin - oscHeight;
     }
 
-    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint) const
+    int switchesSignature() const
+    {
+        return readInt ("sym_on") + 2 * readInt ("west_on") + 4 * readInt ("res_on") + 8 * readInt ("sb_on")
+               + 16 * readInt ("subosc_on") + 32 * readInt ("noise_on");
+    }
+
+    // The cards' header dots (review 26 flair): a dot fades over 180 ms as
+    // its card is switched, glows once as it comes on, and while notes
+    // sound its halo breathes with the synth's output level.
+    struct HeaderDot
+    {
+        float lit = -1.0f, glow = 0.0f, breath = 0.0f;
+        bool target = false;
+    };
+    std::array<HeaderDot, 6> dots;
+
+    struct DotClock : IlanaAnim::FrameTimer
+    {
+        std::function<void()> tick;
+        void timerCallback() override { tick(); }
+    } dotClock;
+
+    bool dotTarget (size_t index) const
+    {
+        switch (index)
+        {
+            case 1: return stringsTabs.getSelected() != 0 || readInt ("sym_on") != 0;
+            case 2: return readInt ("west_on") != 0;
+            case 3: return readInt (boardTab.getSelected() == 0 ? "sb_on" : "res_on") != 0;
+            case 4: return readInt ("subosc_on") != 0;
+            case 5: return readInt ("noise_on") != 0;
+            default: return true;
+        }
+    }
+
+    juce::Rectangle<int> dotArea (size_t index) const
+    {
+        const std::array<juce::Rectangle<int>, 6> cards { filterBounds, stringsBounds, westBounds, bodyBounds, subBounds, noiseBounds };
+        const auto& card = cards[index];
+        return juce::Rectangle<int> (28, 28).withCentre ({ card.getX() + 14, card.getY() + headerHeight / 2 });
+    }
+
+    // A card's switch moved (from any thread): its dot fades at once, not on the next page tick.
+    static constexpr const char* dotSwitchIds[] { "sym_on", "west_on", "sb_on", "res_on", "subosc_on", "noise_on" };
+    void parameterChanged (const juce::String&, float) override { triggerAsyncUpdate(); }
+    void handleAsyncUpdate() override { wakeDots(); }
+
+    // Starts the dots' clock when a switch moved or notes sound (the 4 Hz page timer asks).
+    void wakeDots()
+    {
+        auto changed = false;
+        for (size_t i = 0; i < dots.size(); ++i)
+            changed = changed || dots[i].lit < 0.0f || dotTarget (i) != dots[i].target;
+
+        if (changed || (IlanaAnim::fullMotion() && processorRef.getActiveVoiceCount() > 0))
+            if (! dotClock.isTimerRunning())
+                dotClock.startTimerHz (60);
+    }
+
+    void tickDots()
+    {
+        const auto seconds = dotClock.frameSeconds();
+        const auto full = IlanaAnim::fullMotion() && IlanaAnim::showing (*this);
+        const auto level = full && processorRef.getActiveVoiceCount() > 0 ? juce::jlimit (0.0f, 1.0f, processorRef.getOutputPeak() * 1.5f) : 0.0f;
+        auto busy = level > 0.0f;
+
+        for (size_t i = 0; i < dots.size(); ++i)
+        {
+            auto& dot = dots[i];
+            const auto target = dotTarget (i);
+            const auto before = dot;
+
+            if (dot.lit < 0.0f || ! full)
+            {
+                dot.lit = target ? 1.0f : 0.0f;
+                dot.glow = 0.0f;
+            }
+            else
+            {
+                if (target && ! dot.target)
+                    dot.glow = 1.0f;
+                dot.lit += ((target ? 1.0f : 0.0f) - dot.lit) * (1.0f - std::exp (-seconds / 0.05f)); // ~180 ms to settle
+                dot.glow *= std::exp (-seconds / 0.18f);
+                if (dot.glow < 0.01f)
+                    dot.glow = 0.0f;
+            }
+
+            dot.target = target;
+            const auto breathTarget = target ? level : 0.0f;
+            dot.breath += (breathTarget - dot.breath) * (1.0f - std::exp (-seconds / (breathTarget > dot.breath ? 0.03f : 0.25f)));
+            if (dot.breath < 0.01f && breathTarget == 0.0f)
+                dot.breath = 0.0f;
+
+            const auto moving = std::abs (dot.lit - (target ? 1.0f : 0.0f)) > 0.004f || dot.glow > 0.0f || dot.breath > 0.0f;
+            if (! moving)
+                dot.lit = target ? 1.0f : 0.0f;
+            busy = busy || moving;
+
+            if (std::abs (dot.lit - before.lit) > 0.002f || std::abs (dot.glow - before.glow) > 0.002f || std::abs (dot.breath - before.breath) > 0.004f)
+                repaint (dotArea (i));
+        }
+
+        if (! busy)
+            dotClock.stopTimer();
+    }
+
+    void paintCardWithHeader (juce::Graphics& g, juce::Rectangle<int> card, const juce::String& title, juce::Colour tint, const HeaderDot& dot) const
     {
         if (card.isEmpty())
             return;
@@ -1695,7 +1905,15 @@ private:
         g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
         g.fillRect (juce::Rectangle<int> (card.getX() + 1, card.getY() + headerHeight - 1, card.getWidth() - 2, 1));
         const auto centre = card.getY() + headerHeight / 2;
-        IlanaTheme::paintTag (g, { (float) card.getX() + 14.0f, (float) centre }, tint);
+        const auto lit = dot.lit < 0.0f ? 1.0f : dot.lit;
+        const auto dotCentre = juce::Point<float> ((float) card.getX() + 14.0f, (float) centre);
+        const auto colour = tint.withMultipliedSaturation (0.6f).withMultipliedBrightness (0.5f).interpolatedWith (tint, lit);
+        // (paintTag's dot, its halo bigger and brighter while it glows or breathes.)
+        const auto swell = juce::jmax (dot.glow, dot.breath * 0.8f);
+        g.setColour (colour.withAlpha (0.2f + 0.3f * swell));
+        g.fillEllipse (juce::Rectangle<float> (14.0f + 8.0f * swell, 14.0f + 8.0f * swell).withCentre (dotCentre));
+        g.setColour (colour.interpolatedWith (juce::Colours::white, 0.35f * dot.glow));
+        g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (dotCentre));
         if (title.isEmpty())
             return;
         g.setColour (IlanaTheme::Ui::text);
@@ -1751,9 +1969,9 @@ private:
     {
         const auto total = band.getWidth() - 2 * hGap;
         auto row = band;
-        filterBounds = row.removeFromLeft (juce::roundToInt ((float) total * 456.0f / 1036.0f));
+        filterBounds = row.removeFromLeft (juce::roundToInt ((float) total * 472.0f / 1036.0f));
         row.removeFromLeft (hGap);
-        stringsBounds = row.removeFromLeft (juce::roundToInt ((float) total * 221.0f / 1036.0f));
+        stringsBounds = row.removeFromLeft (juce::roundToInt ((float) total * 219.0f / 1036.0f));
         row.removeFromLeft (hGap);
         westBounds = row;
 
@@ -1776,16 +1994,16 @@ private:
             // Body: the graph one size in every view, then CUTOFF RESO DRIVE KEY TRACK and a fifth slot, SLOPE
             // on a classic type or MORPH on one that morphs (a type has one or the other).
             auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
-            const auto knobsX = card.getRight() - 6 - 5 * cell;
+            const auto knobsX = card.getRight() - 6 - 5 * filterPitch;
             filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 5, body.getY() + 1, knobsX - 4 - card.getX() - 5, body.getHeight() - 2));
             const auto& parts = filters[(size_t) shown];
             // (Room under the dials for KEY TRACK's second line.)
             const auto cellY = body.getY() - 2 + (body.getHeight() + 2 - (int) dialSize - 10 - 13) / 2;
             for (size_t k = 0; k < parts.knobs.size(); ++k)
                 for (auto& other : filters)
-                    other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * cell, cellY, cell, (int) dialSize + 10 + 13 }));
+                    other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
             for (auto& other : filters)
-                other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * cell, cellY, cell, (int) dialSize + 10 + 13 }));
+                other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
         }
 
         {
@@ -1925,17 +2143,22 @@ private:
     void showTuning (bool show)
     {
         show = show && readInt ("sym_manual") != 0;
-        if (show == tuningPopover.isVisible())
+        if (show == (tuningPopover.isVisible() && ! tuningGrow.isClosing()))
             return;
         if (show)
         {
             tuningPopover.setBounds (tuningBounds());
             tuningPopover.setVisible (true);
             tuningPopover.toFront (false);
+            tuningGrow.open (getLocalPoint (&tuneButton, tuneButton.getLocalBounds().getCentre()).toFloat());
         }
         else
         {
-            tuningPopover.setVisible (false);
+            tuningGrow.close ([safe = juce::Component::SafePointer<juce::Component> (&tuningPopover)]
+                              {
+                                  if (safe != nullptr)
+                                      safe->setVisible (false);
+                              });
         }
         tuneButton.setToggleState (show, juce::dontSendNotification);
     }
@@ -1996,7 +2219,8 @@ private:
                && FilterType::usesSlope (type);
     }
 
-    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42;
+    // (UI review 26: FILTER back to mockup v4's width, its graph about 290 px; the knobs at 33 and WEST at 41 give the room.)
+    static constexpr int westPitch = 41, stringsPitch = 43, bodyPitch = 42, filterPitch = 33;
 
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
@@ -2014,6 +2238,7 @@ private:
     std::unique_ptr<PillChoice> stringsManual;
     NoteButton tuneButton;
     TuningPopover tuningPopover;
+    IlanaAnim::PopGrow tuningGrow { tuningPopover }; // (NOTES grows from its button)
     std::vector<std::unique_ptr<KnobControl>> stringsKnobs, keysKnobs, tuningNotes;
     juce::Rectangle<int> filterBounds, stringsBounds, westBounds, bodyBounds, subBounds, noiseBounds, tuningGroup, noiseGroup;
     ViewPills bodyTab { { "BODY" }, bodyColour(), "Show BODY's controls (its switch is beside it)" };

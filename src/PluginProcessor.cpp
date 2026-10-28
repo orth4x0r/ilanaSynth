@@ -112,8 +112,10 @@ IlanaSynthAudioProcessor::IlanaSynthAudioProcessor()
 
 #if ILANA_FINGERPRINT_BUILD
     arpRandom.setSeed (31415);
-    lfoRandom.setSeed (27182);
 #endif
+    // The seed a patch load gives (cutPatchTails), so a new instance's random
+    // LFOs and the FX gate's Random pattern are the same every time.
+    lfoRandom.setSeed (27182);
 
     for (int step = 0; step < 16; ++step)
     {

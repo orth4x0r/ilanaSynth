@@ -528,6 +528,28 @@ public:
     bool isPitch() const { return pitch; }
     int getSelectedOperator() const { return selectedOperator; }
 
+    // The pop-up's layout (UI review 26): one title (the pop-up's), the graph at the left and a column
+    // as the envelope pop-ups have, the tabs on its first line, then the knobs as PLAY's rings, a
+    // graph handle's time over its level.
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        for (auto& knob : pitchKnobs)
+            knob->setPackedDial (compact ? compactDial : 0.0f);
+        scaleShift->setPackedDial (compact ? compactDial : 0.0f);
+        for (auto& row : controls)
+            for (int i = 0; i < numStageControls; ++i)
+                if (auto* knob = dynamic_cast<KnobControl*> (row[(size_t) i].get()))
+                    knob->setPackedDial (compact ? compactDial : 0.0f);
+        updateVisibility();
+        resized();
+        repaint();
+    }
+
+    static constexpr float compactDial = 28.0f;
+    static constexpr int compactPitch = 46, compactRow = 39, compactGap = 10, compactLine = 20, compactLineGap = 4;
+    static constexpr int compactColumn = 4 * compactPitch, compactHeight = compactLine + compactLineGap + 2 * compactRow;
+
     void selectOperator (int osc)
     {
         selectedOperator = juce::jlimit (0, OscillatorIds::count - 1, osc);
@@ -551,6 +573,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (compact)
+            return;
         if (place == Place::fmCard)
         {
             if (! tabLine.isEmpty())
@@ -582,6 +606,12 @@ public:
                        { OperatorPool::colour(), OperatorPool::colour() });
         tabs.setSelected (pitch ? pitchTab : operatorTab, false);
         const auto rows = shownRows();
+
+        if (compact)
+        {
+            layoutCompact (rows);
+            return;
+        }
 
         if (place == Place::fmCard)
         {
@@ -637,6 +667,49 @@ public:
     }
 
 private:
+    void layoutCompact (const std::vector<juce::Component*>& items)
+    {
+        panel = tabLine = {};
+        picker.setBounds ({}); // (the pop-up shows OP PITCH: every oscillator's, no picker)
+        auto area = getLocalBounds();
+        auto column = area.removeFromRight (compactColumn);
+        area.removeFromRight (compactGap);
+        graph.setBounds (area);
+        if (useButton.isVisible())
+        {
+            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::pillFont()), useButton.getButtonText()) + 24;
+            useButton.setBounds (area.getRight() - 6 - width, area.getBottom() - 6 - 22, width, 22);
+        }
+        tabs.setBounds (column.getX(), column.getY(), juce::jmin (column.getWidth(), tabs.getIdealWidth()), compactLine);
+        const auto top = column.getY() + compactLine + compactLineGap;
+        const auto cell = [&] (int slot, int row)
+        {
+            return juce::Rectangle<int> (column.getX() + slot * compactPitch, top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
+                                         compactPitch, (int) compactDial + 10);
+        };
+        const auto stages = (pitch ? pitchTab : operatorTab) == 0;
+        if (stages && items.size() == (size_t) numStageControls)
+        {
+            // Each column a graph handle: its time over its level.
+            for (size_t i = 0; i < items.size(); ++i)
+                if (items[i] != nullptr)
+                    items[i]->setBounds (KnobControl::packedBoundsFor (cell ((int) i / 2, (int) i % 2)));
+            return;
+        }
+        if (pitch)
+        {
+            // TRANSPOSE (its own steps knob, two cells over both rows) and SCALE SHIFT beside it.
+            transpose.setBounds (juce::Rectangle<int> (column.getX(), top, 2 * compactPitch, 2 * compactRow).reduced (4, 2));
+            scaleShift->setBounds (KnobControl::packedBoundsFor (cell (2, 0)));
+            return;
+        }
+        // KEYS & VELOCITY: four to a row (the curve menus in their cells).
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i] != nullptr)
+                items[i]->setBounds (dynamic_cast<KnobControl*> (items[i]) != nullptr ? KnobControl::packedBoundsFor (cell ((int) i % 4, (int) i / 4))
+                                                                                      : cell ((int) i % 4, (int) i / 4).reduced (2, 6));
+    }
+
     // The controls the selected tab shows, in order.
     std::vector<juce::Component*> shownRows() const
     {
@@ -789,7 +862,7 @@ private:
         for (auto& knob : pitchKnobs)
             knob->setVisible (isShown (knob.get()));
         scaleShift->setVisible (isShown (scaleShift.get()));
-        fmLink.setVisible (place == Place::pool && ! pitch);
+        fmLink.setVisible (place == Place::pool && ! pitch && ! compact);
         transpose.setVisible (isShown (&transpose));
         graph.setSource (pitch ? juce::String() : FmOperatorInfo::prefixOf (selectedOperator),
                          pitch ? OperatorPool::colour() : IlanaTheme::oscColour (selectedOperator));
@@ -813,7 +886,7 @@ private:
     juce::Rectangle<int> panel, tabLine, hostArea;
     int headerLeft = 0;
     int selectedOperator = 0, operatorTab = 0, pitchTab = 0;
-    bool pitch = false;
+    bool pitch = false, compact = false;
 };
 
 // The Op LFO's picture: one cycle of its wave, as the pool LFOs' graphs
@@ -926,8 +999,28 @@ public:
     ComboControl& getShape() { return shape; }
     juce::Rectangle<int> getPanelBounds() const { return panel; }
 
+    // The pop-up's layout (UI review 26): one title (the pop-up's), the picture at the left and a
+    // column as the LFO pop-ups have: SHAPE on its first line, RATE DELAY and the RETRIG switch over
+    // what it moves on the operators, PLAY's ring knobs three to a row (their names whole).
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        shape.setPackedMenu (compact);
+        for (auto* knob : { &rate, &delay, &pitchDepth, &pitchSens, &ampDepth })
+            knob->setPackedDial (compact ? compactDial : 0.0f);
+        retrig.setPackedName (compact ? ToggleControl::NamePlace::below : ToggleControl::NamePlace::none);
+        resized();
+        repaint();
+    }
+
+    static constexpr float compactDial = 28.0f;
+    static constexpr int compactPitch = 61, compactRow = 39, compactGap = 10, compactLine = 16, compactLineGap = 4;
+    static constexpr int compactColumn = 3 * compactPitch, compactHeight = compactLine + compactLineGap + 2 * compactRow;
+
     void paint (juce::Graphics& g) override
     {
+        if (compact)
+            return;
         const auto active = FmOperatorInfo::anyOperatorEnv (processorRef);
         paintOperatorPanel (g, panel, "OP LFO",
                             active ? "the DX7 LFO: every oscillator on the Operator Env follows it"
@@ -951,6 +1044,29 @@ public:
 
     void resized() override
     {
+        if (compact)
+        {
+            panel = operatorHeading = hintArea = {};
+            auto area = getLocalBounds();
+            auto column = area.removeFromRight (compactColumn);
+            area.removeFromRight (compactGap);
+            view.setBounds (area);
+            shape.setBounds (column.getX(), column.getY(), column.getWidth(), compactLine);
+            const auto top = column.getY() + compactLine + compactLineGap;
+            const auto cell = [&] (int slot, int row)
+            {
+                return juce::Rectangle<int> (column.getX() + slot * compactPitch, top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
+                                             compactPitch, (int) compactDial + 10);
+            };
+            rate.setBounds (KnobControl::packedBoundsFor (cell (0, 0)));
+            delay.setBounds (KnobControl::packedBoundsFor (cell (1, 0)));
+            retrig.setBounds (cell (2, 0).withTrimmedTop (12)); // (its name on the knob names' line)
+            pitchDepth.setBounds (KnobControl::packedBoundsFor (cell (0, 1)));
+            pitchSens.setBounds (KnobControl::packedBoundsFor (cell (1, 1)));
+            ampDepth.setBounds (KnobControl::packedBoundsFor (cell (2, 1)));
+            return;
+        }
+
         auto area = getLocalBounds();
         view.setBounds (area.removeFromLeft (area.getWidth() * OperatorPool::graphPercent / 100).reduced (2));
         area.removeFromLeft (8);
@@ -992,4 +1108,5 @@ private:
     EffectRules effectRules;
     IlanaAnim::ChangeGate changeGate;
     juce::Rectangle<int> panel, operatorHeading, hintArea;
+    bool compact = false;
 };

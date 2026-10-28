@@ -879,14 +879,20 @@ private:
         const auto content = view.getContentArea().translated (view.getOrigin().x, view.getOrigin().y);
         if (content.getRight() > band.getRight() + 40.0f)
         {
-            // (Tall enough for every box after VOICES: an LFO box above or below the row sits inside.)
-            auto top = voiceArea.getY(), bottom = voiceArea.getBottom();
+            // (As tall as the boxes after VOICES need, an LFO box above or below the row inside: the
+            // frame hugs the chain rather than standing as tall as EACH NOTE, mostly empty, UI review 26.)
+            auto top = std::numeric_limits<float>::max(), bottom = std::numeric_limits<float>::lowest();
             for (const auto& node : shown.nodes())
-                if (! isVoice (node) && ! node.isFixed())
+                if (! isVoice (node))
                 {
                     top = juce::jmin (top, node.y - 40.0f);
                     bottom = juce::jmax (bottom, node.y + PatchCableView::nodeHeight + 20.0f);
                 }
+            if (top > bottom)
+            {
+                top = voiceArea.getY();
+                bottom = voiceArea.getBottom();
+            }
             const auto all = juce::Rectangle<float> (band.getRight() + 10.0f, top + view.getOrigin().y,
                                                      content.getRight() + 20.0f - band.getRight() - 10.0f, bottom - top);
             g.setColour (Ui::line2.withAlpha (0.2f));

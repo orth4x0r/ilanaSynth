@@ -332,8 +332,9 @@ inline juce::String& knobClipboard()
 // for the knob's rings, shown while the knob is hovered (V7-27), and
 // controls too:
 // drag one up or down to set that routing's depth, double-click it to zero
-// the depth (as knobs, rings and the source card do), right-click it to
-// bypass or remove the routing. More routings than fit show as a "+N"
+// the depth (as knobs, rings and the source card do), right-click it for
+// the routing's menu (polarity, stereo, amount, bypass, remove; the rings
+// share it). More routings than fit show as a "+N"
 // badge, which opens the knob's source card with all of them.
 class ModDotStrip : public juce::Component,
                     public juce::SettableTooltipClient
@@ -346,6 +347,9 @@ public:
         float depth = 0.0f;
         bool bypass = false;
         bool bipolar = false;
+        int polarity = 0;           // Mod::Polarity
+        bool stereo = false;
+        bool stereoAllowed = false; // Mod::canBeStereo (its destination)
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
@@ -354,11 +358,60 @@ public:
     // The right-click menu's choices.
     std::function<void (int slot)> onRemove;
     std::function<void (int slot, bool bypass)> onBypass;
+    std::function<void (int slot, int polarity)> onPolarity;
+    std::function<void (int slot, bool stereo)> onStereo;
+    std::function<void (int slot)> onTypeAmount;
     // A depth drag's start and end (one undo step).
     std::function<void (int source)> onDragStart;
     std::function<void()> onDragEnd;
     // The "+N" badge: show every routing (the knob's source card).
     std::function<void()> onShowAll;
+
+    // A routing's right-click menu, on its ring or its badge (Vital's):
+    // polarity, stereo, then the amount, bypass and remove.
+    static void addRouteItems (juce::PopupMenu& menu, const Dot& dot)
+    {
+        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
+
+        const auto add = [&menu] (int id, const juce::String& text, const juce::String& hint, bool enabled, bool ticked)
+        {
+            juce::PopupMenu::Item item (text);
+            item.itemID = id;
+            item.shortcutKeyDescription = hint;
+            item.isEnabled = enabled;
+            item.isTicked = ticked;
+            menu.addItem (std::move (item));
+        };
+
+        add (11, "Unipolar", "one way, up", true, dot.polarity == (int) Mod::Polarity::Unipolar);
+        add (12, "Negative", "one way, down", true, dot.polarity == (int) Mod::Polarity::Negative);
+        add (13, "Bipolar", "both sides", true, dot.polarity == (int) Mod::Polarity::Bipolar);
+        add (14, "Auto", "source's range", true, dot.polarity == (int) Mod::Polarity::Natural);
+        menu.addSeparator();
+        add (15, "Stereo", dot.stereoAllowed ? "left up, right down" : "filter cutoffs only", dot.stereoAllowed, dot.stereo);
+        menu.addSeparator();
+        add (10, "Type an amount...", {}, true, false);
+        add (1, "Bypass", {}, true, dot.bypass);
+        add (2, "Remove", {}, true, false);
+    }
+
+    // Acts on a choice from addRouteItems' menu.
+    void handleRouteChoice (int result, const Dot& dot)
+    {
+        if (result == 1 && onBypass != nullptr)
+            onBypass (dot.slot, ! dot.bypass);
+        else if (result == 2 && onRemove != nullptr)
+            onRemove (dot.slot);
+        else if (result == 10 && onTypeAmount != nullptr)
+            onTypeAmount (dot.slot);
+        else if (result >= 11 && result <= 14 && onPolarity != nullptr)
+        {
+            const Mod::Polarity choices[] { Mod::Polarity::Unipolar, Mod::Polarity::Negative, Mod::Polarity::Bipolar, Mod::Polarity::Natural };
+            onPolarity (dot.slot, (int) choices[result - 11]);
+        }
+        else if (result == 15 && onStereo != nullptr)
+            onStereo (dot.slot, ! dot.stereo);
+    }
 
     void setDots (const std::vector<Dot>& newDots)
     {
@@ -568,20 +621,13 @@ private:
 
         const auto dot = dots[(size_t) index];
         juce::PopupMenu menu;
-        menu.addSectionHeader (ModNames::source (dot.source) + "  (" + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
-        menu.addItem (1, "Bypass", true, dot.bypass);
-        menu.addItem (2, "Remove");
+        addRouteItems (menu, dot);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                                 .withTargetScreenArea (localAreaToGlobal (dotBounds (index).expanded (2.0f).getSmallestIntegerContainer())),
                             [safeThis = juce::Component::SafePointer<ModDotStrip> (this), dot] (int result)
                             {
-                                if (safeThis == nullptr)
-                                    return;
-
-                                if (result == 1 && safeThis->onBypass != nullptr)
-                                    safeThis->onBypass (dot.slot, ! dot.bypass);
-                                else if (result == 2 && safeThis->onRemove != nullptr)
-                                    safeThis->onRemove (dot.slot);
+                                if (safeThis != nullptr)
+                                    safeThis->handleRouteChoice (result, dot);
                             });
     }
 
@@ -616,14 +662,16 @@ private:
 
         if (! juce::isPositiveAndBelow (index, (int) dots.size()))
         {
-            setTooltip ("Modulation\nDrag a badge (or the knob's ring) to set its depth, double-click it to zero it, right-click to bypass or remove.");
+            setTooltip ("Modulation\nDrag a badge (or the knob's ring) to set its depth, double-click it to zero it, right-click for polarity, stereo, bypass or remove.");
             return;
         }
 
         const auto& dot = dots[(size_t) index];
         setTooltip (ModNames::source (dot.source) + "  " + (dot.depth >= 0.0f ? "+" : "") + juce::String (Mod::shownPercent (dot.depth, dot.bipolar))
                     + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "") + (dot.bypass ? "  (bypassed)" : "")
-                    + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, right-click to bypass or remove.");
+                    + (dot.stereo ? "  (stereo: left up, right down)" : "")
+                    + "\nDrag up or down to set the depth (Shift for fine), double-click to zero it, "
+                      "right-click for unipolar, bipolar, stereo, bypass or remove.");
     }
 
     std::vector<Dot> dots;
@@ -861,6 +909,8 @@ public:
         // (a popup-menu press or a ctrl-click reset is not the start of a drag)
         dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
         lastY = event.position.y;
+        if (auto* owner = getParentComponent()) // (the grab: the value grows, the name turns white)
+            owner->repaint();
         proportion = valueToProportionOfLength (getValue());
     }
 
@@ -883,7 +933,11 @@ public:
         dragging = false;
         juce::Slider::mouseUp (event);
         event.source.enableUnboundedMouseMovement (false);
+        if (auto* owner = getParentComponent())
+            owner->repaint();
     }
+
+    bool isGrabbed() const { return dragging; }
 
 private:
     bool dragging = false;
@@ -950,6 +1004,16 @@ public:
 
             refreshRoutings();
         };
+        dotStrip.onPolarity = [this] (int slot, int polarity) { setRoutePolarity (slot, polarity); };
+        dotStrip.onStereo = [this] (int slot, bool stereo)
+        {
+            if (processorRef != nullptr)
+                processorRef->performEdit (stereo ? "Stereo modulation" : "Mono modulation",
+                                           [this, slot, stereo] { processorRef->setModSlotValue (slot, "stereo", stereo ? 1.0f : 0.0f); });
+
+            refreshRoutings();
+        };
+        dotStrip.onTypeAmount = [this] (int slot) { beginAmountEntry (slot); };
         dotStrip.onDragStart = [this] (int source)
         {
             if (processorRef != nullptr)
@@ -1025,6 +1089,7 @@ public:
     // The modulation destination whose depth the knob's ring shows (0: none).
     int getRingDestination() const { return ringConfig.destination; }
     int getNumRoutings() const { return (int) routings.size(); }
+    const ModDotStrip::Dot& getRouting (int index) const { return routings[(size_t) index]; }
     // The depth rings (one per routing, up to three), for the tests: how
     // many, a point on one (0..1 along its sweep, local to the knob), the
     // component that takes presses on them, and the badge strip.
@@ -1198,6 +1263,10 @@ public:
     }
 
     bool isPacked() const { return packedD > 0.0f; }
+    float getPackedDial() const { return packedD; }
+    // The packed name's size in units, and on screen in device pixels (the text floor test's measure).
+    float packedNameUnits() const { return packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f); }
+    float packedNameDevicePx() const { return IlanaTheme::font (packedNameUnits(), true).getHeight() * IlanaTheme::uiScaleRef(); }
     // The packed number's height on screen in device pixels, and the dial's (a layout test's measure:
     // the number keeps its share of the dial at every zoom).
     float packedNumberDevicePx() const { return IlanaTheme::font (packedD * kPackedValueScale, true, true).getHeight() * IlanaTheme::uiScaleRef(); }
@@ -1226,6 +1295,20 @@ public:
     // The cell a packed knob stands in, without the room round it for the rings (a layout test's measure).
     juce::Rectangle<int> packedCell() const { return isPacked() ? getLocalBounds().reduced (packedPadX, 0).withTrimmedTop (packedPadTop) : getLocalBounds(); }
     static juce::Rectangle<int> packedBoundsFor (juce::Rectangle<int> cell) { return cell.expanded (packedPadX, 0).withTrimmedTop (-packedPadTop); }
+    // PLAY's ring knob in a page's cell (one knob style, UI review 26): the dial grows with the cell's
+    // height up to `maxDial`, the value inside it, the name under it at the menus' label size.
+    void placeAsRing (juce::Rectangle<int> area, int maxDial = 46)
+    {
+        // (The room round the ring for the modulation rings stays inside the area: a row's knobs never overlap the next's.)
+        const auto inner = area.reduced (packedPadX, 0).withTrimmedTop (packedPadTop);
+        const auto dial = (float) juce::jlimit (26, juce::jmax (26, maxDial), juce::roundToInt ((float) inner.getHeight() / 1.42f));
+        setPackedDial (dial);
+        setPackedValueRoom (12);
+        setPackedNameSize (juce::jlimit (11.5f, 12.5f, dial * 0.28f));
+        const auto width = juce::jmin (inner.getWidth(), juce::roundToInt (dial) + 40);
+        const auto height = juce::jmin (inner.getHeight(), juce::roundToInt (dial * 1.42f));
+        setBounds (packedBoundsFor (inner.withSizeKeepingCentre (width, height)));
+    }
     // Opens the value for typing over the dial (double-click, as the text box did).
     void showValueEditor()
     {
@@ -1269,10 +1352,18 @@ public:
         repaint();
     }
 
-    void mouseDoubleClick (const juce::MouseEvent& event) override
+    // A double-click puts the knob back to its default (the slider's own
+    // double-click return, as in Vital and Serum 2; ilana 2026-10-28). A
+    // typed value is the right-click menu's "Type a value...".
+    void showTypedValueBox()
     {
-        if (isPacked() && ! event.mods.isCtrlDown() && ! event.mods.isCommandDown() && knobBounds.expanded (4).contains (event.getEventRelativeTo (this).getPosition()))
+        if (! isEnabled())
+            return;
+
+        if (isPacked())
             showValueEditor();
+        else
+            slider.showTextBox();
     }
 
     // A row mixing modulatable and fixed knobs: the fixed ones draw the same
@@ -1374,7 +1465,22 @@ public:
         repaint();
     }
 
-    ~KnobControl() override { closeModCard(); }
+    ~KnobControl() override
+    {
+        closeModCard();
+        // (A packed knob's "+N" may stand in the parent: take it back.)
+        if (auto* holder = dotStrip.getParentComponent(); holder != nullptr && holder != this)
+            holder->removeChildComponent (&dotStrip);
+    }
+
+    // The lifted "+N" follows the knob when it moves, hides or changes parent.
+    void moved() override { if (dotStrip.getParentComponent() != this) layoutDots(); }
+    void visibilityChanged() override { if (dotStrip.getParentComponent() != this) layoutDots(); }
+    void parentHierarchyChanged() override
+    {
+        if (auto* holder = dotStrip.getParentComponent(); holder != nullptr && holder != this && holder != getParentComponent())
+            addChildComponent (dotStrip);
+    }
 
     // Opens the card listing this knob's sources (hover does it after a
     // short rest). Held: it stays until closeModCard (tests, snapshots).
@@ -1528,8 +1634,10 @@ public:
         if (value.length() == 4 && juce::CharacterFunctions::isDigit (value[0]) && value[1] == '.')
             value = juce::String (value.getDoubleValue(), 1);
 
+        // Grabbed, the number grows a little and the name turns white; released, both settle back (~150 ms).
+        const auto grab = IlanaTheme::fade (const_cast<KnobControl&> (*this), 77, slider.isGrabbed() ? 1.0f : 0.0f, 24.0f);
         g.setColour (IlanaTheme::Ui::text.withMultipliedAlpha (on));
-        const auto drawn = IlanaTheme::font (packedD * kPackedValueScale, true, true);
+        const auto drawn = IlanaTheme::font (packedD * kPackedValueScale * (1.0f + 0.07f * grab), true, true);
         g.setFont (drawn);
         if (unit.isNotEmpty())
         {
@@ -1550,9 +1658,9 @@ public:
         const auto name = label.getText();
         if (name.isNotEmpty() && ! packedNameArea.isEmpty())
         {
-            g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
+            g.setColour (IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, grab).withMultipliedAlpha (on));
             // (Under the screen floor at a small zoom the same words are wider: no tracking, so neighbours' names keep apart.)
-            const auto nameFont = IlanaTheme::font (packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f), true);
+            const auto nameFont = IlanaTheme::font (packedNameUnits(), true);
             g.setFont (nameFont.withKerningFactor (nameFont.getHeight() > 6.2f ? 0.0f : 0.08f));
             const auto lineHeight = (int) std::ceil (nameFont.getHeight()) + 1;
             if (packedNameWrap && name.containsChar (' ')
@@ -1634,6 +1742,22 @@ public:
             const auto rounded = juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
             g.setColour (colour.withAlpha (((0.95f + 0.05f * hotAmount) * (1.0f - quietAmount) + 0.3f * quietAmount) * ringIn));
             g.strokePath (range, rounded);
+
+            // A stereo route moves the right channel the other way: that
+            // half of the ring is dashed (a both-sides ring already covers it).
+            if (dot.stereo && ! dot.bipolar)
+            {
+                const auto mirrored = angleOf (normAt (-dot.depth)), baseAt = angleOf (baseNorm);
+
+                if (std::abs (mirrored - baseAt) >= 0.06f)
+                {
+                    juce::Path half, dashed;
+                    half.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (mirrored, baseAt), juce::jmax (mirrored, baseAt), true);
+                    const float dashes[] { 3.0f, 3.0f };
+                    juce::PathStrokeType (width).createDashedStroke (dashed, half, dashes, 2);
+                    g.fillPath (dashed);
+                }
+            }
 
             if (dot.bypass)
                 continue;
@@ -2119,44 +2243,21 @@ private:
             const auto& dot = owner.routings[(size_t) ring];
             setTooltip (ModNames::source (dot.source, owner.processorRef) + "  " + (dot.depth >= 0.0f ? "+" : "")
                         + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%" + (dot.bipolar ? "  (swings both ways: 100% = the whole range)" : "")
-                        + (dot.bypass ? "  (bypassed)" : "")
+                        + (dot.bypass ? "  (bypassed)" : "") + (dot.stereo ? "  (stereo: left up, right down)" : "")
                         + "\nDrag the ring up or right to deepen it (Shift for fine), double-click to zero it, "
-                          "right-click to bypass or remove it.");
+                          "right-click for unipolar, bipolar, stereo, bypass or remove.");
         }
 
         void showMenu (int ring)
         {
             const auto dot = owner.routings[(size_t) ring];
             juce::PopupMenu menu;
-            menu.addSectionHeader (ModNames::source (dot.source, owner.processorRef) + "  ("
-                                   + juce::String (Mod::shownPercent (dot.depth, dot.bipolar)) + "%)");
-            menu.addItem (1, "Bypass", true, dot.bypass);
-            menu.addItem (2, "Remove");
-            menu.addSeparator();
-
-            if (owner.processorRef != nullptr)
-            {
-                const auto polarity = (int) owner.processorRef->readModSlot (dot.slot).polarity;
-                menu.addItem (10, "Type an amount...");
-                menu.addItem (11, "Polarity: positive (up)", true, polarity == 1);
-                menu.addItem (12, "Polarity: negative (down)", true, polarity == 3);
-                menu.addItem (13, "Polarity: bipolar (both sides)", true, polarity == 2);
-                menu.addItem (14, "Polarity: auto (the source's range)", true, polarity == 0);
-            }
+            ModDotStrip::addRouteItems (menu, dot);
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                                 [safeOwner = juce::Component::SafePointer<KnobControl> (&owner), dot] (int result)
                                 {
-                                    if (safeOwner == nullptr)
-                                        return;
-
-                                    if (result == 1 && safeOwner->dotStrip.onBypass != nullptr)
-                                        safeOwner->dotStrip.onBypass (dot.slot, ! dot.bypass);
-                                    else if (result == 2 && safeOwner->dotStrip.onRemove != nullptr)
-                                        safeOwner->dotStrip.onRemove (dot.slot);
-                                    else if (result == 10)
-                                        safeOwner->beginAmountEntry (dot.slot);
-                                    else if (result >= 11 && result <= 14)
-                                        safeOwner->setRoutePolarity (dot.slot, result == 11 ? 1 : result == 12 ? 3 : result == 13 ? 2 : 0);
+                                    if (safeOwner != nullptr)
+                                        safeOwner->dotStrip.handleRouteChoice (result, dot);
                                 });
         }
 
@@ -2263,8 +2364,28 @@ private:
             bounds = { getWidth() - stripW, packedD > 0.0f ? 0 : y, stripW, pitch };
         }
 
-        dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
-        dotStrip.setVisible (! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings));
+        // A packed knob's "+N" sat on its own rings (its cell has no room round them, UI review 26): it goes up into
+        // the parent, just clear of the outer ring's top right, so it can stand outside the knob's box.
+        const auto wantsVisible = ! compact && (roomBeside ? ! routings.empty() : (int) routings.size() > shownRings);
+        auto* parent = getParentComponent();
+        const auto lifted = packedD > 0.0f && ! roomBeside && parent != nullptr;
+        auto* host = lifted ? parent : static_cast<juce::Component*> (this);
+        if (dotStrip.getParentComponent() != host)
+            host->addChildComponent (dotStrip);
+
+        if (lifted)
+        {
+            const auto ring = outerRingRadius();
+            bounds = juce::Rectangle<int> (stripW, pitch).withPosition ((int) std::round (centre.x + ring * 0.45f), (int) std::floor (centre.y - ring) - pitch - 1)
+                     + getPosition();
+            dotStrip.setBounds (bounds);
+            dotStrip.setVisible (wantsVisible && isVisible());
+        }
+        else
+        {
+            dotStrip.setBounds (bounds.withY (juce::jmax (0, bounds.getY())));
+            dotStrip.setVisible (wantsVisible);
+        }
 
         ringOverlay.setBounds (getLocalBounds());
         ringOverlay.setVisible (! routings.empty());
@@ -2350,7 +2471,8 @@ private:
                 continue;
 
             const auto bipolar = Mod::isBipolarRoute (slot);
-            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar });
+            found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar, (int) slot.polarity,
+                               slot.stereo && Mod::canBeStereo (slot.destination), Mod::canBeStereo (slot.destination) });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -2363,7 +2485,8 @@ private:
                              || ! std::equal (found.begin(), found.end(), routings.begin(),
                                               [] (const auto& a, const auto& b)
                                               { return a.slot == b.slot && a.source == b.source && a.bypass == b.bypass
-                                                       && a.bipolar == b.bipolar && std::abs (a.depth - b.depth) < 1.0e-4f; });
+                                                       && a.bipolar == b.bipolar && a.polarity == b.polarity && a.stereo == b.stereo
+                                                       && std::abs (a.depth - b.depth) < 1.0e-4f; });
 
         // Mid-drag the ring keeps its own depth (the parameter catches up).
         if (! changed || draggedRing >= 0)
@@ -2465,8 +2588,9 @@ public:
         }
 
         if (parameter != nullptr)
-            menu.addItem (2000, "Reset to default");
+            menu.addItem (2000, "Reset to default  (double-click)");
 
+        menu.addItem (3500, juce::String (juce::CharPointer_UTF8 ("Type a value\xe2\x80\xa6")));
         menu.addSeparator();
         menu.addItem (3000, "Copy value");
 
@@ -2518,6 +2642,12 @@ private:
 
                                 if (handleMidiLearnResult (result, processor, safeThis->parameterId))
                                     return;
+
+                                if (result == 3500)
+                                {
+                                    safeThis->showTypedValueBox();
+                                    return;
+                                }
 
                                 // "Modulate with" a source that already drives
                                 // the knob edits that routing instead.
@@ -2983,8 +3113,16 @@ private:
 public:
     // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
     // (Public for the dropdown UI test.)
-    struct PopupCombo : public juce::ComboBox
+    struct PopupCombo : public juce::ComboBox,
+                        private juce::ComboBox::Listener
     {
+        PopupCombo() { addListener (this); }
+        ~PopupCombo() override { removeListener (this); }
+
+        // A list opening pictures the shown displays; the choice landing
+        // fades the old pictures out over the new shapes (IlanaAnim::MorphSource).
+        void comboBoxChanged (juce::ComboBox*) override { IlanaAnim::playMorphs(); }
+
         std::function<void()> popupOverride;
         double lastOverrideOpen = 0.0;
         double lastPopupOpen = -1.0e9; // (when the person last opened this list)
@@ -3065,6 +3203,7 @@ public:
             if (popupOverride == nullptr)
             {
                 lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
+                IlanaAnim::armMorphs();
                 juce::ComboBox::showPopup();
                 return;
             }
@@ -3086,6 +3225,7 @@ public:
                 return;
 
             lastOverrideOpen = now;
+            IlanaAnim::armMorphs();
             popupOverride();
         }
     };
@@ -3173,7 +3313,11 @@ public:
         if (! isEnabled())
             return;
         if (const auto index = segmentAt (event.position); index >= 0 && onChoose != nullptr)
+        {
+            IlanaAnim::armMorphs(); // (the old shapes fade out over the new: MorphSource)
             onChoose (index);
+            IlanaAnim::playMorphs();
+        }
         repaint();
     }
 
@@ -3296,7 +3440,9 @@ public:
     {
         if (const auto index = pillAt (event.getPosition()); isEnabled() && index >= 0 && onChoose != nullptr)
         {
+            IlanaAnim::armMorphs();
             onChoose (index);
+            IlanaAnim::playMorphs();
             repaint();
         }
     }
@@ -3408,7 +3554,9 @@ public:
     {
         if (const auto index = tileAt (event.position); isEnabled() && index >= 0 && onChoose != nullptr)
         {
+            IlanaAnim::armMorphs();
             onChoose (index);
+            IlanaAnim::playMorphs();
             repaint();
         }
     }
@@ -3569,13 +3717,13 @@ public:
             if (packedPlace == NamePlace::below)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (6.5f, true).withKerningFactor (0.08f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getY(), juce::jmax (0, b.getX() - 3), b.getHeight() }, packedPlace == NamePlace::leftFlush ? juce::Justification::centredLeft : juce::Justification::centredRight, 1);
             }
             else
@@ -3708,7 +3856,7 @@ private:
         {
             const auto target = on ? 1.0f : 0.0f;
             switchMoving = std::abs (switchAmount - target) > 0.001f;
-            switchAmount = switchMoving ? IlanaAnim::approach (switchAmount, target, 0.3f, frameTicks()) : target;
+            switchAmount = switchMoving && IlanaAnim::fullMotion() ? IlanaAnim::approach (switchAmount, target, 0.3f, frameTicks()) : target;
             button.getProperties().set ("switchAmount", switchAmount);
 
             if (switchMoving)
@@ -3820,7 +3968,7 @@ public:
         // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
         // by its ink: the caps' middle on the bar's middle.
         const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
-        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (7.3f) : IlanaTheme::font (6.5f, true).withKerningFactor (0.08f);
+        const auto font = isMouseOverOrDragging() ? IlanaTheme::font (IlanaTheme::TextSize::packedLabel) : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f);
         g.setFont (font);
         g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
         const juce::Font f (font);
@@ -3921,8 +4069,8 @@ public:
             const auto acts = rule.hasEffect();
             const auto alpha = acts ? 1.0f : rule.offAlpha != nullptr ? rule.offAlpha() : IlanaTheme::dimmedAlpha;
 
-            if (rule.control->getAlpha() != alpha)
-                rule.control->setAlpha (alpha);
+            // (A card switched on or off fades its controls over 180 ms.)
+            IlanaAnim::fadeAlpha (*rule.control, alpha);
 
             if (auto* knob = dynamic_cast<KnobControl*> (rule.control))
                 knob->setInactiveNote (acts ? juce::String() : rule.why);

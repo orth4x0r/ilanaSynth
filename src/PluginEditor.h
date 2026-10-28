@@ -104,14 +104,17 @@ public:
     void savePreset();
     void savePresetAs();
     SavePresetOverlay& getSaveOverlay() { return saveOverlay; }
+    // The header arrows: the preset before (-1) or after (1) in the browser's list.
+    void stepPreset (int delta);
 
     // Review 6: the header's EDITED badge as drawn (the confirm reads the
     // same isPatchEdited, and refreshes the badge before it asks); the
     // DX7 bank import (the browser's IMPORT .SYX); the docked browser.
     bool isEditedBadgeShown() const { return presetDisplay.isShowingModified(); }
     void importSyxFile (const juce::File& file);
-    // A .syx bank dropped anywhere on the window imports like IMPORT .SYX
-    // (the oscillators' sample drop zones take their own files first).
+    // A .syx bank dropped anywhere on the window imports like IMPORT .SYX, and
+    // an .ilanapreset loads (the oscillators' sample drop zones take their own
+    // files first).
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     bool isPresetDockOpen() const { return presetDockShown; }
@@ -156,6 +159,7 @@ private:
     void togglePresetPanel();
     // The browser docked over the page area (the window keeps its size).
     void createPresetPanel();
+    void loadPresetFile (const juce::File& file);
     void setPresetDockShown (bool shown);
     bool isPresetDockShown() const { return presetDockShown; }
     juce::Rectangle<int> pageArea() const;
@@ -237,6 +241,7 @@ private:
     // The dock's STEREO tag under VOICES and the pop-up it opens (SPREAD, PHASE, DRIFT, LOOSE).
     std::unique_ptr<juce::Button> stereoButton;
     std::unique_ptr<juce::Component> stereoPopover;
+    std::unique_ptr<IlanaAnim::PopGrow> stereoGrow; // (grows from STEREO, folds back into it)
     void setStereoOpen (bool open);
     juce::Rectangle<int> stereoPopoverBounds() const;
     int visibleTabCount = 0; // the tabs with a button in the row; the rest (OSC, FILTER, MOD) sit behind it
@@ -333,6 +338,7 @@ private:
     static std::array<juce::Rectangle<float>, 3> chipRegions (juce::Rectangle<int> row);
     ModSourceTray chipTray;
     std::unique_ptr<ModSourceChip> makeSourceChip (int source);
+    void showSourceMenu (juce::Component& target, int source);
     // "+": a picker for the LFOs and envelopes not in the pool yet.
     GhostButton moreChipsButton;
     void updateChipVisibility();
@@ -340,6 +346,7 @@ private:
     void showChipPicker();
     // A chip's click: its source's editor floating over the page (SourcePopover).
     std::unique_ptr<juce::Component> sourcePopover;
+    std::unique_ptr<IlanaAnim::PopGrow> sourceGrow; // (grows from its chip or EDIT button)
     juce::Rectangle<int> sourcePopoverAnchor;
     void closeSourcePopover();
 

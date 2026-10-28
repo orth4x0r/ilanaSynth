@@ -849,7 +849,7 @@ public:
         {
             // The packed MIX panel's row: OUT, the bar, the level in dB.
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, "OUT", area.withWidth (24.0f).toNearestInt(), juce::Justification::centredLeft, 1);
             const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
             const auto valueW = valueWidth;
@@ -859,7 +859,7 @@ public:
             g.setColour (colour.withAlpha (0.95f));
             g.fillRoundedRectangle (track.withWidth (juce::jmax (5.0f, track.getWidth() * level)), 2.5f);
             g.setColour (IlanaTheme::Ui::text3);
-            g.setFont (IlanaTheme::font (7.5f, false, true));
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, false, true));
             IlanaTheme::drawFitted (g, db, area.withLeft (area.getRight() - valueW).toNearestInt(), juce::Justification::centredRight, 1);
             return;
         }
@@ -986,7 +986,7 @@ public:
         g.setColour (IlanaTheme::Ui::line.brighter (0.25f));
         g.drawRoundedRectangle (area, 7.0f, 1.0f);
         g.setColour (IlanaTheme::accent());
-        g.setFont (IlanaTheme::font (8.5f, true).withKerningFactor (0.06f));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true).withKerningFactor (0.06f));
         g.drawText ("STRING TUNING", juce::Rectangle<int> (pad, 0, getWidth() - 2 * pad, headerH), juce::Justification::centredLeft, false);
         g.setColour (IlanaTheme::Ui::line);
         g.fillRect (1, headerH, getWidth() - 2, 1);
@@ -1015,6 +1015,73 @@ private:
         if (onClose != nullptr)
             onClose();
     }
+};
+
+// PLAY's drop tile (mockup v4, ilana 2026-10-26): with one or two oscillators the room under the cards
+// is one dashed tile holding the two add buttons, and an audio file or SoundFont dropped on it lands
+// in a new oscillator.
+class OscDropTile : public juce::Component,
+                    public juce::FileDragAndDropTarget
+{
+public:
+    std::function<void (const juce::File&)> onFileDropped;
+
+    // The add buttons sit on the tile; the caption goes under them.
+    void setCaptionTop (int y) { captionTop = y; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        juce::Path outline, dashed;
+        outline.addRoundedRectangle (area, 8.0f);
+        const float dashes[] { 4.0f, 4.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
+        if (dragHover)
+        {
+            g.setColour (IlanaTheme::accent().withAlpha (0.08f));
+            g.fillRoundedRectangle (area, 8.0f);
+        }
+        g.setColour (dragHover ? IlanaTheme::accent() : IlanaTheme::Ui::line);
+        g.fillPath (dashed);
+        if (captionTop > 0 && captionTop + 14 < getHeight())
+        {
+            g.setColour (dragHover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+            g.drawText (dragHover ? "drop to add it as a new oscillator" : "or drop a wavetable, sample or .sfz here",
+                        juce::Rectangle<int> (0, captionTop, getWidth(), 16), juce::Justification::centred, false);
+        }
+    }
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        if (files.size() != 1)
+            return false;
+        const juce::File file (files[0]);
+        for (const auto* extension : { "wav", "aif", "aiff", "flac", "ogg", "mp3", "m4a", "sf2", "sfz" })
+            if (file.hasFileExtension (extension))
+                return true;
+        return false;
+    }
+
+    void fileDragEnter (const juce::StringArray&, int, int) override { setDragHover (true); }
+    void fileDragExit (const juce::StringArray&) override { setDragHover (false); }
+
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        setDragHover (false);
+        if (files.size() == 1 && onFileDropped != nullptr)
+            onFileDropped (juce::File (files[0]));
+    }
+
+private:
+    void setDragHover (bool hover)
+    {
+        dragHover = hover;
+        repaint();
+    }
+
+    bool dragHover = false;
+    int captionTop = 0;
 };
 
 class OscPage : public juce::Component,
@@ -1135,7 +1202,7 @@ class OscPage : public juce::Component,
               egOut (state, prefix + "_eg_out", "OUTPUT"), // one level name (UI review 9, I9-7)
               trim (state, prefix + "_level", "VOICE LEVEL"),
               feedback (state, FmDiagram::routeId (index, index), "FEEDBACK"),
-              feedbackType (state, prefix + "_fb_type", "FB TYPE") {}
+              feedbackType (state, prefix + "_fb_type", "FEEDBACK TYPE") {}
 
         // Every knob in the oscillator's own colour, as on PLAY.
         void setColour (juce::Colour colour)
@@ -1481,6 +1548,13 @@ public:
             };
             addChildComponent (card.stringButton);
 
+            // The header's x removes the oscillator (ilana 2026-10-26: "an easier way to ... delete oscs").
+            card.removeButton.setTooltip ("Remove this oscillator (undo brings it back). Drag the header to move the card; right-click it to duplicate");
+            card.removeButton.onClick = [this, i] { removeOscillatorCard (i); };
+            styleHeaderButton (card.removeButton);
+            card.removeButton.getProperties().set ("packedButton", true);
+            addChildComponent (card.removeButton);
+
             card.sampleLoadButton.setButtonText ("LOAD...");
             card.sampleLoadButton.setTooltip ("Load a sample or an SF2 / SFZ multisample, or pick a factory sample.  You can also drop a .wav or .sfz file on the picture");
             card.sampleLoadButton.onClick = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleLoadButton); };
@@ -1604,7 +1678,7 @@ public:
         sbOn.getButton().setTooltip ("The acoustic keys' body: soundboard, stretch tuning, sustain pedal (CC64) resonance and the action's noises");
 
         tuneButton.setTooltip ("The sympathetic strings' six notes (with Manual tuning on)");
-        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible()); };
+        tuneButton.onClick = [this] { showTuning (! tuningPopover.isVisible() || tuningGrow.isClosing()); };
         tuningPopover.isOwnButton = [this] (juce::Component* c) { return c == &tuneButton || tuneButton.isParentOf (c) || c == &symManual || symManual.isParentOf (c); };
         tuningPopover.onClose = [this] { showTuning (false); };
         styleHeaderButton (tuneButton);
@@ -1711,6 +1785,9 @@ public:
         addFmButton.setTooltip ("Add the next oscillator as an FM / DX7 operator: a sine tuned by ratio, on its OP ENV");
         addFmButton.onClick = [this] { addOscillatorOfType (OscMode::fmOperator); };
         addChildComponent (addFmButton);
+        // On PLAY, with room under one or two cards, both buttons sit on the drop tile.
+        addChildComponent (dropTile);
+        dropTile.onFileDropped = [this] (const juce::File& file) { addOscillatorFromFile (file); };
 
         lastRevealVersion = processorRef.getRevealVersion();
         updateModeVisibility();
@@ -1801,19 +1878,126 @@ public:
             paintStrip (g);
     }
 
-    // A right-click on a card's header: switch it off or remove it (the old
-    // tab's menu).
+    // A right-click on a card's header: switch it off, duplicate or remove
+    // it (the old tab's menu). A drag by the header moves the card (ilana
+    // 2026-10-26: "drag to reorder"): a line shows where it lands.
     void mouseDown (const juce::MouseEvent& event) override
     {
-        if (! event.mods.isPopupMenu())
-            return;
-
+        dragOsc = -1;
         for (const auto& card : cards)
             if (card.header.contains (event.getPosition()))
             {
-                showOscMenu (card.osc);
+                if (event.mods.isPopupMenu())
+                    showOscMenu (card.osc);
+                else if (cards.size() > 1)
+                    dragOsc = card.osc;
                 return;
             }
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (dragOsc < 0 || (! dragging && event.getDistanceFromDragStart() < 5))
+            return;
+
+        dragging = true;
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        if (auto* viewport = findParentComponentOfClass<juce::Viewport>())
+        {
+            const auto inViewport = viewport->getLocalPoint (this, event.getPosition());
+            viewport->autoScroll (inViewport.x, inViewport.y, 30, 12);
+        }
+        const auto position = dropPosition (event.y);
+        if (position != dropAt)
+        {
+            dropAt = position;
+            repaint();
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        const auto osc = dragOsc, position = dropAt;
+        const auto moved = dragging && position >= 0 && position != positionOf (osc);
+        dragOsc = dropAt = -1;
+        dragging = false;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        repaint();
+
+        if (moved)
+        {
+            const auto name = "OSC " + juce::String (osc + 1);
+            auto& p = processorRef;
+            auto landed = osc;
+            p.performEdit ("Move " + name, [&p, &landed, osc, position] { landed = p.moveOscillator (osc, position); });
+            selected = landed;
+            updateModeVisibility();
+            updateEnabled();
+        }
+    }
+
+    // An open hand over a header's free space says it can be dragged.
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        auto overHeader = false;
+        for (const auto& card : cards)
+            overHeader = overHeader || card.header.contains (event.getPosition());
+        setMouseCursor (overHeader && cards.size() > 1 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! dragging || dragOsc < 0)
+            return;
+
+        for (const auto& card : cards)
+            if (card.osc == dragOsc)
+            {
+                g.setColour (oscColour (dragOsc));
+                g.drawRoundedRectangle (card.bounds.toFloat().reduced (0.5f), 10.0f, 2.0f);
+            }
+
+        // The line between the cards it would land between (the gap's middle).
+        if (dropAt < 0 || dropAt == positionOf (dragOsc))
+            return;
+
+        const auto target = dropAt > positionOf (dragOsc) ? dropAt + 1 : dropAt;
+        const auto y = target < (int) cards.size() ? cards[(size_t) target].bounds.getY() - juce::jmax (1, gapNow()) / 2
+                                                   : cards.back().bounds.getBottom() + juce::jmax (1, gapNow()) / 2;
+        const auto& first = cards.front().bounds;
+        g.setColour (oscColour (dragOsc));
+        g.fillRoundedRectangle (juce::Rectangle<float> ((float) first.getX() + 4.0f, (float) y - 1.5f, (float) first.getWidth() - 8.0f, 3.0f), 1.5f);
+    }
+
+    // The card order (the shown oscillators, in slot order) of an oscillator.
+    int positionOf (int osc) const
+    {
+        for (size_t i = 0; i < cards.size(); ++i)
+            if (cards[i].osc == osc)
+                return (int) i;
+        return -1;
+    }
+
+    // Where a card dragged to y lands: the number of other cards above y's line.
+    int dropPosition (int y) const
+    {
+        auto position = 0;
+        for (const auto& card : cards)
+            if (card.osc != dragOsc && y > card.bounds.getCentreY())
+                ++position;
+        return position;
+    }
+
+    // Duplicate: the copy lands under the original and is selected.
+    void duplicate (int osc)
+    {
+        auto& p = processorRef;
+        auto copy = -1;
+        p.performEdit ("Duplicate OSC " + juce::String (osc + 1), [&p, &copy, osc] { copy = p.duplicateOscillator (osc); });
+        if (copy >= 0)
+            selected = copy;
+        updateModeVisibility();
+        updateEnabled();
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
@@ -1827,13 +2011,20 @@ public:
 
     // The height the same cards would need as wavetable cards: PLAY sizes its module bands by this, so a taller
     // card (a sample, a string) never squeezes the bands: the oscillator area scrolls instead.
-    int getReferenceHeight() const
+    int getReferenceHeight() const { return referenceHeightFor (numShown()); }
+
+    // What PLAY sizes its two module bands by: always two wavetable cards and the add row, the layout the bands
+    // were approved under (81 / 104 px). A third card scrolls a little rather than the bands shrinking (ilana
+    // 2026-10-22; UI review 26 found three-oscillator presets squashing band 2 to 89 px).
+    int getBandsReferenceHeight() const { return referenceHeightFor (2); }
+
+    int referenceHeightFor (int shown) const
     {
         // (Sized by the wavetable card PLAY's bands were approved under, 28 px warp rows and 12 px chip: the OSC tab's
         // cards are 6 px taller, and the oscillators scroll that little rather than the bands shrinking, ilana 2026-10-22.)
         const auto wavetableCard = 1 + cardHeaderHeight + panelTop + panelTitleH + (2 * 28 + 1 + 3 + 12) + panelTail + 1 + cardPad + 1;
         // (Never more than the three cards PLAY shows at once: a fourth card, and the add row under a third, scroll.)
-        const auto counted = juce::jmin (numShown(), embeddedAddRowBelow);
+        const auto counted = juce::jmin (shown, embeddedAddRowBelow);
         auto total = topNow() + (embedded ? 0 : stripHeight()) + bottomNow() + counted * (wavetableCard + gapNow());
         if (counted < embeddedAddRowBelow)
             total += addRowHeight + gapNow();
@@ -1871,6 +2062,25 @@ public:
         updateModeVisibility();
     }
 
+    // The drop tile: a new oscillator takes the file the way its picture would (a wavetable card asks what the
+    // audio is for; a SoundFont loads as a sample).
+    void addOscillatorFromFile (const juce::File& file)
+    {
+        if (! file.existsAsFile() || ! canAdd())
+            return;
+        const auto before = numShown();
+        addOscillatorOfType (-1);
+        if (numShown() == before)
+            return;
+        juce::Component::SafePointer<OscPage> safeThis (this);
+        const auto index = selected;
+        juce::MessageManager::callAsync ([safeThis, index, file]
+        {
+            if (safeThis != nullptr)
+                safeThis->waveDisplay (index).filesDropped ({ file.getFullPathName() }, 0, 0);
+        });
+    }
+
     // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
     // unless it had a type), or as that type. The add row and the UI tests.
     void addOscillatorOfType (int mode)
@@ -1891,6 +2101,27 @@ public:
 
         updateModeVisibility();
         updateEnabled();
+        // The new card scrolls into view, then slides down and fades in.
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<OscPage> (this), osc = selected]
+        {
+            if (safe == nullptr)
+                return;
+            safe->scrollTo (osc);
+            IlanaAnim::CardMotion::reveal (*safe, safe->getCardBounds (osc), [page = safe.getComponent()] (juce::Graphics& g)
+                                           { IlanaTheme::paintPageBackground (g, page->getLocalBounds()); });
+        });
+    }
+
+    // Removes an oscillator (one undo step); its card folds away.
+    void removeOscillatorCard (int osc)
+    {
+        auto picture = IlanaAnim::CardMotion::picture (*this, getCardBounds (osc));
+        const auto area = getCardBounds (osc);
+        auto& p = processorRef;
+        p.performEdit ("Remove OSC " + juce::String (osc + 1), [&p, osc] { p.removeOscillator (osc); });
+        updateModeVisibility();
+        updateEnabled();
+        IlanaAnim::CardMotion::collapse (*this, area, std::move (picture));
     }
 
     // The strip under the cards: one row (STEREO, NOISE, SUB, STRINGS,
@@ -1906,7 +2137,7 @@ public:
     // The UI test reads the menu's items.
     juce::StringArray getOscMenuItems (int band) const
     {
-        return { isOff (band) ? "Switch on" : "Switch off", "Remove oscillator" };
+        return { isOff (band) ? "Switch on" : "Switch off", "Duplicate oscillator", "Remove oscillator" };
     }
 
     // The card's rectangle in the page (the UI tests).
@@ -2316,6 +2547,8 @@ private:
 
     std::vector<CardGeometry> cards;
     juce::Rectangle<int> stripArea, addArea;
+    int dragOsc = -1, dropAt = -1; // a card dragged by its header, and where it would land
+    bool dragging = false;
 
     // (A switched-off oscillator keeps its whole card, dimmed, on both tabs; no card folds, the page scrolls
     // instead: ilana 2026-10-21 "dont fold ... just let me scroll", 2026-10-22 "yeah, dim".)
@@ -2482,13 +2715,44 @@ private:
                     break;
                 }
 
-            // The row adds a Wavetable; its right end the same as FM / DX7.
-            addArea = { sideMargin, y, width, addRowHeight };
-            auto row = addArea;
-            addFmButton.setBounds (row.removeFromRight (addFmWidth));
-            row.removeFromRight (gap);
-            addButton.setBounds (row);
-            y += addRowHeight + gapNow();
+            // On PLAY with fewer than three cards, the room left under them is one drop tile (mockup v4) with the
+            // two buttons side by side in its middle; otherwise the row adds a Wavetable, its right end FM / DX7.
+            const auto tileHeight = getHeight() - y - 2;
+            const auto tile = embedded && numShown() < embeddedAddRowBelow && tileHeight >= tileMinHeight;
+            auto* host = tile ? static_cast<juce::Component*> (&dropTile) : static_cast<juce::Component*> (this);
+            for (auto* button : { &addButton, &addFmButton })
+            {
+                if (button->getParentComponent() != host)
+                    host->addAndMakeVisible (button);
+                button->setSolid (tile);
+            }
+            dropTile.setVisible (tile);
+
+            if (tile)
+            {
+                addArea = { sideMargin, y, width, tileHeight };
+                dropTile.setBounds (addArea);
+                const auto buttonsWidth = 2 * tileButtonWidth + 10;
+                const auto buttonsTop = (tileHeight - tileButtonHeight - 22) / 2;
+                auto row = juce::Rectangle<int> ((width - buttonsWidth) / 2, buttonsTop, buttonsWidth, tileButtonHeight);
+                addButton.setBounds (row.removeFromLeft (tileButtonWidth));
+                addFmButton.setBounds (row.removeFromRight (tileButtonWidth));
+                dropTile.setCaptionTop (buttonsTop + tileButtonHeight + 6);
+                y += tileHeight;
+            }
+            else
+            {
+                addArea = { sideMargin, y, width, addRowHeight };
+                auto row = addArea;
+                addFmButton.setBounds (row.removeFromRight (addFmWidth));
+                row.removeFromRight (gap);
+                addButton.setBounds (row);
+                y += addRowHeight + gapNow();
+            }
+        }
+        else
+        {
+            dropTile.setVisible (false);
         }
 
         // (Embedded on PLAY: the cards alone, no strip below them.)
@@ -2598,6 +2862,11 @@ private:
         const auto centre = card.header.getCentreY();
         osc.on.setBounds (juce::Rectangle<int> (30, 17).withCentre ({ card.header.getRight() - 6 - 15, centre }));
         auto right = card.header.withRight (osc.on.getX() - 6);
+        if (pieces.removeButton.isVisible())
+        {
+            pieces.removeButton.setBounds (right.removeFromRight (17).withSizeKeepingCentre (17, 16));
+            right.removeFromRight (4);
+        }
 
         // (From the right: a sample card reads LOAD, RESAMPLE, EXPORT, SLICE, ZONES, DETECT.)
         for (auto* button : { &loadButton (index), &pieces.sampleDetectButton, &pieces.sampleZonesButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.opEnvButton, &pieces.stringButton,
@@ -2732,12 +3001,14 @@ private:
         // UNISON
         {
             const auto c = addPanel (3, "UNISON");
-            const auto cell = 33;
+            // (The six knobs share the panel's whole width and the mode menu moves down beside the SPREAD picture:
+            // with the menu on the knob row the cells were 34 px and SPREAD / FRAME ± stood 9 px apart at 175 %,
+            // UI review 26.)
+            const auto menuW = 54;
+            const auto cell = juce::jmin (44, c.getWidth() / 6);
             const auto cellH = mainDial + nameLine;
             const auto top = middle (c, cellH + 4 + spreadH);
-            const auto menuW = 52;
-            osc.uniMode.setBounds ({ c.getX(), top + 4, menuW, menuH });
-            auto x = c.getX() + menuW + 3;
+            auto x = c.getX() + (c.getWidth() - cell * 6) / 2;
             for (auto* knob : { &osc.unison, &osc.detune, &osc.uniBlend, &osc.spread, &osc.uniFrame, &osc.uniWarp })
             {
                 placeKnob (*knob, x, top, cell, mainDial);
@@ -2745,8 +3016,10 @@ private:
             }
             const auto spreadY = top + cellH + 4;
             const auto labelW = 36;
-            card.labels.push_back ({ { c.getX(), spreadY, labelW, spreadH }, "SPREAD" });
-            pieces.spreadView.setBounds ({ c.getX() + labelW, spreadY, c.getWidth() - labelW, spreadH });
+            osc.uniMode.setBounds ({ c.getX(), spreadY + (spreadH - menuH) / 2, menuW, menuH });
+            card.labels.push_back ({ { c.getX() + menuW + 6, spreadY, labelW, spreadH }, "SPREAD" });
+            const auto barX = c.getX() + menuW + 6 + labelW;
+            pieces.spreadView.setBounds ({ barX, spreadY, c.getRight() - barX, spreadH });
         }
 
         pieces.status.setBounds (card.statusArea);
@@ -2843,7 +3116,8 @@ private:
             auto x = tonePanel.getX() + 7;
             for (auto* knob : toneKnobs)
             {
-                placeKnob (*knob, x, tonePanel.getY() + 17, 46, mainDial);
+                // (19, not 17: a modulated RING TIME's ring and live dot touched the TONE title, UI review 26.)
+                placeKnob (*knob, x, tonePanel.getY() + 19, 46, mainDial);
                 x += 46;
             }
             if (! electric)
@@ -3432,7 +3706,7 @@ private:
         const auto centre = card.header.getCentreY();
         IlanaTheme::paintTag (g, { (float) card.bounds.getX() + 14.0f, (float) centre }, tint);
         g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (10.0f, true));
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
         IlanaTheme::drawFitted (g, "OSC " + juce::String (index + 1), juce::Rectangle<int> (card.bounds.getX() + 23, centre - 9, 38, 18), juce::Justification::centredLeft, 1);
 
         if (usesPanels (card.kind))
@@ -3493,7 +3767,7 @@ private:
         for (const auto& label : card.labels)
         {
             g.setColour (label.bright ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
-            g.setFont (label.size > 0.0f ? IlanaTheme::font (label.size) : label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (7.5f, true).withKerningFactor (0.09f));
+            g.setFont (label.size > 0.0f ? IlanaTheme::font (label.size) : label.hint ? IlanaTheme::font (7.6f) : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
             IlanaTheme::drawFitted (g, label.text, label.area, label.hint && label.size <= 0.0f ? juce::Justification::topLeft : juce::Justification::centredLeft, label.lines);
         }
     }
@@ -3527,7 +3801,7 @@ private:
             if (panel.note.isNotEmpty())
             {
                 g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (7.5f));
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel));
                 IlanaTheme::drawFitted (g, panel.note, titleArea.withTrimmedLeft (titleWidth), juce::Justification::centredLeft, 1);
             }
         }
@@ -3644,20 +3918,23 @@ private:
     void showTuning (bool show)
     {
         show = show && readBool ("sym_manual") && ! embedded;
-        if (show == tuningPopover.isVisible())
+        if (show == (tuningPopover.isVisible() && ! tuningGrow.isClosing()))
             return;
 
         if (show)
         {
             tuningPopover.setBounds (tuningBounds());
-            tuningPopover.setAlpha (0.0f);
             tuningPopover.setVisible (true);
             tuningPopover.toFront (false);
-            juce::Desktop::getInstance().getAnimator().fadeIn (&tuningPopover, 120);
+            tuningGrow.open (getLocalPoint (&tuneButton, tuneButton.getLocalBounds().getCentre()).toFloat());
         }
         else
         {
-            tuningPopover.setVisible (false);
+            tuningGrow.close ([safe = juce::Component::SafePointer<juce::Component> (&tuningPopover)]
+                              {
+                                  if (safe != nullptr)
+                                      safe->setVisible (false);
+                              });
         }
         tuneButton.setToggleState (show, juce::dontSendNotification);
     }
@@ -3784,6 +4061,20 @@ private:
         SampleNameBox sampleNameButton;
         BarSliderControl xfadeBar; // the sample's CROSSFADE, a row of the toggle list
         juce::TextButton opEnvButton, stringButton, sampleLoadButton, sampleSliceButton, sampleExportButton, sampleZonesButton, sampleDetectButton;
+        // The header's x: remove this oscillator. Drawn as two strokes, as big as
+        // the buttons' capitals (a text x read small).
+        struct RemoveButton : juce::TextButton
+        {
+            void paintButton (juce::Graphics& g, bool over, bool down) override
+            {
+                getLookAndFeel().drawButtonBackground (g, *this, findColour (buttonColourId), over, down);
+                const auto centre = getLocalBounds().toFloat().getCentre();
+                const auto arm = 3.0f;
+                g.setColour (findColour (textColourOffId).withMultipliedAlpha (over ? 1.0f : 0.85f));
+                g.drawLine (centre.x - arm, centre.y - arm, centre.x + arm, centre.y + arm, 1.4f);
+                g.drawLine (centre.x - arm, centre.y + arm, centre.x + arm, centre.y - arm, 1.4f);
+            }
+        } removeButton;
     };
 
     // Every knob a card can show, for the one inline style.
@@ -3944,7 +4235,9 @@ private:
         juce::PopupMenu menu;
         menu.addSectionHeader ("OSC " + juce::String (band + 1));
         menu.addItem (1, on ? "Switch off" : "Switch on");
+        menu.addItem (3, "Duplicate oscillator", canAdd());
         menu.addItem (2, "Remove oscillator", numShown() > 1);
+        ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Oscillator, band);
         juce::Component::SafePointer<OscPage> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
                             [safe, band, on] (int result)
@@ -3956,7 +4249,9 @@ private:
                                 const auto name = "OSC " + juce::String (band + 1);
 
                                 if (result == 2)
-                                    p.performEdit ("Remove " + name, [&p, band] { p.removeOscillator (band); });
+                                    safe->removeOscillatorCard (band);
+                                else if (result == 3)
+                                    safe->duplicate (band);
                                 else if (auto* parameter = p.apvts.getParameter (juce::String (OscillatorIds::prefixes[(size_t) band]) + "_on"))
                                     p.performEdit (name + (on ? " off" : " on"), [parameter, on]
                                     {
@@ -4132,7 +4427,7 @@ private:
                  &phys.epDistance, &phys.epPosition, &phys.fbGain, &phys.fbDistance, &waveDisplay (i), &scrubbers[(size_t) i], &loadButton (i), editButtons[(size_t) i].get(),
                  bounceButtons[(size_t) i].get(), &pieces.stringView, &pieces.opEnvGraph, &pieces.spreadView, &pieces.partials, &pieces.status,
                  &pieces.opEnvButton, &pieces.stringButton, &pieces.sampleLoadButton, &pieces.sampleSliceButton, &pieces.sampleExportButton, &pieces.sampleZonesButton, &pieces.sampleDetectButton, &pieces.sampleNameButton,
-                 &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.exciterPills,
+                 &pieces.removeButton, &pieces.typeBar, &pieces.routeBar, &pieces.outBar, &pieces.prevTable, &pieces.nextTable, &pieces.exciterPills,
                  &phys.resAmount, &phys.resOn, &phys.resBoard };
     }
 
@@ -4149,8 +4444,8 @@ private:
                             &osc.sampleFadeIn, &osc.sampleFadeOut, &osc.sampleLoopXfade, &osc.sampleRoot, &osc.sampleBpm, &osc.sampleStartRandom,
                             &osc.grainPosition, &osc.grainScan, &osc.grainSize, &osc.grainDensity, &osc.grainSpray, &osc.grainPitch, &osc.grainSpread })
             knob->setPackedDial (panels ? (float) mainDial : 0.0f);
-        // (The OSC tab's wavetable and live cards draw VOICES smaller; the others at the full dial, as the v2 mockup.)
-        osc.unison.setPackedDial (panels ? (kind == Kind::fm || kind == Kind::sample || kind == Kind::grain || kind == Kind::physical ? (float) mainDial : 25.0f) : 0.0f);
+        // (VOICES at the same dial as its row on every card, as mockup v4: UI review 26 found it 7 px off the row's baseline.)
+        osc.unison.setPackedDial (panels ? (float) mainDial : 0.0f);
         osc.feedback.setPackedDial (kind == Kind::fm ? (float) mainDial : 0.0f);
         osc.sampleLoopXfade.setPackedDial (panels ? (float) mainDial : 0.0f); // (the regular dial, third row of the toggle grid)
         // (The unit of an operator's OUTPUT and of a cloud's SIZE sits under the number, as on every packed dial,
@@ -4295,6 +4590,7 @@ private:
             bounceButtons[(size_t) index]->setVisible (kind != Kind::live && ! opEnv);
             pieces.opEnvButton.setVisible (false); // (the envelope picture opens the editor on a click)
             pieces.stringButton.setVisible (kind == Kind::physical);
+            pieces.removeButton.setVisible (numShown() > 1);
 
             // The well: the table (slim line), the string, the operator's
             // envelope, the sample, the live meter.
@@ -4457,6 +4753,11 @@ private:
             pieces.sampleExportButton.setAlpha (alpha);
             pieces.sampleZonesButton.setAlpha (alpha);
             pieces.sampleDetectButton.setAlpha (alpha);
+            // The FILTER choice, the OUT bar and the remove cross dim too, so an
+            // off card reads as off at a glance (Impeccable audit, P1).
+            pieces.routeBar.setAlpha (alpha);
+            pieces.outBar.setAlpha (alpha);
+            pieces.removeButton.setAlpha (alpha);
         }
 
         effectRules.apply();
@@ -4723,6 +5024,8 @@ private:
     DashedAddButton addButton { "+  ADD OSC", "+  ADD OSC" };
     DashedAddButton addFmButton { "+  ADD FM / DX7", "+  ADD FM / DX7" };
     static constexpr int addFmWidth = 150;
+    static constexpr int tileMinHeight = 56, tileButtonWidth = 104, tileButtonHeight = 26;
+    OscDropTile dropTile;
     juce::TextButton tuneButton { juce::String::fromUTF8 ("\xe2\x80\xba") };
     OscPicker oscTabs;
     std::unique_ptr<juce::FileChooser> tableChooser, exportChooser;
@@ -4751,6 +5054,7 @@ private:
     std::array<std::unique_ptr<OscControls>, OscillatorIds::count> controls;
     ComboControl subShape, subOctave, noiseType;
     TuningPopover tuningPopover;
+    IlanaAnim::PopGrow tuningGrow { tuningPopover }; // (NOTES grows from its button)
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> laneLabels;
 };
 

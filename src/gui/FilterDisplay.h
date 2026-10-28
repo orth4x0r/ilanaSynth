@@ -22,6 +22,8 @@ class FilterDisplay : public juce::Component,
                       private IlanaAnim::FrameTimer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one: preset load, type change)
+
     explicit FilterDisplay (IlanaSynthAudioProcessor& processor) : processorRef (processor)
     {
         scopeL.assign (fftSize, 0.0f);
@@ -124,6 +126,14 @@ public:
         }
         if (big)
             g.drawText ("Hz", juce::Rectangle<float> (plot.getRight() - 26.0f, bounds.getBottom() - 13.0f, 26.0f, 11.0f), juce::Justification::centredRight);
+        else if (onlyFilter < 0)
+        {
+            // PLAY's graph names the chain in its corner (mockup v4): F1 alone, F1 -> F2 in series, F1 + F2 in parallel.
+            const auto both = ! isPassThrough (processorRef, 1) && ! filter2Replaced();
+            const auto chain = ! both ? juce::String ("F1") : readParam ("filters_parallel") > 0.5f ? juce::String ("F1 + F2")
+                                                                                                    : juce::String::fromUTF8 ("F1 \xe2\x86\x92 F2");
+            g.drawText (chain, juce::Rectangle<float> (plot.getX() + 5.0f, plot.getY() + 2.0f, 60.0f, 11.0f), juce::Justification::centredLeft);
+        }
         g.setColour (juce::Colours::white.withAlpha (0.07f));
 
         g.setColour (juce::Colours::white.withAlpha (0.05f));

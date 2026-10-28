@@ -38,6 +38,8 @@ class WaveDisplay : public juce::Component,
                     private IlanaAnim::FrameTimer
 {
 public:
+    IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one: preset load, type change)
+
     // The FRAME knob beside the picture says which frame: the card's picture needs no readout of its own.
     // The 2D / 3D flip a click makes (the snapshot tool and the UI tests set it directly).
     void setStack3d (bool shouldBe3d) { if (stack3d != shouldBe3d) { stack3d = shouldBe3d; updateViewButtons(); repaint(); } }

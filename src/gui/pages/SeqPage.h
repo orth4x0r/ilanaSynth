@@ -4,7 +4,48 @@
 
 namespace
 {
+// EXPORT MIDI drags the clip out as a .mid file (into a Live track, as
+// Serum 2's clips do) and saves one on a click; a .mid dropped on the page
+// imports into the chosen clip (ilana 2026-10-28).
+class ClipDragButton : public juce::TextButton
+{
+public:
+    // Writes the file to drag (empty: nothing to drag).
+    std::function<juce::File()> makeFile;
+    bool justDragged = false; // a drag, not a click: onClick skips it
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        juce::TextButton::mouseDrag (event);
+
+        if (dragging || event.getDistanceFromDragStart() < 6 || makeFile == nullptr)
+            return;
+
+        dragging = true;
+        justDragged = true;
+
+        if (const auto file = makeFile(); file.existsAsFile())
+            juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        dragging = justDragged = false;
+        juce::TextButton::mouseDown (event);
+    }
+
+    void mouseEnter (const juce::MouseEvent& event) override
+    {
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        juce::TextButton::mouseEnter (event);
+    }
+
+private:
+    bool dragging = false;
+};
+
 class SeqPage : public juce::Component,
+                public juce::FileDragAndDropTarget,
                 private juce::Timer
 {
 public:
@@ -62,8 +103,8 @@ public:
         spraySpread = std::make_unique<KnobControl> (p.apvts, "spray_spread", "SPREAD", generateColour(), true);
         strumTime = std::make_unique<KnobControl> (p.apvts, "spray_strum_time", "TIME", generateColour(), true);
         // Not a second bare CHANCE on the page (the arp has one).
-        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "SPRAY %", generateColour(), true);
-        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VEL RND", generateColour(), true);
+        sprayChance = std::make_unique<KnobControl> (p.apvts, "spray_chance", "CHANCE", generateColour(), true);
+        sprayVelocity = std::make_unique<KnobControl> (p.apvts, "spray_velocity", "VELOCITY", generateColour(), true);
         // (NOTES and RANGE take no ring: they keep the ring knobs' spacing, so the SPRAY row shares one line.)
         for (auto* knob : { sprayCount.get(), sprayRange.get(), spraySpread.get(), sprayChance.get(), sprayVelocity.get(), strumTime.get() })
             knob->setMatchRingSpacing (true);
@@ -100,9 +141,14 @@ public:
                                "replacing its notes. The clip's length becomes the file's, in whole bars.");
         clipImport.onClick = [this] { importMidiFile(); };
         clipExport.setButtonText ("EXPORT MIDI");
-        clipExport.setTooltip ("Export MIDI\nWrites the chosen clip as a .mid file (the clip's own length and notes, 120 BPM), "
-                               "to drag into a track in your DAW.");
-        clipExport.onClick = [this] { exportMidiFile(); };
+        clipExport.setTooltip ("Export MIDI\nDrag this onto a MIDI track in your DAW to drop the chosen clip there, or click to save "
+                               "it as a .mid file (the clip's own length and notes, 120 BPM). A .mid dropped on this page imports.");
+        clipExport.onClick = [this]
+        {
+            if (! std::exchange (clipExport.justDragged, false))
+                exportMidiFile();
+        };
+        clipExport.makeFile = [this] { return writeClipForDrag(); };
         clipQuantise.setButtonText ("QUANTISE");
         clipQuantise.setTooltip ("Quantise\nMoves the selected notes' starts (every note's, with none selected) to the nearest "
                                  "GRID line, in one undo step. Q in the roll does the same.");
@@ -408,7 +454,7 @@ public:
         // folds to its title line and the roll takes the page.
         constexpr int knobRowHeight = 13 + 58 + 16 + 6;
         const auto folded = generateFolded();
-        const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + (13 + 48 + 16) + 16;
+        const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + 66 + 10; // (a row of 40 px rings, their names under them)
         generateCard = right.removeFromBottom (generateHeight);
         right.removeFromBottom (8);
         arpCard = right;
@@ -456,8 +502,8 @@ public:
         {
             layoutRow (row, items, true);
             for (auto* item : items)
-                if (dynamic_cast<KnobControl*> (item) != nullptr)
-                    item->setBounds (item->getBounds().withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
+                if (auto* knob = dynamic_cast<KnobControl*> (item))
+                    knob->placeAsRing (row.withX (item->getX()).withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
         };
         const auto engineRow = [&] (const std::vector<juce::Component*>& items)
         {
@@ -484,7 +530,9 @@ public:
                 const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
                 // (Review 22 #9: at most 8 px each, so STEPS/GATE/OCTAVES/CHANCE stay a compact block, centred.)
                 const auto extra = juce::jmin (8, juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount));
-                column = column.withSizeKeepingCentre (column.getWidth(), juce::jmin (column.getHeight(), needed + extra * rowCount));
+                // (Top-aligned with the lanes, one shared top edge, instead of floating in the
+                // column's middle with a floor above and below: Impeccable audit, SEQ.)
+                column = column.withTrimmedTop (2).withHeight (juce::jmin (column.getHeight() - 2, needed + extra * rowCount));
                 menuRowHeight = menuRow + extra;
                 rowHeight += extra;
                 for (size_t k = 0; k < items.size(); k += (size_t) perRow)
@@ -605,10 +653,16 @@ public:
                 const auto cell = juce::Rectangle<int> (juce::roundToInt (left), row.getY(), juce::roundToInt (item.weight * unit),
                                                         row.getHeight()).reduced (3, 0);
                 left += item.weight * unit;
+                // PLAY's ring knobs; a menu or a switch level with the rings' middle (so SNAP TO KEY's
+                // menus don't leave its box's bottom third empty, UI review 26).
+                if (auto* knob = dynamic_cast<KnobControl*> (item.control))
+                {
+                    knob->placeAsRing (cell, 40);
+                    continue;
+                }
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
-                auto bounds = cell.withHeight (preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight());
-                // (Every box's names on the common top line, menus or knobs: V11-5.)
-                item.control->setBounds (bounds);
+                const auto height = preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight();
+                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height));
             }
         }
     }
@@ -910,32 +964,76 @@ private:
         clipChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                   [safeThis] (const juce::FileChooser& chooser)
                                   {
-                                      const auto file = chooser.getResult();
-
-                                      if (safeThis == nullptr || ! file.existsAsFile())
-                                          return;
-
-                                      Clip imported;
-                                      juce::String error;
-
-                                      if (! ClipState::importMidi (file, imported, error))
-                                      {
-                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
-                                          return;
-                                      }
-
-                                      auto& processor = safeThis->processorRef;
-                                      const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) safeThis->readValue ("clip_index"));
-                                      processor.performEdit ("Import MIDI clip", [&]
-                                      {
-                                          processor.getClipState().setClip (index, std::move (imported));
-                                          processor.clipsEdited();
-                                      });
-                                      safeThis->clipEditor.reload (true);
-                                      safeThis->clipBars.refresh();
+                                      if (safeThis != nullptr && chooser.getResult().existsAsFile())
+                                          safeThis->importMidi (chooser.getResult());
                                   });
     }
 
+public:
+    // Reads `file` into the chosen clip, one undo step (IMPORT MIDI, or a
+    // .mid dropped on the page).
+    bool importMidi (const juce::File& file)
+    {
+        Clip imported;
+        juce::String error;
+
+        if (! ClipState::importMidi (file, imported, error))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
+            return false;
+        }
+
+        const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) readValue ("clip_index"));
+        processorRef.performEdit ("Import MIDI clip", [&]
+        {
+            processorRef.getClipState().setClip (index, std::move (imported));
+            processorRef.clipsEdited();
+        });
+        clipEditor.reload (true);
+        clipBars.refresh();
+        return true;
+    }
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override
+    {
+        if (part != Part::notes)
+            return false;
+
+        for (const auto& path : files)
+            if (path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi"))
+                return true;
+        return false;
+    }
+
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        for (const auto& path : files)
+            if (path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi"))
+            {
+                importMidi (juce::File (path));
+                return;
+            }
+    }
+
+    // The chosen clip as a .mid in a temporary folder, named after the
+    // patch, for a drag out (File() when the clip has no notes).
+    juce::File writeClipForDrag()
+    {
+        const auto index = juce::jlimit (0, ClipState::numClips - 1, (int) readValue ("clip_index"));
+        const auto clip = processorRef.getClipState().getClip (index);
+
+        if (clip.notes.empty())
+            return {};
+
+        const auto name = processorRef.getCurrentPresetName().replaceCharacters ("\\/:*?\"<>|", "---------").trim();
+        const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilanaSynth MIDI");
+        folder.createDirectory();
+        const auto file = folder.getChildFile ((name.isEmpty() ? juce::String ("ilanaSynth") : name) + " clip " + juce::String (index + 1) + ".mid");
+        juce::String error;
+        return ClipState::exportMidi (clip, file, error) ? file : juce::File();
+    }
+
+private:
     // Writes the chosen clip to a .mid file (EXPORT MIDI).
     void exportMidiFile()
     {
@@ -996,7 +1094,8 @@ private:
     ComboControl clipIndex, clipMode;
     ClipBarsControl clipBars;
     ClipGridControl clipGrid;
-    juce::TextButton clipImport, clipExport;
+    juce::TextButton clipImport;
+    ClipDragButton clipExport;
     KnobControl arpSteps;
     NoteChainView noteChain;
     ChoiceSwitch scaleSwitch, strumSwitch;

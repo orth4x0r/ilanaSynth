@@ -57,6 +57,9 @@ public:
 
         type = newType;
         kind = kindFor (type);
+        // FILTER's graph is a control, as the voice filter's: drag its marker.
+        setInterceptsMouseClicks (type == 42, false);
+        setMouseCursor (type == 42 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
         lastSignature = 0;
         allInOneKind();
         repaint();
@@ -119,7 +122,81 @@ public:
         flushTicks (g);
     }
 
+    // FILTER (type 42): drag anywhere on the graph, left / right for the
+    // cutoff and up / down for the resonance from where it was, one gesture
+    // per parameter, as on the voice filter's graph.
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (type != 42)
+            return;
+        endGestures();
+        dragging = true;
+        dragStartY = event.position.y;
+        dragStartReso = param ("fx_filter_reso");
+        processorRef.beginEdit ("Filter FX graph");
+        for (const auto* id : { "fx_filter_cutoff", "fx_filter_reso" })
+            if (auto* parameter = parameterFor (id))
+            {
+                parameter->beginChangeGesture();
+                openGestures.push_back (parameter);
+            }
+        applyDrag (event.position);
+    }
+
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (dragging)
+            applyDrag (event.position);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! dragging)
+            return;
+        endGestures();
+        dragging = false;
+        processorRef.endEdit();
+        repaint();
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { if (type == 42) repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { if (type == 42) repaint(); }
+
 private:
+    juce::RangedAudioParameter* parameterFor (const char* id) const
+    {
+        if (valueSource != nullptr)
+            if (auto* parameter = valueSource->getParameter (id))
+                return parameter;
+        return processorRef.apvts.getParameter (id);
+    }
+
+    void applyDrag (juce::Point<float> mouse)
+    {
+        const auto plot = plotArea();
+        const auto proportion = (double) juce::jlimit (0.0f, 1.0f, (mouse.x - plot.getX()) / plot.getWidth());
+        const auto spread = (double) juce::jlimit (0.0f, 1.0f, param ("fx_filter_spread"));
+        // (The marker sits at the cutoff moved by SPREAD: the mouse sets the cutoff under it.)
+        const auto frequency = juce::jlimit (20.0, 20000.0, 20.0 * std::pow (1000.0, proportion) * std::exp2 (-0.5 * spread));
+        const auto reso = juce::jlimit (0.0f, 1.0f, dragStartReso + (dragStartY - mouse.y) / juce::jmax (40.0f, plot.getHeight() * 0.8f));
+        if (auto* parameter = parameterFor ("fx_filter_cutoff"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) frequency));
+        if (auto* parameter = parameterFor ("fx_filter_reso"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (reso));
+        repaint();
+    }
+
+    void endGestures()
+    {
+        for (auto* parameter : openGestures)
+            parameter->endChangeGesture();
+        openGestures.clear();
+    }
+
+    bool dragging = false;
+    float dragStartY = 0.0f, dragStartReso = 0.0f;
+    std::vector<juce::RangedAudioParameter*> openGestures;
+
     IlanaSynthAudioProcessor& processorRef;
     int type = -1;
     Kind kind = Kind::none;
@@ -594,7 +671,7 @@ private:
             }
             else
             {
-                rows.push_back ({ "AMOUNT", juce::String (juce::roundToInt (param ("fx_ott_amount") * 100.0f)) + "%" });
+                // (AMOUNT is the knob beside the picture: the readout lists only what no knob shows, UI review 26.)
                 static const char* const bandNames[] { "LOW", "MID", "HIGH" };
                 for (size_t band = 0; band < 3; ++band)
                     rows.push_back ({ bandNames[band], dbText (meterGr[band], true) + " dB" });
@@ -1632,6 +1709,21 @@ private:
             g.strokePath (curveAt (cutoff * std::exp2 (-0.5 * spread)), juce::PathStrokeType (1.2f));
         }
         strokeCurve (g, curveAt (cutoff * std::exp2 (0.5 * spread)), plot, plot.getBottom());
+
+        // The marker at the cutoff, on the curve, as the voice filter's graph draws its own.
+        {
+            const auto at = cutoff * std::exp2 (0.5 * spread);
+            const auto gain = std::abs (FilterType::response (type, slope24, reso, std::complex<double> (0.0, 1.0), morph, at));
+            const auto db = juce::jlimit (floor, top, (float) (20.0 * std::log10 (juce::jmax (1.0e-6, gain))));
+            const juce::Point<float> centre (logX (plot, at, low, high), plot.getBottom() - (db - floor) / (top - floor) * plot.getHeight());
+            const auto size = dragging || isMouseOver() ? 13.0f : 11.0f;
+            g.setColour (colour.withAlpha (0.25f));
+            g.fillEllipse (juce::Rectangle<float> (size + 6.0f, size + 6.0f).withCentre (centre));
+            g.setColour (colour);
+            g.fillEllipse (juce::Rectangle<float> (size, size).withCentre (centre));
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.drawEllipse (juce::Rectangle<float> (size, size).withCentre (centre).reduced (0.5f), 1.2f);
+        }
         const auto hz = cutoff < 1000.0 ? juce::String (juce::roundToInt (cutoff)) + " Hz" : juce::String (cutoff / 1000.0, cutoff < 10000.0 ? 2 : 1) + " kHz";
         paintCaption (g, FilterType::getNames()[type].toUpperCase(), hz);
     }

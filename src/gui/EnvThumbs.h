@@ -158,8 +158,16 @@ public:
 
         const auto index = indexAt (event.getPosition());
 
+        // A right-click: Copy, Paste, Init and Remove (it used to remove
+        // straight away; ilana 2026-10-28). The tile's x still removes.
+        if (index >= 0 && index < (int) envs.size() && event.mods.isPopupMenu())
+        {
+            showTileMenu (index);
+            return;
+        }
+
         if (index >= 0 && index < (int) envs.size()
-            && (event.mods.isPopupMenu() || (canRemove (index) && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position))))
+            && canRemove (index) && PoolCards::removeBounds (boundsOfCard (index).toFloat()).contains (event.position))
         {
             removeEnvelope (index);
             return;
@@ -402,6 +410,30 @@ private:
     // The "x": an unused envelope goes at once; one in use asks first, then
     // lets go of everything it does (its filter's env amount, oscillators
     // playing or warping with it, its routes) in one undo step.
+    juce::PopupMenu buildTileMenu (int tile)
+    {
+        juce::PopupMenu menu;
+        const auto& info = envs[(size_t) tile];
+        menu.addSectionHeader (info.title);
+        juce::Component::SafePointer<EnvThumbBar> safeThis (this);
+
+        for (int env = 0; env < 16; ++env)
+            if (envelopeSource (env) == info.source)
+                ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Envelope, env, [safeThis] { if (safeThis != nullptr) safeThis->repaint(); });
+
+        if (canRemove (tile))
+        {
+            menu.addSeparator();
+            menu.addItem ("Remove " + info.title, true, false, [safeThis, tile] { if (safeThis != nullptr) safeThis->removeEnvelope (tile); });
+        }
+        return menu;
+    }
+
+    void showTileMenu (int tile)
+    {
+        buildTileMenu (tile).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+    }
+
     void removeEnvelope (int env)
     {
         if (! canRemove (env))

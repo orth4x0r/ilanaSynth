@@ -11,7 +11,7 @@
 // name (never a code: a crowded bar groups chips instead, see
 // ModSourceGroupChip). Drag it onto a knob to modulate the knob; hover to
 // light the knobs it drives (and, after a moment, see where it goes); click
-// to keep them lit.
+// to keep them lit; right-click for its routes, each with Remove.
 class ModSourceChip : public juce::Component,
                       public juce::SettableTooltipClient,
                       private IlanaAnim::FrameTimer
@@ -220,6 +220,16 @@ public:
     }
 
     bool isPinned() const { return pinnedModSource() == index; }
+
+    // Right-click: where the source goes, each route with Remove (as Vital's
+    // sources do; ilana 2026-10-28). Set by the editor.
+    std::function<void (ModSourceChip&, int source)> onMenu;
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu() && onMenu != nullptr)
+            onMenu (*this, sourceAt (event.position));
+    }
 
     void mouseUp (const juce::MouseEvent& event) override
     {

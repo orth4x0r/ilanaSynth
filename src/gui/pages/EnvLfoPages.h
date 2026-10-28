@@ -231,7 +231,7 @@ public:
           resAmount (p.apvts, "res_amount", "AMOUNT", resonatorColour(), true),
           resDecay (p.apvts, "res_decay", "DECAY", resonatorColour(), true),
           resOffset (p.apvts, "res_offset", "OFFSET", resonatorColour(), true),
-          resKeytrack (p.apvts, "res_keytrack", "KEY TRK", resonatorColour(), true),
+          resKeytrack (p.apvts, "res_keytrack", "KEY TRACK", resonatorColour(), true),
           bodyType (p.apvts, "body_type", "TYPE"),
           bodyMaterial (p.apvts, "body_material", "MATERIAL", resonatorColour(), true),
           bodySize (p.apvts, "body_size", "SIZE", resonatorColour(), true),
@@ -1001,6 +1001,7 @@ public:
     {
         compact = shouldBeCompact;
         thumbs.setVisible (! compact);
+        opEditor.setCompact (compact);
         for (auto& unit : units)
             for (auto* knob : unit.knobs)
                 if (auto* dial = dynamic_cast<KnobControl*> (knob))
@@ -1010,7 +1011,7 @@ public:
     }
 
     static constexpr float compactDial = 28.0f;
-    static constexpr int compactPitch = 40, compactRow = 39, compactGap = 10; // (40: VELOCITY and KEY RATE side by side at the real fonts)
+    static constexpr int compactPitch = 41, compactRow = 39, compactGap = 10; // (41: VELOCITY and KEY RATE 12 px apart at 175 %, UI review 26)
     static constexpr int compactKnobsWidth = 4 * compactPitch, compactHeight = 2 * compactRow;
 
     // What the section needs below its cards: the panel's header and one
@@ -1475,6 +1476,7 @@ public:
     {
         compact = shouldBeCompact;
         thumbs.setVisible (! compact);
+        opLfoEditor.setCompact (compact);
         const auto dial = compact ? compactDial : 0.0f;
         for (size_t lfo = 0; lfo < controlsList.size(); ++lfo)
         {
@@ -1511,7 +1513,7 @@ public:
     int compactHeight() const
     {
         if (selected == opLfoId)
-            return 150;
+            return OperatorLfoEditor::compactHeight;
         if (selected == msegId)
             return compactRowsTop (2) + compactRow;
         if (selected == clockId)

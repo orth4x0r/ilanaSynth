@@ -46,7 +46,7 @@ namespace Ui
     inline const juce::Colour track   { 0xff262a33 }; // knob and slider tracks, a switch while off (ink 4)
     inline const juce::Colour text    { 0xffeef0f4 }; // values, titles
     inline const juce::Colour text2   { 0xffaab0bb }; // labels
-    inline const juce::Colour text3   { 0xff7a8190 }; // hints, disabled
+    inline const juce::Colour text3   { 0xff868d9b }; // hints, disabled (4.9:1 on raised; Impeccable audit)
     inline const juce::Colour accent2 { 0xffff8a63 }; // the accent as text on a tinted fill
 }
 
@@ -94,7 +94,7 @@ inline bool isOscIdentityColour (juce::Colour colour)
 
 // How opaque a control is while it does nothing (its section is off): dimmed,
 // but still readable against the card (about 4:1 for the label text).
-inline constexpr float dimmedAlpha = 0.6f;
+inline constexpr float dimmedAlpha = 166.0f / 255.0f; // about 65 %, exact in a component's 8-bit alpha
 
 // Knob sizes by role (UI review 4, V22), the same on every page: the largest
 // dial a knob takes (its cell; the ring drawn inside is 8 px smaller). A
@@ -138,6 +138,12 @@ namespace TextSize
     // the smallest sizes grow to 10 px there (UI review 9, V9-26).
     // The packed OSC panels' button and segment text (review 23's 9.5 px at 1.5x); font() holds the screen floor.
     inline constexpr float packedTextHeight = 7.8f;
+
+    // The packed (PLAY / review-23) cards' own steps, named so a page doesn't
+    // type them (Impeccable audit: 47 raw sizes). Same values as before.
+    inline constexpr float packedLabel = 7.5f;  // section names, switch and bar names, OUT
+    inline constexpr float packedBody  = 8.5f;  // pills, chips, menu text in the packed cards
+    inline constexpr float packedTitle = 10.0f; // a packed card's own title
 
     inline constexpr float smallestZoom  = 0.75f;
     inline constexpr float screenFloorPx = 10.0f;
@@ -781,7 +787,7 @@ inline float fadeValue (const void* key, int channel, float target, float rate, 
 
     auto& state = states[{ key, channel }];
 
-    if (! fresh || state.time <= 0.0 || now - state.time > 2000.0)
+    if (! fresh || ! IlanaAnim::fullMotion() || state.time <= 0.0 || now - state.time > 2000.0)
     {
         state = { target, now };
         return target;
@@ -1044,7 +1050,7 @@ public:
         {
             const auto text = button.getButtonText();
             if (text.length() == 1 && ! juce::CharacterFunctions::isLetterOrDigit (text[0]))
-                return juce::Font (IlanaTheme::font (10.0f, true));
+                return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTitle, true));
             return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f));
         }
 
@@ -1147,17 +1153,56 @@ public:
         g.setFont (tabFont());
         g.drawText (button.getButtonText(), bounds.withTrimmedBottom (1.0f), juce::Justification::centred);
 
-        if (lit > 0.01f)
-        {
-            const auto width = (bounds.getWidth() - 20.0f) * lit;
-            const auto bar = juce::Rectangle<float> (width, 2.0f).withCentre ({ bounds.getCentreX(), bounds.getBottom() - 1.0f });
-            g.setColour (IlanaTheme::accent());
-            g.fillRoundedRectangle (bar, 1.0f);
-        }
+        // (The underline is the bar's: drawTabAreaBehindFrontButton.)
 
         if ((hover > 0.01f && hover < 0.99f) || (lit > 0.01f && lit < 0.99f))
             button.repaint();
     }
+
+    // The chosen tab's 2 px accent underline, drawn by the bar so it glides
+    // to a new tab (about 160 ms, review 26 flair) instead of jumping.
+    void drawTabAreaBehindFrontButton (juce::TabbedButtonBar& bar, juce::Graphics& g, int w, int h) override
+    {
+        juce::LookAndFeel_V4::drawTabAreaBehindFrontButton (bar, g, w, h);
+
+        const auto* front = bar.getTabButton (bar.getCurrentTabIndex());
+        const auto shown = front != nullptr && ! (bool) front->getProperties()["hiddenTab"] && front->getWidth() > 20;
+        const auto alpha = IlanaTheme::fade (bar, 902, shown ? 1.0f : 0.0f);
+
+        if (! shown && alpha < 0.01f)
+            return;
+
+        // (Its own state, not the shared fade: a bar unpainted for a while must still glide.)
+        auto& glide = tabGlides[&bar];
+        if (shown)
+        {
+            const auto target = front->getBounds().toFloat();
+            const auto to = juce::Point<float> (target.getCentreX(), target.getWidth() - 20.0f);
+            if (to != glide.to)
+            {
+                glide.from = glide.to.x < 0.0f ? to : glide.shown;
+                glide.to = to;
+                glide.tween.start (160.0f);
+            }
+            glide.shown = glide.from + (glide.to - glide.from) * IlanaAnim::easeOutCubic (glide.tween.linear());
+            if (glide.tween.running())
+                bar.repaint();
+        }
+        const auto centre = glide.shown.x, width = glide.shown.y;
+
+        if (width < 1.0f)
+            return;
+
+        g.setColour (IlanaTheme::accent().withMultipliedAlpha (alpha));
+        g.fillRoundedRectangle (juce::Rectangle<float> (width, 2.0f).withCentre ({ centre, (float) h - 1.0f }), 1.0f);
+    }
+
+    struct TabGlide
+    {
+        juce::Point<float> from, to { -1.0f, 0.0f }, shown; // (centre x, width)
+        IlanaAnim::Tween tween;
+    };
+    std::map<const juce::TabbedButtonBar*, TabGlide> tabGlides;
 
     // Check boxes (the tour's "Don't show this again") in the theme's font
     // and colours; the stock one drew its text in the default typeface.
@@ -1225,7 +1270,7 @@ public:
         const auto stroke = juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
         juce::Path backgroundArc;
         backgroundArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.05f * hover));
+        g.setColour (Ui::track.interpolatedWith (juce::Colours::white, 0.14f * hover));
         if (slider.getProperties().getWithDefault ("notModulatable", false))
         {
             juce::Path dotted;
@@ -1249,7 +1294,7 @@ public:
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                     juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
-            g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
+            g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, stroke);
         }
 
@@ -1357,7 +1402,7 @@ public:
             juce::Path valueArc;
             valueArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                                     juce::jmin (originAngle, angle), juce::jmax (originAngle, angle), true);
-            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.08f * hover));
+            g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 

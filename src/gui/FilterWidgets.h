@@ -345,6 +345,119 @@ private:
     juce::String undoName;
 };
 
+// The filter categories as a row of pills (the FX rack's FILTER card): the
+// current model's category lit; a click lists that category's models by
+// family, each with its response, as the picker's menu.
+class FilterCategoryTabs : public ParamBoundComponent
+{
+public:
+    FilterCategoryTabs (IlanaSynthAudioProcessor& p, const juce::String& id, juce::Colour colourIn, juce::String undoNameIn)
+        : ParamBoundComponent (p.apvts, id), processorRef (p), colour (colourIn), undoName (std::move (undoNameIn))
+    {
+        setRepaintsOnMouseActivity (true);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void setColour (juce::Colour newColour)
+    {
+        colour = newColour;
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto lit = FilterTypes::pageOf (current);
+        const auto mouse = getMouseXYRelative().toFloat();
+        for (int page = 0; page < FilterTypes::getNumPages(); ++page)
+        {
+            const auto cell = pillBounds (page);
+            const auto on = page == lit;
+            const auto hovered = isMouseOver() && cell.contains (mouse);
+            g.setColour (on ? colour : IlanaTheme::Ui::raised.interpolatedWith (colour, hovered ? 0.12f : 0.0f));
+            g.fillRoundedRectangle (cell, 4.0f);
+            if (! on)
+            {
+                g.setColour (IlanaTheme::Ui::line);
+                g.drawRoundedRectangle (cell.reduced (0.5f), 4.0f, 1.0f);
+            }
+            g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
+            g.setFont (font());
+            g.drawText (FilterTypes::getPageName (page), cell, juce::Justification::centred);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& event) override
+    {
+        const auto page = pageAt (event.position);
+        setTooltip (page < 0 ? juce::String() : FilterTypes::getPageName (page) + ": click for its filter models.");
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        const auto page = pageAt (event.position);
+        if (page < 0)
+            return;
+        juce::PopupMenu menu;
+        for (const auto& family : FilterTypes::getFamilies (page))
+        {
+            menu.addSectionHeader (family.first);
+            for (const auto type : family.second)
+            {
+                auto drawable = std::make_unique<juce::DrawablePath>();
+                drawable->setPath (FilterTypes::curvePath (type, { 0.0f, 0.0f, 30.0f, 18.0f }));
+                drawable->setFill (juce::FillType (juce::Colours::transparentBlack));
+                drawable->setStrokeFill (type == current ? colour : juce::Colours::white.withAlpha (0.55f));
+                drawable->setStrokeThickness (1.6f);
+                menu.addItem (juce::PopupMenu::Item (FilterTypes::displayName (type)).setID (type + 1).setTicked (type == current)
+                                  .setImage (std::move (drawable)));
+            }
+        }
+        juce::Component::SafePointer<FilterCategoryTabs> safeThis (this);
+        const auto cell = pillBounds (page).toNearestInt();
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (cell)),
+                            [safeThis] (int result)
+                            {
+                                if (safeThis != nullptr && result > 0 && result - 1 != safeThis->current)
+                                    safeThis->processorRef.performEdit (safeThis->undoName, [safeThis, result] { safeThis->setValue (result - 1); });
+                            });
+    }
+
+private:
+    static juce::Font font() { return IlanaTheme::font (IlanaTheme::TextSize::packedBody, true); }
+
+    // Pills as wide as their names, the spare width shared out, so the row fills its bounds.
+    juce::Rectangle<float> pillBounds (int page) const
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        constexpr float gap = 3.0f;
+        std::array<float, 8> widths {};
+        auto total = 0.0f;
+        for (int p = 0; p < FilterTypes::getNumPages(); ++p)
+        {
+            widths[(size_t) p] = juce::GlyphArrangement::getStringWidth (font(), FilterTypes::getPageName (p));
+            total += widths[(size_t) p];
+        }
+        const auto pages = (float) FilterTypes::getNumPages();
+        const auto spare = juce::jmax (0.0f, (bounds.getWidth() - gap * (pages - 1.0f) - total) / pages);
+        auto x = bounds.getX();
+        for (int p = 0; p < page; ++p)
+            x += widths[(size_t) p] + spare + gap;
+        return { x, bounds.getY(), widths[(size_t) page] + spare, bounds.getHeight() };
+    }
+
+    int pageAt (juce::Point<float> position) const
+    {
+        for (int page = 0; page < FilterTypes::getNumPages(); ++page)
+            if (pillBounds (page).contains (position))
+                return page;
+        return -1;
+    }
+
+    IlanaSynthAudioProcessor& processorRef;
+    juce::Colour colour;
+    juce::String undoName;
+};
+
 // The FILTER page's SIGNAL FLOW opens on hover or click; the UI tests and
 // snapshots hold it open with this.
 inline bool& filterFlowForcedOpen()

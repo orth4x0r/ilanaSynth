@@ -86,6 +86,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "CpuPassTests.inc"
 #include "StressTests.inc"
 #include "OscRoutingTests.inc"
+#include "OscSlotTests.inc"
 #include "NoiseTests.inc"
 #include "AirwindowsFilterTests.inc"
 #include "ClipTests.inc"
@@ -263,6 +264,13 @@ int main()
     {
         runOscRoutingTests (true);
         std::cout << (failures == 0 ? "OSC ROUTING TESTS PASSED" : "OSC ROUTING TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_OSC_SLOT_TEST", "").isNotEmpty())
+    {
+        runOscSlotTests();
+        std::cout << (failures == 0 ? "OSC SLOT TESTS PASSED" : "OSC SLOT TESTS FAILED") << " (" << failures << " failures)" << std::endl;
         return failures == 0 ? 0 : 1;
     }
 
@@ -799,6 +807,7 @@ int main()
     timedRun ("runFxPatcherTests", [] { runFxPatcherTests(); });
     timedRun ("runFxLfoTests", [] { runFxLfoTests(); });
     timedRun ("runOscRoutingTests", [] { runOscRoutingTests (false); });
+    timedRun ("runOscSlotTests", [] { runOscSlotTests(); });
     timedRun ("runNoiseTests", [] { runNoiseTests(); });
     timedRun ("runClipTests", [] { runClipTests(); });
     timedRun ("runBuiltInTableTests", [] { runBuiltInTableTests(); });

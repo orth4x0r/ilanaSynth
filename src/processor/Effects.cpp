@@ -2504,7 +2504,10 @@ void IlanaSynthAudioProcessor::processEffectsGraph (juce::AudioBuffer<float>& bu
 // The effects' part of prepareToPlay (as it was there, line for line).
 void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samplesPerBlock, int expectedBlockSize)
 {
+    // (setSize leaves new memory as it found it: the tape and stutter heads
+    // read a sample ahead of what they wrote, so start them from silence.)
     stutterBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
+    stutterBuffer.clear();
 
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -2520,6 +2523,7 @@ void IlanaSynthAudioProcessor::FxEngine::prepare (double sampleRate, int samples
     haasLine.setMaximumDelayInSamples ((int) (sampleRate * 0.06));
 
     tapeStopBuffer.setSize (2, (int) (sampleRate * 2.0), false, false, true);
+    tapeStopBuffer.clear();
     tapeStopWrite = 0;
     tapeStopRead = 0.0;
     tapeStopRate = 1.0f;

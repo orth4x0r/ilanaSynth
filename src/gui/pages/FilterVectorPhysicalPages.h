@@ -32,7 +32,7 @@ public:
           cutoff (p.apvts, prefix + "_cutoff", "CUTOFF", colourIn, false),
           reso (p.apvts, prefix + "_reso", "RESO", colourIn, false),
           drive (p.apvts, prefix + "_drive", "DRIVE", colourIn, false),
-          key (p.apvts, prefix + "_keytrack", "KEY TRK", colourIn, false),
+          key (p.apvts, prefix + "_keytrack", "KEY TRACK", colourIn, false),
           morph (p.apvts, prefix + "_morph", "MORPH", colourIn, false)
     {
         addAll (*this, picker, slope, cutoff, reso, drive, key, morph);
@@ -449,6 +449,9 @@ public:
                                           (juce::Component*) &cornerC, (juce::Component*) &cornerD, (juce::Component*) &x,
                                           (juce::Component*) &y, (juce::Component*) &drift, (juce::Component*) &driftRate })
             effectRules.add (*control, effectRules.isOn ("vec_on"), "VECTOR is off", [] { return FilterColours::offAlpha; });
+        // (The corners' pictures too, as the pad: off, nothing in the card stays lit, UI review 26.)
+        for (auto& wave : cornerWaves)
+            effectRules.add (wave, effectRules.isOn ("vec_on"), "VECTOR is off", [] { return FilterColours::offAlpha; });
         // At the module-off alpha while VECTOR is off, the lighter dim of one
         // idle control while only its PATH is (V7-34 with V7-21).
         effectRules.add (rate, [this] { return readParam ("vec_on") > 0.5f && readParam ("vec_path") > 0.5f; },
@@ -513,7 +516,7 @@ public:
         // V14-2) over POSITION AND MOTION in one row (X, Y, PATH, its rate,
         // WANDER and its rate).
         constexpr int gap = 8, padding = 12;
-        const auto motionHeight = boxHeaderHeight + 2 + 100 + 12;
+        const auto motionHeight = boxHeaderHeight + 2 + 72 + 8; // (a row of PLAY's rings, UI review 26)
         cornersBox = inner.removeFromTop (juce::jmax (boxHeaderHeight + 2 * 90, inner.getHeight() - gap - motionHeight));
         inner.removeFromTop (gap);
         motionBox = inner;
@@ -534,11 +537,14 @@ public:
         cell (row2.removeFromLeft (row2.getWidth() / 2), cornerC, cornerWaves[2]);
         cell (row2, cornerD, cornerWaves[3]);
 
-        for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
-            knob->setSizeRole (juce::jmin (64, juce::jmax (IlanaTheme::KnobSize::main, (motionBox.getHeight() - boxHeaderHeight) - 40)));
         auto knobs = motionBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (6);
         // (Every name on one line, the PATH switch under its own: the row no longer drops it, S1-14.)
         layoutRow (knobs, { &x, &y, &path, &rate, &drift, &driftRate }, true);
+        // PLAY's ring knobs (one knob style, UI review 26), PATH's switch level with their middles.
+        for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
+            knob->placeAsRing (knobs.withX (knob->getX()).withWidth (knob->getWidth()));
+        path.setPackedName (ToggleControl::NamePlace::below);
+        path.setBounds (x.getBounds().withX (path.getBounds().getCentreX() - x.getWidth() / 2).withTop (x.getBottom() - 36)); // (its name on the knob names' line)
     }
 
 private:

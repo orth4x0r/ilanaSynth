@@ -721,7 +721,7 @@ private:
             return FilterColours::west();
         if (kind == stageKind + VoiceRouting::body)
             return FilterColours::body();
-        return IlanaTheme::Ui::text2; // SUB + NOISE, as SIGNAL FLOW draws it
+        return IlanaTheme::subNoiseColour(); // SUB + NOISE, as SIGNAL FLOW and PLAY draw it
     }
 
     static juce::String voiceName (int kind)

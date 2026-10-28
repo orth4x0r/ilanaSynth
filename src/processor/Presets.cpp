@@ -958,6 +958,11 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     }
     resetAllModRemaps();
 
+    // A factory preset has no colour coding: every section in its default colour.
+    for (int key = 0; key < SectionColours::count; ++key)
+        if (getSectionColour (key) != 0)
+            setSectionColour (key, 0);
+
     // Back to three of each module (Init: two oscillators); anything the
     // preset turns on or routes still shows because it is in use.
     for (auto& mask : revealMasks)

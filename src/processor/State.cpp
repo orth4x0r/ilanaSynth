@@ -45,6 +45,17 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     // Written even when empty: a missing property means a state from before
     // the map was saved (it keeps the current one), an empty one clears it.
     state.setProperty ("midiCcMap", getParamCcMapText(), nullptr);
+    {
+        // Colour coding: "key:aarrggbb" for each section given a colour.
+        juce::StringArray picked;
+        for (int key = 0; key < SectionColours::count; ++key)
+            if (const auto argb = getSectionColour (key); argb != 0)
+                picked.add (juce::String (key) + ":" + juce::String::toHexString ((juce::int64) argb));
+        if (picked.isEmpty())
+            state.removeProperty ("sectionColours", nullptr);
+        else
+            state.setProperty ("sectionColours", picked.joinIntoString (","), nullptr);
+    }
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
     state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
@@ -464,6 +475,10 @@ bool IlanaSynthAudioProcessor::isLfoShown (int index) const
 
 juce::Colour IlanaSynthAudioProcessor::lfoColour (int index)
 {
+    if (index >= 0 && index < SectionColours::numLfos)
+        if (const auto picked = SectionColours::pickedFor (SectionColours::lfoKey (index)); picked != 0)
+            return juce::Colour (picked);
+
     switch (index)
     {
         // LFO 1 is rose, not the UI accent's orange (a lit knob read as a
@@ -904,6 +919,17 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     if (state.hasProperty ("presetName")) // a factory preset renamed since the session was saved
         state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
     tuningState.loadFrom (state); // no Tuning child: 12-TET
+    // No sectionColours: every section in its default colour.
+    {
+        SectionColours::Table picked {};
+        for (const auto& entry : juce::StringArray::fromTokens (state.getProperty ("sectionColours").toString(), ",", ""))
+            if (const auto key = entry.upToFirstOccurrenceOf (":", false, false).getIntValue();
+                entry.containsChar (':') && key >= 0 && key < SectionColours::count)
+                picked[(size_t) key] = (juce::uint32) entry.fromFirstOccurrenceOf (":", false, false).getHexValue64();
+        for (int key = 0; key < SectionColours::count; ++key)
+            if (getSectionColour (key) != picked[(size_t) key])
+                setSectionColour (key, picked[(size_t) key]);
+    }
     clipState.loadFrom (state);   // no Clips child: no clips
     // No FxPatch child: no instances, no patcher graph. Applied after the
     // parameters (below), which it is checked against.

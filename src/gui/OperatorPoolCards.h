@@ -666,6 +666,16 @@ public:
         layoutKnobs (inner, rows, true);
     }
 
+    // Colour coding: each operator's stage knobs and the graph in its oscillator's colour.
+    void refreshColours()
+    {
+        for (int osc = 0; osc < OscillatorIds::count; ++osc)
+            for (auto& control : controls[(size_t) osc])
+                if (auto* knob = dynamic_cast<KnobControl*> (control.get()))
+                    knob->setIdentityColour (IlanaTheme::oscColour (osc));
+        updateVisibility();
+    }
+
 private:
     void layoutCompact (const std::vector<juce::Component*>& items)
     {

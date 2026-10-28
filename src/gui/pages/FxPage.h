@@ -2012,6 +2012,7 @@ private:
         {
             // Duplicates share settings but bypass on their own.
             slotSwitches[(size_t) slot]->setBare (true);
+            slotSwitches[(size_t) slot]->setColour (fxColour (panel.type));
             slotSwitches[(size_t) slot]->setVisible (true);
             slotSwitches[(size_t) slot]->setBounds (left.power.withHeight (20));
             auto& remove = header.remove;
@@ -2040,11 +2041,13 @@ private:
         {
             power->setInlineLabel (false);
             power->setBareSwitch (true);
+            power->setSwitchColour (fxColour (panel.type));
             power->setBounds (left.power.withHeight (20));
         }
         else
         {
             slotSwitches[(size_t) slot]->setBare (true);
+            slotSwitches[(size_t) slot]->setColour (fxColour (panel.type));
             slotSwitches[(size_t) slot]->setVisible (true);
             slotSwitches[(size_t) slot]->setBounds (left.power.withHeight (20));
         }

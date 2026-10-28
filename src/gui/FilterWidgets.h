@@ -41,8 +41,12 @@ protected:
 namespace FilterColours
 {
 inline juce::Colour filter (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
-inline juce::Colour west() { return juce::Colour (0xffbfe35a); }
-inline juce::Colour body() { return IlanaTheme::accent(); }
+inline juce::Colour west()
+{
+    const auto picked = SectionColours::pickedFor (SectionColours::westKey);
+    return juce::Colour (picked != 0 ? picked : 0xffbfe35a);
+}
+inline juce::Colour body() { return IlanaTheme::physicalColour(); } // STRINGS and BODY share the wood colour
 
 // A module switched off (WEST, BODY, an FX card) draws its controls at this
 // alpha, as PLAY's switched-off oscillators do: plainly off, still editable
@@ -982,8 +986,8 @@ private:
 
     static juce::Colour oscColour (int osc)
     {
-        // OSC 1-6 match the FM page; the sub + noise is neutral.
-        return osc >= subNoise ? IlanaTheme::Ui::text2 : IlanaTheme::oscColour (osc);
+        // OSC 1-6 match the FM page; the sub + noise is silver, as on PLAY.
+        return osc >= subNoise ? IlanaTheme::subNoiseColour() : IlanaTheme::oscColour (osc);
     }
 
     static juce::String routeId (int osc)

@@ -274,10 +274,10 @@ inline juce::Colour modSourceColour (int sourceIndex)
         // The performance sources: soft tints, each its own hue.
         case Mod::Source::Velocity:   return juce::Colour::fromHSV (0.03f, 0.34f, 0.97f, 1.0f); // peach
         case Mod::Source::KeyTrack:   return juce::Colour::fromHSV (0.31f, 0.34f, 0.92f, 1.0f); // sage
-        case Mod::Source::Random:     return juce::Colour::fromHSV (0.85f, 0.34f, 0.95f, 1.0f); // orchid
+        case Mod::Source::Random:     return juce::Colour::fromHSV (0.88f, 0.34f, 0.95f, 1.0f); // orchid
         case Mod::Source::ClockSh:    return juce::Colour::fromHSV (0.70f, 0.30f, 0.97f, 1.0f); // lavender
-        case Mod::Source::ModWheel:   return juce::Colour::fromHSV (0.52f, 0.34f, 0.93f, 1.0f); // pale aqua
-        case Mod::Source::Aftertouch: return juce::Colour::fromHSV (0.95f, 0.30f, 0.97f, 1.0f); // blush
+        case Mod::Source::ModWheel:   return juce::Colour::fromHSV (0.60f, 0.34f, 0.97f, 1.0f); // pale sky (not LFO 2's cyan)
+        case Mod::Source::Aftertouch: return juce::Colour::fromHSV (0.80f, 0.30f, 0.97f, 1.0f); // pale lilac (not LFO 1's rose)
         case Mod::Source::Expression: return juce::Colour::fromHSV (0.21f, 0.38f, 0.92f, 1.0f); // pale lime
         case Mod::Source::Mseg:       return juce::Colour::fromHSV (0.60f, 0.30f, 1.0f, 1.0f); // an LFO pastel, not white (I9-2)
         case Mod::Source::InputEnv:   return juce::Colour (0xffc9b79c); // sand

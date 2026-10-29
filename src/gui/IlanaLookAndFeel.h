@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AnimationUtils.h"
+#include "../SectionColours.h"
 #include <BinaryData.h>
 
 #include <cmath>
@@ -55,7 +56,40 @@ namespace Ui
 inline juce::Colour oscColour (int index)
 {
     static const juce::uint32 colours[] { 0xfff2b83d, 0xff5b8cff, 0xff3ecf9a, 0xffa47bff, 0xffe39a6b, 0xff3fc7e8 };
-    return juce::Colour (colours[(size_t) juce::jlimit (0, 5, index)]);
+    index = juce::jlimit (0, 5, index);
+    if (const auto picked = SectionColours::pickedFor (SectionColours::oscKey (index)); picked != 0)
+        return juce::Colour (picked);
+    return juce::Colour (colours[(size_t) index]);
+}
+
+// A page whose controls keep an identity colour (a knob's arc, a switch's
+// glow) hears when the shown patch's colour coding changes, and sets them
+// again. Keyed by the processor, so one instance's change leaves another's
+// open editor alone.
+struct IdentityColourListener
+{
+    virtual ~IdentityColourListener() = default;
+    virtual void identityColoursChanged() = 0;
+};
+
+inline juce::ListenerList<IdentityColourListener>& identityColourListeners (const void* processor)
+{
+    static std::map<const void*, juce::ListenerList<IdentityColourListener>> lists;
+    return lists[processor];
+}
+
+// SUB and NOISE: silver, as their box on PATCH (not the accent's orange).
+inline juce::Colour subNoiseColour()
+{
+    const auto picked = SectionColours::pickedFor (SectionColours::subKey);
+    return juce::Colour (picked != 0 ? picked : 0xffc9ced8);
+}
+
+// STRINGS and BODY, the physical part of the sound: one wood colour.
+inline juce::Colour physicalColour()
+{
+    const auto picked = SectionColours::pickedFor (SectionColours::physicalKey);
+    return juce::Colour (picked != 0 ? picked : 0xffc9a27e);
 }
 
 // The envelopes' identity colours: one table for the chips, rings and cables
@@ -64,8 +98,13 @@ inline juce::Colour oscColour (int index)
 // ENV, 1 = FILT ENV, 2 = FILT 2, 3 = MOD ENV, 4 = ENV 4.
 inline juce::Colour envIdentityColour (int index)
 {
-    static const juce::uint32 colours[] { 0xffff5a4a, 0xffb46bff, 0xff7d86ff, 0xff8fff3b, 0xff5b8cff };
-    return juce::Colour (colours[(size_t) juce::jlimit (0, 4, index)]);
+    // (MOD ENV a softer lime than the Acid skin's accent, ENV 4 green rather than
+    // OSC 2's blue: Impeccable audit, identity colours shared.)
+    static const juce::uint32 colours[] { 0xffff5a4a, 0xffb46bff, 0xff7d86ff, 0xff9bdb63, 0xff59eb89 };
+    index = juce::jlimit (0, 4, index);
+    if (const auto picked = SectionColours::pickedFor (SectionColours::envKey (index)); picked != 0)
+        return juce::Colour (picked);
+    return juce::Colour (colours[(size_t) index]);
 }
 
 // The picture a chip or card is dragged by. The ghost lives in its own window
@@ -554,10 +593,7 @@ inline void paintCard (juce::Graphics& g, juce::Rectangle<float> bounds, float r
     // The family colour as the sheet's .tint: 7 % at the very top, gone by
     // mid-card, so the colour reads as identity and the eye lands on the
     // displays.
-    juce::ColourGradient wash (tint.withAlpha (isOscIdentityColour (tint) ? 0.07f : 0.05f), bounds.getX(), bounds.getY(),
-                               tint.withAlpha (0.0f), bounds.getX(), bounds.getY() + juce::jmin (90.0f, bounds.getHeight() * 0.55f), false);
-    g.setGradientFill (wash);
-    g.fillRoundedRectangle (bounds.reduced (1.0f), radius - 1.0f);
+    juce::ignoreUnused (tint);
 
     g.setColour (Ui::line);
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);

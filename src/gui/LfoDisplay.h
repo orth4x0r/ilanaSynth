@@ -326,18 +326,16 @@ public:
         {
             paintCurveHandles (g, plot, centreY, halfHeight);
 
-            // The dragged point's place, or the segment's curve, beside it.
-            if (dragPoint >= 0 && dragPoint < (int) curve.points.size() && isMouseButtonDown())
-            {
-                const auto& point = curve.points[(size_t) dragPoint];
-                paintReadout (g, pointToScreen (point), "POINT  " + juce::String (juce::roundToInt (point.x * 100.0f)) + "%  "
-                                                            + (point.y >= 0.0f ? "+" : "") + juce::String (point.y, 2), plot);
-            }
-            else if (dragTension >= 0 && dragTension + 1 < (int) curve.points.size() && isMouseButtonDown())
-            {
-                const auto tension = curve.points[(size_t) dragTension].tension;
-                paintReadout (g, tensionHandle (dragTension), "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2), plot);
-            }
+            // The dragged point's place, or the segment's curve, beside it;
+            // with no button down, the hovered one's (Impeccable re-score toward 35).
+            const auto down = isMouseButtonDown();
+            const auto shownPoint = down ? dragPoint : hoverPoint;
+            const auto shownTension = down ? dragTension : (shownPoint < 0 ? hoverTension : -1);
+
+            if (shownPoint >= 0 && shownPoint < (int) curve.points.size())
+                paintReadout (g, pointToScreen (curve.points[(size_t) shownPoint]), pointReadout (shownPoint), plot);
+            else if (shownTension >= 0 && shownTension + 1 < (int) curve.points.size())
+                paintReadout (g, tensionHandle (shownTension), tensionReadout (shownTension), plot);
         }
 
         // The value scale last, on small plates just inside the graph's left edge: a node
@@ -640,12 +638,32 @@ private:
         {
             curve = processorRef.getLfoCurve (index);
 
-            if ((! minimal && gridChipBounds().contains (event.position)) || hitPoint (event.position) >= 0 || hitTension (event.position) >= 0)
+            const auto point = hitPoint (event.position);
+            const auto tension = point < 0 ? hitTension (event.position) : -1;
+
+            if ((! minimal && gridChipBounds().contains (event.position)) || point >= 0 || tension >= 0)
                 cursor = juce::MouseCursor::PointingHandCursor;
+
+            setHovered (point, tension);
         }
 
         setMouseCursor (cursor);
     }
+
+    void mouseExit (const juce::MouseEvent&) override { setHovered (-1, -1); }
+
+    // The point or curve dot under the pointer, whose value shows beside it.
+    void setHovered (int point, int tension)
+    {
+        if (point == hoverPoint && tension == hoverTension)
+            return;
+
+        hoverPoint = point;
+        hoverTension = tension;
+        repaint();
+    }
+
+    int getHoverPoint() const { return hoverPoint; }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
@@ -823,6 +841,18 @@ private:
         const auto midX = 0.5f * (a.x + b.x);
         const auto y = a.y + (b.y - a.y) * LfoCurve::bend (0.5f, a.tension);
         return { plot.getX() + midX * plot.getWidth(), plot.getCentreY() - y * plot.getHeight() * 0.42f };
+    }
+
+    juce::String pointReadout (int point) const
+    {
+        const auto& p = curve.points[(size_t) point];
+        return "POINT  " + juce::String (juce::roundToInt (p.x * 100.0f)) + "%  " + (p.y >= 0.0f ? "+" : "") + juce::String (p.y, 2);
+    }
+
+    juce::String tensionReadout (int segment) const
+    {
+        const auto tension = curve.points[(size_t) segment].tension;
+        return "CURVE  " + juce::String (tension >= 0.0f ? "+" : "") + juce::String (tension, 2);
     }
 
     int hitPoint (juce::Point<float> position) const
@@ -1528,6 +1558,7 @@ private:
     bool cancelled = false;            // Esc: the rest of the drag does nothing
     int dragPoint = -1;
     int dragTension = -1;
+    int hoverPoint = -1, hoverTension = -1;
     float dragStartTension = 0.0f;
     int gridDivisions = 8;
     int brush = 0;                     // the paint brush (Brush), 0: off

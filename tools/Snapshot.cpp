@@ -28,6 +28,7 @@
 #include "gui/TableBrowser.h"
 #include "gui/WavetableEditor.h"
 #include "PluginEditor.h"
+#include "gui/SectionColourPicker.h"
 #include "gui/EnvelopeDisplay.h"
 #include "gui/FmWidgets.h"
 #include "gui/FmDiagram.h"
@@ -604,6 +605,18 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
             expect (tutorial->chipBounds().size() == features.size(), "every tour chip fits on the panel ("
                                                                           + juce::String ((int) tutorial->chipBounds().size()) + " of "
                                                                           + juce::String ((int) features.size()) + ")");
+            // Impeccable re-score (H7): MOUSE MOVES lists the hidden moves,
+            // folded until clicked; one of it and WHAT'S NEW opens at a time,
+            // so the panel is never cut by a 720 px window.
+            tutorial->setMovesOpen (true);
+            settle (100);
+            expect (tutorial->isMovesOpen() && ! tutorial->isWhatsNewOpen() && TutorialOverlay::moves().size() == 8
+                        && tutorial->panelBounds().getHeight() < tutorial->getHeight() - 140,
+                    "MOUSE MOVES opens its eight moves, folds WHAT'S NEW and fits ("
+                        + juce::String (tutorial->panelBounds().getHeight()) + " px)");
+            tutorial->setWhatsNewOpen (true);
+            settle (100);
+            expect (! tutorial->isMovesOpen() && tutorial->isWhatsNewOpen(), "opening WHAT'S NEW folds MOUSE MOVES");
             tutorial->openChip (labels.indexOf ("CLIP SEQUENCER"));
             settle (300);
             expect (! tutorial->isVisible() && editor.getCurrentPageId() == "ARP/SEQ",
@@ -613,6 +626,33 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
         {
             expect (false, "the tour exists");
         }
+    }
+
+    // Impeccable re-score (H9): a step that throws something away shows the
+    // undo note with its name; UNDO takes it back; a plain edit shows none.
+    if (auto* toast = findChild<UndoToast> (editor); toast != nullptr)
+    {
+        auto* cutoff = processor.apvts.getParameter ("f1_cutoff");
+        const auto before = cutoff->getValue();
+        processor.performEdit ("Change cutoff", [cutoff, before] { cutoff->setValueNotifyingHost (before > 0.5f ? 0.2f : 0.8f); });
+        settle (200);
+        expect (! toast->isVisible(), "a plain edit shows no undo note");
+        processor.performEdit ("Remove test step", [cutoff] { cutoff->setValueNotifyingHost (0.5f); });
+        settle (200);
+        expect (toast->isVisible() && toast->getText() == "Remove test step" && toast->getBottom() <= editor.getHeight(),
+                "a Remove step shows the undo note with its name ('" + toast->getText() + "')");
+        toast->getUndoButton().triggerClick();
+        settle (200);
+        expect (! toast->isVisible() && processor.getUndoManager().getUndoDescription() == "Change cutoff",
+                "UNDO on the note takes the step back and closes the note ('" + processor.getUndoManager().getUndoDescription() + "')");
+        settle (200);
+        expect (! toast->isVisible(), "the undo itself shows no note");
+        processor.getUndoManager().undo();
+        settle (100);
+    }
+    else
+    {
+        expect (false, "the undo note exists");
     }
 
     // Text floors (S25): every visible label and button on every page, at
@@ -6858,6 +6898,10 @@ int runUiTests()
                                     && landed.getDistanceFrom (to) < 3.0f && steps.size() == 1 && std::abs (read ("amp_acurve")) < 0.001f,
                                 "the attack's curve dot bends the attack alone (" + juce::String (changed, 2) + ", '" + readout
                                     + "', the dot " + juce::String (landed.getDistanceFrom (to), 1) + " px from the mouse), one undo step");
+                        // Impeccable re-score toward 35: a handle says its value on hover too.
+                        const auto hoverText = amp->getReadoutFor (0);
+                        expect (hoverText.startsWith ("ATTACK") && amp->getReadoutFor (1).contains ("SUSTAIN"),
+                                "an envelope handle names its value for the hover readout ('" + hoverText + "')");
                     }
                     else
                     {
@@ -8719,6 +8763,13 @@ int main (int argc, char** argv)
             if (auto* parameter = processor.apvts.getParameter (id))
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (assignment.fromFirstOccurrenceOf ("=", false, false).getFloatValue()));
 
+    // ILANA_SNAPSHOT_COLOURS="0:ffff6fa8,14:ff3fc7e8": section colours picked
+    // (keys as in SectionColours.h) after the preset loads.
+    for (const auto& pair : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_COLOURS", ""), ",", ""))
+        if (pair.containsChar (':'))
+            processor.setSectionColour (pair.upToFirstOccurrenceOf (":", false, false).getIntValue(),
+                                        (juce::uint32) pair.fromFirstOccurrenceOf (":", false, false).getHexValue64());
+
     // Shows the SEQ tab, which is hidden until a step LFO is in use.
     if (auto* shape = processor.apvts.getParameter ("lfo4_shape"))
         shape->setValueNotifyingHost (shape->convertTo0to1 (7.0f));
@@ -8780,6 +8831,26 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_PICKER: the section colour picker (OSC 1's, on the
+    // pop-up's card) into colour-picker.png at the snapshot scale.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_PICKER", "").isNotEmpty())
+    {
+        struct Card : juce::Component
+        {
+            void paint (juce::Graphics& g) override
+            {
+                g.fillAll (IlanaTheme::Ui::bg);
+                g.setColour (IlanaTheme::Ui::raised);
+                g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (8.0f), 8.0f);
+            }
+        } card;
+        SectionColourPicker picker (processor, SectionColours::oscKey (0), "OSC 1");
+        card.setSize (picker.getWidth() + 16, picker.getHeight() + 16);
+        card.addAndMakeVisible (picker);
+        picker.setTopLeftPosition (8, 8);
+        save (card, outDir.getChildFile ("colour-picker.png"));
+    }
 
     // ILANA_SNAPSHOT_PRESET: every page of one factory preset, into
     // preset-<PAGE>.png; then stop (a failing layout test's patch, seen).
@@ -9205,6 +9276,25 @@ int main (int argc, char** argv)
                 click ("PLAY envelope EDIT");
                 settle (500);
                 save (*editor, outDir.getChildFile ("play-edit-popup.png"));
+                // The decay handle hovered: its value beside it (Impeccable re-score toward 35).
+                {
+                    std::vector<EnvelopeDisplay*> displays;
+                    findAll<EnvelopeDisplay> (*editor, displays);
+                    EnvelopeDisplay* biggest = nullptr;
+                    for (auto* display : displays)
+                        if (visibleInTree (display) && ! display->showsHandlesOnHoverOnly())
+                            biggest = display;
+                    if (biggest != nullptr)
+                    {
+                        const auto at = biggest->getHandlePosition (1);
+                        auto& component = static_cast<juce::Component&> (*biggest);
+                        component.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(),
+                                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                                               at, juce::Time::getCurrentTime(), 1, false));
+                        settle (200);
+                        save (*editor, outDir.getChildFile ("play-edit-popup-hover.png"));
+                    }
+                }
                 click ("PLAY envelope EDIT");
                 settle (300);
                 click ("PLAY LFO EDIT");
@@ -10258,7 +10348,23 @@ int main (int argc, char** argv)
             tutorial->setWhatsNewOpen (true);
             settle (200);
             save (*editor, outDir.getChildFile ("t2-tour-open.png"));
+            tutorial->setMovesOpen (true);
+            settle (200);
+            save (*editor, outDir.getChildFile ("t2-tour-moves.png"));
+            tutorial->setMovesOpen (false);
             tutorial->setVisible (false);
+        }
+
+        // The undo note after a Remove (then the step undone again).
+        if (auto* cutoff = processor.apvts.getParameter ("f1_cutoff"))
+        {
+            const auto before = cutoff->getValue();
+            processor.performEdit ("Remove REVERB", [cutoff] { cutoff->setValueNotifyingHost (0.3f); });
+            settle (300);
+            save (*editor, outDir.getChildFile ("t2-undo-note.png"));
+            processor.getUndoManager().undo();
+            cutoff->setValueNotifyingHost (before);
+            settle (200);
         }
 
         if (auto* display = findChild<PresetDisplay> (*editor); display != nullptr && display->onClick != nullptr)

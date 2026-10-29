@@ -421,12 +421,15 @@ public:
     // The rack's rows draw the pill alone, filling its area.
     void setBare (bool shouldBeBare) { bare = shouldBeBare; repaint(); }
 
+    // On in the effect's family colour (colour pass, 2026-10-28).
+    void setColour (juce::Colour newColour) { if (newColour != colour) { colour = newColour; repaint(); } }
+
     void paint (juce::Graphics& g) override
     {
         // Slides and fades as every switch does (the shared animator).
         IlanaTheme::paintSwitch (g, (bare ? getLocalBounds() : getLocalBounds().withTrimmedTop (13)).toFloat(),
                                  IlanaTheme::fade (*this, 0, isOn() ? 1.0f : 0.0f),
-                                 IlanaTheme::accent(), IlanaTheme::fade (*this, 1, isMouseOver() ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
+                                 colour, IlanaTheme::fade (*this, 1, isMouseOver() ? 1.0f : 0.0f, IlanaTheme::FadeRate::hover));
     }
 
     void mouseDown (const juce::MouseEvent&) override
@@ -456,6 +459,7 @@ private:
     }
 
     juce::RangedAudioParameter* parameter = nullptr;
+    juce::Colour colour = IlanaTheme::accent();
     bool shownOn = true, bare = false;
 };
 } // namespace

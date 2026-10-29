@@ -504,9 +504,11 @@ public:
         auto area = padding.subtractedFrom (getLocalBounds());
         // On the page (an empty rack) the rows take the spare height, up to a
         // roomy entry: the library fills its page rather than its top half.
-        const auto spare = area.getHeight() - preferredHeight();
-        // (Up to 50, so an empty rack at 1060 x 720 has no bare band under the legend: Impeccable audit.)
-        const auto rowStep = juce::jlimit (buttonHeight + rowGap, 50, buttonHeight + rowGap + spare / 9);
+        // (The tallest step that still fits, up to 60, so an empty rack at 1060 x 720
+        // has no bare band under the legend: Impeccable audit and re-score.)
+        auto rowStep = buttonHeight + rowGap;
+        while (rowStep < 60 && preferredHeight (rowStep + 1) <= area.getHeight())
+            ++rowStep;
         const auto entryHeight = rowStep - rowGap;
         const auto columnWidth = (area.getWidth() - columnGap * (columns - 1)) / columns;
         std::array<int, columns> y {};
@@ -698,9 +700,9 @@ public:
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
         const auto hot = clickable && isMouseOver();
-        g.setColour (colour.withAlpha (hot ? 0.28f : 0.16f));
+        g.setColour (hot ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised);
         g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
-        g.setColour (colour.withAlpha (hot ? 0.9f : 0.6f));
+        g.setColour (hot ? colour.withAlpha (0.9f) : IlanaTheme::Ui::line.brighter (0.15f));
         g.drawRoundedRectangle (bounds, bounds.getHeight() * 0.5f, 1.0f);
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
@@ -1000,11 +1002,10 @@ public:
 
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
-        const auto colour = fxColour (type);
+        // Not in the rack yet, so grey until the pointer is on it.
+        const auto colour = highlighted ? fxColour (type) : IlanaTheme::Ui::text3;
         auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        auto fill = IlanaTheme::Ui::raised.interpolatedWith (colour, 0.08f);
-        if (highlighted)
-            fill = fill.interpolatedWith (colour, 0.10f);
+        auto fill = highlighted ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised;
         if (down)
             fill = fill.darker (0.2f);
 

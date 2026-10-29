@@ -19,6 +19,7 @@ namespace
 // are MOD's OP PITCH and OP LFO; the card's header links there (I8-8, S8-3,
 // V8-21).
 class FmPage : public juce::Component,
+               private IlanaTheme::IdentityColourListener,
                private IlanaAnim::FrameTimer
 {
     // One operator's settings: its tuning and feedback style, its ENVELOPE,
@@ -200,6 +201,30 @@ public:
             }
         };
         flow.startTimerHz (24);
+        IlanaTheme::identityColourListeners (&p).add (this);
+    }
+
+    ~FmPage() override { IlanaTheme::identityColourListeners (&processorRef).remove (this); }
+
+    // Colour coding: the send knobs, an operator's controls and its graph in
+    // the oscillator's new colour.
+    void identityColoursChanged() override
+    {
+        for (int source = 0; source < OscillatorIds::count; ++source)
+        {
+            const auto colour = FmDiagram::oscColour (source);
+            for (auto& knob : knobs[(size_t) source])
+                knob->setIdentityColour (colour);
+            auto& controls = *operators[(size_t) source];
+            for (auto* knob : { &controls.ratio, &controls.fixedHz, &controls.semi, &controls.fine, &controls.level,
+                                &controls.keyLevel, &controls.egOut, &controls.feedback })
+                knob->setIdentityColour (colour);
+        }
+        envelope.refreshColours();
+        ampGraphOperator = -1; // the graph is made again in the operator's colour
+        updateOperatorVisibility();
+        resized();
+        repaint();
     }
 
     static juce::Colour fmColour() { return juce::Colour (0xffe3a56f); }

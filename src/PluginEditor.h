@@ -31,6 +31,7 @@
 #include "gui/SavePresetOverlay.h"
 #include "gui/SectionPage.h"
 #include "gui/TutorialOverlay.h"
+#include "gui/UndoToast.h"
 
 class WavetableEditor;
 class ZoneMapEditor;
@@ -178,6 +179,9 @@ private:
     void confirmReplacingPatch (const juce::String& replacement, const juce::String& confirmText,
                                 std::function<void (bool confirmed)> then);
     void undoOrRedo (bool redo);
+    juce::String undoToastKeyNow() const;
+    void updateUndoToast();
+    void layoutUndoToast();
     void updateHeaderButtons();
     void updateUndoButtons();
     void showHistoryMenu();
@@ -189,6 +193,11 @@ private:
     juce::int64 parameterFingerprint() const;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
     void timerCallback() override;
+    void mouseEnter (const juce::MouseEvent&) override;
+    // Copies the patch's colour coding to what the pages paint with and
+    // tells them (when it changed, or always with `force`).
+    void syncSectionColours (bool force);
+    int shownSectionColourVersion = -1;
     void startTabTransition (juce::Component* page = nullptr);
     void layoutTabRow();
     SectionPage* currentSection() const;
@@ -219,6 +228,9 @@ private:
     LogoComponent logo;
     InfoStrip infoStrip;
     TutorialOverlay tutorial;
+    UndoToast undoToast;
+    juce::String undoToastKey;
+    bool undoToastSkip = false;
     ConfirmOverlay confirmOverlay;
     SavePresetOverlay saveOverlay { processorRef };
 

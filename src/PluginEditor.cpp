@@ -49,6 +49,7 @@
 #include "gui/SubTabBar.h"
 #include "gui/FxCarousel.h"
 #include "gui/PatchCableView.h"
+#include "gui/SectionColourPicker.h"
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
 #include "gui/XtraDisplays.h"
@@ -304,6 +305,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, settings->getIntValue ("themeIndex", 0));
     IlanaAnim::fullMotion() = settings->getBoolValue ("fullMotion", IlanaAnim::fullMotion()); // (the snapshot tool turns it off first: still pictures)
     lookAndFeel.setAccent (juce::Colour (IlanaTheme::palette[themeIndex]));
+
+    // The pages are built in this patch's colour coding.
+    shownSectionColourVersion = processorRef.getSectionColourVersion();
+    if (processorRef.getSectionColours() != SectionColours::shown())
+    {
+        SectionColours::shown() = processorRef.getSectionColours();
+        ++SectionColours::version();
+    }
 
     addAndMakeVisible (content);
     content.onPaint = [this] (juce::Graphics& g) { paintHeader (g); };
@@ -825,6 +834,14 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
         tutorial.setPresetCount (listed);
     }
     content.addAndMakeVisible (tutorial);
+    content.addChildComponent (undoToast);
+    undoToast.onUndo = [this]
+    {
+        undoOrRedo (false);
+        updateHeaderButtons();
+    };
+    undoToastKey = undoToastKeyNow();
+    processorRef.getUndoManager().addChangeListener (this);
     content.addChildComponent (confirmOverlay);
     content.addChildComponent (saveOverlay);
     saveOverlay.setSettings (settings.get());
@@ -857,6 +874,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     setResizable (true, true);
 
     startTimer (250);
+    addMouseListener (this, true); // mouseEnter: back from another instance's window
     frameSource = std::make_unique<IlanaAnim::FrameClock::Source> (*this);
     animator.onFrame = [this] { animate(); };
 
@@ -1020,11 +1038,18 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
     tableBrowserSettings() = nullptr;
     closeWavetableEditor();
     tabs.getTabbedButtonBar().removeChangeListener (this);
+    processorRef.getUndoManager().removeChangeListener (this);
     setLookAndFeel (nullptr);
 }
 
-void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == &processorRef.getUndoManager())
+    {
+        updateUndoToast();
+        return;
+    }
+
     // Picking a tab shows its page: the docked browser over it steps aside,
     // and the wavetable editor over the old page closes.
     if (presetDockShown)
@@ -1560,6 +1585,32 @@ void IlanaSynthAudioProcessorEditor::updateMacroStrip()
         macroKnobs[(size_t) macro]->setQuietAssign (! anyAssigned && macro % MacroPager::perPage > 0);
 }
 
+void IlanaSynthAudioProcessorEditor::syncSectionColours (bool force)
+{
+    const auto version = processorRef.getSectionColourVersion();
+
+    if (! force && version == shownSectionColourVersion)
+        return;
+
+    shownSectionColourVersion = version;
+    const auto table = processorRef.getSectionColours();
+
+    if (! force && table == SectionColours::shown())
+        return;
+
+    SectionColours::shown() = table;
+    ++SectionColours::version();
+    IlanaTheme::identityColourListeners (&processorRef).call ([] (IlanaTheme::IdentityColourListener& listener) { listener.identityColoursChanged(); });
+    repaint();
+}
+
+void IlanaSynthAudioProcessorEditor::mouseEnter (const juce::MouseEvent&)
+{
+    // Back from another instance's window: this patch's colours again.
+    if (processorRef.getSectionColours() != SectionColours::shown())
+        syncSectionColours (true);
+}
+
 void IlanaSynthAudioProcessorEditor::timerCallback()
 {
     applyDisplayScale();
@@ -1572,6 +1623,11 @@ void IlanaSynthAudioProcessorEditor::timerCallback()
         settings->saveIfNeeded();
     }
 
+
+    // Colour coding: a picked colour, a loaded patch, an undo or an A/B swap
+    // (or another instance's editor painted last): the pages set their
+    // colours again.
+    syncSectionColours (false);
 
     // Program changes, host state restores and A/B swaps change the preset
     // behind the editor's back.
@@ -1826,6 +1882,7 @@ void IlanaSynthAudioProcessorEditor::resized()
     }
 
     dockBounds = area.removeFromBottom (dockHeight);
+    layoutUndoToast();
 
     // The macro row (ilana 2026-10-22): a page of four macros and its 1 / 2
     // switch, a rule, VOICE (mode, voices, bend, glide, legato), a rule, then
@@ -2314,12 +2371,48 @@ void IlanaSynthAudioProcessorEditor::confirmReplacingPatch (const juce::String& 
                         });
 }
 
+// The step on top of the history, with how deep it is: a new step changes it
+// even when it has the last one's name.
+juce::String IlanaSynthAudioProcessorEditor::undoToastKeyNow() const
+{
+    auto& undoManager = processorRef.getUndoManager();
+    return undoManager.getUndoDescription() + "|" + juce::String (undoManager.getUndoDescriptions().size());
+}
+
+// A new step that threw something away shows the undo note (an undo or redo
+// doesn't; nor does an edit that only joins the step on top).
+void IlanaSynthAudioProcessorEditor::updateUndoToast()
+{
+    const auto key = undoToastKeyNow();
+    const auto fromUndoOrRedo = std::exchange (undoToastSkip, false);
+
+    if (key == undoToastKey)
+        return;
+
+    undoToastKey = key;
+    const auto step = processorRef.getUndoManager().getUndoDescription();
+
+    if (! fromUndoOrRedo && processorRef.getUndoManager().canUndo() && UndoToast::isDestructive (step))
+    {
+        undoToast.show (step);
+        layoutUndoToast();
+    }
+}
+
+// Centred over the page, just above the dock.
+void IlanaSynthAudioProcessorEditor::layoutUndoToast()
+{
+    undoToast.setTopLeftPosition ((designWidth - undoToast.getWidth()) / 2, dockBounds.getY() - 10 - UndoToast::height);
+}
+
 // Edits still open (a gesture without its mouse-up, parameter changes not
 // yet in the tree) join their own step before it is undone.
 void IlanaSynthAudioProcessorEditor::undoOrRedo (bool redo)
 {
     processorRef.endEdit();
     processorRef.apvts.copyState();
+    undoToastSkip = true;
+    undoToast.hide();
 
     if (redo)
         processorRef.getUndoManager().redo();

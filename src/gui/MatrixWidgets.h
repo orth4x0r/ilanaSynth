@@ -787,13 +787,13 @@ public:
             bypass.repaint();
             // SOURCE reads in its source's colour, outlined with it, as the
             // design draws the row.
-            source.setColour (juce::ComboBox::outlineColourId, colour.withAlpha (0.6f));
-            source.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (colour, 0.12f));
-            source.setColour (juce::ComboBox::textColourId, IlanaTheme::Ui::text.interpolatedWith (colour, 0.5f));
+            source.setColour (juce::ComboBox::outlineColourId, IlanaTheme::Ui::line);
+            source.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised);
+            source.setColour (juce::ComboBox::textColourId, IlanaTheme::Ui::text);
             source.repaint();
             amount.setColour (juce::Slider::rotarySliderFillColourId, colour);
-            curve.setColour (colour);
-            polarity.setColour (colour);
+            curve.setColour (IlanaTheme::Ui::text2);
+            polarity.setColour (IlanaTheme::Ui::text2);
         }
 
         curve.refresh();
@@ -827,7 +827,7 @@ public:
 
         // Flat row; the source's colour marks its left edge.
         // (Every other row a shade lighter: a long list reads in lines, review 12, S12-9.)
-        g.setColour (IlanaTheme::Ui::panel.interpolatedWith (lastColour, active && ! idle ? 0.04f : 0.0f)
+        g.setColour (IlanaTheme::Ui::panel
                          .interpolatedWith (juce::Colours::white, displayNumber % 2 == 0 ? 0.025f : 0.0f));
         g.fillRoundedRectangle (bounds, 5.0f);
         g.setColour (selected ? lastColour.withAlpha (0.8f) : IlanaTheme::Ui::line);
@@ -847,7 +847,7 @@ public:
         }
         else
         {
-            g.setColour (active ? lastColour : IlanaTheme::Ui::text3);
+            g.setColour (active ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
         }
 
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
@@ -921,7 +921,7 @@ public:
     struct Columns
     {
         static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 32, viaPill = 32,
-                             amountBase = 190, curve = 50, polarity = 76, stereo = 28, destination = 216, remove = 24, gap = 6;
+                             amountBase = 158, curve = 50, polarity = 76, stereo = 60, destination = 216, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
         // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
         static int amount (bool viaExpanded) { return amountBase + (viaExpanded ? 0 : viaWide - viaNarrow); }
@@ -1008,7 +1008,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove, stereo { "ST" };
+    juce::TextButton bypass, remove, stereo { "STEREO" }; // (full words: Impeccable re-score toward 35)
     std::unique_ptr<juce::ButtonParameterAttachment> stereoAttachment;
     DashedAddButton viaButton { "+", "VIA" };
     juce::ComboBox source, via, destination;

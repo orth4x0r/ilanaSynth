@@ -452,7 +452,7 @@ public:
         // GENERATE takes one row of full-size knobs in its three boxes;
         // PATTERN the rest, and while the clip roll is expanded GENERATE
         // folds to its title line and the roll takes the page.
-        constexpr int knobRowHeight = 13 + 58 + 16 + 6;
+        constexpr int knobRowHeight = 13 + 58 + 6; // (no bare band under the rings: Impeccable re-score toward 35)
         const auto folded = generateFolded();
         const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + 66 + 10; // (a row of 40 px rings, their names under them)
         generateCard = right.removeFromBottom (generateHeight);
@@ -476,22 +476,15 @@ public:
         noteChain.setBounds (header.withTrimmedLeft (IlanaTheme::cardTitleWidth ("PATTERN") - 4).withTrimmedRight (12).reduced (0, 3));
 
         arpArea.removeFromBottom (6);
-        // The note engines' controls stand in a column of two beside the lanes
-        // when the card is tall enough for three rows (so the lanes use the
-        // width and no row ends 1,000 px short, V12-5); a short card keeps
-        // them in one row under the lanes. (The clip's roll always has its row.)
-        const auto cellHeight = knobRowHeight;
-        const auto columnMode = arpArea.getHeight() >= 3 * cellHeight + 28;
+        // The note engines' controls stand in one row under the lanes, which take
+        // the card's width (ilana 2026-10-28, Impeccable re-score: the old column of
+        // two beside them stood 73 % empty below its four knobs).
         const auto controls = arpArea.removeFromBottom (knobRowHeight);
-        arpArea.removeFromBottom (6);
+        arpArea.removeFromBottom (12); // (the row's gap above it as wide as the one under its names)
         const auto rowDisplay = arpArea.reduced (0, 2);
-        const auto fullArea = arpCard.reduced (10, 0).withTrimmedTop (26).withTrimmedBottom (6);
-        // (The lanes' width: what the engine's controls column leaves, two cells
-        // for six controls and one for PROB SEQ's three.)
-        const auto displayFor = [&] (int columns) { return columnMode ? fullArea.withTrimmedRight (columns * seqCellWidth + 22).reduced (0, 2) : rowDisplay; };
-        arpLanes.setBounds (displayFor (2));
-        euclidDisplay.setBounds (displayFor (2));
-        pseqEditor.setBounds (displayFor (1));
+        arpLanes.setBounds (rowDisplay);
+        euclidDisplay.setBounds (rowDisplay);
+        pseqEditor.setBounds (rowDisplay);
 
         // Every engine's controls on one grid of fixed cells: the shared ones
         // first, in one order (RATE, STEPS, GATE), then the engine's own;
@@ -505,52 +498,16 @@ public:
                 if (auto* knob = dynamic_cast<KnobControl*> (item))
                     knob->placeAsRing (row.withX (item->getX()).withWidth (juce::jmin (item->getWidth(), seqKnobWidth)));
         };
+        // One row, the cells sharing the card's width (at least a cell each), every
+        // control on one label line; a menu keeps its own width at its cell's left
+        // edge, never stretched across a wide cell (PROB SEQ's lone RATE was).
         const auto engineRow = [&] (const std::vector<juce::Component*>& items)
         {
-            if (columnMode)
-            {
-                const auto columns = items.size() > 4 ? 2 : 1;
-                auto available = fullArea;
-                auto column = available.removeFromRight (columns * seqCellWidth + 12);
-                // (Two columns for six controls, one for three: the column is no wider than it needs.)
-                const auto perRow = columns;
-                const auto rows = ((int) items.size() + perRow - 1) / perRow;
-                // (The rows share the card's height, a little taller than a knob needs at most.)
-                // (V14-11: a row is a knob and its gap, not 40 px more; the block of rows
-                // stands in the column's middle, so no row floats 100 px from the next.)
-                const auto isMenu = [] (juce::Component* item) { return item == nullptr || dynamic_cast<ComboControl*> (item) != nullptr; };
-                const auto menuRow = 13 + 24 + 12;
-                auto menuRowHeight = menuRow;
-                auto rowHeight = juce::jlimit (cellHeight, cellHeight + 12, column.getHeight() / juce::jmax (1, rows));
-                auto needed = 0;
-                for (size_t k = 0; k < items.size(); k += (size_t) perRow)
-                    needed += isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k])) ? menuRow : rowHeight;
-                // (V15-15: the spare height is shared out between the rows, so the column fills
-                // its height instead of leaving a floor above and below.)
-                const auto rowCount = (int) ((items.size() + (size_t) perRow - 1) / (size_t) perRow);
-                // (Review 22 #9: at most 8 px each, so STEPS/GATE/OCTAVES/CHANCE stay a compact block, centred.)
-                const auto extra = juce::jmin (8, juce::jmax (0, column.getHeight() - needed) / juce::jmax (1, rowCount));
-                // (Top-aligned with the lanes, one shared top edge, instead of floating in the
-                // column's middle with a floor above and below: Impeccable audit, SEQ.)
-                column = column.withTrimmedTop (2).withHeight (juce::jmin (column.getHeight() - 2, needed + extra * rowCount));
-                menuRowHeight = menuRow + extra;
-                rowHeight += extra;
-                for (size_t k = 0; k < items.size(); k += (size_t) perRow)
-                {
-                    std::vector<juce::Component*> pair { items[k] };
-                    if (perRow == 2)
-                        pair.push_back (k + 1 < items.size() ? items[k + 1] : nullptr);
-                    const auto menus = isMenu (items[k]) && (perRow == 1 || isMenu (items[k + 1 < items.size() ? k + 1 : k]));
-                    leftAligned (column.removeFromTop (menus ? menuRowHeight : rowHeight), pair);
-                }
-            }
-            else
-            {
-                // One row, the cells sharing the card's width (at least a cell each).
-                leftAligned (controls, items);
-            }
+            leftAligned (controls, items);
+            for (auto* item : items)
+                if (dynamic_cast<ComboControl*> (item) != nullptr && item->getWidth() > seqMenuWidth)
+                    item->setBounds (item->getBounds().withWidth (seqMenuWidth));
         };
-        // (The menus share the first row, the knobs the rows below: one baseline per row, V13-7.)
         engineRow ({ &arpDiv, &arpMode, &arpSteps, &arpGate, &arpOctaves, &arpChance });
         engineRow ({ &eucDiv, &eucTarget, &eucSteps, &eucGate, &eucHits, &eucRotate });
         engineRow ({ &pseqDiv, &pseqLength, &pseqGate });
@@ -1104,7 +1061,7 @@ private:
     bool clipExpanded = false;
     juce::Rectangle<int> clipDivider, clipDivider2;
     int boxSignature = -1;
-    static constexpr int boxHeaderHeight = 24, seqCellWidth = 112, seqKnobWidth = 88;
+    static constexpr int boxHeaderHeight = 24, seqKnobWidth = 88, seqMenuWidth = 168;
     juce::Rectangle<int> snapBox, strumBox, sprayBox;
     std::unique_ptr<juce::FileChooser> clipChooser;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;

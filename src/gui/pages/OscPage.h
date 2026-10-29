@@ -1086,6 +1086,7 @@ private:
 
 class OscPage : public juce::Component,
                 private IlanaTheme::UiScaleListener,
+                private IlanaTheme::IdentityColourListener,
                 private juce::AudioProcessorValueTreeState::Listener,
                 private juce::AsyncUpdater,
                 private juce::Timer
@@ -1257,6 +1258,8 @@ public:
           , pedalRes (p.apvts, "pedal_res", "PEDAL RESONANCE"), mechKey (p.apvts, "mech_key", "KEY NOISE")
           , mechDamper (p.apvts, "mech_damper", "DAMPER NOISE"), mechPedal (p.apvts, "mech_pedal", "PEDAL NOISE")
     {
+        IlanaTheme::identityColourListeners (&p).add (this);
+
         for (int i = 0; i < OscillatorIds::count; ++i)
         {
             const juce::String prefix (OscillatorIds::prefixes[(size_t) i]);
@@ -1614,9 +1617,9 @@ public:
         {
             auto* control = &controls[(size_t) i]->table;
             const auto id = juce::String (OscillatorIds::prefixes[(size_t) i]) + "_table";
-            const auto colour = oscColour (i);
-            control->setPopupOverride ([this, i, control, id, colour]
+            control->setPopupOverride ([this, i, control, id]
             {
+                const auto colour = oscColour (i);
                 juce::Component::SafePointer<OscPage> safe (this);
                 TableBrowser::show (processorRef, id, colour, control->getComboBox(), [this, i] { loadButton (i).triggerClick(); },
                                     [safe, id] (const juce::File& file)
@@ -1809,6 +1812,7 @@ public:
 
     ~OscPage() override
     {
+        IlanaTheme::identityColourListeners (&processorRef).remove (this);
         auto& listeners = IlanaTheme::uiScaleListeners();
         listeners.erase (std::remove (listeners.begin(), listeners.end(), static_cast<IlanaTheme::UiScaleListener*> (this)), listeners.end());
         for (const auto* prefix : OscillatorIds::prefixes)
@@ -1817,6 +1821,33 @@ public:
 
         for (const auto* id : listenedIds)
             processorRef.apvts.removeParameterListener (id, this);
+    }
+
+    // Colour coding: an oscillator given another colour shows it on every
+    // part of its card.
+    void identityColoursChanged() override
+    {
+        for (int i = 0; i < OscillatorIds::count; ++i)
+        {
+            const auto colour = oscColour (i);
+            auto& osc = *controls[(size_t) i];
+            auto& card = *aux[(size_t) i];
+            osc.setColour (colour);
+            osc.on.setSwitchColour (colour);
+            physical[(size_t) i]->setColour (colour);
+            waveDisplay (i).setTraceColour (colour);
+            for (auto* view : { &card.status, &card.outBar })
+                view->setColour (colour);
+            card.stringView.setColour (colour);
+            card.spreadView.setColour (colour);
+            card.partials.setColour (colour);
+            card.typeBar.setColour (colour);
+            card.routeBar.setColour (colour);
+            scrubbers[(size_t) i].setColour (colour);
+        }
+
+        resized(); // (the packed layout sets the card switches' colours)
+        repaint();
     }
 
     void parameterChanged (const juce::String&, float) override
@@ -1887,7 +1918,9 @@ public:
         for (const auto& card : cards)
             if (card.header.contains (event.getPosition()))
             {
-                if (event.mods.isPopupMenu())
+                if (event.mods.isPopupMenu() && event.x < card.bounds.getX() + 28)
+                    showColourPicker (card.osc);
+                else if (event.mods.isPopupMenu())
                     showOscMenu (card.osc);
                 else if (cards.size() > 1)
                     dragOsc = card.osc;
@@ -3794,7 +3827,7 @@ private:
 
             const auto titleFont = IlanaTheme::font (7.6f, true).withKerningFactor (0.13f);
             const auto titleArea = juce::Rectangle<int> (panel.area.getX() + 6, panel.area.getY() + panelTop, panel.area.getWidth() - 12, panelTitleH - 1);
-            g.setColour (panel.colour);
+            g.setColour (IlanaTheme::Ui::text2);
             g.setFont (titleFont);
             const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (titleFont), panel.title) + 6;
             IlanaTheme::drawFitted (g, panel.title, titleArea, juce::Justification::centredLeft, 1);
@@ -4229,6 +4262,15 @@ private:
     }
 
     // An oscillator card's right-click menu.
+    // Colour coding: the swatches, by the card's dot.
+    void showColourPicker (int band)
+    {
+        for (const auto& card : cards)
+            if (card.osc == band)
+                SectionColourPicker::show (processorRef, SectionColours::oscKey (band), "OSC " + juce::String (band + 1), *this,
+                                           juce::Rectangle<int> (card.bounds.getX() + 4, card.header.getY(), 20, card.header.getHeight()));
+    }
+
     void showOscMenu (int band)
     {
         const auto on = ! isOff (band);
@@ -4238,6 +4280,8 @@ private:
         menu.addItem (3, "Duplicate oscillator", canAdd());
         menu.addItem (2, "Remove oscillator", numShown() > 1);
         ModuleMenu::addItems (menu, processorRef, ModuleMenu::Kind::Oscillator, band);
+        menu.addSeparator();
+        menu.addItem (4, "Colour...");
         juce::Component::SafePointer<OscPage> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
                             [safe, band, on] (int result)
@@ -4247,6 +4291,12 @@ private:
 
                                 auto& p = safe->processorRef;
                                 const auto name = "OSC " + juce::String (band + 1);
+
+                                if (result == 4)
+                                {
+                                    safe->showColourPicker (band);
+                                    return;
+                                }
 
                                 if (result == 2)
                                     safe->removeOscillatorCard (band);

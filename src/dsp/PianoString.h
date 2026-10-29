@@ -43,7 +43,7 @@
 class PianoString
 {
 public:
-    static constexpr int maxStages = 8;
+    static constexpr int maxStages = 16;
 
     void prepare (double newSampleRate, float* storage, int storageSize)
     {
@@ -545,11 +545,14 @@ private:
         // Strike point, from the agraffe: about 1/8, closer in the treble.
         strikeFraction = strikeKnob > 0.0f ? (double) strikeKnob * 0.5 : lerp ((double) t.strikeBass, (double) t.strikeTreble);
 
-        // Inharmonicity: B rises towards the treble (short, thick strings);
-        // STIFF sets the C4 value.
+        // Inharmonicity: B rises towards the treble (short, thick strings)
+        // and again below A1; STIFF sets the C4 value.
+        constexpr auto a1 = -2.2502; // A1, in octaves from C4
+        const auto belowA1 = juce::jmax (0.0, a1 - octavesFromC4);
+        const auto octaves = juce::jmax (octavesFromC4, a1);
         inharmonicity = (double) t.inharmonicityC4 * std::pow (10.0, ((double) stiffness - 0.5) * 3.2)
-                        * std::pow (2.0, octavesFromC4 * (octavesFromC4 > 0.0 ? (double) t.inharmonicityTreble : -(double) t.inharmonicityBass));
-        stages = eco ? maxStages / 2 : maxStages;
+                        * std::pow (2.0, octaves * (octaves > 0.0 ? (double) t.inharmonicityTreble : -(double) t.inharmonicityBass)
+                                             + belowA1 * (double) t.inharmonicityLowBass);
 
         // Decay: DECAY sets the fundamental's T60 at C4; it shortens up the
         // keyboard. DAMP sets how fast the upper partials go (T60 at 3 kHz).
@@ -560,32 +563,76 @@ private:
         designLoss (juce::jmax (0.1, t60 * (double) t.promptRatio), upperT60 * (double) t.promptRatio, upper, lossCoefficient, lossGain);
         designLoss (t60, upperT60, upper, horizontalLossCoefficient, horizontalLossGain);
 
-        // Stiffness allpasses, solved so a reference partial lands at
-        // n sqrt(1 + B n^2) / sqrt(1 + B).
+        // Stiffness allpasses: one coefficient for the chain, chosen so the
+        // partials up to dispersionTop land as close as possible (least
+        // squares, low partials weighted more) on n sqrt(1 + B n^2) / sqrt(1 + B).
+        // The loss filter's own phase is counted in.
         const auto w0 = juce::MathConstants<double>::twoPi / period;
         dispersion = 0.0f;
         auto dispersionDelay = 0.0;
-        const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
-        if (reference >= 2 && period >= 8.0)
+        const auto partials = juce::jmin (60, (int) (juce::jmin ((double) t.dispersionTop, 0.4 * sampleRate) / frequency));
+        // The chain may take at most 0.6 of the period, and must leave both
+        // lines their minimum length. Each stage is at least one sample long
+        // (a = 0 is a plain delay), so short treble loops get fewer stages.
+        const auto loss0 = lowpassPhaseDelay (w0, (double) lossCoefficient);
+        const auto nutEstimate = juce::jmax (1.0, std::round (period * strikeFraction));
+        const auto lossDelay = juce::jmax (loss0, lowpassPhaseDelay (w0, (double) horizontalLossCoefficient));
+        const auto budget = juce::jmin (period * 0.6, period * (1.0 - retuneRange) - nutEstimate - lossDelay - 3.0);
+        stages = juce::jlimit (0, eco ? maxStages / 2 : maxStages, (int) std::floor (budget));
+        if (partials < 2 || stages < 1)
+            stages = 0;
+        else
         {
-            const auto n = (double) reference;
-            const auto wTarget = n * w0 * std::sqrt (1.0 + inharmonicity * n * n) / std::sqrt (1.0 + inharmonicity);
-            const auto needed = juce::MathConstants<double>::twoPi * n / wTarget - period;
-            const auto error = [&] (double a) { return (double) stages * (allpassPhaseDelay (a, wTarget) - allpassPhaseDelay (a, w0)) - needed; };
-            auto low = -0.95, high = 0.0;
-            if (error (low) > 0.0)
-                high = low;
-            else
+            constexpr int maxPoints = 24;
+            double pointW[maxPoints], pointN[maxPoints], pointWeight[maxPoints], pointLoss[maxPoints];
+            int points = 0;
+            const auto spacing = juce::jmax (1.0, (double) (partials - 2) / (double) (maxPoints - 1));
+            for (auto n = 2.0; n <= (double) partials + 1.0e-6 && points < maxPoints; n += spacing)
+            {
+                const auto k = std::round (n);
+                pointN[points] = k;
+                pointW[points] = k * w0 * std::sqrt (1.0 + inharmonicity * k * k) / std::sqrt (1.0 + inharmonicity);
+                pointWeight[points] = 1.0 / std::sqrt (k);
+                pointLoss[points] = lowpassPhaseDelay (pointW[points], (double) lossCoefficient) - loss0;
+                ++points;
+            }
+            const auto chain = [this, w0] (double a) { return (double) stages * allpassPhaseDelay (a, w0); };
+            const auto cost = [&] (double a)
+            {
+                const auto chain0 = chain (a);
+                auto sum = 0.0;
+                for (int i = 0; i < points; ++i)
+                {
+                    const auto loop = period + (double) stages * allpassPhaseDelay (a, pointW[i]) - chain0 + pointLoss[i];
+                    const auto error = pointW[i] * loop / (juce::MathConstants<double>::twoPi * pointN[i]) - 1.0;
+                    sum += pointWeight[i] * error * error;
+                }
+                return sum;
+            };
+            auto low = -0.95;
+            if (chain (low) > budget)
+            {
+                auto high = 0.0;
                 for (int i = 0; i < 30; ++i)
                 {
                     const auto middle = 0.5 * (low + high);
-                    (error (middle) > 0.0 ? high : low) = middle;
+                    (chain (middle) > budget ? low : high) = middle;
                 }
-            auto a = high;
-            while (a < -0.01 && (double) stages * allpassPhaseDelay (a, w0) > period * 0.6)
-                a *= 0.8;
+                low = high;
+            }
+            // Golden-section search over [low, 0].
+            constexpr auto golden = 0.6180339887498949;
+            auto lo = low, hi = 0.0;
+            auto c = hi - golden * (hi - lo), d = lo + golden * (hi - lo);
+            auto costC = cost (c), costD = cost (d);
+            for (int i = 0; i < 24; ++i)
+            {
+                if (costC < costD) { hi = d; d = c; costD = costC; c = hi - golden * (hi - lo); costC = cost (c); }
+                else               { lo = c; c = d; costC = costD; d = lo + golden * (hi - lo); costD = cost (d); }
+            }
+            const auto a = 0.5 * (lo + hi);
             dispersion = (float) a;
-            dispersionDelay = (double) stages * allpassPhaseDelay (a, w0);
+            dispersionDelay = chain (a);
         }
 
         // Split the loop: the strike point's round trip to the agraffe is

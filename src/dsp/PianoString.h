@@ -80,6 +80,7 @@ public:
         squareDcIn = squareDcOut = 0.0f;
         dcIn = dcOut = 0.0f;
         knockEnvelope = 0.0f;
+        hissArm = hissEnvelope = hissLow1 = hissLow2 = hissLow3 = 0.0f;
         knockLow1 = knockLow2 = 0.0f;
         forceHistoryWrite = 0;
         std::fill (forceHistory.begin(), forceHistory.end(), 0.0f);
@@ -124,7 +125,9 @@ public:
         eco = newEco;
     }
 
-    void addBridgeInput (float value) { bridgeInput += value; }
+    // Whatever feeds back comes from this string's output, which carries the
+    // level gains: scaled back, so the loop gain does not depend on them.
+    void addBridgeInput (float value) { bridgeInput += value * feedbackScale; }
 
     // (The design waits for the first process(): a voice triggers all its
     // buffered unison strings, and only the ones in use are ever played.)
@@ -140,7 +143,11 @@ public:
                              : keyVelocity <= 100.0 ? medium + (high - medium) * (keyVelocity - 60.0) / 40.0
                              : keyVelocity <= 124.0 ? high + (loud - high) * (keyVelocity - 100.0) / 24.0
                                                     : loud;
-        velocityGain = (float) std::pow (10.0, (keyGainDb + (double) (t.trebleLevel + t.trebleLevelVelocity * level) * octavesAboveC5) / 20.0);
+        velocityGain = (float) std::pow (10.0, keyGainDb / 20.0);
+        trebleLiftDb = (double) (t.trebleLevel + t.trebleLevelVelocity * level) * octavesAboveC5;
+        trebleLiftScale = juce::jmin (1.0, octavesAboveC5);
+        trebleDirty = true;
+        gainProduct = -1.0f;
 
         // Key speed to hammer speed: about 0.5 m/s (pp) to 5 m/s (ff).
         hammerV = (double) t.speedLow * std::pow ((double) t.speedHigh / (double) t.speedLow, (double) level);
@@ -155,6 +162,8 @@ public:
         // The board's knock and the felt's thud, heard directly.
         knockEnvelope = (float) (hammerV / (double) t.speedHigh);
         knockEnvelope *= knockEnvelope;
+        hissArm = (float) std::pow (juce::jmax (1.0e-4, hammerV / (double) t.speedHigh), (double) t.hissVelocity);
+        hissEnvelope = 0.0f;
     }
 
     float process (bool noteHeld)
@@ -163,6 +172,23 @@ public:
             return 0.0f;
         if (! designed)
             design();
+        if (trebleDirty)
+        {
+            trebleDirty = false;
+            // A harder felt already brings the treble up, so the lift gives way to it.
+            const auto hardnessDb = ((double) hardness - 0.5) * 3.2 * (double) PianoModelTuning::get().hardnessRange * 12.0412;
+            trebleGain = (float) std::pow (10.0, (trebleLiftDb - 0.5 * juce::jmax (0.0, hardnessDb) * trebleLiftScale) / 20.0);
+        }
+        if (gainProduct != velocityGain * trebleGain)
+        {
+            gainProduct = velocityGain * trebleGain;
+            feedbackScale = feedbackBase / juce::jmax (1.0e-4f, gainProduct);
+        }
+        if (hissArm > 0.0f)
+        {
+            hissEnvelope = hissLevelLinear * hissArm;
+            hissArm = 0.0f;
+        }
 
         // Waves arriving at the strike point: from the agraffe (inverted),
         // and back from the bridge (through its filters, already inverted).
@@ -328,6 +354,9 @@ public:
             }
         }
 
+        // The treble's level lift belongs to the string, not to the noise below.
+        output *= trebleGain;
+
         // The knock: band-passed noise, a few milliseconds, louder and
         // brighter for a faster hammer.
         if (knockEnvelope > 1.0e-5f)
@@ -338,6 +367,18 @@ public:
             knockLow2 += (knockLow1 - knockLow2) * knockCoefficient;
             output += (knockLow1 - knockLow2) * knockEnvelope * knockLevel;
             knockEnvelope *= knockDecay;
+        }
+
+        // The hiss: longer, lower and quieter than the knock.
+        if (hissEnvelope > 1.0e-6f)
+        {
+            noiseSeed = noiseSeed * 1664525u + 1013904223u;
+            const auto noise = (float) ((double) noiseSeed / 4294967295.0 * 2.0 - 1.0);
+            hissLow1 += (noise - hissLow1) * hissCoefficient;
+            hissLow2 += (hissLow1 - hissLow2) * hissCoefficient;
+            hissLow3 += (hissLow2 - hissLow3) * hissCoefficient;
+            output += hissLow3 * hissEnvelope;
+            hissEnvelope *= noteHeld || damper <= 0.0f ? hissDecayFactor : hissDecayFactor * 0.9985f;
         }
 
         // The fundamental's dip: a peaking cut at the pitch, so partials 2 to
@@ -605,6 +646,15 @@ private:
         const auto knockHz = juce::jlimit (300.0, sampleRate * 0.4, (double) t.knockFrequency * std::pow (2.0, octavesFromC4 * 0.5));
         knockCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * knockHz / sampleRate));
         knockDecay = (float) std::exp (-1.0 / (sampleRate * 0.004 * std::pow (2.0, -octavesFromC4 * 0.3)));
+        {
+            hissLevelLinear = t.hissLevel <= -150.0f ? 0.0f : (float) std::pow (10.0, ((double) t.hissLevel + octavesFromC4 * (double) t.hissLevelRegister) / 20.0);
+            const auto hissHz = juce::jlimit (30.0, sampleRate * 0.4, (double) t.hissCutoff * std::pow (2.0, octavesFromC4 * (double) t.hissCutoffRegister));
+            hissCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * hissHz / sampleRate));
+            const auto hissT60 = juce::jmax (0.02, (double) t.hissDecay * std::pow (2.0, octavesFromC4 * (double) t.hissDecayRegister));
+            hissDecayFactor = (float) std::exp (-6.907755 / (sampleRate * hissT60));
+        }
+        feedbackBase = 0.96f / juce::jmax (1.0e-4f, t.outputGain);
+        gainProduct = -1.0f;
         outputGain = t.outputGain * (float) std::pow (2.0, octavesFromC4 * (double) t.balance);
 
         // The fundamental's dip (dB cut at the pitch, joined in a line between
@@ -752,7 +802,8 @@ private:
     float longitudinalGain = 0.0f, squareDcIn = 0.0f, squareDcOut = 0.0f;
 
     // Knock and output.
+    float hissArm = 0.0f, hissEnvelope = 0.0f, hissLevelLinear = 0.0f, hissDecayFactor = 0.9999f, hissCoefficient = 0.1f, hissLow1 = 0.0f, hissLow2 = 0.0f, hissLow3 = 0.0f;
     float knockEnvelope = 0.0f, knockLevel = 0.0f, knockDecay = 0.99f, knockCoefficient = 0.1f, knockLow1 = 0.0f, knockLow2 = 0.0f;
     std::uint32_t noiseSeed = 22222u;
-    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f, velocityGain = 1.0f;
+    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f, velocityGain = 1.0f, trebleGain = 1.0f, trebleLiftDb = 0.0, trebleLiftScale = 0.0, trebleDirty = false, gainProduct = 1.0f, feedbackBase = 1.0f, feedbackScale = 1.0f;
 };

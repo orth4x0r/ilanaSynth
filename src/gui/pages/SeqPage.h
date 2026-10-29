@@ -452,7 +452,7 @@ public:
         // GENERATE takes one row of full-size knobs in its three boxes;
         // PATTERN the rest, and while the clip roll is expanded GENERATE
         // folds to its title line and the roll takes the page.
-        constexpr int knobRowHeight = 13 + 58 + 16 + 6;
+        constexpr int knobRowHeight = 13 + 58 + 6; // (no bare band under the rings: Impeccable re-score toward 35)
         const auto folded = generateFolded();
         const auto generateHeight = folded ? 34 : 26 + boxHeaderHeight + 66 + 10; // (a row of 40 px rings, their names under them)
         generateCard = right.removeFromBottom (generateHeight);

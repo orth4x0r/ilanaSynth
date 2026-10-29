@@ -717,10 +717,12 @@ private:
         chipBounds = body.removeFromBottom (rowHeight);
         body.removeFromBottom (4);
         graph->setBounds (body);
-        place (rate->getRateKnob(), column.getX(), column.getY());
+        // (ilana, 2026-10-29: "down a lil": the knobs centred between the header and SHAPE.)
+        const auto knobsY = column.getY() + juce::jmax (0, (column.getHeight() - 2 * rowHeight - 3 - (int) dialSize - 10) / 2);
+        place (rate->getRateKnob(), column.getX(), knobsY);
         rate->matchBounds();
         for (size_t i = 0; i < knobs.size(); ++i)
-            place (*knobs[i], column.getX() + (int) (i + 1) * lfoPitch, column.getY());
+            place (*knobs[i], column.getX() + (int) (i + 1) * lfoPitch, knobsY);
         const auto switches = column.removeFromBottom (rowHeight);
         column.removeFromBottom (3);
         shape->setBounds (column.removeFromBottom (rowHeight));
@@ -1076,6 +1078,129 @@ public:
             g.setColour (colour.withAlpha ((0.4f + 0.55f * (float) lid) * on));
             g.fillRoundedRectangle (juce::Rectangle<float> (x - 1.2f, plot.getBottom() - h, 2.4f, h), 1.0f);
         }
+    }
+};
+
+// STRINGS' picture: the sympathetic strings, COUNT of them, each ringing as wide as AMOUNT and dying away along
+// the string as fast as DECAY says. On the KEYS tab: the piano string's partials, STRETCH pulling them sharp of
+// the harmonic marks (faint ticks).
+class StringsPicture : public ParamPicture
+{
+public:
+    explicit StringsPicture (IlanaSynthAudioProcessor& p)
+        : ParamPicture (p, { "sym_on", "sym_amount", "sym_count", "sym_decay", "stretch", "pedal_res" },
+                        "The sympathetic strings: one line per string, as wide as they ring (AMOUNT), fading as fast as DECAY.") {}
+
+    void setKeys (bool shouldShowKeys)
+    {
+        if (keys == shouldShowKeys)
+            return;
+        keys = shouldShowKeys;
+        setTooltip (keys ? "The piano string's partials: STRETCH pulls the upper ones sharp of the harmonic marks."
+                         : "The sympathetic strings: one line per string, as wide as they ring (AMOUNT), fading as fast as DECAY.");
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 4.0f);
+        const auto plot = bounds.reduced (8.0f, 8.0f);
+        const auto colour = IlanaTheme::physicalColour();
+        if (keys)
+        {
+            const auto stretch = (double) juce::jlimit (0.0f, 1.0f, read ("stretch"));
+            const auto ring = juce::jlimit (0.0f, 1.0f, read ("pedal_res"));
+            constexpr auto partials = 14;
+            const auto xFor = [&plot] (double ratio) { return plot.getX() + (float) (std::log (ratio) / std::log (18.0)) * plot.getWidth(); };
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRect (juce::Rectangle<float> (plot.getX(), plot.getBottom() - 1.0f, plot.getWidth(), 1.0f));
+            for (int n = 1; n <= partials; ++n)
+            {
+                const auto harmonic = (double) n;
+                const auto stretched = harmonic * std::sqrt (1.0 + 0.004 * stretch * harmonic * harmonic);
+                g.setColour (juce::Colours::white.withAlpha (0.12f));
+                g.fillRect (juce::Rectangle<float> (1.0f, 5.0f).withX (xFor (harmonic)).withBottom (plot.getBottom()));
+                const auto h = plot.getHeight() * (0.25f + 0.75f * (float) std::pow (harmonic, -0.6)) * (0.85f + 0.15f * ring);
+                g.setColour (colour.withAlpha (0.45f + 0.5f * (float) std::pow (harmonic, -0.5)));
+                g.fillRoundedRectangle (juce::Rectangle<float> (xFor (stretched) - 1.2f, plot.getBottom() - h, 2.4f, h), 1.0f);
+            }
+            return;
+        }
+
+        const auto on = read ("sym_on") > 0.5f;
+        const auto amount = juce::jlimit (0.0f, 1.0f, read ("sym_amount"));
+        const auto decay = juce::jlimit (0.0f, 1.0f, read ("sym_decay"));
+        const auto count = juce::jlimit (1, 6, juce::roundToInt (read ("sym_count")));
+        const auto lane = plot.getHeight() / (float) count;
+        for (int i = 0; i < count; ++i)
+        {
+            const auto base = plot.getY() + lane * ((float) i + 0.5f);
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRect (juce::Rectangle<float> (plot.getX(), base - 0.5f, plot.getWidth(), 1.0f));
+            juce::Path string;
+            const auto width = juce::jmax (2.0f, plot.getWidth());
+            const auto mode = (float) (i % 3 + 1);
+            for (int x = 0; x <= (int) width; x += 2)
+            {
+                const auto t = (float) x / width;
+                const auto fade = std::exp (-t * (4.5f - 4.0f * decay));
+                const auto y = base - std::sin (juce::MathConstants<float>::pi * t * mode * 2.0f) * lane * 0.42f * amount * fade;
+                if (x == 0)
+                    string.startNewSubPath (plot.getX(), y);
+                else
+                    string.lineTo (plot.getX() + (float) x, y);
+            }
+            IlanaTrace::paintTrace (g, string, colour.withAlpha (on ? 0.9f : 0.25f));
+            g.setColour (colour.withAlpha (on ? 0.9f : 0.3f));
+            g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ plot.getX(), base }));
+        }
+    }
+
+private:
+    bool keys = false;
+};
+
+// BODY's picture: the body's resonances, its peaks tuned by OFFSET, as sharp as DECAY makes them and as loud as
+// AMOUNT; faint while BODY is off.
+class BodyPicture : public ParamPicture
+{
+public:
+    explicit BodyPicture (IlanaSynthAudioProcessor& p)
+        : ParamPicture (p, { "res_on", "res_amount", "res_decay", "res_offset" },
+                        "The body's resonances: OFFSET tunes the peaks, DECAY sharpens them, AMOUNT raises them.") {}
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        IlanaTheme::paintWell (g, bounds, 4.0f);
+        const auto plot = bounds.reduced (6.0f, 8.0f);
+        const auto on = read ("res_on") > 0.5f;
+        const auto amount = juce::jlimit (0.0f, 1.0f, read ("res_amount"));
+        const auto decay = (double) juce::jlimit (0.0f, 1.0f, read ("res_decay"));
+        const auto f0 = 220.0 * std::pow (2.0, (double) read ("res_offset") / 12.0);
+        const auto colour = IlanaTheme::physicalColour();
+        juce::Path response;
+        const auto width = juce::jmax (2.0f, plot.getWidth());
+        for (int x = 0; x <= (int) width; ++x)
+        {
+            const auto frequency = 60.0 * std::pow (8000.0 / 60.0, (double) x / (double) width);
+            auto magnitude = 0.0;
+            for (int harmonic = 1; harmonic <= 24; ++harmonic)
+            {
+                const auto distance = std::log2 (frequency / (f0 * (double) harmonic));
+                magnitude += std::exp (-std::pow (distance / juce::jmax (0.03, 0.35 - decay * 0.28), 2.0)) / (double) harmonic;
+            }
+            magnitude = juce::jlimit (0.0, 1.0, magnitude * (0.25 + amount * 0.75));
+            const auto y = plot.getBottom() - (float) magnitude * plot.getHeight() * (on ? 0.95f : 0.2f);
+            if (x == 0)
+                response.startNewSubPath (plot.getX(), y);
+            else
+                response.lineTo (plot.getX() + (float) x, y);
+        }
+        if (on)
+            IlanaTrace::paintArea (g, response, colour, plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, response, colour.withAlpha (on ? 0.95f : 0.25f));
     }
 };
 
@@ -1471,6 +1596,10 @@ public:
             boardKnobs.push_back (knob (spec.first, spec.second, bodyColour()));
         boardResponse = std::make_unique<BoardResponseDisplay> (p);
         addAndMakeVisible (*boardResponse);
+        stringsPicture = std::make_unique<StringsPicture> (p);
+        addAndMakeVisible (*stringsPicture);
+        bodyPicture = std::make_unique<BodyPicture> (p);
+        addAndMakeVisible (*bodyPicture);
 
         // SUB and NOISE: each its own card, switch, menu, picture and two knobs.
         subOn = bareSwitch ("subosc_on", subColour(), "SUB on or off: a sine, square or saw an octave or two down");
@@ -1751,6 +1880,7 @@ public:
             knob->setVisible (! strings);
         if (! strings)
             showTuning (false);
+        stringsPicture->setKeys (! strings);
         repaint();
     }
 
@@ -1764,6 +1894,7 @@ public:
             knob->setVisible (index == 0);
         boardModel->setVisible (index == 1);
         boardResponse->setVisible (index == 1);
+        bodyPicture->setVisible (index == 0);
         for (auto& knob : boardKnobs)
             knob->setVisible (index == 1);
     }
@@ -2124,17 +2255,23 @@ private:
         f2Switch.setBounds (switchIn (card));
         balance->setBounds ({ x, centre - 8, juce::jmax (40, f2Switch.getX() - 6 - x), 16 });
 
-        // Body: the graph takes everything left of CUTOFF RESO DRIVE KEY TRACK and a fifth slot (SLOPE on a
-        // classic type, MORPH on one that morphs).
-        const auto knobsX = card.getRight() - 6 - 5 * filterPitch;
-        filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 6, body.getY() + 1, knobsX - 6 - card.getX() - 6, body.getHeight() - 2));
-        // (Room under the dials for KEY TRACK's second line.)
-        const auto cellY = body.getY() - 2 + (body.getHeight() + 2 - (int) dialSize - 10 - 13) / 2;
+        // Body: the graph at the left, the knobs in two rows at the right like the ENVELOPE card's (ilana, 2026-10-29:
+        // "arranged in two rows like amp"): CUTOFF RESO DRIVE over KEY TRACK and a fifth slot (SLOPE on a classic
+        // type, MORPH on one that morphs), centred under them. Room under the second row for KEY TRACK's second line.
+        const auto knobsX = card.getRight() - 6 - 3 * filterPitch;
+        filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 6, body.getY() + 1, knobsX - gapToKnobs - card.getX() - 6, body.getHeight() - 2));
+        const auto filterRow1 = body.getY() + juce::jmax (0, (body.getHeight() - 2 * ((int) dialSize + 10) - 13) / 2);
+        const auto filterRow2 = filterRow1 + (int) dialSize + 10;
+        const auto filterCell = [&] (int slot)
+        {
+            return slot < 3 ? juce::Rectangle<int> (knobsX + slot * filterPitch, filterRow1, filterPitch, (int) dialSize + 10)
+                            : juce::Rectangle<int> (knobsX + filterPitch / 2 + (slot - 3) * filterPitch, filterRow2, filterPitch, (int) dialSize + 10 + 13);
+        };
         for (size_t k = 0; k < filters[0].knobs.size(); ++k)
             for (auto& other : filters)
-                other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
+                other.knobs[k]->setBounds (KnobControl::packedBoundsFor (filterCell (juce::jmin (4, (int) k))));
         for (auto& other : filters)
-            other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
+            other.slope->setBounds (KnobControl::packedBoundsFor (filterCell (4)));
 
         // WEST. Header: GATE, PLACE and STRIKE BY as wide as their words, its switch at the right; body: the fold's
         // curve, then seven knobs.
@@ -2148,41 +2285,47 @@ private:
         westPosition->setBounds ({ x, centre - 8, placeW, 16 });
         x += placeW + 4;
         westSource->setBounds ({ x, centre - 8, juce::jmin (packedMenuWidth ("STRIKE BY", { "Note", "LFO 16 B" }) + 4, westOn->getX() - 6 - x), 16 });
-        // (The last ring's ink sits about 8 px inside its cell: the cells reach the card's edge, the picture starts 6 px in.)
-        const auto westX = card.getRight() - 6 * westPitch - cell;
-        westDisplay->setBounds ({ card.getX() + 6, body.getY() + 1, westX - 6 - card.getX() - 6, body.getHeight() - 2 });
-        auto knobX = westX;
-        for (auto& knob : westKnobs)
+        // Body: the fold's curve, then the seven knobs in two rows, FOLD SYMMETRY STAGES DECAY over RESO STRIKE OPEN
+        // (centred under them), like the ENVELOPE card's grid.
+        const auto westX = card.getRight() - 6 - 4 * westPitch;
+        westDisplay->setBounds ({ card.getX() + 6, body.getY() + 1, westX - gapToKnobs - card.getX() - 6, body.getHeight() - 2 });
+        const auto westRow1 = body.getY() + 1, westRow2 = body.getBottom() - 1 - (int) dialSize - 10;
+        for (size_t i = 0; i < westKnobs.size(); ++i)
         {
-            knob->setBounds (KnobControl::packedBoundsFor ({ knobX, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
-            knobX += westPitch;
+            const auto x = i < 4 ? westX + (int) i * westPitch : westX + westPitch / 2 + (int) (i - 4) * westPitch;
+            westKnobs[i]->setBounds (KnobControl::packedBoundsFor ({ x, i < 4 ? westRow1 : westRow2, westPitch, (int) dialSize + 10 }));
         }
     }
 
-    // STRINGS and KEYS on one grid: five columns at 43 px, centred in the card, the knobs at one height.
+    // STRINGS and KEYS (ilana, 2026-10-29: no empty space): the picture at the left, a grid of three columns at the
+    // right. STRINGS: AMOUNT COUNT DECAY, then TUNING (AUTO / MANUAL over NOTES). KEYS: STRETCH and RING, then KEY
+    // DAMPER PEDAL under one NOISE name.
     void layoutStringsCard()
     {
         const auto card = stringsBounds;
         const auto centre = card.getY() + headerHeight / 2;
         stringsTabs.setBounds ({ card.getX() + 22, centre - 8, stringsTabs.idealWidth(), 16 });
         stringsOn->setBounds (switchIn (card));
-        const auto gridW = 4 * stringsPitch + cell;
-        const auto left = card.getX() + (card.getWidth() - gridW) / 2;
-        // (The group name, 10 px, then 4 px, then the knob cell, 38 px: the block centred under the header.)
-        const auto blockH = 14 + (int) dialSize + 10;
-        const auto top = card.getY() + headerHeight + (card.getHeight() - headerHeight - blockH) / 2;
-        const auto column = [left] (int i) { return left + i * stringsPitch; };
-        const auto cellY = top + 14;
-        const auto place = [cellY] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, cellY, cell, (int) dialSize + 10 })); };
+        const auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
+        const auto left = card.getRight() - 6 - 3 * stringsPitch;
+        stringsPicture->setBounds ({ card.getX() + 6, body.getY() + 1, left - gapToKnobs - card.getX() - 6, body.getHeight() - 2 });
+        const auto knobH = (int) dialSize + 10;
+        const auto column = [left] (float i) { return left + juce::roundToInt (i * (float) stringsPitch); };
+        const auto place = [knobH] (KnobControl& knob, int x, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ x, y, stringsPitch, knobH })); };
+        const auto row1 = body.getY() + 1, row2 = body.getBottom() - 1 - knobH;
+        const auto groupY = row1 + knobH + (row2 - row1 - knobH - 10) / 2;
         for (size_t i = 0; i < stringsKnobs.size(); ++i)
-            place (*stringsKnobs[i], column ((int) i));
-        for (size_t i = 0; i < keysKnobs.size(); ++i)
-            place (*keysKnobs[i], column ((int) i));
-        const auto groupOver = [&] (int first, int last) { return juce::Rectangle<int> (column (first), top, column (last) + cell - column (first), 10); };
-        tuningGroup = groupOver (3, 4);
-        noiseGroup = groupOver (2, 4);
-        stringsManual->setBounds ({ tuningGroup.getX(), cellY + 1, tuningGroup.getWidth(), 16 });
-        tuneButton.setBounds ({ tuningGroup.getX(), cellY + 20, tuningGroup.getWidth(), 16 });
+            place (*stringsKnobs[i], column ((float) i), row1);
+        place (*keysKnobs[0], column (0.5f), row1);
+        place (*keysKnobs[1], column (1.5f), row1);
+        for (size_t i = 2; i < keysKnobs.size(); ++i)
+            place (*keysKnobs[i], column ((float) i - 2.0f), row2);
+        const auto groupW = 3 * stringsPitch;
+        tuningGroup = { left, groupY, groupW, 10 };
+        noiseGroup = { left, groupY, groupW, 10 };
+        // (TUNING's two lines end where the knob row's names would.)
+        stringsManual->setBounds ({ left + 3, body.getBottom() - 1 - 36, groupW - 6, 16 });
+        tuneButton.setBounds ({ left + 3, body.getBottom() - 1 - 16, groupW - 6, 16 });
     }
 
     void layoutBodyCard()
@@ -2198,9 +2341,12 @@ private:
         x += boardTab.getWidth() + 4;
         boardOn->setBounds ({ x, centre - 8, 28, 16 });
 
-        // One grid of five columns at 42 px, centred in the card, two rows; every name inside its menu or under its knob.
+        // The picture at the left (ilana, 2026-10-29: no empty space), one grid of five columns at 42 px at the right,
+        // two rows; every name inside its menu or under its knob.
         const auto top = card.getY() + headerHeight;
-        const auto left = card.getX() + (card.getWidth() - 4 * bodyPitch - cell) / 2;
+        const auto left = card.getRight() - 6 - 4 * bodyPitch - cell;
+        const auto pictureBounds = juce::Rectangle<int> (card.getX() + 6, top + 4, left - gapToKnobs - card.getX() - 6, card.getBottom() - 4 - top - 4);
+        bodyPicture->setBounds (pictureBounds);
         const auto column = [left] (int i) { return left + i * bodyPitch; };
         // (Rows from the top and from the bottom: the second row's names end 3 px above the card's edge at any band height.)
         const auto row1 = top + 3, row2 = card.getBottom() - 3 - (int) dialSize - 10;
@@ -2216,12 +2362,13 @@ private:
         for (size_t i = 0; i < second.size(); ++i)
             place (*bodyKnobs[second[i]], column ((int) i), row2);
 
-        // BOARD: MODEL (as wide as BODY's menus) beside TONE and MIX; SIZE beside the response it slides.
+        // BOARD: its response in the picture's place; MODEL (as wide as BODY's menus) beside TONE and MIX, SIZE under
+        // MODEL's middle.
+        boardResponse->setBounds (pictureBounds);
         boardModel->setBounds ({ column (0), row1 + (int) dialSize / 2 - 8, spanTo (2), 16 });
         place (*boardKnobs[1], column (3), row1);
         place (*boardKnobs[2], column (4), row1);
-        place (*boardKnobs[0], column (0), row2);
-        boardResponse->setBounds (juce::Rectangle<int> (column (1), row2, column (4) + cell - column (1), card.getBottom() - 3 - row2));
+        place (*boardKnobs[0], column (1), row2);
     }
 
     void layoutSubNoise()
@@ -2338,7 +2485,7 @@ private:
     }
 
     // (UI review 26: FILTER back to mockup v4's width, its graph about 290 px; the knobs at 33 and WEST at 41 give the room.)
-    static constexpr int westPitch = 41, stringsPitch = 43, bodyPitch = 42, filterPitch = 33;
+    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42, filterPitch = 42, gapToKnobs = 5;
 
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };
@@ -2366,6 +2513,8 @@ private:
     std::unique_ptr<SubWaveDisplay> subWave;
     std::unique_ptr<NoiseColourDisplay> noiseBand;
     std::unique_ptr<BoardResponseDisplay> boardResponse;
+    std::unique_ptr<StringsPicture> stringsPicture;
+    std::unique_ptr<BodyPicture> bodyPicture;
     std::unique_ptr<ComboControl> westMode, westPosition, westSource, bodyType, bodyCoupling, boardModel, subShape, noiseType;
     std::unique_ptr<PillChoice> subOctave;
     std::vector<std::unique_ptr<KnobControl>> westKnobs, bodyKnobs, boardKnobs;

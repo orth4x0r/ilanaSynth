@@ -480,7 +480,7 @@ public:
         // the card's width (ilana 2026-10-28, Impeccable re-score: the old column of
         // two beside them stood 73 % empty below its four knobs).
         const auto controls = arpArea.removeFromBottom (knobRowHeight);
-        arpArea.removeFromBottom (6);
+        arpArea.removeFromBottom (12); // (the row's gap above it as wide as the one under its names)
         const auto rowDisplay = arpArea.reduced (0, 2);
         arpLanes.setBounds (rowDisplay);
         euclidDisplay.setBounds (rowDisplay);

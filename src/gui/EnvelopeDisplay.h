@@ -181,18 +181,42 @@ public:
         // The value being dragged (or hovered), beside the handle (left of
         // it near the right edge, below it near the top), inside the plot.
         const auto shownHandle = dragHandle >= 0 ? dragHandle : (showHandles ? hoverHandle : -1);
-        const auto shownText = dragHandle >= 0 ? readout : readoutFor (shownHandle);
+        const auto shownText = dragHandle >= 0 ? readout : readoutFor (shownHandle, false);
         if (shownText.isNotEmpty() && shownHandle >= 0)
         {
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
             const auto anchor = handlePosition (geo, shownHandle);
             const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, shownText) + 12.0f;
+            const auto fit = [&] (juce::Rectangle<float> r) { return r.constrainedWithin (getLocalBounds().toFloat().reduced (2.0f)); };
             auto box = juce::Rectangle<float> (width, 16.0f).withPosition (anchor.x + 10.0f, anchor.y - 24.0f);
             if (box.getRight() > geo.plot.getRight())
                 box.setX (anchor.x - 10.0f - width);
             if (box.getY() < geo.plot.getY())
                 box.setY (anchor.y + 10.0f);
-            box = box.constrainedWithin (getLocalBounds().toFloat().reduced (2.0f));
+            box = fit (box);
+
+            // A hovered value takes the first place beside its handle where it
+            // doesn't cover the curve (the drag keeps the one above).
+            if (dragHandle < 0)
+            {
+                const auto crosses = [&path] (juce::Rectangle<float> r)
+                {
+                    return path.intersectsLine ({ r.getTopLeft(), r.getTopRight() }) || path.intersectsLine ({ r.getBottomLeft(), r.getBottomRight() })
+                           || path.intersectsLine ({ r.getTopLeft(), r.getBottomLeft() }) || path.intersectsLine ({ r.getTopRight(), r.getBottomRight() });
+                };
+                const juce::Point<float> places[] { { anchor.x + 10.0f, anchor.y - 24.0f }, { anchor.x - 10.0f - width, anchor.y - 24.0f },
+                                                    { anchor.x + 10.0f, anchor.y + 10.0f }, { anchor.x - 10.0f - width, anchor.y + 10.0f },
+                                                    { anchor.x - width * 0.5f, anchor.y + 14.0f }, { anchor.x - width * 0.5f, anchor.y - 30.0f } };
+                for (const auto place : places)
+                {
+                    const auto candidate = fit (juce::Rectangle<float> (width, 16.0f).withPosition (place));
+                    if (! crosses (candidate))
+                    {
+                        box = candidate;
+                        break;
+                    }
+                }
+            }
 
             g.setColour (juce::Colours::black.withAlpha (0.7f));
             g.fillRoundedRectangle (box, 4.0f);
@@ -1016,7 +1040,7 @@ private:
 
     // What a handle sets, in the knob's words: shown while it is dragged,
     // and while the pointer is over it (Impeccable re-score toward 35).
-    juce::String readoutFor (int handle) const
+    juce::String readoutFor (int handle, bool withSustain = true) const
     {
         // A segment's curve reads as the bend it plays (CURVE plus its own),
         // in the words the knob uses.
@@ -1036,7 +1060,7 @@ private:
         auto text = juce::String (suffixForHandle (handle)).toUpperCase() + "  "
                     + describeValue (id, parameter->convertFrom0to1 (parameter->getValue()));
         // The decay handle sets the sustain too.
-        if (handle == 1)
+        if (handle == 1 && withSustain)
             text << "  SUSTAIN " << describeValue (paramPrefix + "_sustain", readValue ("sustain"));
         return text;
     }

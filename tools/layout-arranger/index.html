@@ -124,8 +124,8 @@ textarea{min-height:60px;resize:vertical;line-height:1.45;font-family:var(--ui)}
       <button class="btn" id="gridshow" title="Show the grid">Show</button>
     </div>
     <div class="grp" role="group" aria-label="Edit"><span>Edit</span>
-      <button class="btn" id="mode-cards" title="Drag whole cards">Cards</button>
-      <button class="btn" id="mode-ctl" title="Drag the knobs, menus and graphs inside cards">Controls</button>
+      <button class="btn" id="mode-ctl" title="Grab a knob, menu or graph to move it on its own; grab a card's header or edge (or Alt-drag) to move the whole card">Knobs + cards</button>
+      <button class="btn" id="mode-cards" title="Lock the knobs so any click moves the whole card">Cards only</button>
       <button class="btn" id="undo" title="Ctrl+Z">Undo</button>
       <button class="btn" id="redo" title="Ctrl+Shift+Z">Redo</button>
       <button class="btn" id="ghost" title="Show today's layout faintly underneath">Today underneath</button>
@@ -154,7 +154,7 @@ let DATA = null;                 // pages.json
 let page = null;                 // current page id
 let state = { pages:{}, theme:null, notes:{}, general:"" };   // edits: per page {els:{id:{x,y,w,h}}, notes}
 const hist = [], fut = [];
-let zoom = 1.75, zoomMode = "1.75", snap = 2, mode = "cards", sel = [], showGrid = false;
+let zoom = 1.75, zoomMode = "1.75", snap = 2, mode = "ctl", sel = [], showGrid = false;
 const $ = s => document.querySelector(s);
 const win = $("#win"), stage = $("#stage"), sizer = $("#sizer"), side = $("#side");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -447,7 +447,7 @@ function renderSide(){
       <button class="btn" data-al="top">Top</button><button class="btn" data-al="vc">Middle</button><button class="btn" data-al="bottom">Bottom</button></div>
       <div class="row" style="margin-top:4px"><button class="btn" data-al="dh">Even across</button><button class="btn" data-al="dv">Even down</button><button class="btn" data-al="w">Same width</button><button class="btn" data-al="h">Same height</button></div></section>`;
   }
-  if (!id) h += `<section><h2>How it works</h2><p class="hint"><b>Cards</b> mode drags whole cards (corner handle resizes). <b>Controls</b> mode drags the knobs, menus and graphs inside them. Shift-click picks several to line up. Arrows nudge 1 px, Shift+arrows 10. Pink lines are edges and centres you snapped to; blue is padding, yellow is gaps, in px.</p></section>`;
+  if (!id) h += `<section><h2>How it works</h2><p class="hint">Grab any knob, menu or graph to move it on its own. Grab a card by its header or edge, or Alt-drag anywhere on it, to move the whole card (corner handle resizes). <b>Cards only</b> locks the knobs. Shift-click picks several to line up. Arrows nudge 1 px, Shift+arrows 10. Pink lines are edges and centres you snapped to; blue is padding, yellow is gaps, in px.</p></section>`;
   h += `<section><h2>Spacing for the whole synth</h2><div class="theme">
       <label for="t-cardGap">Gap between cards</label><input type="number" id="t-cardGap" min="0" max="40" value="${t.cardGap}">
       <label for="t-margin">Window margin</label><input type="number" id="t-margin" min="0" max="40" value="${t.margin}">
@@ -660,7 +660,9 @@ win.addEventListener("pointerdown", e => {
   const el = e.target.closest(".el");
   if (e.target.classList.contains("hdl")) return;
   if (!el){ if (sel.length){ sel = []; render(); } return; }
-  const id = el.dataset.id, p = P();
+  let id = el.dataset.id; const p = P();
+  // Alt-drag on a knob grabs the card it sits in.
+  if (e.altKey){ const k = p.controls.find(k => k.id === id); if (k && k.card) id = k.card; }
   const card = p.cards.find(c => c.id === id), ctl = p.controls.find(k => k.id === id);
   if (card && card.locked) return;
   if (ctl && mode !== "ctl") return;
@@ -712,7 +714,7 @@ const endDrag = () => { if (!drag) return; const d = drag; drag = null; if (d.mo
 win.addEventListener("pointerup", endDrag); win.addEventListener("pointercancel", endDrag);
 // The resize handle on a selected card.
 const addHandle = () => {
-  const p = P(), c = p.cards.find(c => c.id === sel[0]); if (!c || sel.length !== 1 || mode !== "cards") return;
+  const p = P(), c = p.cards.find(c => c.id === sel[0]); if (!c || sel.length !== 1) return;
   const g = geom(c), h = document.createElement("div"); h.className = "hdl";
   Object.assign(h.style, { left:(g.x + g.w - 5) + "px", top:(g.y + g.h - 5) + "px", cursor:"nwse-resize", transform:`scale(${1/zoom})` });
   h.addEventListener("pointerdown", e => {

@@ -178,25 +178,51 @@ public:
             g.fillRect (juce::Rectangle<float> (8.0f, 2.0f).withPosition (geo.plot.getRight() - 8.0f, monitorY - 1.0f));
         }
 
-        // The value being dragged, beside the handle (left of it near the
-        // right edge, below it near the top), inside the plot.
-        if (readout.isNotEmpty() && dragHandle >= 0)
+        // The value being dragged (or hovered), beside the handle (left of
+        // it near the right edge, below it near the top), inside the plot.
+        const auto shownHandle = dragHandle >= 0 ? dragHandle : (showHandles ? hoverHandle : -1);
+        const auto shownText = dragHandle >= 0 ? readout : readoutFor (shownHandle, false);
+        if (shownText.isNotEmpty() && shownHandle >= 0)
         {
             const auto font = IlanaTheme::font (IlanaTheme::TextSize::label, true);
-            const auto anchor = handlePosition (geo, dragHandle);
-            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, readout) + 12.0f;
+            const auto anchor = handlePosition (geo, shownHandle);
+            const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, shownText) + 12.0f;
+            const auto fit = [&] (juce::Rectangle<float> r) { return r.constrainedWithin (getLocalBounds().toFloat().reduced (2.0f)); };
             auto box = juce::Rectangle<float> (width, 16.0f).withPosition (anchor.x + 10.0f, anchor.y - 24.0f);
             if (box.getRight() > geo.plot.getRight())
                 box.setX (anchor.x - 10.0f - width);
             if (box.getY() < geo.plot.getY())
                 box.setY (anchor.y + 10.0f);
-            box = box.constrainedWithin (getLocalBounds().toFloat().reduced (2.0f));
+            box = fit (box);
+
+            // A hovered value takes the first place beside its handle where it
+            // doesn't cover the curve (the drag keeps the one above).
+            if (dragHandle < 0)
+            {
+                const auto crosses = [&path] (juce::Rectangle<float> r)
+                {
+                    return path.intersectsLine ({ r.getTopLeft(), r.getTopRight() }) || path.intersectsLine ({ r.getBottomLeft(), r.getBottomRight() })
+                           || path.intersectsLine ({ r.getTopLeft(), r.getBottomLeft() }) || path.intersectsLine ({ r.getTopRight(), r.getBottomRight() });
+                };
+                const juce::Point<float> places[] { { anchor.x + 10.0f, anchor.y - 24.0f }, { anchor.x - 10.0f - width, anchor.y - 24.0f },
+                                                    { anchor.x + 10.0f, anchor.y + 10.0f }, { anchor.x - 10.0f - width, anchor.y + 10.0f },
+                                                    { anchor.x - width * 0.5f, anchor.y + 14.0f }, { anchor.x - width * 0.5f, anchor.y - 30.0f } };
+                for (const auto place : places)
+                {
+                    const auto candidate = fit (juce::Rectangle<float> (width, 16.0f).withPosition (place));
+                    if (! crosses (candidate))
+                    {
+                        box = candidate;
+                        break;
+                    }
+                }
+            }
 
             g.setColour (juce::Colours::black.withAlpha (0.7f));
             g.fillRoundedRectangle (box, 4.0f);
             g.setColour (curveColour.withAlpha (0.95f));
             g.setFont (font);
-            g.drawText (readout, box.toNearestInt(), juce::Justification::centred);
+            g.drawText (shownText, box.toNearestInt(), juce::Justification::centred);
         }
     }
 
@@ -213,6 +239,7 @@ public:
     void setSlim (bool shouldBeSlim) { slim = shouldBeSlim; repaint(); }
     // PLAY: the handles show only while the pointer is over the graph.
     void setHandlesOnHover (bool shouldBe) { handlesOnHover = shouldBe; setRepaintsOnMouseActivity (shouldBe); repaint(); }
+    bool showsHandlesOnHoverOnly() const { return handlesOnHover; }
 
     juce::Rectangle<float> getPlotArea() const
     {
@@ -225,6 +252,7 @@ public:
     // readout while one is dragged; the UI test reaches these.
     juce::Point<float> getHandlePosition (int handle) const { return handlePosition (layoutGeometry(), handle); }
     const juce::String& getReadout() const { return readout; }
+    juce::String getReadoutFor (int handle) const { return readoutFor (handle); }
     static constexpr int firstCurveHandle = 4;
 
 private:
@@ -1007,29 +1035,34 @@ private:
 
     void updateReadout()
     {
-        if (dragParameter == nullptr)
-        {
-            readout.clear();
-            return;
-        }
+        readout = dragParameter != nullptr ? readoutFor (dragHandle) : juce::String();
+    }
 
+    // What a handle sets, in the knob's words: shown while it is dragged,
+    // and while the pointer is over it (Impeccable re-score toward 35).
+    juce::String readoutFor (int handle, bool withSustain = true) const
+    {
         // A segment's curve reads as the bend it plays (CURVE plus its own),
         // in the words the knob uses.
-        if (dragHandle >= firstCurveHandle)
+        if (handle >= firstCurveHandle)
         {
             const char* const names[] { "ATTACK", "DECAY", "RELEASE" };
-            const auto segment = juce::jlimit (0, 2, dragHandle - firstCurveHandle);
+            const auto segment = juce::jlimit (0, 2, handle - firstCurveHandle);
             const auto bend = segmentCurve (segment);
-            readout = juce::String (names[segment]) + " CURVE  " + (bend >= 0.005f ? "+" : "") + juce::String (bend, 2);
-            return;
+            return juce::String (names[segment]) + " CURVE  " + (bend >= 0.005f ? "+" : "") + juce::String (bend, 2);
         }
 
-        const auto id = paramPrefix + "_" + suffixForHandle (dragHandle);
-        const auto value = dragParameter->convertFrom0to1 (dragParameter->getValue());
-        readout = juce::String (suffixForHandle (dragHandle)).toUpperCase() + "  " + describeValue (id, value);
+        auto* parameter = handle >= 0 ? parameterFor (suffixForHandle (handle)) : nullptr;
+        if (parameter == nullptr)
+            return {};
+
+        const auto id = paramPrefix + "_" + suffixForHandle (handle);
+        auto text = juce::String (suffixForHandle (handle)).toUpperCase() + "  "
+                    + describeValue (id, parameter->convertFrom0to1 (parameter->getValue()));
         // The decay handle sets the sustain too.
-        if (dragHandle == 1)
-            readout << "  SUSTAIN " << describeValue (paramPrefix + "_sustain", readValue ("sustain"));
+        if (handle == 1 && withSustain)
+            text << "  SUSTAIN " << describeValue (paramPrefix + "_sustain", readValue ("sustain"));
+        return text;
     }
 
     IlanaSynthAudioProcessor& processorRef;

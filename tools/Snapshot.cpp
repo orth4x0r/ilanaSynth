@@ -6898,6 +6898,10 @@ int runUiTests()
                                     && landed.getDistanceFrom (to) < 3.0f && steps.size() == 1 && std::abs (read ("amp_acurve")) < 0.001f,
                                 "the attack's curve dot bends the attack alone (" + juce::String (changed, 2) + ", '" + readout
                                     + "', the dot " + juce::String (landed.getDistanceFrom (to), 1) + " px from the mouse), one undo step");
+                        // Impeccable re-score toward 35: a handle says its value on hover too.
+                        const auto hoverText = amp->getReadoutFor (0);
+                        expect (hoverText.startsWith ("ATTACK") && amp->getReadoutFor (1).contains ("SUSTAIN"),
+                                "an envelope handle names its value for the hover readout ('" + hoverText + "')");
                     }
                     else
                     {
@@ -9272,6 +9276,25 @@ int main (int argc, char** argv)
                 click ("PLAY envelope EDIT");
                 settle (500);
                 save (*editor, outDir.getChildFile ("play-edit-popup.png"));
+                // The decay handle hovered: its value beside it (Impeccable re-score toward 35).
+                {
+                    std::vector<EnvelopeDisplay*> displays;
+                    findAll<EnvelopeDisplay> (*editor, displays);
+                    EnvelopeDisplay* biggest = nullptr;
+                    for (auto* display : displays)
+                        if (visibleInTree (display) && ! display->showsHandlesOnHoverOnly())
+                            biggest = display;
+                    if (biggest != nullptr)
+                    {
+                        const auto at = biggest->getHandlePosition (1);
+                        auto& component = static_cast<juce::Component&> (*biggest);
+                        component.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(),
+                                                               1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(),
+                                                               at, juce::Time::getCurrentTime(), 1, false));
+                        settle (200);
+                        save (*editor, outDir.getChildFile ("play-edit-popup-hover.png"));
+                    }
+                }
                 click ("PLAY envelope EDIT");
                 settle (300);
                 click ("PLAY LFO EDIT");

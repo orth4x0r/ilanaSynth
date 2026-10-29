@@ -43,7 +43,7 @@
 class PianoString
 {
 public:
-    static constexpr int maxStages = 8;
+    static constexpr int maxStages = 16;
 
     void prepare (double newSampleRate, float* storage, int storageSize)
     {
@@ -63,6 +63,12 @@ public:
             for (int lane = 0; lane < 4; ++lane)
                 chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
+        for (auto& path : quarterState)
+            for (auto& stage : path)
+                stage = {};
+        pushState1 = pushState2 = 0.0f;
+        toneX1 = toneX2 = toneY1 = toneY2 = 0.0f;
+        dipX1 = dipX2 = dipY1 = dipY2 = 0.0f;
         bridgeReturn = 0.0f;
         bridgeInput = 0.0f;
         hammerActive = false;
@@ -74,6 +80,7 @@ public:
         squareDcIn = squareDcOut = 0.0f;
         dcIn = dcOut = 0.0f;
         knockEnvelope = 0.0f;
+        hissArm = hissEnvelope = hissLow1 = hissLow2 = hissLow3 = 0.0f;
         knockLow1 = knockLow2 = 0.0f;
         forceHistoryWrite = 0;
         std::fill (forceHistory.begin(), forceHistory.end(), 0.0f);
@@ -118,14 +125,29 @@ public:
         eco = newEco;
     }
 
-    void addBridgeInput (float value) { bridgeInput += value; }
+    // Whatever feeds back comes from this string's output, which carries the
+    // level gains: scaled back, so the loop gain does not depend on them.
+    void addBridgeInput (float value) { bridgeInput += value * feedbackScale; }
 
     // (The design waits for the first process(): a voice triggers all its
     // buffered unison strings, and only the ones in use are ever played.)
     void trigger (float velocity, float randomUnit)
     {
         const auto& t = PianoModelTuning::get();
-        const auto level = juce::jlimit (0.0f, 1.0f, velocity);
+        const auto level = std::pow (juce::jlimit (0.0f, 1.0f, velocity), t.velocityCurve);
+        const auto octavesAboveC5 = juce::jmax (0.0, ((double) note - 60.0) / 12.0 - 1.0);
+        const auto keyVelocity = (double) juce::jlimit (0.0f, 1.0f, velocity) * 127.0;
+        const auto soft = (double) t.velocityGainSoft, medium = (double) t.velocityGainMedium, high = (double) t.velocityGainHigh, loud = (double) t.velocityGainLoud;
+        const auto keyGainDb = keyVelocity <= 20.0 ? soft
+                             : keyVelocity <= 60.0 ? soft + (medium - soft) * (keyVelocity - 20.0) / 40.0
+                             : keyVelocity <= 100.0 ? medium + (high - medium) * (keyVelocity - 60.0) / 40.0
+                             : keyVelocity <= 124.0 ? high + (loud - high) * (keyVelocity - 100.0) / 24.0
+                                                    : loud;
+        velocityGain = (float) std::pow (10.0, keyGainDb / 20.0);
+        trebleLiftDb = (double) (t.trebleLevel + t.trebleLevelVelocity * level) * octavesAboveC5;
+        trebleLiftScale = juce::jmin (1.0, octavesAboveC5);
+        trebleDirty = true;
+        gainProduct = -1.0f;
 
         // Key speed to hammer speed: about 0.5 m/s (pp) to 5 m/s (ff).
         hammerV = (double) t.speedLow * std::pow ((double) t.speedHigh / (double) t.speedLow, (double) level);
@@ -140,6 +162,8 @@ public:
         // The board's knock and the felt's thud, heard directly.
         knockEnvelope = (float) (hammerV / (double) t.speedHigh);
         knockEnvelope *= knockEnvelope;
+        hissArm = (float) std::pow (juce::jmax (1.0e-4, hammerV / (double) t.speedHigh), (double) t.hissVelocity);
+        hissEnvelope = 0.0f;
     }
 
     float process (bool noteHeld)
@@ -148,6 +172,23 @@ public:
             return 0.0f;
         if (! designed)
             design();
+        if (trebleDirty)
+        {
+            trebleDirty = false;
+            // A harder felt already brings the treble up, so the lift gives way to it.
+            const auto hardnessDb = ((double) hardness - 0.5) * 3.2 * (double) PianoModelTuning::get().hardnessRange * 12.0412;
+            trebleGain = (float) std::pow (10.0, (trebleLiftDb - 0.5 * juce::jmax (0.0, hardnessDb) * trebleLiftScale) / 20.0);
+        }
+        if (gainProduct != velocityGain * trebleGain)
+        {
+            gainProduct = velocityGain * trebleGain;
+            feedbackScale = feedbackBase / juce::jmax (1.0e-4f, gainProduct);
+        }
+        if (hissArm > 0.0f)
+        {
+            hissEnvelope = hissLevelLinear * hissArm;
+            hissArm = 0.0f;
+        }
 
         // Waves arriving at the strike point: from the agraffe (inverted),
         // and back from the bridge (through its filters, already inverted).
@@ -223,7 +264,10 @@ public:
                 hammerActive = false;
         }
 
-        const auto push = (float) (force / (2.0 * impedance));
+        // The felt rounds the strike: two poles take the sharp edge off the pulse.
+        pushState1 += ((float) (force / (2.0 * impedance)) - pushState1) * pushCoefficient;
+        pushState2 += (pushState1 - pushState2) * pushCoefficient;
+        const auto push = pushState2;
         const auto aOut = bIn + push;
         const auto bOut = aIn + push;
         buffer[nutOffset + nutWrite] = aOut;
@@ -272,7 +316,7 @@ public:
             atBridge *= damperTrip.get (damper, period, sampleRate);
         bridgeReturn = -atBridge;
 
-        auto output = atBridge;
+        auto output = quadrature ? quarterTurn (atBridge, 0) : atBridge;
 
         // The horizontal polarisation: the same string, driven by a share of
         // the strike through the strike-point comb, losing energy slowly.
@@ -293,7 +337,7 @@ public:
             buffer[horizontalOffset + horizontalWrite] = loop + drive;
             if (++horizontalWrite >= horizontalSize)
                 horizontalWrite = 0;
-            output += loop * horizontalMix;
+            output += (quadrature ? quarterTurn (loop, 1) : loop) * horizontalMix;
 
             // Phantom partials: the longitudinal modes, driven by the square
             // of the motion (sum and difference tones of the partials).
@@ -310,6 +354,9 @@ public:
             }
         }
 
+        // The treble's level lift belongs to the string, not to the noise below.
+        output *= trebleGain;
+
         // The knock: band-passed noise, a few milliseconds, louder and
         // brighter for a faster hammer.
         if (knockEnvelope > 1.0e-5f)
@@ -322,13 +369,48 @@ public:
             knockEnvelope *= knockDecay;
         }
 
+        // The hiss: longer, lower and quieter than the knock.
+        if (hissEnvelope > 1.0e-6f)
+        {
+            noiseSeed = noiseSeed * 1664525u + 1013904223u;
+            const auto noise = (float) ((double) noiseSeed / 4294967295.0 * 2.0 - 1.0);
+            hissLow1 += (noise - hissLow1) * hissCoefficient;
+            hissLow2 += (hissLow1 - hissLow2) * hissCoefficient;
+            hissLow3 += (hissLow2 - hissLow3) * hissCoefficient;
+            output += hissLow3 * hissEnvelope;
+            hissEnvelope *= noteHeld || damper <= 0.0f ? hissDecayFactor : hissDecayFactor * 0.9985f;
+        }
+
+        // The fundamental's dip: a peaking cut at the pitch, so partials 2 to
+        // 4 stand against it as they do on a real grand's mid register.
+        if (dipActive)
+        {
+            const auto dipped = dipB0 * output + dipB1 * dipX1 + dipB2 * dipX2 - dipA1 * dipY1 - dipA2 * dipY2;
+            dipX2 = dipX1;
+            dipX1 = output;
+            dipY2 = dipY1;
+            dipY1 = isFinite (dipped) ? dipped : 0.0f;
+            output = dipY1;
+        }
+
+        // The tone: a two-pole low-pass, the felt and board taking the sharp top off.
+        if (toneActive)
+        {
+            const auto toned = toneB0 * (output + 2.0f * toneX1 + toneX2) - toneA1 * toneY1 - toneA2 * toneY2;
+            toneX2 = toneX1;
+            toneX1 = output;
+            toneY2 = toneY1;
+            toneY1 = isFinite (toned) ? toned : 0.0f;
+            output = toneY1;
+        }
+
         // DC (the hammer leaves the string displaced for a moment).
         const auto blocked = output - dcIn + 0.9987f * dcOut;
         dcIn = output;
         dcOut = isFinite (blocked) ? blocked : 0.0f;
         if (! isFinite (lossState) || ! isFinite (horizontalLossState))
             reset();
-        return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain);
+        return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain * velocityGain);
     }
 
     // Register constants, for tests and the display.
@@ -463,47 +545,94 @@ private:
         // Strike point, from the agraffe: about 1/8, closer in the treble.
         strikeFraction = strikeKnob > 0.0f ? (double) strikeKnob * 0.5 : lerp ((double) t.strikeBass, (double) t.strikeTreble);
 
-        // Inharmonicity: B rises towards the treble (short, thick strings);
-        // STIFF sets the C4 value.
+        // Inharmonicity: B rises towards the treble (short, thick strings)
+        // and again below A1; STIFF sets the C4 value.
+        constexpr auto a1 = -2.2502; // A1, in octaves from C4
+        const auto belowA1 = juce::jmax (0.0, a1 - octavesFromC4);
+        const auto octaves = juce::jmax (octavesFromC4, a1);
         inharmonicity = (double) t.inharmonicityC4 * std::pow (10.0, ((double) stiffness - 0.5) * 3.2)
-                        * std::pow (2.0, octavesFromC4 * (octavesFromC4 > 0.0 ? (double) t.inharmonicityTreble : -(double) t.inharmonicityBass));
-        stages = eco ? maxStages / 2 : maxStages;
+                        * std::pow (2.0, octaves * (octaves > 0.0 ? (double) t.inharmonicityTreble : -(double) t.inharmonicityBass)
+                                             + belowA1 * (double) t.inharmonicityLowBass);
 
         // Decay: DECAY sets the fundamental's T60 at C4; it shortens up the
         // keyboard. DAMP sets how fast the upper partials go (T60 at 3 kHz).
         const auto t60 = juce::jlimit (0.2, 60.0, (double) t.t60C4 * std::pow (4.0, ((double) decay - 0.5) * 2.0)
-                                                      * std::pow (261.63 / frequency, (double) t.t60Register));
+                                                      * std::pow (261.63 / frequency, (double) (frequency > 261.63 ? t.t60RegisterTreble : t.t60Register)));
         const auto upper = juce::jlimit (frequency * 1.5, sampleRate * 0.4, 3000.0);
         const auto upperT60 = (double) t.t60Upper * std::pow (8.0, (0.5 - (double) damp) * 2.0);
         designLoss (juce::jmax (0.1, t60 * (double) t.promptRatio), upperT60 * (double) t.promptRatio, upper, lossCoefficient, lossGain);
         designLoss (t60, upperT60, upper, horizontalLossCoefficient, horizontalLossGain);
 
-        // Stiffness allpasses, solved so a reference partial lands at
-        // n sqrt(1 + B n^2) / sqrt(1 + B).
+        // Stiffness allpasses: one coefficient for the chain, chosen so the
+        // partials up to dispersionTop land as close as possible (least
+        // squares, low partials weighted more) on n sqrt(1 + B n^2) / sqrt(1 + B).
+        // The loss filter's own phase is counted in.
         const auto w0 = juce::MathConstants<double>::twoPi / period;
         dispersion = 0.0f;
         auto dispersionDelay = 0.0;
-        const auto reference = juce::jmin (12, (int) (0.3 * sampleRate / frequency));
-        if (reference >= 2 && period >= 8.0)
+        const auto partials = juce::jmin (60, (int) (juce::jmin ((double) t.dispersionTop, 0.4 * sampleRate) / frequency));
+        // The chain may take at most 0.6 of the period, and must leave both
+        // lines their minimum length. Each stage is at least one sample long
+        // (a = 0 is a plain delay), so short treble loops get fewer stages.
+        const auto loss0 = lowpassPhaseDelay (w0, (double) lossCoefficient);
+        const auto nutEstimate = juce::jmax (1.0, std::round (period * strikeFraction));
+        const auto lossDelay = juce::jmax (loss0, lowpassPhaseDelay (w0, (double) horizontalLossCoefficient));
+        const auto budget = juce::jmin (period * 0.6, period * (1.0 - retuneRange) - nutEstimate - lossDelay - 3.0);
+        stages = juce::jlimit (0, eco ? maxStages / 2 : maxStages, (int) std::floor (budget));
+        if (partials < 2 || stages < 1)
+            stages = 0;
+        else
         {
-            const auto n = (double) reference;
-            const auto wTarget = n * w0 * std::sqrt (1.0 + inharmonicity * n * n) / std::sqrt (1.0 + inharmonicity);
-            const auto needed = juce::MathConstants<double>::twoPi * n / wTarget - period;
-            const auto error = [&] (double a) { return (double) stages * (allpassPhaseDelay (a, wTarget) - allpassPhaseDelay (a, w0)) - needed; };
-            auto low = -0.95, high = 0.0;
-            if (error (low) > 0.0)
-                high = low;
-            else
+            constexpr int maxPoints = 24;
+            double pointW[maxPoints], pointN[maxPoints], pointWeight[maxPoints], pointLoss[maxPoints];
+            int points = 0;
+            const auto spacing = juce::jmax (1.0, (double) (partials - 2) / (double) (maxPoints - 1));
+            for (auto n = 2.0; n <= (double) partials + 1.0e-6 && points < maxPoints; n += spacing)
+            {
+                const auto k = std::round (n);
+                pointN[points] = k;
+                pointW[points] = k * w0 * std::sqrt (1.0 + inharmonicity * k * k) / std::sqrt (1.0 + inharmonicity);
+                pointWeight[points] = 1.0 / std::sqrt (k);
+                pointLoss[points] = lowpassPhaseDelay (pointW[points], (double) lossCoefficient) - loss0;
+                ++points;
+            }
+            const auto chain = [this, w0] (double a) { return (double) stages * allpassPhaseDelay (a, w0); };
+            const auto cost = [&] (double a)
+            {
+                const auto chain0 = chain (a);
+                auto sum = 0.0;
+                for (int i = 0; i < points; ++i)
+                {
+                    const auto loop = period + (double) stages * allpassPhaseDelay (a, pointW[i]) - chain0 + pointLoss[i];
+                    const auto error = pointW[i] * loop / (juce::MathConstants<double>::twoPi * pointN[i]) - 1.0;
+                    sum += pointWeight[i] * error * error;
+                }
+                return sum;
+            };
+            auto low = -0.95;
+            if (chain (low) > budget)
+            {
+                auto high = 0.0;
                 for (int i = 0; i < 30; ++i)
                 {
                     const auto middle = 0.5 * (low + high);
-                    (error (middle) > 0.0 ? high : low) = middle;
+                    (chain (middle) > budget ? low : high) = middle;
                 }
-            auto a = high;
-            while (a < -0.01 && (double) stages * allpassPhaseDelay (a, w0) > period * 0.6)
-                a *= 0.8;
+                low = high;
+            }
+            // Golden-section search over [low, 0].
+            constexpr auto golden = 0.6180339887498949;
+            auto lo = low, hi = 0.0;
+            auto c = hi - golden * (hi - lo), d = lo + golden * (hi - lo);
+            auto costC = cost (c), costD = cost (d);
+            for (int i = 0; i < 24; ++i)
+            {
+                if (costC < costD) { hi = d; d = c; costD = costC; c = hi - golden * (hi - lo); costC = cost (c); }
+                else               { lo = c; c = d; costC = costD; d = lo + golden * (hi - lo); costD = cost (d); }
+            }
+            const auto a = 0.5 * (lo + hi);
             dispersion = (float) a;
-            dispersionDelay = (double) stages * allpassPhaseDelay (a, w0);
+            dispersionDelay = chain (a);
         }
 
         // Split the loop: the strike point's round trip to the agraffe is
@@ -531,7 +660,22 @@ private:
         retune();
 
         aftersound = t.aftersound;
-        horizontalMix = t.horizontalMix;
+        quadrature = t.quadrature > 0.5f;
+        // The cutoff opens from the bass (A1) to the middle (C5): low notes have very many partials in the top octaves.
+        const auto toneCutoffHz = (double) t.toneCutoffBass * std::pow ((double) t.toneCutoff / (double) t.toneCutoffBass, juce::jlimit (0.0, 1.0, ((double) note - 33.0) / 39.0));
+        toneActive = toneCutoffHz < sampleRate * 0.3;
+        if (toneActive)
+        {
+            const auto w = juce::MathConstants<double>::twoPi * toneCutoffHz / sampleRate;
+            const auto alpha = std::sin (w) / (2.0 * 0.7071);
+            const auto a0 = 1.0 + alpha;
+            toneB0 = (float) ((1.0 - std::cos (w)) * 0.5 / a0);
+            toneA1 = (float) (-2.0 * std::cos (w) / a0);
+            toneA2 = (float) ((1.0 - alpha) / a0);
+        }
+        pushCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * juce::jmin (0.45 * sampleRate, (double) t.strikeBandwidth) / sampleRate));
+        // The aftersound fades out up the keyboard (dB per octave above C5).
+        horizontalMix = t.horizontalMix * (float) std::pow (10.0, -(double) t.horizontalTrebleFall * juce::jmax (0.0, ((double) note - 72.0) / 12.0) / 20.0);
 
         // The bass bark: tension modulation and longitudinal modes, fading
         // out by the tenor.
@@ -549,7 +693,59 @@ private:
         const auto knockHz = juce::jlimit (300.0, sampleRate * 0.4, (double) t.knockFrequency * std::pow (2.0, octavesFromC4 * 0.5));
         knockCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * knockHz / sampleRate));
         knockDecay = (float) std::exp (-1.0 / (sampleRate * 0.004 * std::pow (2.0, -octavesFromC4 * 0.3)));
+        {
+            hissLevelLinear = t.hissLevel <= -150.0f ? 0.0f : (float) std::pow (10.0, ((double) t.hissLevel + octavesFromC4 * (double) t.hissLevelRegister) / 20.0);
+            const auto hissHz = juce::jlimit (30.0, sampleRate * 0.4, (double) t.hissCutoff * std::pow (2.0, octavesFromC4 * (double) t.hissCutoffRegister));
+            hissCoefficient = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * hissHz / sampleRate));
+            const auto hissT60 = juce::jmax (0.02, (double) t.hissDecay * std::pow (2.0, octavesFromC4 * (double) t.hissDecayRegister));
+            hissDecayFactor = (float) std::exp (-6.907755 / (sampleRate * hissT60));
+        }
+        feedbackBase = 0.96f / juce::jmax (1.0e-4f, t.outputGain);
+        gainProduct = -1.0f;
         outputGain = t.outputGain * (float) std::pow (2.0, octavesFromC4 * (double) t.balance);
+
+        // The fundamental's dip (dB cut at the pitch, joined in a line between
+        // the anchor notes) and the level trim that goes with it.
+        {
+            const auto& anchors = PianoModelTuning::dipNotes;
+            auto cutDb = (double) t.dip.back();
+            if (note <= anchors.front())
+                cutDb = (double) t.dip.front();
+            for (size_t i = 1; i < anchors.size(); ++i)
+                if (note <= anchors[i])
+                {
+                    const auto f = ((double) note - anchors[i - 1]) / (double) (anchors[i] - anchors[i - 1]);
+                    cutDb = (double) t.dip[i - 1] + ((double) t.dip[i] - (double) t.dip[i - 1]) * f;
+                    break;
+                }
+            auto trimDb = (double) t.dipTrim.back();
+            if (note <= anchors.front())
+                trimDb = (double) t.dipTrim.front();
+            for (size_t i = 1; i < anchors.size(); ++i)
+                if (note <= anchors[i])
+                {
+                    const auto f = ((double) note - anchors[i - 1]) / (double) (anchors[i] - anchors[i - 1]);
+                    trimDb = (double) t.dipTrim[i - 1] + ((double) t.dipTrim[i] - (double) t.dipTrim[i - 1]) * f;
+                    break;
+                }
+            // The trim keeps the note's level where the dip leaves it.
+            outputGain *= (float) std::pow (10.0, trimDb / 20.0);
+
+            dipActive = cutDb > 0.05 && frequency < sampleRate * 0.3;
+            if (dipActive)
+            {
+                // RBJ peaking filter, gain -cutDb at the pitch.
+                const auto a = std::pow (10.0, -cutDb / 40.0);
+                const auto w = juce::MathConstants<double>::twoPi * frequency / sampleRate;
+                const auto alpha = std::sin (w) / (2.0 * (double) t.dipQ);
+                const auto a0 = 1.0 + alpha / a;
+                dipB0 = (float) ((1.0 + alpha * a) / a0);
+                dipB1 = (float) ((-2.0 * std::cos (w)) / a0);
+                dipB2 = (float) ((1.0 - alpha * a) / a0);
+                dipA1 = dipB1;
+                dipA2 = (float) ((1.0 - alpha / a) / a0);
+            }
+        }
     }
 
     // A redesign every 3 %, half a semitone.
@@ -613,9 +809,33 @@ private:
        #endif
     }
     float lossCoefficient = 0.5f, lossGain = 0.99f, lossState = 0.0f;
+    float pushState1 = 0.0f, pushState2 = 0.0f, pushCoefficient = 1.0f;
     float horizontalLossCoefficient = 0.5f, horizontalLossGain = 0.99f, horizontalLossState = 0.0f;
     float bridgeReturn = 0.0f, bridgeInput = 0.0f;
     float aftersound = 0.3f, horizontalMix = 1.0f;
+    bool quadrature = false;
+    // Two all-pass chains whose outputs stay 90 degrees apart over the whole
+    // audible range (Niemitalo's Hilbert pair), one per string direction.
+    struct QuarterStage { float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f; };
+    QuarterStage quarterState[2][4];
+    float quarterTurn (float x, int path) noexcept
+    {
+        static constexpr float a[2][4] = { { 0.6923878f, 0.9360654f, 0.9882295f, 0.9987488f }, { 0.4021921f, 0.8561711f, 0.9722910f, 0.9952885f } };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& s = quarterState[path][i];
+            const auto c = a[path][i] * a[path][i];
+            const auto y = c * (x + s.y2) - s.x2;
+            s.x2 = s.x1; s.x1 = x;
+            s.y2 = s.y1; s.y1 = y;
+            x = y;
+        }
+        return x;
+    }
+    bool toneActive = false;
+    float toneB0 = 1.0f, toneA1 = 0.0f, toneA2 = 0.0f, toneX1 = 0.0f, toneX2 = 0.0f, toneY1 = 0.0f, toneY2 = 0.0f;
+    bool dipActive = false;
+    float dipB0 = 1.0f, dipB1 = 0.0f, dipB2 = 0.0f, dipA1 = 0.0f, dipA2 = 0.0f, dipX1 = 0.0f, dipX2 = 0.0f, dipY1 = 0.0f, dipY2 = 0.0f;
     DamperTaper::Cache damperTrip;
 
     static constexpr int forceHistorySize = 4096;
@@ -629,7 +849,8 @@ private:
     float longitudinalGain = 0.0f, squareDcIn = 0.0f, squareDcOut = 0.0f;
 
     // Knock and output.
+    float hissArm = 0.0f, hissEnvelope = 0.0f, hissLevelLinear = 0.0f, hissDecayFactor = 0.9999f, hissCoefficient = 0.1f, hissLow1 = 0.0f, hissLow2 = 0.0f, hissLow3 = 0.0f;
     float knockEnvelope = 0.0f, knockLevel = 0.0f, knockDecay = 0.99f, knockCoefficient = 0.1f, knockLow1 = 0.0f, knockLow2 = 0.0f;
     std::uint32_t noiseSeed = 22222u;
-    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f;
+    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f, velocityGain = 1.0f, trebleGain = 1.0f, trebleLiftDb = 0.0, trebleLiftScale = 0.0, trebleDirty = false, gainProduct = 1.0f, feedbackBase = 1.0f, feedbackScale = 1.0f;
 };

@@ -27,7 +27,7 @@ namespace Exciters
 inline const juce::StringArray& names()
 {
     static const juce::StringArray list { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In",
-                                          "Tine", "Reed", "Piano Hammer", "Feedback" };
+                                          "Tine", "Reed", "Piano Hammer", "Feedback", "Modal Piano" };
     return list;
 }
 
@@ -36,7 +36,7 @@ inline juce::String name (int excite) { return names()[juce::jlimit (0, names().
 inline const std::vector<std::pair<const char*, std::vector<int>>>& groups()
 {
     static const std::vector<std::pair<const char*, std::vector<int>>> list {
-        { "PLUCK", { 0, 1, 2, 3 } }, { "STRIKE", { 9, 5 } }, { "BOW", { 4 } }, { "ELECTRIC PIANO", { 7, 8 } }, { "DRIVEN", { 10, 6 } }
+        { "PLUCK", { 0, 1, 2, 3 } }, { "STRIKE", { 9, 11, 5 } }, { "BOW", { 4 } }, { "ELECTRIC PIANO", { 7, 8 } }, { "DRIVEN", { 10, 6 } }
     };
     return list;
 }
@@ -159,7 +159,7 @@ public:
             g.setColour (juce::Colours::white.withAlpha (0.7f));
             g.drawLine (ex - 40.0f + sway, stringY - 6.0f, ex + 40.0f + sway, stringY + 6.0f, 3.0f);
         }
-        else if (excite == 5 || excite == 9) // hammers
+        else if (excite == 5 || excite == 9 || excite == 11) // hammers
         {
             const auto lift = hammerLift();
             const auto head = juce::Rectangle<float> (18.0f, 14.0f).withCentre ({ ex, stringY - 12.0f - lift * area.getHeight() * 0.35f });
@@ -419,6 +419,13 @@ inline std::vector<std::pair<juce::String, std::vector<PhysicalSpec>>> physicalC
         return { { "STRING", { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_damper", "DAMPER" } } },
                  { "HAMMER & PICKUP", { { "_excite", "EXCITE" }, { "_hammer_hard", "HAMMER" }, { "_ep_distance", "DISTANCE" },
                                         { "_ep_position", "OFFSET" } } } };
+
+    // The Modal Piano plays a measured grand: no string to pluck or pick up,
+    // only what reshapes the recording.
+    if (excite == 11)
+        return { { "STRING", { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" }, { "_string_stiffness", "STIFF" },
+                               { "_damper", "DAMPER" } } },
+                 { "EXCITER", { { "_excite", "EXCITE" }, { "_hammer_hard", "HAMMER" } } } };
 
     const auto piano = excite == 9;
     std::vector<PhysicalSpec> string { { "_string_decay", "DECAY" }, { "_string_damp", "DAMP" },

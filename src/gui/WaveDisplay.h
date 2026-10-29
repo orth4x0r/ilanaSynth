@@ -1301,14 +1301,15 @@ private:
     void drawString (juce::Graphics& g, juce::Rectangle<float> area) const
     {
         const auto prefix = modeId.upToLastOccurrenceOf ("_mode", false, false);
-        const auto excite = juce::jlimit (0, 10, readChoice (prefix + "_excite"));
+        const auto excite = juce::jlimit (0, 11, readChoice (prefix + "_excite"));
         const auto position = readPlain (prefix + "_string_excite_pos");
         const auto strike = position > 0.005f ? juce::jlimit (0.02f, 0.5f, position) : 0.125f;
 
         // Named in the header above the plot (not on it), the caption only
         // where both fit.
         if (! compact)
-            drawHeaderText (g, "STRING", Exciters::name (excite).toLowerCase() + " at "
+            drawHeaderText (g, "STRING", excite == 11 ? Exciters::name (excite).toLowerCase() // (no strike position)
+                                                      : Exciters::name (excite).toLowerCase() + " at "
                                              + (position > 0.005f ? juce::String (juce::roundToInt (strike * 100.0f)) + "%" : juce::String ("auto")));
 
         const auto left = area.getX() + 8.0f, right = area.getRight() - 8.0f, mid = area.getCentreY() + area.getHeight() * 0.18f;

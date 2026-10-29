@@ -14,6 +14,7 @@
 
 #include "DamperTaper.h"
 #include "ElectricPiano.h"
+#include "ModalPiano.h"
 #include "PianoString.h"
 #include "FeedbackGuitar.h"
 #include "PianoTuning.h"
@@ -39,12 +40,14 @@ public:
         Tine,     // M7.3: a Rhodes-style tine and tone bar (ElectricPiano)
         Reed,     // M7.3: a Wurlitzer-style reed
         Piano,    // M8.2: a nonlinear felt hammer on a split waveguide (PianoString)
-        Feedback  // M8.5: a pluck, then an amp and speaker in the loop (FeedbackLoop)
+        Feedback, // M8.5: a pluck, then an amp and speaker in the loop (FeedbackLoop)
+        ModalPiano // a grand rebuilt from its measured partials (ModalPiano)
     };
 
-    static constexpr int numExcites = 11;
+    static constexpr int numExcites = 12;
     bool isElectric() const { return excite == Excite::Tine || excite == Excite::Reed; }
     bool isPiano() const { return excite == Excite::Piano; }
+    bool isModal() const { return excite == Excite::ModalPiano; }
 
     KarplusStrong()
         : random (nextSeed())
@@ -67,6 +70,7 @@ public:
         bufferB.assign ((size_t) size, 0.0f);
         electric.prepare (sampleRate);
         piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
+        modal.prepare (sampleRate);
         feedbackLoop.prepare (sampleRate);
         reset();
     }
@@ -89,6 +93,7 @@ public:
         snapGlides = true;
         electric.reset();
         piano.reset();
+        modal.reset();
         feedbackLoop.reset();
     }
 
@@ -97,7 +102,9 @@ public:
         electric.setFrequency (hz);
         frequency = juce::jlimit (15.0, sampleRate * 0.45, hz);
         loopSetupDirty = true;
-        piano.setNote (hz, juce::roundToInt (69.0 + 12.0 * std::log2 (juce::jmax (1.0, hz) / 440.0)));
+        const auto midiNote = juce::roundToInt (69.0 + 12.0 * std::log2 (juce::jmax (1.0, hz) / 440.0));
+        piano.setNote (hz, midiNote);
+        modal.setNote (hz, midiNote);
         updateHammerFeedback();
         updatePianoDispersion();
     }
@@ -207,6 +214,8 @@ public:
             electric.addForce (value * 0.02f);
         else if (isPiano())
             piano.addBridgeInput (value * 0.1f);
+        else if (isModal())
+            return;
         else
             bridgeInput += value * 0.1f;
     }
@@ -220,6 +229,8 @@ public:
     {
         if (isPiano())
             piano.addBridgeInput (value * (float) juce::jmin (1.0, 130.81 / frequency));
+        else if (isModal())
+            return;
         else
             bridgeInput += value * (float) juce::jmin (1.0, 130.81 / frequency);
     }
@@ -250,6 +261,13 @@ public:
         {
             strikeVelocity = level;
             piano.trigger (level, random.nextFloat());
+            return;
+        }
+
+        if (isModal())
+        {
+            strikeVelocity = level;
+            modal.trigger (level, random.nextFloat());
             return;
         }
 
@@ -384,6 +402,9 @@ public:
 
         if (isPiano())
             return piano.process (noteHeld);
+
+        if (isModal())
+            return modal.process (noteHeld);
 
         if (excite == Excite::Bow)
             return processBowed (expression, noteHeld);
@@ -1257,6 +1278,8 @@ private:
     {
         if (isPiano())
             piano.setParams (decay, damping, stiffness, hammerHardness, damper, excitationPosition * 2.0f, eco);
+        else if (isModal())
+            modal.setParams (decay, damping, stiffness, hammerHardness, damper, eco);
     }
 
 public:
@@ -1374,6 +1397,7 @@ private:
     Excite excite = Excite::Burst;
     ElectricPiano electric;
     PianoString piano;
+    ModalPiano modal;
     FeedbackLoop feedbackLoop;
     bool eco = false;
 };

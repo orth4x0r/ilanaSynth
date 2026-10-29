@@ -528,7 +528,7 @@ public:
             const auto curveBox = box (5, 6);
             g.setColour (ink.withAlpha (fade * 1.2f));
             g.drawLine (curveBox.getX() + 6.0f, curveBox.getBottom() - 2.0f, curveBox.getRight() - 6.0f, curveBox.getY() + 2.0f, 1.0f);
-            g.drawText ("UNI", box (6).toNearestInt().withTrimmedRight (box (6).getWidth() * 0.5f), juce::Justification::centred);
+            g.drawText ("+", box (6).toNearestInt().withTrimmedRight (box (6).getWidth() * 0.5f), juce::Justification::centred);
         }
     }
 
@@ -736,7 +736,7 @@ private:
         add ("AMOUNT", C::amount (viaExpanded), C::gap, Sort::amount);
         add ("CURVE", C::curve, C::gap, Sort::none);
         add ("POLARITY", C::polarity, C::gap, Sort::none);
-        add ("ST", C::stereo, C::gap * 2, Sort::none);
+        add ("STEREO", C::stereo, C::gap * 2, Sort::none);
         add ("DESTINATION", C::destination, C::gap, Sort::destination);
         return result;
     }

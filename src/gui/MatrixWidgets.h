@@ -921,7 +921,7 @@ public:
     struct Columns
     {
         static constexpr int number = 30, bypass = 34, source = 150, viaWide = 120, viaNarrow = 32, viaPill = 32,
-                             amountBase = 190, curve = 50, polarity = 76, stereo = 28, destination = 216, remove = 24, gap = 6;
+                             amountBase = 158, curve = 50, polarity = 76, stereo = 60, destination = 216, remove = 24, gap = 6;
         static int via (bool expanded) { return expanded ? viaWide : viaNarrow; }
         // While no row uses VIA its column is a small "+" and the AMOUNT slider, the control people drag, takes the width (S14-2).
         static int amount (bool viaExpanded) { return amountBase + (viaExpanded ? 0 : viaWide - viaNarrow); }
@@ -1008,7 +1008,7 @@ private:
 
     IlanaSynthAudioProcessor& processorRef;
     int slotIndex;
-    juce::TextButton bypass, remove, stereo { "ST" };
+    juce::TextButton bypass, remove, stereo { "STEREO" }; // (full words: Impeccable re-score toward 35)
     std::unique_ptr<juce::ButtonParameterAttachment> stereoAttachment;
     DashedAddButton viaButton { "+", "VIA" };
     juce::ComboBox source, via, destination;

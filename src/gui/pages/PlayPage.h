@@ -2259,6 +2259,8 @@ private:
         // "arranged in two rows like amp"): CUTOFF RESO DRIVE over KEY TRACK and a fifth slot (SLOPE on a classic
         // type, MORPH on one that morphs), centred under them.
         // (Cells a knob wide, the last one at the card's edge: its ring's ink then sits 6 px in, as the picture's does.)
+        // (ilana, 2026-10-29: "f1/2 looks cramped vs west": three columns as wide as WEST's four, so the graph keeps one
+        // width on every tab.)
         const auto knobsX = card.getRight() - 2 * filterPitch - cell;
         filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 6, body.getY() + 1, knobsX - gapToKnobs - card.getX() - 6, body.getHeight() - 2));
         // (The rows at the body's top and bottom, as WEST's: ilana liked its spacing, F1 / F2's rows stood too close.)
@@ -2487,7 +2489,7 @@ private:
     }
 
     // (UI review 26: FILTER back to mockup v4's width, its graph about 290 px; the knobs at 33 and WEST at 41 give the room.)
-    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42, filterPitch = 42, gapToKnobs = 5;
+    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42, filterPitch = 3 * westPitch / 2, gapToKnobs = 5;
 
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };

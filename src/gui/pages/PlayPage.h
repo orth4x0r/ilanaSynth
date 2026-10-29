@@ -2257,15 +2257,17 @@ private:
 
         // Body: the graph at the left, the knobs in two rows at the right like the ENVELOPE card's (ilana, 2026-10-29:
         // "arranged in two rows like amp"): CUTOFF RESO DRIVE over KEY TRACK and a fifth slot (SLOPE on a classic
-        // type, MORPH on one that morphs), centred under them. Room under the second row for KEY TRACK's second line.
-        const auto knobsX = card.getRight() - 6 - 3 * filterPitch;
+        // type, MORPH on one that morphs), centred under them.
+        // (Cells a knob wide, the last one at the card's edge: its ring's ink then sits 6 px in, as the picture's does.)
+        const auto knobsX = card.getRight() - 2 * filterPitch - cell;
         filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 6, body.getY() + 1, knobsX - gapToKnobs - card.getX() - 6, body.getHeight() - 2));
-        const auto filterRow1 = body.getY() + juce::jmax (0, (body.getHeight() - 2 * ((int) dialSize + 10) - 13) / 2);
-        const auto filterRow2 = filterRow1 + (int) dialSize + 10;
+        // (The rows at the body's top and bottom, as WEST's: ilana liked its spacing, F1 / F2's rows stood too close.)
+        const auto filterRow1 = body.getY() + 1, filterRow2 = body.getBottom() - 1 - (int) dialSize - 10;
         const auto filterCell = [&] (int slot)
         {
-            return slot < 3 ? juce::Rectangle<int> (knobsX + slot * filterPitch, filterRow1, filterPitch, (int) dialSize + 10)
-                            : juce::Rectangle<int> (knobsX + filterPitch / 2 + (slot - 3) * filterPitch, filterRow2, filterPitch, (int) dialSize + 10 + 13);
+            return slot < 3 ? juce::Rectangle<int> (knobsX + slot * filterPitch, filterRow1, cell, (int) dialSize + 10)
+                            : juce::Rectangle<int> (knobsX + filterPitch / 2 + (slot - 3) * filterPitch - (filterPitch - cell) / 2, filterRow2, filterPitch,
+                                                    (int) dialSize + 10); // (a pitch wide: KEY TRACK on one line)
         };
         for (size_t k = 0; k < filters[0].knobs.size(); ++k)
             for (auto& other : filters)
@@ -2287,13 +2289,13 @@ private:
         westSource->setBounds ({ x, centre - 8, juce::jmin (packedMenuWidth ("STRIKE BY", { "Note", "LFO 16 B" }) + 4, westOn->getX() - 6 - x), 16 });
         // Body: the fold's curve, then the seven knobs in two rows, FOLD SYMMETRY STAGES DECAY over RESO STRIKE OPEN
         // (centred under them), like the ENVELOPE card's grid.
-        const auto westX = card.getRight() - 6 - 4 * westPitch;
+        const auto westX = card.getRight() - 3 * westPitch - cell;
         westDisplay->setBounds ({ card.getX() + 6, body.getY() + 1, westX - gapToKnobs - card.getX() - 6, body.getHeight() - 2 });
         const auto westRow1 = body.getY() + 1, westRow2 = body.getBottom() - 1 - (int) dialSize - 10;
         for (size_t i = 0; i < westKnobs.size(); ++i)
         {
             const auto x = i < 4 ? westX + (int) i * westPitch : westX + westPitch / 2 + (int) (i - 4) * westPitch;
-            westKnobs[i]->setBounds (KnobControl::packedBoundsFor ({ x, i < 4 ? westRow1 : westRow2, westPitch, (int) dialSize + 10 }));
+            westKnobs[i]->setBounds (KnobControl::packedBoundsFor ({ x, i < 4 ? westRow1 : westRow2, cell, (int) dialSize + 10 }));
         }
     }
 
@@ -2307,11 +2309,11 @@ private:
         stringsTabs.setBounds ({ card.getX() + 22, centre - 8, stringsTabs.idealWidth(), 16 });
         stringsOn->setBounds (switchIn (card));
         const auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
-        const auto left = card.getRight() - 6 - 3 * stringsPitch;
+        const auto left = card.getRight() - 2 * stringsPitch - cell;
         stringsPicture->setBounds ({ card.getX() + 6, body.getY() + 1, left - gapToKnobs - card.getX() - 6, body.getHeight() - 2 });
         const auto knobH = (int) dialSize + 10;
         const auto column = [left] (float i) { return left + juce::roundToInt (i * (float) stringsPitch); };
-        const auto place = [knobH] (KnobControl& knob, int x, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ x, y, stringsPitch, knobH })); };
+        const auto place = [knobH] (KnobControl& knob, int x, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ x, y, cell, knobH })); };
         const auto row1 = body.getY() + 1, row2 = body.getBottom() - 1 - knobH;
         const auto groupY = row1 + knobH + (row2 - row1 - knobH - 10) / 2;
         for (size_t i = 0; i < stringsKnobs.size(); ++i)
@@ -2320,7 +2322,7 @@ private:
         place (*keysKnobs[1], column (1.5f), row1);
         for (size_t i = 2; i < keysKnobs.size(); ++i)
             place (*keysKnobs[i], column ((float) i - 2.0f), row2);
-        const auto groupW = 3 * stringsPitch;
+        const auto groupW = 2 * stringsPitch + cell;
         tuningGroup = { left, groupY, groupW, 10 };
         noiseGroup = { left, groupY, groupW, 10 };
         // (TUNING's two lines end where the knob row's names would.)
@@ -2344,7 +2346,7 @@ private:
         // The picture at the left (ilana, 2026-10-29: no empty space), one grid of five columns at 42 px at the right,
         // two rows; every name inside its menu or under its knob.
         const auto top = card.getY() + headerHeight;
-        const auto left = card.getRight() - 6 - 4 * bodyPitch - cell;
+        const auto left = card.getRight() - 4 * bodyPitch - cell;
         const auto pictureBounds = juce::Rectangle<int> (card.getX() + 6, top + 4, left - gapToKnobs - card.getX() - 6, card.getBottom() - 4 - top - 4);
         bodyPicture->setBounds (pictureBounds);
         const auto column = [left] (int i) { return left + i * bodyPitch; };

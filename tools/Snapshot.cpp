@@ -14,6 +14,9 @@
 #include <iostream>
 #include <functional>
 #include <typeinfo>
+#if defined (__GNUC__)
+ #include <cxxabi.h>
+#endif
 #include <map>
 #include <set>
 #include <thread>
@@ -8690,6 +8693,47 @@ int runMotion (const juce::File& outDir)
     return 0;
 }
 
+// The layout dump's card finder: paints one component on its own and keeps
+// every big, solid, dark filled shape (a card's body) in the component's own
+// coordinates, with its colour.
+struct FillRecorder : public juce::LowLevelGraphicsSoftwareRenderer
+{
+    struct Fill { juce::Rectangle<float> area; juce::Colour colour; bool rounded; };
+
+    explicit FillRecorder (const juce::Image& image) : juce::LowLevelGraphicsSoftwareRenderer (image) {}
+
+    void setOrigin (juce::Point<int> o) override { transforms.getReference (transforms.size() - 1) = juce::AffineTransform::translation ((float) o.x, (float) o.y).followedBy (transforms.getLast()); LowLevelGraphicsSoftwareRenderer::setOrigin (o); }
+    void addTransform (const juce::AffineTransform& t) override { transforms.getReference (transforms.size() - 1) = t.followedBy (transforms.getLast()); LowLevelGraphicsSoftwareRenderer::addTransform (t); }
+    void saveState() override { transforms.add (transforms.getLast()); colours.add (colours.getLast()); LowLevelGraphicsSoftwareRenderer::saveState(); }
+    void restoreState() override { if (transforms.size() > 1) { transforms.removeLast(); colours.removeLast(); } LowLevelGraphicsSoftwareRenderer::restoreState(); }
+    void setFill (const juce::FillType& fill) override { colours.getReference (colours.size() - 1) = fill.isColour() ? fill.colour : juce::Colours::transparentBlack; LowLevelGraphicsSoftwareRenderer::setFill (fill); }
+    void fillRoundedRectangle (const juce::Rectangle<float>& r, float corner) override { keep (r, true); LowLevelGraphicsSoftwareRenderer::fillRoundedRectangle (r, corner); }
+    void fillRect (const juce::Rectangle<float>& r) override { keep (r, false); LowLevelGraphicsSoftwareRenderer::fillRect (r); }
+    void fillRect (const juce::Rectangle<int>& r, bool replace) override { keep (r.toFloat(), false); LowLevelGraphicsSoftwareRenderer::fillRect (r, replace); }
+    void fillPath (const juce::Path& path, const juce::AffineTransform& t) override
+    {
+        // A rounded rectangle path fills its bounding box almost fully.
+        const auto box = path.getBounds();
+        if (! box.isEmpty())
+            keep (box.transformedBy (t), true);
+        LowLevelGraphicsSoftwareRenderer::fillPath (path, t);
+    }
+
+    void keep (juce::Rectangle<float> r, bool rounded)
+    {
+        const auto colour = colours.getLast();
+        if (colour.getAlpha() < 250 || r.getWidth() < 40.0f || r.getHeight() < 20.0f)
+            return;
+        if (colour.getRed() + colour.getGreen() + colour.getBlue() > 150)
+            return;
+        fills.push_back ({ r.transformedBy (transforms.getLast()), colour, rounded });
+    }
+
+    juce::Array<juce::AffineTransform> transforms { juce::AffineTransform() };
+    juce::Array<juce::Colour> colours { juce::Colours::transparentBlack };
+    std::vector<Fill> fills;
+};
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -8831,6 +8875,110 @@ int main (int argc, char** argv)
 
     if (pages == nullptr)
         return 1;
+
+    // ILANA_SNAPSHOT_LAYOUT: every page (and the ENV / LFO pop-ups) as
+    // layout-<page>.png plus layout-<page>.json, each visible component's
+    // class, words and bounds in editor pixels, clipped to what shows. The
+    // layout arranger page is built from these; then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_LAYOUT", "").isNotEmpty())
+    {
+        const auto dump = [&] (const juce::String& name)
+        {
+            save (*editor, outDir.getChildFile ("layout-" + name + ".png"));
+            juce::Array<juce::var> items;
+            std::function<void (juce::Component&, juce::Rectangle<int>, int)> walk = [&] (juce::Component& c, juce::Rectangle<int> clip, int depth)
+            {
+                for (auto* child : c.getChildren())
+                {
+                    if (! child->isVisible() || child->getWidth() <= 0 || child->getHeight() <= 0)
+                        continue;
+                    const auto area = editor->getLocalArea (child, child->getLocalBounds());
+                    const auto shown = area.getIntersection (clip);
+                    if (shown.isEmpty())
+                        continue;
+                    juce::DynamicObject::Ptr item = new juce::DynamicObject();
+                   #if defined (__GNUC__)
+                    int status = 0;
+                    auto* demangled = abi::__cxa_demangle (typeid (*child).name(), nullptr, nullptr, &status);
+                    item->setProperty ("cls", juce::String (status == 0 && demangled != nullptr ? demangled : typeid (*child).name()));
+                    std::free (demangled);
+                   #else
+                    item->setProperty ("cls", juce::String (typeid (*child).name()));
+                   #endif
+                    item->setProperty ("d", depth);
+                    item->setProperty ("x", area.getX());
+                    item->setProperty ("y", area.getY());
+                    item->setProperty ("w", area.getWidth());
+                    item->setProperty ("h", area.getHeight());
+                    if (shown != area)
+                        item->setProperty ("clip", juce::Array<juce::var> { shown.getX(), shown.getY(), shown.getWidth(), shown.getHeight() });
+                    if (child->getName().isNotEmpty())
+                        item->setProperty ("name", child->getName());
+                    if (auto* knob = dynamic_cast<KnobControl*> (child))
+                        item->setProperty ("text", knob->getLabelText()), item->setProperty ("param", knob->getParameterId());
+                    else if (auto* combo = dynamic_cast<ComboControl*> (child))
+                        item->setProperty ("text", combo->getLabelText()), item->setProperty ("param", combo->getParameterId());
+                    else if (auto* toggle = dynamic_cast<ToggleControl*> (child))
+                        item->setProperty ("param", toggle->getParameterId());
+                    else if (auto* label = dynamic_cast<juce::Label*> (child))
+                        item->setProperty ("text", label->getText());
+                    else if (auto* button = dynamic_cast<juce::Button*> (child))
+                        item->setProperty ("text", button->getButtonText());
+                    if (const auto cards = child->getProperties()["playCards"].toString(); cards.isNotEmpty())
+                        item->setProperty ("cards", cards);
+                    {
+                        // The card bodies this component paints (not its children's).
+                        juce::Image scratch (juce::Image::ARGB, juce::jmax (1, child->getWidth()), juce::jmax (1, child->getHeight()), true);
+                        FillRecorder recorder (scratch);
+                        juce::Graphics g (recorder);
+                        child->paint (g);
+                        juce::Array<juce::var> fills;
+                        for (const auto& f : recorder.fills)
+                        {
+                            const auto r = editor->getLocalArea (child, f.area.getSmallestIntegerContainer());
+                            fills.add (juce::Array<juce::var> { r.getX(), r.getY(), r.getWidth(), r.getHeight(), f.colour.toDisplayString (false), f.rounded });
+                        }
+                        if (! fills.isEmpty())
+                            item->setProperty ("fills", fills);
+                    }
+                    items.add (juce::var (item.get()));
+                    walk (*child, shown, depth + 1);
+                }
+            };
+            walk (*editor, editor->getLocalBounds(), 0);
+            juce::DynamicObject::Ptr root = new juce::DynamicObject();
+            root->setProperty ("page", name);
+            root->setProperty ("w", editor->getWidth());
+            root->setProperty ("h", editor->getHeight());
+            root->setProperty ("items", items);
+            outDir.getChildFile ("layout-" + name + ".json").replaceWithText (juce::JSON::toString (juce::var (root.get()), true));
+        };
+        for (const auto& page : pages->getPageIds())
+        {
+            pages->showPage (page);
+            settle (500);
+            dump (page.replaceCharacter ('/', '-'));
+        }
+        // PLAY's ENVELOPE and LFO EDIT pop-ups.
+        pages->showPage ("MAIN");
+        settle (400);
+        for (const auto* popup : { "PLAY envelope EDIT", "PLAY LFO EDIT" })
+        {
+            std::vector<juce::Button*> buttons;
+            findAll<juce::Button> (*editor, buttons);
+            for (auto* button : buttons)
+                if (button->getName() == popup && visibleInTree (button))
+                {
+                    button->triggerClick();
+                    settle (500);
+                    dump (juce::String (popup).containsIgnoreCase ("envelope") ? "POPUP-ENV" : "POPUP-LFO");
+                    button->triggerClick();
+                    settle (300);
+                    break;
+                }
+        }
+        return 0;
+    }
 
     // ILANA_SNAPSHOT_PICKER: the section colour picker (OSC 1's, on the
     // pop-up's card) into colour-picker.png at the snapshot scale.

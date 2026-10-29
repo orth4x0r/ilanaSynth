@@ -285,12 +285,12 @@ void runPlayOscReview7Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             auto* subVolume = knobFor ("subosc_level");
             auto* subColour = knobFor ("sub_colour", "COLOUR");
             auto* noise = knobFor ("noise_level");
-            // (SUB: octave and LEVEL on the first row; NOISE: LEVEL and COLOUR beside it, same row.)
+            // (ilana's arranger pass, 2026-10-29: SUB's LEVEL and COLOUR in one row, the NOISE card under SUB.)
             expect (subSwitch && noiseSwitch && subVolume != nullptr && subColour != nullptr && noise != nullptr && centreX (subColour) > centreX (subVolume)
-                        && centreX (noise) > centreX (subColour)
+                        && editor.getLocalArea (noise, noise->getLocalBounds()).getY() > editor.getLocalArea (subVolume, subVolume->getLocalBounds()).getBottom()
                         && std::abs (editor.getLocalArea (subColour, subColour->getLocalBounds()).getCentreY()
                                      - editor.getLocalArea (subVolume, subVolume->getLocalBounds()).getCentreY()) < 2,
-                    "PLAY: SUB and NOISE each have a switch and a LEVEL knob, SUB's COLOUR beside its LEVEL, NOISE's LEVEL after them, one row");
+                    "PLAY: SUB and NOISE each have a switch and a LEVEL knob, SUB's COLOUR beside its LEVEL, NOISE under SUB");
         }
 
         // The same controls at three window sizes: no two overlap, none is cut off.
@@ -8962,6 +8962,15 @@ int main (int argc, char** argv)
         // PLAY's ENVELOPE and LFO EDIT pop-ups.
         pages->showPage ("MAIN");
         settle (400);
+        // (PLAY with FILTER's WEST view, then back to F1.)
+        if (auto* shell = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get()); shell != nullptr && shell->showPlayViews != nullptr)
+        {
+            shell->showPlayViews (2, -1, -1);
+            settle (400);
+            dump ("MAIN-WEST");
+            shell->showPlayViews (0, -1, -1);
+            settle (300);
+        }
         for (const auto* popup : { "PLAY envelope EDIT", "PLAY LFO EDIT" })
         {
             std::vector<juce::Button*> buttons;

@@ -505,8 +505,13 @@ public:
         {
             leftAligned (controls, items);
             for (auto* item : items)
-                if (dynamic_cast<ComboControl*> (item) != nullptr && item->getWidth() > seqMenuWidth)
-                    item->setBounds (item->getBounds().withWidth (seqMenuWidth));
+                if (dynamic_cast<ComboControl*> (item) != nullptr)
+                {
+                    if (item->getWidth() > seqMenuWidth)
+                        item->setBounds (item->getBounds().withWidth (seqMenuWidth));
+                    // (ilana's layout, 2026-10-29: the menus 7 px lower, their boxes level with the rings.)
+                    item->setBounds (item->getBounds().withTrimmedTop (engineMenuDrop));
+                }
         };
         engineRow ({ &arpDiv, &arpMode, &arpSteps, &arpGate, &arpOctaves, &arpChance });
         engineRow ({ &eucDiv, &eucTarget, &eucSteps, &eucGate, &eucHits, &eucRotate });
@@ -619,7 +624,8 @@ public:
                 }
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
                 const auto height = preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight();
-                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height));
+                // (ilana's layout, 2026-10-29: 6 px higher, the menu boxes level with the rings.)
+                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height).translated (0, -generateMenuRise));
             }
         }
     }
@@ -1034,6 +1040,7 @@ private:
     StepEditor step1, step2;
     IlanaSynthAudioProcessor& processorRef;
     ArpLanesEditor arpLanes;
+    static constexpr int engineMenuDrop = 7, generateMenuRise = 6;
     ComboControl arpMode, arpDiv;
     KnobControl arpOctaves, arpGate, arpChance;
     ComboControl genScale, genRoot;

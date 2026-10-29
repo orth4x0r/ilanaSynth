@@ -134,6 +134,9 @@ public:
     }
 
     std::function<void (int)> onPick;
+    // A small dot on a pill that is not shown but is switched on (FILTER's WEST pill while WEST plays).
+    std::function<bool (int)> isMarked;
+    std::function<juce::Colour (int)> markColour;
 
     int getSelected() const { return selected; }
 
@@ -166,7 +169,7 @@ public:
         auto width = 0;
         for (const auto& label : labels)
             width += wordWidth (label) + 2 * pad;
-        return width + pillGap * juce::jmax (0, labels.size() - 1);
+        return width + pillGap * juce::jmax (0, labels.size() - 1) + (isMarked != nullptr ? 6 : 0);
     }
 
     void paint (juce::Graphics& g) override
@@ -186,7 +189,13 @@ public:
             }
             g.setColour (on ? IlanaTheme::Ui::header : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedBody, true));
-            g.drawText (labels[option], cell, juce::Justification::centred);
+            const auto marked = ! on && isMarked != nullptr && isMarked (option);
+            g.drawText (labels[option], marked ? cell.withTrimmedLeft (6.0f) : cell, juce::Justification::centred);
+            if (marked)
+            {
+                g.setColour (markColour != nullptr ? markColour (option) : colour);
+                g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ cell.getX() + 7.0f, cell.getCentreY() }));
+            }
         }
     }
 
@@ -369,10 +378,8 @@ public:
         g.setColour (IlanaTheme::Ui::line.withAlpha (0.6f));
         g.fillRect (juce::Rectangle<int> (1, headerHeight - 1, getWidth() - 2, 1));
         const auto centre = headerHeight / 2;
+        // (No title: the pills say which envelope or LFO shows, ilana's layout 2026-10-29.)
         IlanaTheme::paintTag (g, { 14.0f, (float) centre }, colour);
-        g.setColour (IlanaTheme::Ui::text);
-        g.setFont (IlanaTheme::font (13.0f, true));
-        IlanaTheme::drawFitted (g, kind == Kind::envelope ? "ENVELOPE" : "LFO", juce::Rectangle<int> (23, centre - 9, 60, 18), juce::Justification::centredLeft, 1);
 
         if (! chipBounds.isEmpty())
         {
@@ -391,7 +398,7 @@ public:
     void resized() override
     {
         const auto centre = headerHeight / 2;
-        auto x = kind == Kind::envelope ? 78 : 44;
+        auto x = 23;
         previous.setBounds ({ x, centre - 7, 14, 14 });
         x += 17;
         const auto tabWidth = kind == Kind::envelope ? 42 : 20;
@@ -478,7 +485,7 @@ public:
         buildModuleMenu (source).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
     }
 
-    // The title opens the pop-up editor too.
+    // A click on the dot, left of the pills, opens the pop-up editor too.
     void mouseUp (const juce::MouseEvent& event) override
     {
         if (event.mods.isPopupMenu())
@@ -1333,6 +1340,9 @@ public:
         // MORPH on the types that morph, Filter 2's switch in its view.
         addAndMakeVisible (filterDisplay);
         filterTabs.onPick = [this] (int index) { showFilter (index); };
+        // (WEST COAST is FILTER's third view, ilana's layout 2026-10-29: its pill carries a dot while it plays.)
+        filterTabs.isMarked = [this] (int index) { return index == 2 && readInt ("west_on") != 0; };
+        filterTabs.markColour = [] (int) { return westColour(); };
         filterTabs.addMouseListener (this, false); // (its right-click: the filter's module menu)
         addAndMakeVisible (filterTabs);
         for (int f = 0; f < 2; ++f)
@@ -1543,7 +1553,8 @@ public:
 
         const struct { juce::Rectangle<int> card; int key; const char* name; } tags[]
         {
-            { filterBounds, SectionColours::envKey (filterTabs.getSelected() == 0 ? 1 : 2), filterTabs.getSelected() == 0 ? "Filter 1" : "Filter 2" },
+            { filterBounds, westShown() ? SectionColours::westKey : SectionColours::envKey (filterTabs.getSelected() == 0 ? 1 : 2),
+              westShown() ? "West coast" : filterTabs.getSelected() == 0 ? "Filter 1" : "Filter 2" },
             { stringsBounds, SectionColours::physicalKey, "Strings and body" },
             { bodyBounds, SectionColours::physicalKey, "Strings and body" },
             { westBounds, SectionColours::westKey, "West coast" },
@@ -1577,8 +1588,8 @@ public:
             for (auto& knob : filters[(size_t) f].knobs)
                 knob->setIdentityColour (colour);
         }
-        filterTabs.setColour (filterColour (filterTabs.getSelected()));
-        if (balance != nullptr)
+        filterTabs.setColour (filterCardColour());
+        if (balance != nullptr && ! westShown())
             balance->setColour (filterColour (filterTabs.getSelected()));
 
         const auto physical = stringsColour();
@@ -1593,6 +1604,7 @@ public:
                 knob->setIdentityColour (physical);
 
         westOn->setSwitchColour (westColour());
+        filterTabs.repaint();
         for (auto& knob : westKnobs)
             knob->setIdentityColour (westColour());
 
@@ -1618,9 +1630,12 @@ public:
         auto filter = filterTabs.getSelected();
 
         if (event.eventComponent == &filterTabs)
-            filter = event.x < filterTabs.getWidth() / 2 ? 0 : 1;
+            filter = juce::jlimit (0, 2, event.x * 3 / juce::jmax (1, filterTabs.getWidth()));
         else if (event.eventComponent != this || ! filterBounds.withHeight (headerHeight).contains (event.getPosition()))
             return;
+
+        if (filter == 2)
+            return; // (WEST has no Copy / Paste / Init)
 
         buildFilterMenu (filter).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&filterTabs).withMousePosition());
     }
@@ -1647,9 +1662,8 @@ public:
         }
 
         // (A switched-off card's dot dims as an off oscillator's does: UI review 26.)
-        paintCardWithHeader (g, filterBounds, "FILTER", filterColour (filterTabs.getSelected()), dots[0]);
+        paintCardWithHeader (g, filterBounds, "FILTER", filterCardColour(), dots[0]);
         paintCardWithHeader (g, stringsBounds, {}, stringsColour(), dots[1]);
-        paintCardWithHeader (g, westBounds, "WEST COAST", westColour(), dots[2]);
         paintCardWithHeader (g, bodyBounds, {}, bodyColour(), dots[3]);
         paintCardWithHeader (g, subBounds, "SUB", subColour(), dots[4]);
         paintCardWithHeader (g, noiseBounds, "NOISE", subColour(), dots[5]);
@@ -1686,7 +1700,10 @@ public:
         // The oscillator cards take what they need (all three of them, or the page scrolls them);
         // the two module bands sit under them at one height.
         const auto bottom = area.getBottom() - bottomMargin;
-        const auto bandsHeight = juce::jlimit (2 * minBand + gap, 2 * maxBand + gap, bandsHeightFor (area.getHeight()));
+        // (ilana's layout, 2026-10-29: two rows of 108, so the oscillator area is a little shorter and scrolls.)
+        // (ilana's layout, 2026-10-29: two rows, one height on every patch. 119 rather than her 108, so two wavetable
+        // cards and their add row end right above them, no empty strip; a third card scrolls.)
+        const auto bandsHeight = juce::jmin (2 * rowHeight + vGap, juce::jmax (2 * minBand + vGap, area.getHeight() / 2));
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
         const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
         const auto bandsTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
@@ -1694,10 +1711,7 @@ public:
         oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, bandsTop - 8));
         syncOscBar();
 
-        const auto band1Height = juce::jlimit (minBand, 84, bandsHeight - gap - 90);
-        const auto bandHeight = bandsHeight - gap - band1Height;
-        layoutBand1 ({ area.getX(), bandsTop, area.getWidth(), band1Height });
-        layoutBand2 ({ area.getX(), bandsTop + band1Height + gap, area.getWidth(), bandHeight });
+        layoutBands ({ area.getX(), bandsTop, area.getWidth(), bandsHeight });
         if (tuningPopover.isVisible())
             tuningPopover.setBounds (tuningBounds());
 
@@ -1706,7 +1720,6 @@ public:
         const auto note = [&cards] (const char* name, juce::Rectangle<int> r) { cards << name << "," << r.getX() << "," << r.getY() << "," << r.getWidth() << "," << r.getHeight() << ";"; };
         note ("FILTER", filterBounds);
         note ("STRINGS", stringsBounds);
-        note ("WEST", westBounds);
         note ("ENVELOPE", envelopeCard.getBounds());
         note ("LFO", lfoCard.getBounds());
         note ("BODY", bodyBounds);
@@ -1718,9 +1731,9 @@ public:
     // The views the tests and the snapshots open.
     void showFilter (int index)
     {
-        index = juce::jlimit (0, 1, index);
+        index = juce::jlimit (0, 2, index);
         filterTabs.setSelected (index, false);
-        filterTabs.setColour (filterColour (index));
+        filterTabs.setColour (filterCardColour());
         refreshFilterParts();
         resized();
         repaint();
@@ -1768,12 +1781,14 @@ private:
         std::vector<std::unique_ptr<KnobControl>> knobs; // CUTOFF, RESO, DRIVE, KEY TRACK, MORPH
     };
 
-    static constexpr int sideMargin = 7, bottomMargin = 4, gap = 0, hGap = 5, headerHeight = 20, cell = 35;
-    static constexpr int minBand = 62, maxBand = 96;
+    static constexpr int sideMargin = 7, bottomMargin = 4, hGap = 5, vGap = 5, headerHeight = 20, cell = 35;
+    static constexpr int minBand = 62, rowHeight = 119;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
     static juce::Colour westColour() { return FilterColours::west(); }
+    bool westShown() const { return filterTabs.getSelected() == 2; }
+    juce::Colour filterCardColour() const { return westShown() ? westColour() : filterColour (filterTabs.getSelected()); }
     static juce::Colour stringsColour() { return IlanaTheme::physicalColour(); }
     static juce::Colour bodyColour() { return IlanaTheme::physicalColour(); }
     static juce::Colour subColour() { return IlanaTheme::subNoiseColour(); }
@@ -1787,6 +1802,7 @@ private:
         if (const auto switches = switchesSignature(); switches != lastSwitches)
         {
             lastSwitches = switches;
+            filterTabs.repaint();
             repaint();
         }
         // A type or the routing changed: the filter card's knobs follow (MORPH, BALANCE, the slope).
@@ -1817,6 +1833,14 @@ private:
     void refreshFilterParts()
     {
         const auto shown = filterTabs.getSelected();
+        const auto west = shown == 2;
+        filterDisplay.setVisible (! west);
+        routing->setVisible (! west);
+        westDisplay->setVisible (west);
+        for (auto* part : std::initializer_list<juce::Component*> { westOn.get(), westMode.get(), westPosition.get(), westSource.get() })
+            part->setVisible (west);
+        for (auto& knob : westKnobs)
+            knob->setVisible (west);
         for (int f = 0; f < 2; ++f)
         {
             auto& card = filters[(size_t) f];
@@ -1827,8 +1851,9 @@ private:
             for (size_t k = 0; k < card.knobs.size(); ++k)
                 card.knobs[k]->setVisible (on && (k < 4 || FilterType::usesMorph (readInt (f == 0 ? "f1_type" : "f2_type"))));
         }
-        balance->setColour (filterColour (shown));
-        balance->setVisible (readInt ("filters_parallel") != 0);
+        if (! west)
+            balance->setColour (filterColour (shown));
+        balance->setVisible (! west && readInt ("filters_parallel") != 0);
         f2Switch.setVisible (shown == 1);
     }
 
@@ -1877,16 +1902,6 @@ private:
         return value != nullptr ? (int) value->load() : 0;
     }
 
-    // What the bands may take: the page less two oscillator cards and their add row, whatever the
-    // oscillator count, so the bands are one height on every patch (a third card scrolls).
-    int bandsHeightFor (int pageHeight) const
-    {
-        auto oscHeight = 0;
-        if (auto* page = oscView.getPage())
-            oscHeight = page->getBandsReferenceHeight();
-        return pageHeight - bottomMargin - oscHeight;
-    }
-
     int switchesSignature() const
     {
         return readInt ("sym_on") + 2 * readInt ("west_on") + 4 * readInt ("res_on") + 8 * readInt ("sb_on")
@@ -1913,6 +1928,7 @@ private:
     {
         switch (index)
         {
+            case 0: return ! westShown() || readInt ("west_on") != 0;
             case 1: return stringsTabs.getSelected() != 0 || readInt ("sym_on") != 0;
             case 2: return readInt ("west_on") != 0;
             case 3: return readInt (boardTab.getSelected() == 0 ? "sb_on" : "res_on") != 0;
@@ -2060,151 +2076,156 @@ private:
         return 5 + prefixW + valueW + 15;
     }
 
-    // Mockup v4 (UI review 25, 1060 px): FILTER 479, STRINGS · KEYS 221, WEST COAST 336, with 23 px moved from FILTER's
-    // graph to WEST: STRIKE BY keeps its name in the header at the real fonts, and SYMMETRY clears STAGES at a 42 px pitch.
-    void layoutBand1 (juce::Rectangle<int> band)
+    // ilana's layout (arranger, 2026-10-29): three columns on two rows. SUB over NOISE; FILTER (F1 | F2 | WEST)
+    // over ENVELOPE and LFO; STRINGS · KEYS over BODY · BOARD. Design widths 124 / 600 / 310 of 1034.
+    void layoutBands (juce::Rectangle<int> bands)
     {
-        const auto total = band.getWidth() - 2 * hGap;
-        auto row = band;
-        filterBounds = row.removeFromLeft (juce::roundToInt ((float) total * 472.0f / 1036.0f));
-        row.removeFromLeft (hGap);
-        stringsBounds = row.removeFromLeft (juce::roundToInt ((float) total * 219.0f / 1036.0f));
-        row.removeFromLeft (hGap);
-        westBounds = row;
+        const auto total = bands.getWidth() - 2 * hGap;
+        const auto leftW = juce::roundToInt ((float) total * 124.0f / 1034.0f);
+        const auto rightW = juce::roundToInt ((float) total * 310.0f / 1034.0f);
+        const auto middleW = total - leftW - rightW;
+        const auto rowH = (bands.getHeight() - vGap) / 2;
+        const auto row1 = bands.withHeight (rowH);
+        const auto row2 = bands.withTrimmedTop (rowH + vGap).withHeight (rowH);
+        const auto x1 = bands.getX() + leftW + hGap, x2 = x1 + middleW + hGap;
 
-        {
-            // Header: F1 / F2, TYPE, SERIAL / PARALLEL, BALANCE while parallel, Filter 2's switch.
-            const auto card = filterBounds;
-            const auto centre = card.getY() + headerHeight / 2;
-            const auto shown = filterTabs.getSelected();
-            auto x = card.getX() + 23 + titleWidth ("FILTER") + 4;
-            filterTabs.setBounds ({ x, centre - 8, filterTabs.idealWidth(), 16 });
-            x += filterTabs.getWidth() + 6;
-            for (auto& parts : filters)
-                parts.type->setBounds ({ x, centre - 8, 84, 16 });
-            x += 84 + 4;
-            routing->setBounds ({ x, centre - 8, 104, 16 });
-            x += 104 + 6;
-            f2Switch.setBounds (switchIn (card));
-            balance->setBounds ({ x, centre - 8, juce::jmax (40, f2Switch.getX() - 6 - x), 16 });
+        subBounds = row1.withWidth (leftW);
+        noiseBounds = row2.withWidth (leftW);
+        filterBounds = row1.withX (x1).withWidth (middleW);
+        stringsBounds = row1.withX (x2).withWidth (rightW);
+        bodyBounds = row2.withX (x2).withWidth (rightW);
+        westBounds = {};
+        const auto envW = juce::roundToInt ((float) (middleW - hGap) * 324.0f / 595.0f);
+        envelopeCard.setBounds (row2.withX (x1).withWidth (envW));
+        lfoCard.setBounds (row2.withX (x1 + envW + hGap).withWidth (middleW - envW - hGap));
 
-            // Body: the graph one size in every view, then CUTOFF RESO DRIVE KEY TRACK and a fifth slot, SLOPE
-            // on a classic type or MORPH on one that morphs (a type has one or the other).
-            auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
-            const auto knobsX = card.getRight() - 6 - 5 * filterPitch;
-            filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 5, body.getY() + 1, knobsX - 4 - card.getX() - 5, body.getHeight() - 2));
-            const auto& parts = filters[(size_t) shown];
-            // (Room under the dials for KEY TRACK's second line.)
-            const auto cellY = body.getY() - 2 + (body.getHeight() + 2 - (int) dialSize - 10 - 13) / 2;
-            for (size_t k = 0; k < parts.knobs.size(); ++k)
-                for (auto& other : filters)
-                    other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
+        layoutFilterCard();
+        layoutStringsCard();
+        layoutBodyCard();
+        layoutSubNoise();
+    }
+
+    void layoutFilterCard()
+    {
+        const auto card = filterBounds;
+        const auto centre = card.getY() + headerHeight / 2;
+        auto x = card.getX() + 23 + titleWidth ("FILTER") + 4;
+        filterTabs.setBounds ({ x, centre - 8, filterTabs.idealWidth(), 16 });
+        x += filterTabs.getWidth() + 6;
+        const auto headerX = x;
+        auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
+
+        // F1 / F2. Header: TYPE, SERIAL / PARALLEL, BALANCE while parallel, Filter 2's switch.
+        for (auto& parts : filters)
+            parts.type->setBounds ({ x, centre - 8, 84, 16 });
+        x += 84 + 4;
+        routing->setBounds ({ x, centre - 8, 104, 16 });
+        x += 104 + 6;
+        f2Switch.setBounds (switchIn (card));
+        balance->setBounds ({ x, centre - 8, juce::jmax (40, f2Switch.getX() - 6 - x), 16 });
+
+        // Body: the graph takes everything left of CUTOFF RESO DRIVE KEY TRACK and a fifth slot (SLOPE on a
+        // classic type, MORPH on one that morphs).
+        const auto knobsX = card.getRight() - 6 - 5 * filterPitch;
+        filterDisplay.setBounds (juce::Rectangle<int> (card.getX() + 6, body.getY() + 1, knobsX - 6 - card.getX() - 6, body.getHeight() - 2));
+        // (Room under the dials for KEY TRACK's second line.)
+        const auto cellY = body.getY() - 2 + (body.getHeight() + 2 - (int) dialSize - 10 - 13) / 2;
+        for (size_t k = 0; k < filters[0].knobs.size(); ++k)
             for (auto& other : filters)
-                other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
-        }
+                other.knobs[k]->setBounds (KnobControl::packedBoundsFor ({ knobsX + (int) juce::jmin ((size_t) 4, k) * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
+        for (auto& other : filters)
+            other.slope->setBounds (KnobControl::packedBoundsFor ({ knobsX + 4 * filterPitch, cellY, filterPitch, (int) dialSize + 10 + 13 }));
 
+        // WEST. Header: GATE, PLACE and STRIKE BY as wide as their words, its switch at the right; body: the fold's
+        // curve, then seven knobs.
+        westOn->setBounds (switchIn (card));
+        x = headerX;
+        // (+4: at 75 % the text floor makes the words a little wider than at the design size.)
+        const auto modeW = packedMenuWidth ({}, { "Combo", "Low Pass", "VCA" }) + 4;
+        const auto placeW = packedMenuWidth ({}, { "After Filters", "As Filter 2" }) + 4;
+        westMode->setBounds ({ x, centre - 8, modeW, 16 });
+        x += modeW + 4;
+        westPosition->setBounds ({ x, centre - 8, placeW, 16 });
+        x += placeW + 4;
+        westSource->setBounds ({ x, centre - 8, juce::jmin (packedMenuWidth ("STRIKE BY", { "Note", "LFO 16 B" }) + 4, westOn->getX() - 6 - x), 16 });
+        // (The last ring's ink sits about 8 px inside its cell: the cells reach the card's edge, the picture starts 6 px in.)
+        const auto westX = card.getRight() - 6 * westPitch - cell;
+        westDisplay->setBounds ({ card.getX() + 6, body.getY() + 1, westX - 6 - card.getX() - 6, body.getHeight() - 2 });
+        auto knobX = westX;
+        for (auto& knob : westKnobs)
         {
-            // STRINGS and KEYS on one grid: five columns at 43 px, the knobs at one height, the names on one line.
-            const auto card = stringsBounds;
-            const auto centre = card.getY() + headerHeight / 2;
-            stringsTabs.setBounds ({ card.getX() + 22, centre - 8, stringsTabs.idealWidth(), 16 });
-            stringsOn->setBounds (switchIn (card));
-            const auto top = card.getY() + headerHeight;
-            const auto column = [&card] (int i) { return card.getX() + 6 + i * stringsPitch; };
-            const auto cellY = top + 14;
-            const auto place = [cellY] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, cellY, cell, (int) dialSize + 10 })); };
-            for (size_t i = 0; i < stringsKnobs.size(); ++i)
-                place (*stringsKnobs[i], column ((int) i));
-            for (size_t i = 0; i < keysKnobs.size(); ++i)
-                place (*keysKnobs[i], column ((int) i));
-            const auto groupOver = [&] (int first, int last) { return juce::Rectangle<int> (column (first), top + 3, column (last) + cell - column (first), 10); };
-            tuningGroup = groupOver (3, 4);
-            noiseGroup = groupOver (2, 4);
-            stringsManual->setBounds ({ tuningGroup.getX(), cellY + 1, tuningGroup.getWidth(), 16 });
-            tuneButton.setBounds ({ tuningGroup.getX(), cellY + 20, tuningGroup.getWidth(), 16 });
-        }
-
-        {
-            // Header: GATE, PLACE and STRIKE BY as wide as their words; body: the fold's curve, then seven knobs.
-            const auto card = westBounds;
-            const auto centre = card.getY() + headerHeight / 2;
-            westOn->setBounds (switchIn (card));
-            auto x = card.getX() + 23 + titleWidth ("WEST COAST") + 4;
-            const auto end = westOn->getX() - 6;
-            // (+4: at 75 % the text floor makes the words a little wider than at the design size.)
-            const auto modeW = packedMenuWidth ({}, { "Combo", "Low Pass", "VCA" }) + 4;
-            const auto placeW = packedMenuWidth ({}, { "After Filters", "As Filter 2" }) + 4;
-            westMode->setBounds ({ x, centre - 8, modeW, 16 });
-            x += modeW + 3;
-            westPosition->setBounds ({ x, centre - 8, placeW, 16 });
-            x += placeW + 3;
-            westSource->setBounds ({ x, centre - 8, juce::jmax (40, end - x), 16 });
-            auto body = card.withTrimmedTop (headerHeight).reduced (0, 3);
-            // (The last ring's ink sits about 8 px inside its cell: the cells reach the card's edge, the picture starts 8 px in.)
-            const auto knobsX = card.getRight() - 6 * westPitch - cell;
-            westDisplay->setBounds ({ card.getX() + 8, body.getY(), knobsX - 6 - card.getX() - 8, body.getHeight() });
-            auto knobX = knobsX;
-            for (auto& knob : westKnobs)
-            {
-                knob->setBounds (KnobControl::packedBoundsFor ({ knobX, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
-                knobX += westPitch;
-            }
+            knob->setBounds (KnobControl::packedBoundsFor ({ knobX, body.getY() + (body.getHeight() - (int) dialSize - 10) / 2, cell, (int) dialSize + 10 }));
+            knobX += westPitch;
         }
     }
 
-    // ENVELOPE 300, LFO 266, BODY · BOARD 212, SUB 124, NOISE 124 (mockup v4).
-    void layoutBand2 (juce::Rectangle<int> band)
+    // STRINGS and KEYS on one grid: five columns at 43 px, centred in the card, the knobs at one height.
+    void layoutStringsCard()
     {
-        const auto total = band.getWidth() - 4 * hGap;
-        const auto widthOf = [total] (float design) { return juce::roundToInt ((float) total * design / 1026.0f); };
-        auto row = band;
-        envelopeCard.setBounds (row.removeFromLeft (widthOf (300.0f)));
-        row.removeFromLeft (hGap);
-        lfoCard.setBounds (row.removeFromLeft (widthOf (266.0f)));
-        row.removeFromLeft (hGap);
-        bodyBounds = row.removeFromLeft (widthOf (212.0f));
-        row.removeFromLeft (hGap);
-        subBounds = row.removeFromLeft ((row.getWidth() - hGap) / 2);
-        row.removeFromLeft (hGap);
-        noiseBounds = row;
+        const auto card = stringsBounds;
+        const auto centre = card.getY() + headerHeight / 2;
+        stringsTabs.setBounds ({ card.getX() + 22, centre - 8, stringsTabs.idealWidth(), 16 });
+        stringsOn->setBounds (switchIn (card));
+        const auto gridW = 4 * stringsPitch + cell;
+        const auto left = card.getX() + (card.getWidth() - gridW) / 2;
+        // (The group name, 10 px, then 4 px, then the knob cell, 38 px: the block centred under the header.)
+        const auto blockH = 14 + (int) dialSize + 10;
+        const auto top = card.getY() + headerHeight + (card.getHeight() - headerHeight - blockH) / 2;
+        const auto column = [left] (int i) { return left + i * stringsPitch; };
+        const auto cellY = top + 14;
+        const auto place = [cellY] (KnobControl& knob, int x) { knob.setBounds (KnobControl::packedBoundsFor ({ x, cellY, cell, (int) dialSize + 10 })); };
+        for (size_t i = 0; i < stringsKnobs.size(); ++i)
+            place (*stringsKnobs[i], column ((int) i));
+        for (size_t i = 0; i < keysKnobs.size(); ++i)
+            place (*keysKnobs[i], column ((int) i));
+        const auto groupOver = [&] (int first, int last) { return juce::Rectangle<int> (column (first), top, column (last) + cell - column (first), 10); };
+        tuningGroup = groupOver (3, 4);
+        noiseGroup = groupOver (2, 4);
+        stringsManual->setBounds ({ tuningGroup.getX(), cellY + 1, tuningGroup.getWidth(), 16 });
+        tuneButton.setBounds ({ tuningGroup.getX(), cellY + 20, tuningGroup.getWidth(), 16 });
+    }
 
-        {
-            const auto card = bodyBounds;
-            const auto centre = card.getY() + headerHeight / 2;
-            auto x = card.getX() + 22;
-            bodyTab.setBounds ({ x, centre - 8, bodyTab.idealWidth(), 16 });
-            x += bodyTab.getWidth() + 4;
-            bodyOn->setBounds ({ x, centre - 8, 28, 16 });
-            x += 28 + 6;
-            boardTab.setBounds ({ x, centre - 8, boardTab.idealWidth(), 16 });
-            x += boardTab.getWidth() + 4;
-            boardOn->setBounds ({ x, centre - 8, 28, 16 });
+    void layoutBodyCard()
+    {
+        const auto card = bodyBounds;
+        const auto centre = card.getY() + headerHeight / 2;
+        auto x = card.getX() + 22;
+        bodyTab.setBounds ({ x, centre - 8, bodyTab.idealWidth(), 16 });
+        x += bodyTab.getWidth() + 4;
+        bodyOn->setBounds ({ x, centre - 8, 28, 16 });
+        x += 28 + 6;
+        boardTab.setBounds ({ x, centre - 8, boardTab.idealWidth(), 16 });
+        x += boardTab.getWidth() + 4;
+        boardOn->setBounds ({ x, centre - 8, 28, 16 });
 
-            // One grid of five columns at 42 px (the last ring as far from the edge as the menus), two rows; every name inside its menu or under its knob.
-            const auto top = card.getY() + headerHeight;
-            const auto column = [&card] (int i) { return card.getX() + 6 + i * bodyPitch; };
-            // (Rows from the top and from the bottom: the second row's names end 3 px above the card's edge at any band height.)
-            const auto row1 = top + 3, row2 = card.getBottom() - 3 - (int) dialSize - 10;
-            const auto place = [] (KnobControl& knob, int x, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ x, y, cell, (int) dialSize + 10 })); };
-            const auto spanTo = [&column] (int last) { return column (last) + cell - column (0); };
+        // One grid of five columns at 42 px, centred in the card, two rows; every name inside its menu or under its knob.
+        const auto top = card.getY() + headerHeight;
+        const auto left = card.getX() + (card.getWidth() - 4 * bodyPitch - cell) / 2;
+        const auto column = [left] (int i) { return left + i * bodyPitch; };
+        // (Rows from the top and from the bottom: the second row's names end 3 px above the card's edge at any band height.)
+        const auto row1 = top + 3, row2 = card.getBottom() - 3 - (int) dialSize - 10;
+        const auto place = [] (KnobControl& knob, int knobX, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ knobX, y, cell, (int) dialSize + 10 })); };
+        const auto spanTo = [&column] (int last) { return column (last) + cell - column (0); };
 
-            // BODY: TYPE over COUPLING beside AMOUNT and DECAY; then MATERIAL, SIZE, COUPLE, OFFSET, KEY TRK.
-            bodyType->setBounds ({ column (0), top + 4, spanTo (2), 16 });
-            bodyCoupling->setBounds ({ column (0), top + 23, spanTo (2), 16 });
-            place (*bodyKnobs[0], column (3), row1);
-            place (*bodyKnobs[1], column (4), row1);
-            const std::array<size_t, 5> second { 3, 4, 2, 5, 6 };
-            for (size_t i = 0; i < second.size(); ++i)
-                place (*bodyKnobs[second[i]], column ((int) i), row2);
+        // BODY: TYPE over COUPLING beside AMOUNT and DECAY; then MATERIAL, SIZE, COUPLE, OFFSET, KEY TRK.
+        bodyType->setBounds ({ column (0), top + 4, spanTo (2), 16 });
+        bodyCoupling->setBounds ({ column (0), top + 23, spanTo (2), 16 });
+        place (*bodyKnobs[0], column (3), row1);
+        place (*bodyKnobs[1], column (4), row1);
+        const std::array<size_t, 5> second { 3, 4, 2, 5, 6 };
+        for (size_t i = 0; i < second.size(); ++i)
+            place (*bodyKnobs[second[i]], column ((int) i), row2);
 
-            // BOARD: MODEL (as wide as BODY's menus) beside TONE and MIX; SIZE beside the response it slides.
-            boardModel->setBounds ({ column (0), row1 + (int) dialSize / 2 - 8, spanTo (2), 16 });
-            place (*boardKnobs[1], column (3), row1);
-            place (*boardKnobs[2], column (4), row1);
-            place (*boardKnobs[0], column (0), row2);
-            boardResponse->setBounds (juce::Rectangle<int> (column (1), row2, card.getRight() - 6 - column (1), card.getBottom() - 3 - row2));
-        }
+        // BOARD: MODEL (as wide as BODY's menus) beside TONE and MIX; SIZE beside the response it slides.
+        boardModel->setBounds ({ column (0), row1 + (int) dialSize / 2 - 8, spanTo (2), 16 });
+        place (*boardKnobs[1], column (3), row1);
+        place (*boardKnobs[2], column (4), row1);
+        place (*boardKnobs[0], column (0), row2);
+        boardResponse->setBounds (juce::Rectangle<int> (column (1), row2, column (4) + cell - column (1), card.getBottom() - 3 - row2));
+    }
 
+    void layoutSubNoise()
+    {
         for (const auto isNoise : { false, true })
         {
             const auto card = isNoise ? noiseBounds : subBounds;
@@ -2325,7 +2346,7 @@ private:
     OscScrollBar oscBar { true };
     SourceCarouselCard envelopeCard, lfoCard;
     FilterDisplay filterDisplay;
-    ViewPills filterTabs { { "F1", "F2" }, filterColour (0), "Which filter's type and knobs show; the graph draws both" };
+    ViewPills filterTabs { { "F1", "F2", "WEST" }, filterColour (0), "F1 and F2: which filter's type and knobs show (the graph draws both). WEST: the WEST COAST folder and gate" };
     std::array<FilterCard, 2> filters;
     std::unique_ptr<PillChoice> routing;
     std::unique_ptr<BalanceSlider> balance;

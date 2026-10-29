@@ -895,7 +895,8 @@ public:
     static constexpr int preferredWidth = 620, preferredHeight = 340, headerHeight = 38;
     static constexpr int padding = 4, sideInset = 14, bottomInset = 14;
     static constexpr int compactHeader = 26, compactInset = 8, compactTop = 6, routesGap = 6;
-    static constexpr int envCardWidth = 330, lfoCardWidth = 410; // (410: five switch pills in the LFO column at the real fonts)
+    // (390: the envelope's graph about as wide as the LFO's, ilana 2026-10-29; 410: five switch pills in the LFO column at the real fonts.)
+    static constexpr int envCardWidth = 390, lfoCardWidth = 410;
     // (OP PITCH's and OP LFO's DX7 editors, compact as the others (UI review 26): the graph and a column of ring knobs.)
     static constexpr int operatorGraphWidth = 196;
 
@@ -943,7 +944,7 @@ public:
         const auto caption = kind == Kind::envelope ? juce::String ("drag the graph or the knobs")
                              : kind == Kind::lfo && lfo >= 0 ? LfoShapeMenu::runCaption (processorRef, lfo)
                              : count == 0 ? juce::String ("drag its chip onto a knob") : juce::String (count) + (count == 1 ? " route" : " routes");
-        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (source, &processorRef), caption, colour, 200);
+        IlanaTheme::paintCardHeader (g, header, ModNames::sourceUpper (source, &processorRef), caption, colour, kind == Kind::lfo ? 212 : 200); // (an LFO's SHAPE sits right of it)
     }
 
     void resized() override
@@ -962,10 +963,16 @@ public:
         auto body = area.reduced (compactInset, 0).withTrimmedBottom (compactInset).withTrimmedTop (compactTop);
         routes.setBounds (body.removeFromBottom (routesHeight()));
         body.removeFromBottom (routesGap);
+        // (ilana's layout, 2026-10-29: the LFO's SHAPE sits in the title row, right of the caption; the envelope's
+        // graph starts a little higher than its knobs.)
         if (kind == Kind::lfo && lfoSection != nullptr)
-            lfoSection->setBounds (body);
+        {
+            const auto skip = body.getY() - header.getY();
+            lfoSection->setCompactTitleRow (skip, header.getHeight(), body.getRight() - closeButton.getX() + 6);
+            lfoSection->setBounds (body.withTop (header.getY()));
+        }
         if (kind == Kind::envelope && envSection != nullptr)
-            envSection->setBounds (body);
+            envSection->setBounds (body.withTop (body.getY() - EnvSection::compactGraphRise));
     }
 
     void mouseMove (const juce::MouseEvent& event) override

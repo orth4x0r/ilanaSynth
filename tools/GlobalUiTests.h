@@ -574,8 +574,9 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 const auto bounds = boundsInEditor (shownControl (id));
                 // Reading order in a grid: along a row (labels on one line) or
                 // down to the next row (V12-5: the controls may stand in a column).
-                const auto sameRow = labelTop >= 0 && std::abs (bounds.getY() - labelTop) <= 1;
-                const auto nextRow = labelTop >= 0 && bounds.getY() > labelTop + 1;
+                // (ilana's arranger pass, 2026-10-29: the menus sit 7 px lower than the knobs' tops, so a row allows 8.)
+                const auto sameRow = labelTop >= 0 && std::abs (bounds.getY() - labelTop) <= 8;
+                const auto nextRow = labelTop >= 0 && bounds.getY() > labelTop + 8;
                 const auto inOrder = ! bounds.isEmpty() && (labelTop < 0 || (sameRow && bounds.getX() > previousX) || nextRow);
                 if (labelTop < 0 || nextRow)
                     labelTop = bounds.getY();

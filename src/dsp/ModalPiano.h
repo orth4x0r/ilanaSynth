@@ -40,6 +40,8 @@ class ModalPiano
 {
 public:
     static constexpr int maxPartials = 100; // a multiple of 4
+    static constexpr int maxModes = 16;     // the board's resonances
+    static constexpr int maxSlots = maxPartials + maxModes;
     static constexpr int blockSize = 32;
 
     void prepare (double newSampleRate)
@@ -50,7 +52,7 @@ public:
 
     void reset()
     {
-        count = 0;
+        count = slots = 0;
         attackLeft = 0;
         silent = true;
     }
@@ -82,7 +84,7 @@ public:
     void trigger (float velocity, float randomUnit)
     {
         const auto& table = ModalPianoTable::get();
-        count = 0;
+        count = slots = 0;
         attackLeft = 0;
         silent = true;
         if (! table.valid())
@@ -129,7 +131,26 @@ public:
         }
         corners = at;
         levelOffset = gainDb;
-        for (int k = count; k < roundedCount(); ++k)
+
+        // The nearest recorded note gives the attack and the board's
+        // resonances (fixed in Hz, they don't follow the key), at the two
+        // velocity layers round the timbre.
+        const auto nearest = at.noteWeight < 0.5f ? at.noteIndex : at.noteIndex + (at.noteWeight > 0.0f ? 1 : 0);
+        modeA = &table.at (nearest, at.velocityIndex);
+        modeB = &table.at (nearest, juce::jmin (at.velocityIndex + 1, (int) table.velocities.size() - 1));
+        slots = count;
+        const auto modes = juce::jmin ((int) modeA->modes.size(), (int) modeB->modes.size(), maxModes);
+        for (int m = 0; m < modes; ++m)
+        {
+            const auto k = slots++;
+            modeHz[m] = modeA->modes[(size_t) m];
+            seed = seed * 1664525u + 22695477u;
+            const auto phase = (float) (seed >> 8) * (juce::MathConstants<float>::twoPi / 16777216.0f);
+            re[k] = std::cos (phase);
+            im[k] = std::sin (phase);
+            amp[k] = step[k] = 0.0f;
+        }
+        for (int k = slots; k < roundedCount(); ++k)
         {
             measured[k] = harmonic[k] = re[k] = im[k] = amp[k] = step[k] = 0.0f;
             rotCos[k] = 1.0f;
@@ -137,11 +158,9 @@ public:
         }
         updatePitch();
 
-        // The attack: the nearest recorded note, at the two velocity layers
-        // round the timbre, resampled to this note's pitch.
-        const auto nearest = at.noteWeight < 0.5f ? at.noteIndex : at.noteIndex + (at.noteWeight > 0.0f ? 1 : 0);
-        attackA = &table.at (nearest, at.velocityIndex).attack;
-        attackB = &table.at (nearest, juce::jmin (at.velocityIndex + 1, (int) table.velocities.size() - 1)).attack;
+        // The attack, resampled to this note's pitch.
+        attackA = &modeA->attack;
+        attackB = &modeB->attack;
         attackMix = at.velocityWeight;
         attackGain = std::pow (10.0f, gainDb / 20.0f);
         const auto anchorHz = 440.0 * std::exp2 ((table.notes[(size_t) nearest] - 69) / 12.0);
@@ -151,12 +170,14 @@ public:
         fadeStart = juce::jmin ((int) (0.025 * sampleRate), attackLength / 3);
         attackLeft = attackLength;
         attackPosition = 0.0;
+        attackFade = 1.0f;
+        partialRamp = 0.0f;
 
         elapsed = 0;
         released = -1;
         segment = -1;
         untilBlock = 0;
-        silent = count == 0 && attackLeft == 0;
+        silent = slots == 0 && attackLeft == 0;
     }
 
     float process (bool noteHeld)
@@ -199,6 +220,7 @@ public:
         }
        #endif
         out *= partialRamp;
+        partialRamp += partialRampStep;
 
         if (attackLeft > 0)
         {
@@ -209,6 +231,7 @@ public:
             const auto fromA = a[(size_t) i] + f * (a[(size_t) i + 1] - a[(size_t) i]);
             const auto fromB = b[(size_t) i] + f * (b[(size_t) i + 1] - b[(size_t) i]);
             out += (fromA + attackMix * (fromB - fromA)) * attackGain * attackFade;
+            attackFade += attackFadeStep;
             attackPosition += attackStep;
             --attackLeft;
         }
@@ -286,7 +309,7 @@ private:
         return (float) (10.0 * std::log10 (power));
     }
 
-    int roundedCount() const { return (count + 3) & ~3; }
+    int roundedCount() const { return (slots + 3) & ~3; }
 
     void updatePitch()
     {
@@ -296,6 +319,13 @@ private:
             const auto ratio = harmonic[k] + (measured[k] - harmonic[k]) * stiffness;
             hz[k] = (float) (ratio * frequency);
             const auto w = juce::MathConstants<double>::twoPi * juce::jmin ((double) hz[k], sampleRate * 0.49) / sampleRate;
+            rotCos[k] = (float) std::cos (w);
+            rotSin[k] = (float) std::sin (w);
+        }
+        for (int k = count; k < slots; ++k)
+        {
+            hz[k] = modeHz[k - count];
+            const auto w = juce::MathConstants<double>::twoPi * hz[k] / sampleRate;
             rotCos[k] = (float) std::cos (w);
             rotSin[k] = (float) std::sin (w);
         }
@@ -331,6 +361,14 @@ private:
                 levelA[k] = a + levelOffset;
                 levelB[k] = b + levelOffset;
             }
+            const auto w = corners.velocityWeight;
+            for (int k = count; k < slots; ++k)
+            {
+                const auto m = (size_t) (k - count);
+                const auto at = [times] (const ModalPianoTable::Entry& e, size_t mode, int t) { return e.modeLevels[mode * (size_t) times + (size_t) t]; };
+                levelA[k] = at (*modeA, m, s) + w * (at (*modeB, m, s) - at (*modeA, m, s)) + levelOffset;
+                levelB[k] = at (*modeA, m, s + 1) + w * (at (*modeB, m, s + 1) - at (*modeA, m, s + 1)) + levelOffset;
+            }
         }
 
         const auto t0 = table.times[(size_t) s], t1 = table.times[(size_t) s + 1];
@@ -345,7 +383,7 @@ private:
         const auto seconds = (float) now;
 
         auto loudest = -200.0f;
-        for (int k = 0; k < count; ++k)
+        for (int k = 0; k < slots; ++k)
         {
             auto db = levelA[k] + u * (levelB[k] - levelA[k]);
             if (beyond > 0.0f)
@@ -361,16 +399,19 @@ private:
             im[k] *= norm;
         }
 
-        // The crossfade from the recording's attack into the partials.
-        const auto atBlock = (int) (attackLength - attackLeft);
-        if (atBlock < fadeStart)
-            attackFade = 1.0f, partialRamp = 0.0f;
-        else
+        // The crossfade from the recording's attack into the partials, as
+        // per-sample ramps to where it is at the block's end (a gain stepped
+        // once a block buzzes: steps 1.5 kHz apart, heard as a hiss on top).
+        const auto atEnd = (int) (attackLength - attackLeft) + blockSize;
+        auto fadeTarget = 1.0f, rampTarget = 0.0f;
+        if (atEnd > fadeStart)
         {
-            const auto x = juce::jlimit (0.0f, 1.0f, (float) (atBlock - fadeStart) / (float) juce::jmax (1, attackLength - fadeStart));
-            attackFade = std::cos (x * juce::MathConstants<float>::halfPi);
-            partialRamp = std::sin (x * juce::MathConstants<float>::halfPi);
+            const auto x = juce::jlimit (0.0f, 1.0f, (float) (atEnd - fadeStart) / (float) juce::jmax (1, attackLength - fadeStart));
+            fadeTarget = std::cos (x * juce::MathConstants<float>::halfPi);
+            rampTarget = std::sin (x * juce::MathConstants<float>::halfPi);
         }
+        attackFadeStep = (fadeTarget - attackFade) / (float) blockSize;
+        partialRampStep = (rampTarget - partialRamp) / (float) blockSize;
 
         if (loudest < -130.0f && attackLeft == 0)
             silent = true;
@@ -386,17 +427,21 @@ private:
 
     Corners corners;
     float levelOffset = 0.0f;
-    int count = 0, segment = -1, untilBlock = 0;
+    int count = 0, slots = 0, segment = -1, untilBlock = 0; // partials, then partials and modes
     long long elapsed = 0, released = -1;
 
-    alignas (16) float re[maxPartials] {}, im[maxPartials] {}, rotCos[maxPartials] {}, rotSin[maxPartials] {};
-    alignas (16) float amp[maxPartials] {}, step[maxPartials] {};
-    float measured[maxPartials] {}, harmonic[maxPartials] {}, hz[maxPartials] {};
-    float levelA[maxPartials] {}, levelB[maxPartials] {};
+    alignas (16) float re[maxSlots] {}, im[maxSlots] {}, rotCos[maxSlots] {}, rotSin[maxSlots] {};
+    alignas (16) float amp[maxSlots] {}, step[maxSlots] {};
+    float measured[maxSlots] {}, harmonic[maxSlots] {}, hz[maxSlots] {};
+    float levelA[maxSlots] {}, levelB[maxSlots] {};
 
+    float modeHz[maxModes] {};
+    const ModalPianoTable::Entry* modeA = nullptr;
+    const ModalPianoTable::Entry* modeB = nullptr;
     const std::vector<float>* attackA = nullptr;
     const std::vector<float>* attackB = nullptr;
     float attackMix = 0.0f, attackGain = 1.0f, attackFade = 1.0f, partialRamp = 0.0f;
+    float attackFadeStep = 0.0f, partialRampStep = 0.0f;
     double attackPosition = 0.0, attackStep = 1.0;
     int attackLength = 1, attackLeft = 0, fadeStart = 0;
 };

@@ -27,6 +27,10 @@ TIMES = [0.05, 0.08, 0.12, 0.2, 0.3, 0.45, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 5.5, 7.
 MAX_PARTIALS = 100
 MAX_FREQ = 16000.0
 ATTACK_SECONDS = 0.1
+# The board's own resonances: the strongest peaks below this that are not
+# the note's partials, kept with their level over time (fixed in Hz).
+MODE_TOP = 1200.0
+MAX_MODES = 12
 
 
 def read_wav(path):
@@ -101,6 +105,42 @@ def analyse(x, rate, note):
     return f0, partials / f0, levels
 
 
+def body_modes(x, rate, f0, partials):
+    """Peaks between and below the partials: the soundboard and the other
+    strings ringing, struck by the hammer (a treble note's low boom)."""
+    size = 16384
+    freqs = np.fft.rfftfreq(size, 1 / rate)
+    level = 20 * np.log10(spectrum(x, int(0.3 * rate), size) + 1e-9)
+    top = level.max()
+    keep = np.ones(len(freqs), bool)
+    for f in partials:
+        keep &= np.abs(freqs - f) > max(8.0, 0.08 * f0)
+    found = []
+    for i in np.argsort(-level):
+        if freqs[i] < 20 or freqs[i] > MODE_TOP or not keep[i] or level[i] < top - 55:
+            continue
+        if not (level[i] >= level[max(0, i - 2):i + 3]).all():
+            continue
+        if any(abs(freqs[i] - f) < 6.0 for f in found):
+            continue
+        found.append(float(freqs[i]))
+        if len(found) == MAX_MODES:
+            break
+    return sorted(found)
+
+
+def mode_levels(x, rate, modes):
+    size = 16384
+    freqs = np.fft.rfftfreq(size, 1 / rate)
+    levels = np.full((len(modes), len(TIMES)), -160.0)
+    for t, when in enumerate(TIMES):
+        mag = spectrum(x, max(0, int(when * rate) - size // 2), size)
+        for n, f in enumerate(modes):
+            k = (freqs > f - 4.0) & (freqs < f + 4.0)
+            levels[n, t] = 20 * np.log10(mag[k].max() + 1e-9)
+    return levels
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("wav")
@@ -119,22 +159,33 @@ def main():
     x, rate = read_wav(args.wav)
     slot = int(round(args.slot * rate))
 
+    def segment(vi, ni):
+        begin = (vi * len(notes) + ni) * slot
+        seg = x[max(0, begin - 4000):begin + slot - int(0.05 * rate)]
+        return seg[onset(seg, rate):]
+
+    # One set of board resonances per note, found at its loudest velocity.
+    modes = {}
+    for ni, note in enumerate(notes):
+        seg = segment(len(velocities) - 1, ni)
+        f0, ratios, _ = analyse(seg, rate, note)
+        modes[note] = body_modes(seg, rate, f0, ratios * f0)
+
     entries = []
     for vi, velocity in enumerate(velocities):
         for ni, note in enumerate(notes):
-            begin = (vi * len(notes) + ni) * slot
-            seg = x[max(0, begin - 4000):begin + slot - int(0.05 * rate)]
-            seg = seg[onset(seg, rate):]
+            seg = segment(vi, ni)
             f0, ratios, levels = analyse(seg, rate, note)
             attack = seg[:int(ATTACK_SECONDS * rate)]
-            entries.append((note, velocity, f0, ratios, levels, attack))
-            print("note %d vel %d: %d partials, attack peak %.3f" % (note, velocity, len(ratios), np.abs(attack).max()), flush=True)
+            entries.append((note, velocity, f0, ratios, levels, attack, modes[note], mode_levels(seg, rate, modes[note])))
+            print("note %d vel %d: %d partials, %d board modes, attack peak %.3f"
+                  % (note, velocity, len(ratios), len(modes[note]), np.abs(attack).max()), flush=True)
 
     # Little-endian: magic, version, counts, the time grid, then each entry.
     out = bytearray(b"IMPT")
-    out += struct.pack("<HHHf", 1, len(entries), len(TIMES), float(rate))
+    out += struct.pack("<HHHf", 2, len(entries), len(TIMES), float(rate))
     out += struct.pack("<%df" % len(TIMES), *TIMES)
-    for note, velocity, f0, ratios, levels, attack in entries:
+    for note, velocity, f0, ratios, levels, attack, modes, mlevels in entries:
         scale = max(1e-9, float(np.abs(attack).max()))
         out += struct.pack("<HHHI", note, velocity, len(ratios), len(attack))
         out += struct.pack("<f", scale)
@@ -142,6 +193,10 @@ def main():
         # Levels in dB, in 1/64 dB steps.
         out += np.clip(np.round(levels * 64), -32768, 32767).astype("<i2").tobytes()
         out += np.clip(np.round(attack / scale * 32767), -32767, 32767).astype("<i2").tobytes()
+        # Version 2: the board's resonances, in Hz, and their levels.
+        out += struct.pack("<H", len(modes))
+        out += struct.pack("<%df" % len(modes), *modes)
+        out += np.clip(np.round(mlevels * 64), -32768, 32767).astype("<i2").tobytes()
     with open(args.out, "wb") as f:
         f.write(out)
     print("wrote %s (%d bytes, %d entries)" % (args.out, len(out), len(entries)))

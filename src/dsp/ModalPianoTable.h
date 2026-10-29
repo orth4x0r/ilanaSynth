@@ -15,6 +15,10 @@ struct ModalPianoTable
         std::vector<float> ratios;  // [partials]
         std::vector<float> levels;  // [partials * times], dB
         std::vector<float> attack;  // at the table's rate
+        // The board's resonances (and the other strings') this note rings:
+        // fixed in Hz, the same for every velocity of a note.
+        std::vector<float> modes;       // Hz
+        std::vector<float> modeLevels;  // [modes * times], dB
     };
 
     std::vector<float> times;       // seconds after the strike

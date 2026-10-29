@@ -13,38 +13,44 @@ struct PianoModelTuning
 {
     // Hammer mass (g), felt exponent and felt force at 1 mm (N), from A0 to
     // C8; HAMMER multiplies the felt by 4^(+-hardnessRange).
-    float massBass = 2.0f, massTreble = 2.5012f;
-    float exponentBass = 1.4806f, exponentTreble = 2.7426f;
-    float feltBass = 53.497f, feltTreble = 3.0f;
+    float massBass = 6.26f, massTreble = 4.3412f;
+    float exponentBass = 2.7923f, exponentTreble = 2.3367f;
+    float feltBass = 24.571f, feltTreble = 1.0f;
     float hardnessRange = 2.0f;
     // Felt hysteresis (units of 1e-4 s).
     float hysteresis = 0.39559f;
     // Hammer speed at velocity 0 and 127 (m/s).
-    float speedLow = 0.2f, speedHigh = 3.5686f;
+    float speedLow = 0.2f, speedHigh = 3.3147f;
+    // Key velocity is raised to this power first (above 1 the loud end opens up).
+    float velocityCurve = 2.3716f;
+    // Level only (the sound stays as the hammer makes it): dB added at key
+    // velocities 20, 60, 100 and 124 (a line between them, flat beyond), and dB
+    // per octave above C5 (at the softest key, and added per unit of curved velocity).
+    float velocityGainSoft = -3.3075f, velocityGainMedium = -1.4586f, velocityGainHigh = 10.3f, velocityGainLoud = -0.2f, trebleLevel = 10.241f, trebleLevelVelocity = -8.5353f;
     // String impedance sqrt(T mu) at C4 and at A0 (kg/s).
     float impedanceC4 = 0.6f, impedanceBass = 4.9012f;
     // Strike point as a fraction of the string, bass and treble.
-    float strikeBass = 0.12036f, strikeTreble = 0.10578f;
+    float strikeBass = 0.12036f, strikeTreble = 0.11184f;
     // Inharmonicity B at C4, and its rise per octave (as a power of 2) up
     // and down the keyboard.
-    float inharmonicityC4 = 0.00015378f, inharmonicityTreble = 1.036f, inharmonicityBass = -0.16085f;
+    float inharmonicityC4 = 8.1653e-05f, inharmonicityTreble = 0.84653f, inharmonicityBass = -0.17413f;
     // The fundamental's T60 at C4 (DECAY 0.5), how it scales with pitch (below and above C4),
     // and the T60 at 3 kHz (DAMP 0.5); the vertical polarisation's share.
-    float t60C4 = 17.707f, t60Register = 0.54761f, t60RegisterTreble = 0.39802f, t60Upper = 21.207f, promptRatio = 0.18447f;
+    float t60C4 = 14.342f, t60Register = 0.52727f, t60RegisterTreble = 0.48961f, t60Upper = 29.474f, promptRatio = 0.14845f;
     // The horizontal polarisation: how much of the strike, its level and
     // its detuning (cents).
-    float horizontalTrebleFall = 0.0f; // dB per octave above C5
-    float toneCutoff = 10116.0f; // Hz: the two-pole low-pass on the string's output
-    float quadrature = 0.0f; // 1: the two string directions are heard a quarter turn apart (no partial cancels)
+    float horizontalTrebleFall = 1.5574f; // dB per octave above C5
+    float toneCutoff = 7029.2f; // Hz: the two-pole low-pass on the string's output
+    float quadrature = 1.0f; // 1: the two string directions are heard a quarter turn apart (no partial cancels)
     float toneCutoffBass = 10116.0f; // Hz at A1 (toneCutoff is the cutoff from C5 up)
-    float strikeBandwidth = 4870.5f; // Hz: the felt's rounding of the strike pulse
-    float aftersound = 0.18f, horizontalMix = 1.448f, horizontalCents = 0.23987f;
+    float strikeBandwidth = 5670.5f; // Hz: the felt's rounding of the strike pulse
+    float aftersound = 0.19214f, horizontalMix = 0.75391f, horizontalCents = 0.17714f;
     // The bass bark: tension modulation and the longitudinal modes.
     float tensionModulation = 0.017f, longitudinal = 0.03993f, longitudinalRatio = 15.0f;
     // Knock (level, frequency at C4, level per octave), level and balance
     // (level per octave from C4).
-    float knock = 0.2383f, knockFrequency = 350.0f, knockRegister = 0.912434f;
-    float outputGain = 0.96f, balance = 0.121181f;
+    float knock = 0.3742f, knockFrequency = 350.0f, knockRegister = 0.912434f;
+    float outputGain = 2.1f, balance = 0.12118f;
 
     static PianoModelTuning& get()
     {
@@ -100,14 +106,14 @@ struct PianoModelTuning
 
 private:
     using Field = std::pair<const char*, float PianoModelTuning::*>;
-    static const std::array<Field, 44>& fields()
+    static const std::array<Field, 51>& fields()
     {
-        static const std::array<Field, 44> list {
+        static const std::array<Field, 51> list {
             Field { "massBass", &PianoModelTuning::massBass }, Field { "massTreble", &PianoModelTuning::massTreble },
             Field { "exponentBass", &PianoModelTuning::exponentBass }, Field { "exponentTreble", &PianoModelTuning::exponentTreble },
             Field { "feltBass", &PianoModelTuning::feltBass }, Field { "feltTreble", &PianoModelTuning::feltTreble },
             Field { "hardnessRange", &PianoModelTuning::hardnessRange }, Field { "hysteresis", &PianoModelTuning::hysteresis },
-            Field { "speedLow", &PianoModelTuning::speedLow }, Field { "speedHigh", &PianoModelTuning::speedHigh },
+            Field { "velocityGainSoft", &PianoModelTuning::velocityGainSoft }, Field { "velocityGainMedium", &PianoModelTuning::velocityGainMedium }, Field { "velocityGainHigh", &PianoModelTuning::velocityGainHigh }, Field { "velocityGainLoud", &PianoModelTuning::velocityGainLoud }, Field { "trebleLevel", &PianoModelTuning::trebleLevel }, Field { "trebleLevelVelocity", &PianoModelTuning::trebleLevelVelocity }, Field { "velocityCurve", &PianoModelTuning::velocityCurve }, Field { "speedLow", &PianoModelTuning::speedLow }, Field { "speedHigh", &PianoModelTuning::speedHigh },
             Field { "impedanceC4", &PianoModelTuning::impedanceC4 }, Field { "impedanceBass", &PianoModelTuning::impedanceBass },
             Field { "strikeBass", &PianoModelTuning::strikeBass }, Field { "strikeTreble", &PianoModelTuning::strikeTreble },
             Field { "inharmonicityC4", &PianoModelTuning::inharmonicityC4 }, Field { "inharmonicityTreble", &PianoModelTuning::inharmonicityTreble },
@@ -136,7 +142,7 @@ public:
     std::array<float, 8> dip { 0.0f, 0.0f, 6.0f, 3.0f, 6.0f, 15.0f, 0.0f, 0.0f };
     float dipQ = 1.2f;
     // The level back: dB added at the same notes, after the dip.
-    std::array<float, 8> dipTrim { 0.0f, 0.0f, 2.0f, 5.6591f, 5.5754f, 6.16f, -1.6561f, -4.6951f };
+    std::array<float, 8> dipTrim { -0.4239f, 1.1344f, -0.73907f, -1.256f, -5.4288f, -0.36736f, -1.8733f, -0.23641f };
     // The dense soundboard (a later part of M8.2).
     float boardMix = 2.8457f, boardDecay = 0.6f, boardLowCut = 125.428f, boardTilt = 0.49641f, boardDensity = 0.641009f;
     // The measured colour: dB per octave band, 31 Hz .. 16 kHz.

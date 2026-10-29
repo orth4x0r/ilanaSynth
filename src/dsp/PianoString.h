@@ -131,7 +131,16 @@ public:
     void trigger (float velocity, float randomUnit)
     {
         const auto& t = PianoModelTuning::get();
-        const auto level = juce::jlimit (0.0f, 1.0f, velocity);
+        const auto level = std::pow (juce::jlimit (0.0f, 1.0f, velocity), t.velocityCurve);
+        const auto octavesAboveC5 = juce::jmax (0.0, ((double) note - 60.0) / 12.0 - 1.0);
+        const auto keyVelocity = (double) juce::jlimit (0.0f, 1.0f, velocity) * 127.0;
+        const auto soft = (double) t.velocityGainSoft, medium = (double) t.velocityGainMedium, high = (double) t.velocityGainHigh, loud = (double) t.velocityGainLoud;
+        const auto keyGainDb = keyVelocity <= 20.0 ? soft
+                             : keyVelocity <= 60.0 ? soft + (medium - soft) * (keyVelocity - 20.0) / 40.0
+                             : keyVelocity <= 100.0 ? medium + (high - medium) * (keyVelocity - 60.0) / 40.0
+                             : keyVelocity <= 124.0 ? high + (loud - high) * (keyVelocity - 100.0) / 24.0
+                                                    : loud;
+        velocityGain = (float) std::pow (10.0, (keyGainDb + (double) (t.trebleLevel + t.trebleLevelVelocity * level) * octavesAboveC5) / 20.0);
 
         // Key speed to hammer speed: about 0.5 m/s (pp) to 5 m/s (ff).
         hammerV = (double) t.speedLow * std::pow ((double) t.speedHigh / (double) t.speedLow, (double) level);
@@ -360,7 +369,7 @@ public:
         dcOut = isFinite (blocked) ? blocked : 0.0f;
         if (! isFinite (lossState) || ! isFinite (horizontalLossState))
             reset();
-        return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain);
+        return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain * velocityGain);
     }
 
     // Register constants, for tests and the display.
@@ -745,5 +754,5 @@ private:
     // Knock and output.
     float knockEnvelope = 0.0f, knockLevel = 0.0f, knockDecay = 0.99f, knockCoefficient = 0.1f, knockLow1 = 0.0f, knockLow2 = 0.0f;
     std::uint32_t noiseSeed = 22222u;
-    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f;
+    float dcIn = 0.0f, dcOut = 0.0f, outputGain = 0.1f, velocityGain = 1.0f;
 };

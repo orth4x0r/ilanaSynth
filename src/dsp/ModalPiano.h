@@ -12,6 +12,12 @@
 // milliseconds are the recording's own attack (hammer thump and all),
 // resampled to the note's pitch, crossfading into the partials.
 //
+// In stereo, as the reference's microphones heard it: each partial and board
+// resonance has its own balance and phase between left and right (steady
+// over a note, so measured once per note), the attack is the recording's two
+// channels, and the noise is two uncorrelated draws. process() returns the
+// middle, (left + right) / 2, and side() the rest, (left - right) / 2.
+//
 // The knobs move away from the recording, which they reproduce at their
 // middle (DECAY, STIFF, HAMMER) or at 0 (DAMP):
 //   DECAY   stretches or shortens the whole decay (x0.35 .. x2.8)
@@ -160,14 +166,39 @@ public:
         }
         updatePitch();
 
+        // The stereo picture: the nearest note's, per partial and mode.
+        for (int k = 0; k < roundedCount(); ++k)
+        {
+            auto balance = 0.0f, phase = 0.0f;
+            if (k < count && k < (int) modeA->balance.size())
+            {
+                balance = modeA->balance[(size_t) k];
+                phase = modeA->phase[(size_t) k];
+            }
+            else if (k >= count && k < slots)
+            {
+                balance = modeA->modeBalance[(size_t) (k - count)];
+                phase = modeA->modePhase[(size_t) (k - count)];
+            }
+            // Each channel's gain, at the two channels' power average of 1.
+            const auto ratio = std::pow (10.0f, balance / 20.0f);
+            const auto right = std::sqrt (2.0f / (1.0f + ratio * ratio));
+            gainLeft[k] = ratio * right;
+            rightSin[k] = right * std::cos (phase);
+            rightCos[k] = right * std::sin (phase);
+        }
+
         // The attack, resampled to this note's pitch.
         attackA = &modeA->attack;
         attackB = &modeB->attack;
+        attackRightA = &modeA->attackRight;
+        attackRightB = &modeB->attackRight;
         attackMix = at.velocityWeight;
         attackGain = std::pow (10.0f, gainDb / 20.0f);
         const auto anchorHz = 440.0 * std::exp2 ((table.notes[(size_t) nearest] - 69) / 12.0);
         attackStep = frequency / anchorHz * table.rate / sampleRate;
-        const auto usable = juce::jmin ((double) juce::jmin (attackA->size(), attackB->size()) - 2.0, 0.08 * table.rate);
+        const auto usable = juce::jmin ((double) std::min ({ attackA->size(), attackB->size(), attackRightA->size(), attackRightB->size() }) - 2.0,
+                                        0.08 * table.rate);
         attackLength = juce::jmax (1, (int) (usable / attackStep));
         fadeStart = juce::jmin ((int) (0.025 * sampleRate), attackLength / 3);
         attackLeft = attackLength;
@@ -177,11 +208,13 @@ public:
         hasNoise = ! modeA->noiseLevels.empty();
         for (auto& band : noise)
         {
-            band.x1 = band.x2 = band.y1 = band.y2 = band.u1 = band.u2 = band.z1 = band.z2 = 0.0f;
+            band.left = band.right = {};
             band.gain = band.step = 0.0f;
         }
         noisePower.fill (0.0f);
         noiseSeed = seed;
+        noiseSeedRight = seed * 2654435761u + 12345u;
+        lastSide = 0.0f;
 
         elapsed = 0;
         released = -1;
@@ -190,10 +223,14 @@ public:
         silent = slots == 0 && attackLeft == 0;
     }
 
+    // The middle of the two channels; side() is the rest.
     float process (bool noteHeld)
     {
         if (silent)
+        {
+            lastSide = 0.0f;
             return 0.0f;
+        }
         if (! noteHeld && released < 0)
             released = elapsed;
         if (untilBlock == 0)
@@ -201,69 +238,80 @@ public:
         --untilBlock;
         ++elapsed;
 
-        auto out = 0.0f;
+        // Each partial: sin on the left; on the right, the same sine shifted
+        // by its phase (sin (x + p) = sin x cos p + cos x sin p).
+        auto left = 0.0f, right = 0.0f;
         const auto n = roundedCount();
        #if ILANA_MODAL_SSE
-        auto sum = _mm_setzero_ps();
+        auto sumLeft = _mm_setzero_ps(), sumRight = _mm_setzero_ps();
         for (int k = 0; k < n; k += 4)
         {
             const auto r = _mm_load_ps (re + k), i = _mm_load_ps (im + k);
             const auto c = _mm_load_ps (rotCos + k), s = _mm_load_ps (rotSin + k);
             const auto a = _mm_load_ps (amp + k);
-            _mm_store_ps (re + k, _mm_sub_ps (_mm_mul_ps (r, c), _mm_mul_ps (i, s)));
+            const auto nextRe = _mm_sub_ps (_mm_mul_ps (r, c), _mm_mul_ps (i, s));
             const auto nextIm = _mm_add_ps (_mm_mul_ps (r, s), _mm_mul_ps (i, c));
+            _mm_store_ps (re + k, nextRe);
             _mm_store_ps (im + k, nextIm);
-            sum = _mm_add_ps (sum, _mm_mul_ps (a, nextIm));
+            sumLeft = _mm_add_ps (sumLeft, _mm_mul_ps (a, _mm_mul_ps (nextIm, _mm_load_ps (gainLeft + k))));
+            const auto shifted = _mm_add_ps (_mm_mul_ps (nextIm, _mm_load_ps (rightSin + k)), _mm_mul_ps (nextRe, _mm_load_ps (rightCos + k)));
+            sumRight = _mm_add_ps (sumRight, _mm_mul_ps (a, shifted));
             _mm_store_ps (amp + k, _mm_add_ps (a, _mm_load_ps (step + k)));
         }
         alignas (16) float lanes[4];
-        _mm_store_ps (lanes, sum);
-        out = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+        _mm_store_ps (lanes, sumLeft);
+        left = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+        _mm_store_ps (lanes, sumRight);
+        right = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
        #else
         for (int k = 0; k < n; ++k)
         {
             const auto r = re[k];
             re[k] = r * rotCos[k] - im[k] * rotSin[k];
             im[k] = r * rotSin[k] + im[k] * rotCos[k];
-            out += amp[k] * im[k];
+            left += amp[k] * im[k] * gainLeft[k];
+            right += amp[k] * (im[k] * rightSin[k] + re[k] * rightCos[k]);
             amp[k] += step[k];
         }
        #endif
         if (hasNoise)
         {
+            // Uniform, unit variance; a draw for each channel.
             noiseSeed = noiseSeed * 1664525u + 1013904223u;
-            // Uniform, unit variance.
-            const auto white = ((float) (noiseSeed >> 8) * (2.0f / 16777216.0f) - 1.0f) * 1.7320508f;
+            noiseSeedRight = noiseSeedRight * 1664525u + 1013904223u;
+            const auto whiteLeft = ((float) (noiseSeed >> 8) * (2.0f / 16777216.0f) - 1.0f) * 1.7320508f;
+            const auto whiteRight = ((float) (noiseSeedRight >> 8) * (2.0f / 16777216.0f) - 1.0f) * 1.7320508f;
             for (auto& band : noise)
             {
-                const auto y = band.b0 * white + band.b1 * band.x1 + band.b2 * band.x2 - band.a1 * band.y1 - band.a2 * band.y2;
-                band.x2 = band.x1; band.x1 = white;
-                band.y2 = band.y1; band.y1 = y;
-                const auto z = band.b0 * y + band.b1 * band.u1 + band.b2 * band.u2 - band.a1 * band.z1 - band.a2 * band.z2;
-                band.u2 = band.u1; band.u1 = y;
-                band.z2 = band.z1; band.z1 = z;
-                out += band.gain * z;
+                left += band.gain * band.filter (band.left, whiteLeft);
+                right += band.gain * band.filter (band.right, whiteRight);
                 band.gain += band.step;
             }
         }
-        out *= partialRamp;
+        left *= partialRamp;
+        right *= partialRamp;
         partialRamp += partialRampStep;
 
         if (attackLeft > 0)
         {
             const auto i = (int) attackPosition;
             const auto f = (float) (attackPosition - i);
-            const auto& a = *attackA;
-            const auto& b = *attackB;
-            const auto fromA = a[(size_t) i] + f * (a[(size_t) i + 1] - a[(size_t) i]);
-            const auto fromB = b[(size_t) i] + f * (b[(size_t) i + 1] - b[(size_t) i]);
-            out += (fromA + attackMix * (fromB - fromA)) * attackGain * attackFade;
+            const auto at = [i, f] (const std::vector<float>& x) { return x[(size_t) i] + f * (x[(size_t) i + 1] - x[(size_t) i]); };
+            const auto gain = attackGain * attackFade;
+            const auto fromLeft = at (*attackA) + attackMix * (at (*attackB) - at (*attackA));
+            const auto fromRight = at (*attackRightA) + attackMix * (at (*attackRightB) - at (*attackRightA));
+            left += fromLeft * gain;
+            right += fromRight * gain;
             attackFade += attackFadeStep;
             attackPosition += attackStep;
             --attackLeft;
         }
-        return out * outputGain;
+        lastSide = 0.5f * (left - right) * outputGain;
+        return 0.5f * (left + right) * outputGain;
     }
+
+    // (left - right) / 2 of the sample process() last returned.
+    float side() const { return lastSide; }
 
 private:
     struct Corners
@@ -507,6 +555,10 @@ private:
 
     alignas (16) float re[maxSlots] {}, im[maxSlots] {}, rotCos[maxSlots] {}, rotSin[maxSlots] {};
     alignas (16) float amp[maxSlots] {}, step[maxSlots] {};
+    // The stereo picture: the left's gain, and the right's as the parts of
+    // the sine and cosine that make its gain and phase.
+    alignas (16) float gainLeft[maxSlots] {}, rightSin[maxSlots] {}, rightCos[maxSlots] {};
+    float lastSide = 0.0f;
     float measured[maxSlots] {}, harmonic[maxSlots] {}, hz[maxSlots] {};
     float levelA[maxSlots] {}, levelB[maxSlots] {};
 
@@ -518,15 +570,27 @@ private:
     // second-order skirt would leak more than that into the top bands.
     struct NoiseBand
     {
+        struct State { float x1 = 0, x2 = 0, y1 = 0, y2 = 0, u1 = 0, u2 = 0, z1 = 0, z2 = 0; };
         float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
-        float x1 = 0, x2 = 0, y1 = 0, y2 = 0, u1 = 0, u2 = 0, z1 = 0, z2 = 0;
+        State left, right;
         float gain = 0, step = 0;
+
+        float filter (State& st, float white)
+        {
+            const auto y = b0 * white + b1 * st.x1 + b2 * st.x2 - a1 * st.y1 - a2 * st.y2;
+            st.x2 = st.x1; st.x1 = white;
+            st.y2 = st.y1; st.y1 = y;
+            const auto z = b0 * y + b1 * st.u1 + b2 * st.u2 - a1 * st.z1 - a2 * st.z2;
+            st.u2 = st.u1; st.u1 = y;
+            st.z2 = st.z1; st.z1 = z;
+            return z;
+        }
     };
     std::array<NoiseBand, ModalPianoTable::noiseBandCount> noise {};
     float noiseA[ModalPianoTable::noiseBandCount] {}, noiseB[ModalPianoTable::noiseBandCount] {};
     float noiseLeak[ModalPianoTable::noiseBandCount][ModalPianoTable::noiseBandCount] {};
     std::array<float, ModalPianoTable::noiseBandCount> noisePower {};
-    std::uint32_t noiseSeed = 1;
+    std::uint32_t noiseSeed = 1, noiseSeedRight = 2;
     bool hasNoise = false;
 
     void designNoise()
@@ -589,6 +653,8 @@ private:
     const ModalPianoTable::Entry* modeB = nullptr;
     const std::vector<float>* attackA = nullptr;
     const std::vector<float>* attackB = nullptr;
+    const std::vector<float>* attackRightA = nullptr;
+    const std::vector<float>* attackRightB = nullptr;
     float attackMix = 0.0f, attackGain = 1.0f, attackFade = 1.0f, partialRamp = 0.0f;
     float attackFadeStep = 0.0f, partialRampStep = 0.0f;
     double attackPosition = 0.0, attackStep = 1.0;

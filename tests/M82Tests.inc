@@ -226,14 +226,17 @@ void runTests()
     }
 
     // The Modal Piano: its table loads, every note and knob extreme plays
-    // and stays finite, it sounds at its key, and the dampers stop it.
+    // and stays finite, it sounds at its key, the dampers stop it, and it
+    // plays in stereo.
     {
         const auto& table = ModalPianoTable::get();
         check (table.valid() && table.notes.size() == 88 && table.velocities.size() == 3,
                "the Modal Piano table loads (" + juce::String ((int) table.notes.size()) + " notes x "
                    + juce::String ((int) table.velocities.size()) + " velocities)");
 
-        const auto play = [] (int note, float velocity, float knobs, bool eco, int samples, int releaseAt = -1)
+        // The left channel (and the right, into `right`).
+        const auto play = [] (int note, float velocity, float knobs, bool eco, int samples, int releaseAt = -1,
+                              std::vector<float>* right = nullptr)
         {
             ModalPiano piano;
             piano.prepare (48000.0);
@@ -241,8 +244,15 @@ void runTests()
             piano.setParams (knobs, knobs == 0.5f ? 0.0f : knobs, knobs, knobs, knobs, eco);
             piano.trigger (velocity, 0.37f);
             std::vector<float> out ((size_t) samples);
+            if (right != nullptr)
+                right->resize ((size_t) samples);
             for (int i = 0; i < samples; ++i)
-                out[(size_t) i] = piano.process (releaseAt < 0 || i < releaseAt);
+            {
+                const auto middle = piano.process (releaseAt < 0 || i < releaseAt);
+                out[(size_t) i] = middle + piano.side();
+                if (right != nullptr)
+                    (*right)[(size_t) i] = middle - piano.side();
+            }
             return out;
         };
 
@@ -287,6 +297,25 @@ void runTests()
             const auto rms = [&x] (int from) { auto e = 0.0; for (int i = from; i < from + 2400; ++i) e += x[(size_t) i] * x[(size_t) i]; return std::sqrt (e / 2400.0); };
             const auto drop = juce::Decibels::gainToDecibels (rms (48000 + 2400) / juce::jmax (1.0e-12, rms (21600)));
             check (drop < -40.0, "the Modal Piano's dampers stop the note (" + juce::String (drop, 1) + " dB in 0.5 s)");
+        }
+
+        // Stereo: the reference's microphones are far out of phase at C4
+        // (correlation about -0.9), and the two channels are about as loud.
+        {
+            std::vector<float> right;
+            const auto left = play (60, 0.5f, 0.5f, false, 48000, -1, &right);
+            auto lr = 0.0, ll = 0.0, rr = 0.0;
+            for (int i = 4800; i < 48000; ++i)
+            {
+                lr += (double) left[(size_t) i] * right[(size_t) i];
+                ll += (double) left[(size_t) i] * left[(size_t) i];
+                rr += (double) right[(size_t) i] * right[(size_t) i];
+            }
+            const auto correlation = lr / std::sqrt (juce::jmax (1.0e-30, ll * rr));
+            const auto balance = 10.0 * std::log10 (juce::jmax (1.0e-30, ll) / juce::jmax (1.0e-30, rr));
+            check (correlation < 0.0 && std::abs (balance) < 6.0,
+                   "the Modal Piano plays in stereo (C4: correlation " + juce::String (correlation, 2)
+                       + ", balance " + juce::String (balance, 1) + " dB)");
         }
     }
 }

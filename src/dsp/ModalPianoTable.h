@@ -14,7 +14,8 @@ struct ModalPianoTable
         int note = 60, velocity = 64, partials = 0;
         std::vector<float> ratios;  // [partials]
         std::vector<float> levels;  // [partials * times], dB
-        std::vector<float> attack;  // at the table's rate
+        std::vector<float> attack;  // at the table's rate (the left channel)
+        std::vector<float> attackRight; // (version 4; else the left's)
         // The board's resonances (and the other strings') this note rings:
         // fixed in Hz, the same for every velocity of a note.
         std::vector<float> modes;       // Hz
@@ -22,6 +23,11 @@ struct ModalPianoTable
         // The noise between them, per band (noiseBands): the median FFT bin
         // (16384 points, Hann) away from every partial and mode, in dB.
         std::vector<float> noiseLevels; // [bands * times], dB
+        // The stereo picture (version 4; else centred): each partial's and
+        // mode's balance (dB, left over right) and phase (right against
+        // left, radians), the same for every velocity of a note.
+        std::vector<float> balance, phase;         // [partials]
+        std::vector<float> modeBalance, modePhase; // [modes]
     };
 
     static constexpr int noiseBandCount = 6;

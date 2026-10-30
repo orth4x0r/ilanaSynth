@@ -218,3 +218,17 @@ FX type 42 runs one voice filter model per channel on the rack, coefficients eve
 
 For scale: Reverb 0.31 %, EQ 0.20 %, Tilt 0.09 % in the same run. The empty rack and every other effect run the same code as before (FILTER only runs when a slot holds it); 0 of 698 presets changed. In a loop it costs the same per pass, as every effect does (rules A1-A3 above).
 
+
+## Stereo string twin in one call (2026-10-30, branch `claude/project-thread-q62hka`)
+
+A stereo route into a string knob plays one string as a left/right twin (PR #196). The twin was a second `process()` call; `KarplusStrong::processPair` now plays both sides in one pass (bit for bit the same, `runStringPairTest`).
+
+| Measure | two calls | one call |
+|---|---|---|
+| Piano string, 8 voices interleaved (standalone, ns per voice-sample) | 320 (+105 % on mono 156) | 257-263 (+64-68 %) |
+| Pluck string, one voice (standalone) | 84.7 (+95 % on mono 43.5) | 63.7 (+46 %) |
+| Pluck string, 8 voices interleaved (standalone) | 70 (+100 %) | 71 (+100 %): the CPU already overlaps separate voices' calls |
+| Whole voice, stereo DAMP route, Piano, 8 notes (`ILANA_STEREO_BENCH`, pinned core, min of 6) | 1123 ms | 1009 ms (-10 %) |
+| Whole voice, same, pluck | 619 ms | 596 ms (-4 %) |
+
+Unpinned whole-voice timings on the cloud machine swing about 15 % run to run; pin a core (`taskset -c 2`) and alternate builds. Instruction counts (callgrind) move less than time: the pluck pair saves about 4 % of the twin's instructions, the gain is mostly the two loops' latency chains running side by side. Of what the stereo route adds to a voice, the twin string is about two thirds; the rest is the voice filter running two channels (the L/R pair can no longer run linked once the inputs differ).

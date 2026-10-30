@@ -153,6 +153,14 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_STEREO_BENCH", "").isNotEmpty())
+    {
+        runStringPairTest();
+        runStereoStringBench();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     // ILANA_BENCH=1 runs only the CPU benchmark (for profiling).
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_BENCH", "").isNotEmpty())
     {
@@ -736,6 +744,7 @@ int main()
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });
     timedRun ("runStereoStringsTest", [] { runStereoStringsTest(); });
+    timedRun ("runStringPairTest", [] { runStringPairTest(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });

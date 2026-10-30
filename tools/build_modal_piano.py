@@ -11,7 +11,11 @@ attack, which the partials take over from).
     tools/build_modal_piano.py render.wav --notes 21,33,45,... --velocities 20,60,124 \
         --slot 12 [--out content/piano/modal-piano.bin]
 
-Needs numpy only. The render is read as 16/24/32-bit PCM WAV, mixed to mono.
+Needs numpy only. The render is read as 16/24/32-bit PCM WAV. A stereo render
+is not mixed to mono: a piano's spaced microphones are far out of phase with
+each other (Piano V's American Grand: L/R correlation down to -0.9), and their
+sum cancels whole partials. Levels are the two channels' power average (what
+two ears hear) and the attack is the left channel, scaled to that power.
 """
 
 import argparse
@@ -47,21 +51,23 @@ def read_wav(path):
         x = np.frombuffer(raw, "<i4") / float(1 << 31)
     else:
         sys.exit("unsupported sample width %d" % width)
-    return x.reshape(-1, channels).mean(axis=1), rate
+    return x.reshape(-1, channels), rate
 
 
 def onset(x, rate):
     n = max(1, int(rate * 0.005))
-    e = np.convolve(np.abs(x), np.ones(n) / n, "same")
+    e = np.convolve(np.abs(x).sum(axis=1), np.ones(n) / n, "same")
     return max(0, int(np.argmax(e > 0.15 * e.max())) - int(0.004 * rate))
 
 
 def spectrum(x, start, size):
+    """Magnitude, the channels' power average."""
     s = x[start:start + size]
     if len(s) < size:
-        s = np.pad(s, (0, size - len(s)))
+        s = np.pad(s, ((0, size - len(s)), (0, 0)))
     w = np.hanning(size)
-    return np.abs(np.fft.rfft(s * w)) * 2.0 / w.sum()
+    power = (np.abs(np.fft.rfft(s * w[:, None], axis=0)) ** 2).mean(axis=1)
+    return np.sqrt(power) * 2.0 / w.sum()
 
 
 def track(mag, freqs, f0):
@@ -147,8 +153,16 @@ def main():
     parser.add_argument("--notes", required=True, help="comma-separated MIDI notes, or a range like 21-108")
     parser.add_argument("--velocities", default="20,60,124")
     parser.add_argument("--slot", type=float, required=True, help="seconds from one note's start to the next")
+    parser.add_argument("--hold", type=float, default=0.0,
+                        help="seconds each note is held: the time grid stops before the release (default: the slot)")
     parser.add_argument("--out", default="content/piano/modal-piano.bin")
     args = parser.parse_args()
+
+    # Each level is read from a window round its time: keep the times whose
+    # window ends before the key is let go (or the next note starts).
+    global TIMES
+    hold = args.hold if args.hold > 0 else args.slot
+    TIMES = [t for t in TIMES if t + 0.2 < hold]
 
     if "-" in args.notes:
         lo, hi = map(int, args.notes.split("-"))
@@ -159,9 +173,9 @@ def main():
     x, rate = read_wav(args.wav)
     slot = int(round(args.slot * rate))
 
-    def segment(vi, ni):
+    def segment(vi, ni, hold=hold):
         begin = (vi * len(notes) + ni) * slot
-        seg = x[max(0, begin - 4000):begin + slot - int(0.05 * rate)]
+        seg = x[max(0, begin - 4000):begin + int(min(args.slot, hold + 0.5) * rate) - int(0.05 * rate)]
         return seg[onset(seg, rate):]
 
     # One set of board resonances per note, found at its loudest velocity.
@@ -176,7 +190,8 @@ def main():
         for ni, note in enumerate(notes):
             seg = segment(vi, ni)
             f0, ratios, levels = analyse(seg, rate, note)
-            attack = seg[:int(ATTACK_SECONDS * rate)]
+            stereo = seg[:int(ATTACK_SECONDS * rate)]
+            attack = stereo[:, 0] * np.sqrt((stereo ** 2).mean() / max(1e-20, (stereo[:, 0] ** 2).mean()))
             entries.append((note, velocity, f0, ratios, levels, attack, modes[note], mode_levels(seg, rate, modes[note])))
             print("note %d vel %d: %d partials, %d board modes, attack peak %.3f"
                   % (note, velocity, len(ratios), len(modes[note]), np.abs(attack).max()), flush=True)

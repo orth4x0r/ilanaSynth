@@ -7624,6 +7624,42 @@ int runUiTests()
             expect (false, "the dock's chips open their source's editor");
     }
 
+    // An LFO's pop-up: its SHAPE sits in the title row, but the cross and the
+    // rest of that row (the drag strip) still take the mouse (ilana, 2026-10-30:
+    // "i cant close the lfo thing", "cant drag it either").
+    {
+        pages->showPage ("FILTER");
+        settle (200);
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (*editor, chips);
+        ModSourceChip* chip = nullptr;
+        for (auto* candidate : chips)
+            if (candidate->isVisible() && candidate->onClick != nullptr && chip == nullptr
+                && Mod::lfoIndexFor ((Mod::Source) candidate->getSourceIndex()) >= 0)
+                chip = candidate;
+        if (chip != nullptr)
+        {
+            chip->onClick (*chip);
+            settle (200);
+            auto* popover = pages->getSourcePopover();
+            juce::TextButton* cross = nullptr;
+            if (popover != nullptr)
+                for (auto* child : popover->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child); button != nullptr && button->isVisible())
+                        cross = button;
+            const auto onCross = cross != nullptr && popover->getComponentAt (cross->getBounds().getCentre()) == cross;
+            // (18, 8): the title strip, left of the source name (SourcePopover::padding is 4).
+            const auto onStrip = popover != nullptr && popover->getComponentAt (juce::Point<int> (18, 8)) == popover;
+            expect (onCross && onStrip, "an LFO's pop-up: the cross and the title strip take the mouse (close, hover, drag)");
+            if (cross != nullptr)
+                cross->triggerClick();
+            settle (200);
+            expect (popover != nullptr && ! popover->isVisible(), "an LFO's pop-up: the cross closes it");
+        }
+        else
+            expect (false, "the dock has an LFO chip");
+    }
+
     pages->setAsksBeforeReplacingEdits (askedBefore);
     editor.reset();
     expect (dynamic_cast<IlanaLookAndFeel*> (&juce::LookAndFeel::getDefaultLookAndFeel()) == nullptr,

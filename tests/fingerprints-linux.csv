@@ -703,7 +703,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 701,"Ladder Triangle Bass",-15.9996,0.545085,1019.4,0.190821
 702,"Vocoder Pulse Bass",-18.308,0.691157,3634.22,0.0414009
 703,"Tine Vowel Keys",-16.1854,0.877015,1262.52,0.248824
-704,"Modal Grand",-27.4063,0.397437,301.893,0.134469
+704,"Modal Grand",-30.3213,0.431174,289.562,1.02127
 705,"Filter model: Low Pass",-13.6276,0.811676,1087.94,0
 706,"Filter model: Band Pass",-24.915,0.476539,2809.78,0
 707,"Filter model: High Pass",-25.3912,0.580635,5821.25,0

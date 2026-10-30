@@ -1,0 +1,851 @@
+<title>ilanaSynth Layout Arranger</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: tool bar and page tabs on top; the synth window in the middle at real pixels (175 % by default) where cards and
+   controls are cut from real snapshots; at the right the inspector (spacing in px, alignment, notes) and the live rule checks.
+   One dark look on purpose: it is the synth's own palette, so the pictures sit on what they sit on in the plugin. */
+:root{
+  --ink0:#090a0d; --ink1:#0e0f13; --ink2:#15171c; --ink3:#1c1f26; --ink4:#272b34;
+  --line:#2b2f39; --line2:#20232a; --hover:#323744;
+  --text:#eef0f4; --text2:#aeb4bf; --text3:#7c8392;
+  --accent:#ff6a2a; --accent2:#ff9466; --guide:#ff4fb0; --pad:#45b8ff; --gap:#ffc04d;
+  --bad:#ff4d5e; --warn:#ffc04d; --good:#3ecf9a;
+  --ui:"Manrope","Segoe UI",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--ink1);color:var(--text);font-family:var(--ui);font-size:13px;margin:0;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{height:100%;display:grid;grid-template-rows:auto auto 1fr;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px max(16px,env(safe-area-inset-left,0px));background:var(--ink0);border-bottom:1px solid var(--line)}
+.bar h1{font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin:0 6px 0 0;white-space:nowrap}
+.bar h1 b{color:var(--accent)}
+.grp{display:flex;align-items:center;gap:3px;background:var(--ink2);border:1px solid var(--line);border-radius:7px;padding:3px}
+.grp>span{color:var(--text3);font-size:10px;padding:0 4px;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.btn{background:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:3px 8px;cursor:pointer;white-space:nowrap;font-size:12px}
+.btn:hover{background:var(--hover)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.on{background:var(--accent);border-color:var(--accent);color:var(--ink0);font-weight:700}
+.btn:focus-visible,.el:focus-visible,.tab:focus-visible{outline:2px solid var(--accent2);outline-offset:1px}
+.status{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap}
+.status.ok{color:var(--good)}.status.bad{color:var(--bad)}
+.tabs{display:flex;gap:2px;padding:0 max(16px,env(safe-area-inset-left,0px));background:var(--ink0);border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{background:none;border:none;border-bottom:2px solid transparent;padding:8px 12px 7px;cursor:pointer;color:var(--text2);font-weight:700;font-size:12px;letter-spacing:.07em;white-space:nowrap;display:flex;gap:6px;align-items:center}
+.tab:hover{color:var(--text)}
+.tab.cur{color:var(--text);border-bottom-color:var(--accent)}
+.tab .n{font-family:var(--mono);font-size:10px;font-weight:500;border-radius:8px;padding:0 5px;background:var(--ink3);color:var(--text3)}
+.tab .n.w{background:var(--warn);color:var(--ink0)}.tab .n.ok{background:var(--good);color:var(--ink0)}
+.tab .n.ed{background:var(--accent);color:var(--ink0)}
+.main{display:grid;grid-template-columns:1fr 300px;min-height:0}
+.stage{overflow:auto;position:relative;min-width:0;background:
+  radial-gradient(circle at 1px 1px,var(--line2) 1px,transparent 1.2px) 0 0/16px 16px,var(--ink1)}
+.sizer{position:relative}
+.win{position:absolute;left:16px;top:16px;transform-origin:0 0;background:#0b0c10;box-shadow:0 20px 50px rgba(0,0,0,.55);outline:1px solid var(--line)}
+.win .base{position:absolute;left:0;top:0;background-size:100% 100%;pointer-events:none}
+.win .ghost{position:absolute;left:0;top:0;background-size:100% 100%;opacity:0;pointer-events:none;transition:opacity .15s;z-index:20}
+.win .park{position:absolute;left:0;background:repeating-linear-gradient(45deg,var(--ink1) 0 10px,var(--ink0) 10px 20px);border-top:1px dashed var(--line);pointer-events:none}
+.win .park span{position:absolute;left:12px;top:8px;font:500 11px var(--mono);color:var(--text3);letter-spacing:.04em}
+.win.showghost .ghost{opacity:.35}
+.gridov{position:absolute;inset:0;pointer-events:none;opacity:0}
+.win.showgrid .gridov{opacity:1}
+.el{position:absolute;box-sizing:border-box;background-repeat:no-repeat;touch-action:none;user-select:none}
+.card{cursor:move;border-radius:7px}
+.card.locked{cursor:default}
+.card.locked::after{content:"";position:absolute;inset:0;background:rgba(9,10,13,.45);border-radius:inherit;pointer-events:none}
+.card .sl{position:absolute;pointer-events:none;background-repeat:no-repeat}
+.ctl{cursor:grab;border-radius:3px}
+.ctl:hover,.card:not(.locked):hover{box-shadow:0 0 0 1px rgba(255,148,102,.55)}
+.el.sel{box-shadow:0 0 0 1.5px var(--accent2)!important;z-index:30}
+.el.sel2{box-shadow:0 0 0 1.5px var(--pad)!important;z-index:29}
+.el.flag{box-shadow:0 0 0 1.5px var(--bad)!important}
+.el.flagw{box-shadow:0 0 0 1.5px var(--warn)}
+.win.locked-ctl .ctl{pointer-events:none}
+.hdl{position:absolute;width:9px;height:9px;background:var(--accent2);border:1px solid var(--ink0);border-radius:2px;z-index:40}
+.guide{position:absolute;background:var(--guide);pointer-events:none;z-index:50}
+.meas{position:absolute;pointer-events:none;z-index:45}
+.meas.pad{background:rgba(69,184,255,.18);outline:1px dashed var(--pad)}
+.meas.gap{background:rgba(255,192,77,.16);outline:1px dashed var(--gap)}
+.meas b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:500 9px var(--mono);color:var(--ink0);padding:0 3px;border-radius:2px;white-space:nowrap}
+.meas.pad b{background:var(--pad)}.meas.gap b{background:var(--gap)}
+.dim{position:absolute;font:500 10px var(--mono);background:var(--accent);color:var(--ink0);padding:1px 4px;border-radius:3px;pointer-events:none;z-index:60;white-space:nowrap;transform-origin:0 100%}
+.side{overflow-y:auto;background:var(--ink2);border-left:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:14px}
+.side h2{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin:0 0 6px;font-weight:800}
+.side h3{margin:0 0 4px;font-size:14px;font-weight:800;letter-spacing:.02em}
+.hint{color:var(--text3);font-size:12px;line-height:1.5;margin:0}
+.kv{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.kv label{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--text3);font-family:var(--mono)}
+input[type=number],input[type=text],textarea,select{background:var(--ink0);border:1px solid var(--line);border-radius:5px;padding:4px 6px;width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px}
+textarea{min-height:60px;resize:vertical;line-height:1.45;font-family:var(--ui)}
+.padbox{display:grid;grid-template-columns:1fr 1.2fr 1fr;grid-template-rows:auto auto auto;gap:3px;align-items:center;justify-items:center;background:var(--ink0);border:1px solid var(--line2);border-radius:6px;padding:6px;font-family:var(--mono);font-size:11px}
+.padbox .c{grid-column:2;grid-row:2;color:var(--text3);font-size:10px;text-align:center}
+.padbox span{color:var(--pad)}
+.padbox span.g{color:var(--gap)}
+.row{display:flex;gap:4px;flex-wrap:wrap}
+.row .btn{flex:1 1 auto}
+.theme{display:grid;grid-template-columns:1fr 60px;gap:5px 8px;align-items:center;font-size:12px}
+.theme label{color:var(--text2)}
+.issues{display:flex;flex-direction:column;gap:4px}
+.iss{display:grid;grid-template-columns:10px 1fr;gap:7px;align-items:start;text-align:left;background:var(--ink3);border:1px solid var(--line2);border-radius:6px;padding:6px 8px;cursor:pointer;font-size:12px;line-height:1.4;color:var(--text)}
+.iss:hover{background:var(--hover)}
+.iss i{width:8px;height:8px;border-radius:50%;margin-top:4px;background:var(--warn)}
+.iss.bad i{background:var(--bad)}
+.iss small{display:block;color:var(--text3);font-family:var(--mono);font-size:10px}
+.okbox{color:var(--good);font-size:12px;border:1px solid var(--good);border-radius:6px;padding:6px 8px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+.modal>div{background:var(--ink2);border:1px solid var(--line);border-radius:10px;padding:14px;width:min(640px,100%);display:flex;flex-direction:column;gap:10px}
+.modal textarea{min-height:260px;font-family:var(--mono);font-size:11px}
+.loading{position:absolute;left:24px;top:24px;color:var(--text3);font-family:var(--mono)}
+@media (max-width:900px){
+  body{overflow:auto}
+  .app{height:auto}
+  .main{grid-template-columns:1fr}
+  .stage{height:70vh}
+  .side{border-left:none;border-top:1px solid var(--line)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <div class="bar">
+    <h1><b>ilanaSynth</b> layout arranger</h1>
+    <div class="grp" role="group" aria-label="Zoom"><span>Zoom</span>
+      <button class="btn" data-z="fit" id="z-fit">Fit</button>
+      <button class="btn" data-z="1" id="z-100">100%</button>
+      <button class="btn" data-z="1.75" id="z-175">175%</button>
+    </div>
+    <div class="grp" role="group" aria-label="Snap"><span>Grid</span>
+      <button class="btn" data-s="1" id="s-1">1</button>
+      <button class="btn" data-s="2" id="s-2">2</button>
+      <button class="btn" data-s="5" id="s-5">5</button>
+      <button class="btn" id="gridshow" title="Show the grid">Show</button>
+    </div>
+    <div class="grp" role="group" aria-label="Edit"><span>Edit</span>
+      <button class="btn" id="mode-ctl" title="Grab a knob, menu or graph to move it on its own; grab a card's header or edge (or Alt-drag) to move the whole card">Knobs + cards</button>
+      <button class="btn" id="mode-cards" title="Lock the knobs so any click moves the whole card">Cards only</button>
+      <button class="btn" id="undo" title="Ctrl+Z">Undo</button>
+      <button class="btn" id="redo" title="Ctrl+Shift+Z">Redo</button>
+      <button class="btn" id="ghost" title="Show today's layout faintly underneath">Today underneath</button>
+      <button class="btn" id="resetpage" title="This page back to how it is on main">Reset page</button>
+      <button class="btn" id="proposal" title="Load Claude's starting proposal for PLAY again">Claude's proposal</button>
+    </div>
+    <div class="grp"><span>Send</span>
+      <button class="btn" id="export">Export</button>
+    </div>
+    <span class="status" id="status">loading…</span>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Pages"></nav>
+  <div class="main">
+    <div class="stage" id="stage"><div class="sizer" id="sizer"><div class="win" id="win"></div></div><div class="loading" id="loading">Loading the pictures…</div></div>
+    <aside class="side" id="side" aria-label="Inspector and checks"></aside>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ---------- Model
+// Everything is in plugin pixels at 100 % (the window is 1060 wide). The pictures are 175 % snapshots of main;
+// a card shows its own picture with its controls lifted out, each control shows its own picture on top.
+let DATA = null;                 // pages.json
+let page = null;                 // current page id
+let state = { pages:{}, theme:null, notes:{}, general:"" };   // edits: per page {els:{id:{x,y,w,h}}, notes}
+const hist = [], fut = [];
+let zoom = 1.75, zoomMode = "1.75", snap = 2, mode = "ctl", sel = [], showGrid = false;
+const $ = s => document.querySelector(s);
+const win = $("#win"), stage = $("#stage"), sizer = $("#sizer"), side = $("#side");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const DEFAULT_THEME = { cardGap:5, cardPad:6, headerH:20, knobPitch:42, margin:8 };
+const PARK = 190;
+const parked = c => geom(c).y >= P().h - 2;
+
+function P(){ return DATA.pages.find(p => p.id === page); }
+function edits(pid){ return (state.pages[pid] ||= { els:{} }); }
+// The element as placed now: today's rectangle with this page's edits over it. A control's x/y follow its card.
+function geom(el, pid = page){
+  const e = edits(pid).els[el.id] || {};
+  const g = { x:e.x ?? el.x, y:e.y ?? el.y, w:e.w ?? el.w, h:e.h ?? el.h };
+  return g;
+}
+function cardOf(ctl, p = P()){ return p.cards.find(c => c.id === ctl.card); }
+// A control's place on the page: its offset inside its card (today's, or moved) plus where the card is now.
+function ctlGeom(ctl, p = P()){
+  const c = cardOf(ctl, p), cg = c ? geom(c, p.id) : { x:0, y:0 };
+  const e = edits(p.id).els[ctl.id] || {};
+  const dx = e.dx ?? (ctl.x - (c ? c.x : 0)), dy = e.dy ?? (ctl.y - (c ? c.y : 0));
+  return { x:cg.x + dx, y:cg.y + dy, w:ctl.w, h:ctl.h, dx, dy };
+}
+function theme(){ return state.theme || DEFAULT_THEME; }
+const snapshot = () => JSON.stringify(state);
+function push(){ hist.push(snapshot()); if (hist.length > 120) hist.shift(); fut.length = 0; }
+function undo(){ const s = hist.pop(); if (!s) return; fut.push(snapshot()); state = JSON.parse(s); commit(); }
+function redo(){ const s = fut.pop(); if (!s) return; hist.push(snapshot()); state = JSON.parse(s); commit(); }
+
+// ---------- Drawing
+function render(){
+  const p = P(); if (!p) return;
+  const sc = p.scale;
+  win.style.width = p.w + "px"; win.style.height = (p.h + PARK) + "px";
+  win.classList.toggle("locked-ctl", mode !== "ctl");
+  win.classList.toggle("showgrid", showGrid);
+  let html = `<div class="base" style="background-image:url('${p.base}');width:${p.w}px;height:${p.h}px"></div>
+    <div class="park" style="top:${p.h}px;width:${p.w}px;height:${PARK}px"><span>PARKED · off the window, not checked. Drag a card here to set it aside.</span></div>
+    <div class="ghost" style="background-image:url('${p.img}');width:${p.w}px;height:${p.h}px"></div>`;
+  html += `<svg class="gridov" width="${p.w}" height="${p.h}"><defs><pattern id="gp" width="${Math.max(snap,2)*5}" height="${Math.max(snap,2)*5}" patternUnits="userSpaceOnUse"><path d="M ${Math.max(snap,2)*5} 0 L 0 0 0 ${Math.max(snap,2)*5}" fill="none" stroke="rgba(69,184,255,.18)" stroke-width="${1/zoom}"/></pattern></defs><rect width="100%" height="100%" fill="url(#gp)"/></svg>`;
+  const bad = checks().byEl;
+  for (const c of p.cards){
+    const g = geom(c);
+    const cls = ["el","card", c.locked ? "locked" : "", sel.includes(c.id) ? (sel[0] === c.id ? "sel" : "sel2") : "", bad[c.id] === "bad" ? "flag" : bad[c.id] === "warn" ? "flagw" : ""].join(" ");
+    html += `<div class="${cls}" data-id="${c.id}" tabindex="0" aria-label="${esc(c.name)}" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;--cardbg:${c.bg||"#16171c"};z-index:${c.z||1}">${slices(p, c, g)}</div>`;
+  }
+  for (const k of p.controls){
+    const g = ctlGeom(k);
+    const cls = ["el","ctl", sel.includes(k.id) ? (sel[0] === k.id ? "sel" : "sel2") : "", bad[k.id] === "bad" ? "flag" : bad[k.id] === "warn" ? "flagw" : ""].join(" ");
+    const c = cardOf(k);
+    html += `<div class="${cls}" data-id="${k.id}" tabindex="${mode==="ctl"?0:-1}" aria-label="${esc(k.label||k.kind)}" title="${esc((k.label||k.kind) + " · " + (c?c.name:""))}" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;background-image:url('${p.img}');background-size:${p.w}px ${p.h}px;background-position:${-k.x}px ${-k.y}px;z-index:${(c&&c.z||1)+5}"></div>`;
+  }
+  html += overlays();
+  win.innerHTML = html;
+  win.querySelector(".ghost").style.opacity = ghost ? ".35" : "";
+  applyZoom();
+  renderTabs();
+  renderSide();
+}
+
+// A card drawn bigger than today: its picture cut in nine, the corners kept, the edges and the header stretched from
+// one pixel column or row next to the corners (the controls are lifted out of these pictures, so nothing smears).
+function slices(p, c, g){
+  const E = 10, img = `background-image:url('${p.bgimg}');background-size:${p.w}px ${p.h}px`;
+  const piece = (x, y, w, h, sx, sy) => w > 0 && h > 0 ? `<div class="sl" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;${img};background-position:${-sx}px ${-sy}px"></div>` : "";
+  const stretch = (x, y, w, h, sx, sy, sw, sh) => w > 0 && h > 0 ? `<div class="sl" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background-image:url('${p.bgimg}');background-size:${p.w * w / sw}px ${p.h * h / sh}px;background-position:${-sx * w / sw}px ${-sy * h / sh}px"></div>` : "";
+  if (g.w === c.w && g.h === c.h) return piece(0, 0, c.w, c.h, c.x, c.y);
+  const W = Math.max(g.w, c.w), H = Math.max(g.h, c.h);
+  let s = piece(0, 0, c.w - E, c.h - E, c.x, c.y);                                   // top left: today's card
+  s += piece(W - E, 0, E, c.h - E, c.x + c.w - E, c.y);                              // right edge
+  s += piece(0, H - E, c.w - E, E, c.x, c.y + c.h - E);                              // bottom edge
+  s += piece(W - E, H - E, E, E, c.x + c.w - E, c.y + c.h - E);                      // bottom right corner
+  if (W > c.w){
+    s += stretch(c.w - E, 0, W - c.w, c.h - E, c.x + c.w - E - 2, c.y, 1, c.h - E);  // wider: one column stretched
+    s += stretch(c.w - E, H - E, W - c.w, E, c.x + c.w - E - 2, c.y + c.h - E, 1, E);
+  }
+  if (H > c.h){
+    s += stretch(0, c.h - E, c.w - E, H - c.h, c.x, c.y + c.h - E - 2, c.w - E, 1);  // taller: one row stretched
+    s += stretch(W - E, c.h - E, E, H - c.h, c.x + c.w - E, c.y + c.h - E - 2, E, 1);
+    if (W > c.w) s += stretch(c.w - E, c.h - E, W - c.w, H - c.h, c.x + c.w - E - 2, c.y + c.h - E - 2, 1, 1);
+  }
+  return s;
+}
+
+// Padding of the selected card (edge to its nearest control) and the gaps to its neighbours, in px.
+function overlays(){
+  const p = P(), id = sel[0]; if (!id) return "";
+  let h = "";
+  const c = p.cards.find(c => c.id === id);
+  const k = p.controls.find(k => k.id === id);
+  if (c){
+    const g = geom(c), pad = paddingOf(c);
+    if (pad){
+      const box = (x,y,w,hh,v) => w > 0 && hh > 0 ? `<div class="meas pad" style="left:${x}px;top:${y}px;width:${w}px;height:${hh}px"><b>${v}</b></div>` : "";
+      h += box(g.x, pad.by, pad.l, pad.bh, pad.l);
+      h += box(pad.bx + pad.bw, pad.by, pad.r, pad.bh, pad.r);
+      h += box(pad.bx, g.y + theme().headerH, pad.bw, pad.t, pad.t);
+      h += box(pad.bx, pad.by + pad.bh, pad.bw, pad.b, pad.b);
+    }
+    for (const n of neighbours(c)){
+      h += `<div class="meas gap" style="left:${n.x}px;top:${n.y}px;width:${Math.max(n.w,1)}px;height:${Math.max(n.h,1)}px"><b>${n.v}</b></div>`;
+    }
+  }
+  if (k){
+    // Neighbours in the same card along the row: the pitch to each.
+    const g = ctlGeom(k);
+    for (const o of p.controls){
+      if (o === k || o.card !== k.card) continue;
+      const og = ctlGeom(o);
+      const sameRow = Math.abs((og.y + og.h/2) - (g.y + g.h/2)) < Math.min(g.h, og.h)/2;
+      if (sameRow && og.x >= g.x + g.w && og.x - (g.x + g.w) < 80)
+        h += `<div class="meas gap" style="left:${g.x+g.w}px;top:${g.y+g.h/2-5}px;width:${og.x-g.x-g.w}px;height:10px"><b>${og.x-g.x-g.w}</b></div>`;
+    }
+  }
+  return h;
+}
+
+function contentBox(c){
+  const p = P(), ks = p.controls.filter(k => k.card === c.id);
+  if (!ks.length) return null;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const k of ks){ const g = ctlGeom(k); x0 = Math.min(x0, g.x); y0 = Math.min(y0, g.y); x1 = Math.max(x1, g.x + g.w); y1 = Math.max(y1, g.y + g.h); }
+  return { x0, y0, x1, y1 };
+}
+function paddingOf(c){
+  const b = contentBox(c); if (!b) return null;
+  const g = geom(c), top = g.y + (c.header ?? theme().headerH);
+  // Controls in the header (menus, switches) count for the sides only.
+  const body = P().controls.filter(k => k.card === c.id && ctlGeom(k).y + ctlGeom(k).h / 2 >= top);
+  let y0 = 1e9, y1 = -1e9;
+  for (const k of body){ const kg = ctlGeom(k); y0 = Math.min(y0, kg.y); y1 = Math.max(y1, kg.y + kg.h); }
+  if (!body.length){ y0 = top; y1 = top; }
+  return { l:Math.round(b.x0 - g.x), r:Math.round(g.x + g.w - b.x1), t:Math.round(y0 - top), b:Math.round(g.y + g.h - y1),
+           bx:b.x0, bw:b.x1 - b.x0, by:y0, bh:Math.max(0, y1 - y0) };
+}
+// Cards that face this one across a gap (left/right in the same row, above/below in the same column span).
+function neighbours(c){
+  const p = P(), g = geom(c), out = [];
+  for (const o of p.cards){
+    if (o === c || o.locked !== c.locked) continue;
+    const og = geom(o);
+    const vOverlap = Math.min(g.y + g.h, og.y + og.h) - Math.max(g.y, og.y);
+    const hOverlap = Math.min(g.x + g.w, og.x + og.w) - Math.max(g.x, og.x);
+    if (parked(o)) continue;
+    if (vOverlap > 10 && og.x >= g.x + g.w - 1 && og.x - (g.x + g.w) < 40) out.push({ x:g.x + g.w, y:Math.max(g.y, og.y) + vOverlap/2 - 6, w:og.x - g.x - g.w, h:12, v:og.x - g.x - g.w });
+    if (vOverlap > 10 && g.x >= og.x + og.w - 1 && g.x - (og.x + og.w) < 40) out.push({ x:og.x + og.w, y:Math.max(g.y, og.y) + vOverlap/2 - 6, w:g.x - og.x - og.w, h:12, v:g.x - og.x - og.w });
+    if (hOverlap > 10 && og.y >= g.y + g.h - 1 && og.y - (g.y + g.h) < 40) out.push({ x:Math.max(g.x, og.x) + hOverlap/2 - 8, y:g.y + g.h, w:16, h:og.y - g.y - g.h, v:og.y - g.y - g.h });
+    if (hOverlap > 10 && g.y >= og.y + og.h - 1 && g.y - (og.y + og.h) < 40) out.push({ x:Math.max(g.x, og.x) + hOverlap/2 - 8, y:og.y + og.h, w:16, h:g.y - og.y - og.h, v:g.y - og.y - og.h });
+  }
+  return out;
+}
+
+// ---------- The rule checks (ilana's: no folded cards, no empty space, even gaps, nothing smaller, things aligned)
+function rowsOf(cards){
+  // Cards whose vertical spans overlap by more than half form one row, sorted left to right.
+  const rows = [];
+  for (const c of [...cards].sort((a,b) => geom(a).y - geom(b).y)){
+    const g = geom(c);
+    const row = rows.find(r => { const rg = geom(r[0]); return Math.min(g.y+g.h, rg.y+rg.h) - Math.max(g.y, rg.y) > Math.min(g.h, rg.h) / 2; });
+    row ? row.push(c) : rows.push([c]);
+  }
+  rows.forEach(r => r.sort((a,b) => geom(a).x - geom(b).x));
+  return rows;
+}
+let checkCache = null;
+function checks(){
+  if (checkCache) return checkCache;
+  const p = P(), list = [], byEl = {};
+  const add = (sev, ids, text, detail) => { list.push({ sev, ids, text, detail }); if (sev === "bad") for (const id of ids) byEl[id] = sev; };
+  const cards = p.cards.filter(c => !c.locked && !parked(c)), t = theme();
+  // Overlapping cards.
+  for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++){
+    const a = geom(cards[i]), b = geom(cards[j]);
+    const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+    if (ix > 1 && iy > 1)
+      add("bad", [cards[i].id, cards[j].id], `${cards[i].name} and ${cards[j].name} overlap`, "");
+  }
+  for (const c of cards){
+    const g = geom(c);
+    // Nothing smaller than today, and no folding: a card keeps at least today's size.
+    if (g.w < c.w - 0.5 || g.h < c.h - 0.5)
+      add("bad", [c.id], `${c.name} is smaller than today`, `${g.w} × ${g.h} px, today ${c.w} × ${c.h}${g.h < c.h * .8 ? " (that reads as folded)" : ""}`);
+    if (g.x < 0 || g.x + g.w > p.w || g.y < 0 || g.y + g.h > p.h) add("bad", [c.id], `${c.name} sticks out of the window`, "half in the parking strip: move it fully onto the window or fully below it");
+    // Controls must sit inside their card and must not overlap each other.
+    const ks = p.controls.filter(k => k.card === c.id);
+    for (const k of ks){
+      const kg = ctlGeom(k);
+      const ox = Math.max(0, g.x - kg.x) + Math.max(0, kg.x + kg.w - g.x - g.w), oy = Math.max(0, g.y - kg.y) + Math.max(0, kg.y + kg.h - g.y - g.h);
+      if (ox > 0.5 || oy > 0.5)
+        add(ox > kg.w / 2 || oy > kg.h / 2 ? "bad" : "warn", [k.id], `${k.label || k.kind} sticks out of ${c.name}`, `${Math.round(Math.max(ox, oy))} px past its edge`);
+    }
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++){
+      const a = ctlGeom(ks[i]), b = ctlGeom(ks[j]);
+      const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      // (a knob's box reaches a few px into its neighbour's by design: only a real overlap counts)
+      if (ix > 0 && iy > 0 && ix * iy > 0.25 * Math.min(a.w * a.h, b.w * b.h))
+        add("bad", [ks[i].id, ks[j].id], `${ks[i].label || ks[i].kind} and ${ks[j].label || ks[j].kind} overlap in ${c.name}`, "");
+    }
+    // Empty space inside the card: the padding on one side much bigger than on the other.
+    const pad = paddingOf(c);
+    if (pad && ks.length){
+      if (pad.r > Math.max(16, pad.l * 2.5)) add("warn", [c.id], `Empty space at the right of ${c.name}`, `${pad.r} px on the right, ${pad.l} px on the left`);
+      if (pad.l > Math.max(16, pad.r * 2.5)) add("warn", [c.id], `Empty space at the left of ${c.name}`, `${pad.l} px on the left, ${pad.r} px on the right`);
+      if (pad.b > Math.max(16, pad.t * 2.5 + 8)) add("warn", [c.id], `Empty space at the bottom of ${c.name}`, `${pad.b} px under the controls`);
+    }
+    // Almost aligned controls (tops, centres or bottoms 1-3 px apart) and uneven pitch along a row.
+    const done = new Set();
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++){
+      const a = ctlGeom(ks[i]), b = ctlGeom(ks[j]);
+      if (ks[i].kind !== ks[j].kind || ks[i].kind === "graph") continue;
+      const far = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w), a.y - (b.y + b.h), b.y - (a.y + a.h));
+      if (far > 60) continue;
+      const near = (u, v) => { const d = Math.abs(u - v); return d >= 1 && d <= 3; };
+      const rowish = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) * .6;
+      const colish = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > Math.min(a.w, b.w) * .6;
+      const key = ks[i].id + ks[j].id;
+      const sameH = Math.abs(a.h - b.h) <= 1;
+      if (rowish && (sameH ? near(a.y, b.y) : near(a.y + a.h / 2, b.y + b.h / 2)) && !done.has(key)){
+        done.add(key); add("warn", [ks[i].id, ks[j].id], `${ks[i].label || ks[i].kind} and ${ks[j].label || ks[j].kind} are almost on one line`, `${Math.round(Math.abs(a.y + a.h / 2 - b.y - b.h / 2))} px apart in ${c.name}`);
+      } else if (colish && (near(a.x, b.x) || near(a.x + a.w/2, b.x + b.w/2)) && !done.has(key)){
+        done.add(key); add("warn", [ks[i].id, ks[j].id], `${ks[i].label || ks[i].kind} and ${ks[j].label || ks[j].kind} almost line up`, `${Math.round(Math.abs(a.x - b.x))} px off in ${c.name}`);
+      }
+    }
+    // Knob pitch along each row of knobs.
+    const knobs = ks.filter(k => k.kind === "knob");
+    const krows = [];
+    for (const k of knobs.sort((a,b) => ctlGeom(a).y - ctlGeom(b).y)){
+      const g2 = ctlGeom(k); const r = krows.find(r => Math.abs(ctlGeom(r[0]).y - g2.y) < 8); r ? r.push(k) : krows.push([k]);
+    }
+    for (const r of krows){
+      if (r.length < 3) continue;
+      r.sort((a,b) => ctlGeom(a).x - ctlGeom(b).x);
+      const pitches = r.slice(1).map((k,i) => Math.round(ctlGeom(k).x + ctlGeom(k).w/2 - ctlGeom(r[i]).x - ctlGeom(r[i]).w/2));
+      const lo = Math.min(...pitches), hi = Math.max(...pitches);
+      if (hi - lo > 2 && hi < lo * 1.3) add("warn", r.map(k => k.id), `Uneven knob gaps in ${c.name}`, `centre to centre ${pitches.join(", ")} px`);
+    }
+  }
+  // Even gaps between cards, and rows that stop short of the window's edges (empty space).
+  const big = cards.filter(c => geom(c).h >= 40 && geom(c).w >= 60);
+  for (const row of rowsOf(big)){
+    const pairs = row.slice(1).map((c,i) => [row[i], c, Math.round(geom(c).x - geom(row[i]).x - geom(row[i]).w)]).filter(([,,g]) => g >= 0 && g <= 40);
+    const off = pairs.filter(([,,g]) => g !== t.cardGap);
+    if (off.length) add("warn", [...new Set(off.flatMap(([a,b]) => [a.id, b.id]))], `Uneven gaps between ${row.map(c => c.name).join(", ")}`, `${pairs.map(([,,g]) => g).join(", ")} px; the theme's card gap is ${t.cardGap}`);
+    if (p.kind !== "content") continue;
+    const first = geom(row[0]), last = geom(row[row.length - 1]);
+    const right = Math.round(p.w - (last.x + last.w)), left = Math.round(first.x);
+    if (left <= 30 && (Math.abs(right - left) > 2)) add("warn", [row[row.length - 1].id], `Row ending in ${row[row.length - 1].name} stops short of the edge`, `${left} px margin on the left, ${right} px on the right`);
+  }
+  // Vertical gaps between rows.
+  const rws = rowsOf(big);
+  for (let i = 1; i < rws.length; i++){
+    const above = Math.max(...rws[i-1].map(c => geom(c).y + geom(c).h)), below = Math.min(...rws[i].map(c => geom(c).y));
+    const gap = Math.round(below - above);
+    if (gap > t.cardGap + 2 && gap < 30) add("warn", rws[i].map(c => c.id), `Gap of ${gap} px above ${rws[i].map(c => c.name).join(", ")}`, `the theme's card gap is ${t.cardGap}`);
+  }
+  checkCache = { list, byEl };
+  return checkCache;
+}
+
+// ---------- Side panel
+function renderSide(){
+  const p = P(), t = theme();
+  const chk = checks();
+  let h = "";
+  const id = sel[0];
+  const c = p.cards.find(x => x.id === id), k = p.controls.find(x => x.id === id);
+  if (c){
+    const g = geom(c), pad = paddingOf(c);
+    h += `<section><h2>Card</h2><h3>${esc(c.name)}</h3>
+      <div class="kv"><label>X<input type="number" id="f-x" value="${g.x}"></label><label>Y<input type="number" id="f-y" value="${g.y}"></label>
+      <label>W<input type="number" id="f-w" value="${g.w}" min="${c.w}"></label><label>H<input type="number" id="f-h" value="${g.h}" min="${c.h}"></label></div>
+      <p class="hint" style="margin-top:4px">Today ${c.w} × ${c.h} at ${c.x}, ${c.y}.</p></section>`;
+    if (pad) h += `<section><h2>Padding inside (px)</h2><div class="padbox">
+      <span style="grid-column:2;grid-row:1">${pad.t} <small>under header</small></span>
+      <span style="grid-column:1;grid-row:2">${pad.l}</span><div class="c">${esc(c.name)}</div><span style="grid-column:3;grid-row:2">${pad.r}</span>
+      <span style="grid-column:2;grid-row:3">${pad.b}</span></div>
+      <div class="row" style="margin-top:6px"><button class="btn" id="a-centre">Centre the controls</button><button class="btn" id="a-pad">Padding to ${t.cardPad} px</button></div>
+      <div class="row" style="margin-top:4px"><button class="btn" id="a-fit">Shrink-wrap to controls</button><button class="btn" id="a-pitch">Knobs at ${t.knobPitch} px pitch</button></div></section>`;
+    h += `<section><h2>In its row</h2><div class="row"><button class="btn" id="a-rowgap">Gaps to ${t.cardGap} px</button><button class="btn" id="a-rowfill">Fill the row</button><button class="btn" id="a-today">Today's size</button></div></section>`;
+  } else if (k){
+    const g = ctlGeom(k), cc = cardOf(k);
+    h += `<section><h2>Control</h2><h3>${esc(k.label || k.kind)}</h3><p class="hint">${esc(k.kind)} in ${esc(cc ? cc.name : "")}${k.param ? " · " + esc(k.param) : ""}</p>
+      <div class="kv" style="margin-top:6px"><label>X in card<input type="number" id="f-dx" value="${Math.round(g.dx)}"></label><label>Y in card<input type="number" id="f-dy" value="${Math.round(g.dy)}"></label>
+      <label>W<input type="number" value="${g.w}" disabled></label><label>H<input type="number" value="${g.h}" disabled></label></div>
+      <p class="hint" style="margin-top:4px">Controls keep their size (nothing smaller than today). Shift-click more to line them up.</p></section>`;
+  }
+  if (sel.length > 1){
+    h += `<section><h2>${sel.length} selected: line them up</h2><div class="row">
+      <button class="btn" data-al="left">Left</button><button class="btn" data-al="hc">Centre</button><button class="btn" data-al="right">Right</button>
+      <button class="btn" data-al="top">Top</button><button class="btn" data-al="vc">Middle</button><button class="btn" data-al="bottom">Bottom</button></div>
+      <div class="row" style="margin-top:4px"><button class="btn" data-al="dh">Even across</button><button class="btn" data-al="dv">Even down</button><button class="btn" data-al="w">Same width</button><button class="btn" data-al="h">Same height</button></div></section>`;
+  }
+  if (!id) h += `<section><h2>How it works</h2><p class="hint">Grab any knob, menu or graph to move it on its own. Grab a card by its header or edge, or Alt-drag anywhere on it, to move the whole card (corner handle resizes). <b>Cards only</b> locks the knobs. Shift-click picks several to line up. Arrows nudge 1 px, Shift+arrows 10. Pink lines are edges and centres you snapped to; blue is padding, yellow is gaps, in px.</p></section>`;
+  h += `<section><h2>Spacing for the whole synth</h2><div class="theme">
+      <label for="t-cardGap">Gap between cards</label><input type="number" id="t-cardGap" min="0" max="40" value="${t.cardGap}">
+      <label for="t-margin">Window margin</label><input type="number" id="t-margin" min="0" max="40" value="${t.margin}">
+      <label for="t-cardPad">Padding inside cards</label><input type="number" id="t-cardPad" min="0" max="40" value="${t.cardPad}">
+      <label for="t-headerH">Card header height</label><input type="number" id="t-headerH" min="12" max="40" value="${t.headerH}">
+      <label for="t-knobPitch">Knob pitch</label><input type="number" id="t-knobPitch" min="30" max="80" value="${t.knobPitch}">
+    </div><div class="row" style="margin-top:6px"><button class="btn" id="t-page">Apply gaps to this page</button><button class="btn" id="t-all">Apply gaps to every page</button></div>
+    <p class="hint" style="margin-top:4px">Today: ${esc(DATA.today.note)}</p></section>`;
+  h += `<section><h2>Checks on ${esc(p.label)}</h2><div class="legend"><span><i style="background:var(--bad)"></i>breaks a rule</span><span><i style="background:var(--warn)"></i>worth a look</span></div><div class="issues" style="margin-top:6px">`;
+  if (!chk.list.length) h += `<div class="okbox">Nothing to flag on this page.</div>`;
+  chk.list.slice(0, 60).forEach((it, i) => { h += `<button class="iss ${it.sev}" data-iss="${i}"><i></i><span>${esc(it.text)}${it.detail ? `<small>${esc(it.detail)}</small>` : ""}</span></button>`; });
+  if (chk.list.length > 60) h += `<p class="hint">…and ${chk.list.length - 60} more.</p>`;
+  h += `</div></section>`;
+  const nk = id || "_page:" + page;
+  h += `<section><h2>Note ${id ? "on this" : "on this page"}</h2><textarea id="note" placeholder="What should change here…">${esc(state.notes[nk] || "")}</textarea></section>`;
+  side.innerHTML = h;
+  wireSide(c, k, nk);
+}
+
+function wireSide(c, k, nk){
+  const num = id => +($("#" + id)?.value || 0);
+  if (c){
+    for (const f of ["x","y","w","h"]) $("#f-" + f).onchange = () => { push(); setG(c, { [f]: Math.round(num("f-" + f)) }); commit(); };
+    $("#a-today").onclick = () => { push(); setG(c, { w:c.w, h:c.h }); commit(); };
+    $("#a-rowgap").onclick = () => { push(); rowGaps(rowsOf(P().cards.filter(x => !x.locked)).find(r => r.includes(c)) || [c]); commit(); };
+    $("#a-rowfill").onclick = () => { push(); rowFill(rowsOf(P().cards.filter(x => !x.locked)).find(r => r.includes(c)) || [c], c); commit(); };
+    if ($("#a-centre")){
+      $("#a-centre").onclick = () => { push(); centreControls(c); commit(); };
+      $("#a-pad").onclick = () => { push(); padControls(c); commit(); };
+      $("#a-fit").onclick = () => { push(); shrinkWrap(c); commit(); };
+      $("#a-pitch").onclick = () => { push(); knobPitch(c); commit(); };
+    }
+  }
+  if (k){
+    $("#f-dx").onchange = () => { push(); setCtl(k, { dx:num("f-dx") }); commit(); };
+    $("#f-dy").onchange = () => { push(); setCtl(k, { dy:num("f-dy") }); commit(); };
+  }
+  side.querySelectorAll("[data-al]").forEach(b => b.onclick = () => { push(); align(b.dataset.al); commit(); });
+  for (const key of Object.keys(DEFAULT_THEME)){
+    const el = $("#t-" + key); if (!el) continue;
+    el.onchange = () => { push(); state.theme = { ...theme(), [key]: Math.max(0, Math.round(+el.value || 0)) }; commit(); };
+  }
+  $("#t-page").onclick = () => { push(); applyGaps(page); commit(); };
+  $("#t-all").onclick = () => { push(); for (const pg of DATA.pages) applyGaps(pg.id); commit(); setStatus("gaps applied to every page", true); };
+  side.querySelectorAll("[data-iss]").forEach(b => b.onclick = () => {
+    const it = checks().list[+b.dataset.iss]; if (!it) return;
+    const isCtl = it.ids.some(i => P().controls.some(k => k.id === i));
+    if (isCtl && mode !== "ctl") setMode("ctl");
+    sel = [...it.ids]; render();
+    win.querySelector(`[data-id="${CSS.escape(sel[0])}"]`)?.scrollIntoView({ block:"center", inline:"center", behavior:"smooth" });
+  });
+  $("#note").oninput = e => { if (e.target.value) state.notes[nk] = e.target.value; else delete state.notes[nk]; scheduleSave(); };
+}
+
+// ---------- Edits
+function setG(c, patch){ const e = edits(page).els[c.id] ||= {}; Object.assign(e, patch); }
+function setCtl(k, patch){ const e = edits(page).els[k.id] ||= {}; const g = ctlGeom(k); e.dx = patch.dx ?? g.dx; e.dy = patch.dy ?? g.dy; }
+function moveCtlsBy(c, dx, dy){ for (const k of P().controls.filter(k => k.card === c.id)){ const g = ctlGeom(k); setCtl(k, { dx:g.dx + dx, dy:g.dy + dy }); } }
+function bodyCtls(c){ const g = geom(c), top = g.y + (c.header ?? theme().headerH); return P().controls.filter(k => k.card === c.id && ctlGeom(k).y + ctlGeom(k).h / 2 >= top); }
+function centreControls(c){
+  const g = geom(c), ks = bodyCtls(c); if (!ks.length) return;
+  const b = box(ks), top = g.y + (c.header ?? theme().headerH);
+  const dx = Math.round(g.x + (g.w - (b.x1 - b.x0)) / 2 - b.x0), dy = Math.round(top + (g.y + g.h - top - (b.y1 - b.y0)) / 2 - b.y0);
+  for (const k of ks){ const kg = ctlGeom(k); setCtl(k, { dx:kg.dx + dx, dy:kg.dy + dy }); }
+}
+function padControls(c){
+  const t = theme(), ks = bodyCtls(c); if (!ks.length) return;
+  const b = box(ks), g = geom(c);
+  const dx = Math.round(g.x + t.cardPad - b.x0);
+  for (const k of ks){ const kg = ctlGeom(k); setCtl(k, { dx:kg.dx + dx }); }
+  setG(c, { w:Math.max(c.w, Math.round(b.x1 - b.x0 + 2 * t.cardPad)) });
+}
+function shrinkWrap(c){
+  const t = theme(), b = contentBox(c); if (!b) return;
+  const g = geom(c);
+  const dx = Math.round(g.x + t.cardPad - b.x0);
+  moveCtlsBy(c, dx, 0);
+  setG(c, { w:Math.max(c.w, Math.round(b.x1 - b.x0 + 2 * t.cardPad)) });
+}
+function knobPitch(c){
+  const t = theme(), knobs = P().controls.filter(k => k.card === c.id && k.kind === "knob");
+  const rows = [];
+  for (const k of knobs.sort((a,b) => ctlGeom(a).y - ctlGeom(b).y)){ const g = ctlGeom(k); const r = rows.find(r => Math.abs(ctlGeom(r[0]).y - g.y) < 8); r ? r.push(k) : rows.push([k]); }
+  for (const r of rows){
+    r.sort((a,b) => ctlGeom(a).x - ctlGeom(b).x);
+    const first = ctlGeom(r[0]), cx0 = first.x + first.w / 2;
+    r.forEach((k, i) => { const g = ctlGeom(k); setCtl(k, { dx:g.dx + Math.round(cx0 + i * t.knobPitch - (g.x + g.w / 2)) }); });
+  }
+}
+function box(els){
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const e of els){ const g = isCtl(e) ? ctlGeom(e) : geom(e); x0 = Math.min(x0, g.x); y0 = Math.min(y0, g.y); x1 = Math.max(x1, g.x + g.w); y1 = Math.max(y1, g.y + g.h); }
+  return { x0, y0, x1, y1 };
+}
+const isCtl = e => "card" in e;
+function rowGaps(row){
+  const t = theme(); let x = geom(row[0]).x;
+  for (const c of row){ const g = geom(c); moveCard(c, x - g.x, 0); x += g.w + t.cardGap; }
+}
+function rowFill(row, grow){
+  const t = theme(), p = P();
+  rowGaps(row);
+  const last = row[row.length - 1], lg = geom(last), right = p.w - t.margin;
+  const spare = right - (lg.x + lg.w);
+  if (spare === 0) return;
+  // The spare room goes to the picked card; the cards after it slide along.
+  const idx = row.indexOf(grow);
+  setG(grow, { w:Math.max(grow.w, geom(grow).w + spare) });
+  for (const c of row.slice(idx + 1)) moveCard(c, spare, 0);
+}
+function applyGaps(pid){
+  const keep = page; page = pid;
+  const t = theme(), cards = P().cards.filter(c => !c.locked);
+  const rows = rowsOf(cards);
+  let y = null;
+  for (const row of rows){
+    const top = Math.min(...row.map(c => geom(c).y));
+    if (y !== null && top - y > 0 && top - y < 60){ for (const c of row) moveCard(c, 0, y + t.cardGap - top); }
+    const firstX = geom(row[0]).x; if (firstX !== t.margin && Math.abs(firstX - t.margin) < 20) moveCard(row[0], t.margin - firstX, 0);
+    rowGaps(row);
+    y = Math.max(...row.map(c => geom(c).y + geom(c).h));
+  }
+  checkCache = null; page = keep;
+}
+function moveCard(c, dx, dy){ const g = geom(c); setG(c, { x:Math.round(g.x + dx), y:Math.round(g.y + dy) }); }
+function align(how){
+  const p = P(), els = sel.map(id => p.cards.find(c => c.id === id) || p.controls.find(k => k.id === id)).filter(Boolean);
+  if (els.length < 2) return;
+  const gs = els.map(e => isCtl(e) ? ctlGeom(e) : geom(e)), ref = gs[0];
+  const set = (e, x, y, w, h) => {
+    if (isCtl(e)){ const g = ctlGeom(e); setCtl(e, { dx:g.dx + (x - g.x), dy:g.dy + (y - g.y) }); }
+    else { const g = geom(e); setG(e, { x, y, w:Math.max(e.w, w ?? g.w), h:Math.max(e.h, h ?? g.h) }); }
+  };
+  if (how === "dh" || how === "dv"){
+    const order = els.map((e,i) => [e, gs[i]]).sort((a,b) => how === "dh" ? a[1].x - b[1].x : a[1].y - b[1].y);
+    const first = order[0][1], last = order[order.length-1][1];
+    if (how === "dh"){
+      const total = order.reduce((s, [,g]) => s + g.w, 0), gap = (last.x + last.w - first.x - total) / (order.length - 1);
+      let x = first.x; for (const [e,g] of order){ set(e, Math.round(x), g.y); x += g.w + gap; }
+    } else {
+      const total = order.reduce((s, [,g]) => s + g.h, 0), gap = (last.y + last.h - first.y - total) / (order.length - 1);
+      let y = first.y; for (const [e,g] of order){ set(e, g.x, Math.round(y)); y += g.h + gap; }
+    }
+    return;
+  }
+  els.forEach((e, i) => {
+    const g = gs[i];
+    const x = how === "left" ? ref.x : how === "right" ? ref.x + ref.w - g.w : how === "hc" ? Math.round(ref.x + ref.w/2 - g.w/2) : g.x;
+    const y = how === "top" ? ref.y : how === "bottom" ? ref.y + ref.h - g.h : how === "vc" ? Math.round(ref.y + ref.h/2 - g.h/2) : g.y;
+    set(e, x, y, how === "w" ? ref.w : undefined, how === "h" ? ref.h : undefined);
+  });
+}
+
+// ---------- Tabs
+function renderTabs(){
+  const keep = page;
+  let h = "";
+  for (const p of DATA.pages){
+    page = p.id; checkCache = null;
+    const n = checks().list.length, edited = Object.keys(edits(p.id).els).length;
+    h += `<button class="tab ${p.id === keep ? "cur" : ""}" data-pg="${p.id}" role="tab" aria-selected="${p.id === keep}">${esc(p.label)}${edited ? `<span class="n ed" title="cards or controls you moved">${edited}</span>` : ""}<span class="n ${n ? "w" : "ok"}" title="checks">${n || "✓"}</span></button>`;
+  }
+  page = keep; checkCache = null;
+  $("#tabs").innerHTML = h;
+  $("#tabs").querySelectorAll("[data-pg]").forEach(b => b.onclick = () => { page = b.dataset.pg; sel = []; checkCache = null; try { localStorage.setItem("arr-page", page); } catch (_) {} render(); if (zoomMode === "fit") applyZoom(); });
+}
+
+function applyZoom(){
+  const p = P(); if (!p) return;
+  if (zoomMode === "fit") zoom = Math.max(.4, Math.min(2.5, (stage.clientWidth - 32) / p.w));
+  win.style.transform = `scale(${zoom})`;
+  sizer.style.width = (p.w * zoom + 32) + "px"; sizer.style.height = (p.h * zoom + 32) + "px";
+  document.querySelectorAll("[data-z]").forEach(b => b.classList.toggle("on", b.dataset.z === zoomMode));
+  document.querySelectorAll("[data-s]").forEach(b => b.classList.toggle("on", +b.dataset.s === snap));
+  $("#mode-cards").classList.toggle("on", mode === "cards"); $("#mode-ctl").classList.toggle("on", mode === "ctl");
+  $("#gridshow").classList.toggle("on", showGrid); $("#ghost").classList.toggle("on", ghost);
+  $("#undo").disabled = !hist.length; $("#redo").disabled = !fut.length;
+}
+function setMode(m){ mode = m; sel = []; render(); }
+
+// ---------- Pointer: move with snapping to the grid and to other edges, centres and the theme gap
+function pt(e){ const r = win.getBoundingClientRect(); return { x:(e.clientX - r.left) / zoom, y:(e.clientY - r.top) / zoom }; }
+function targets(ids, card){
+  const p = P(), xs = [], ys = [], t = theme();
+  const addRect = (g, gap) => {
+    xs.push({ v:g.x }, { v:g.x + g.w }, { v:g.x + g.w/2, c:1 }); ys.push({ v:g.y }, { v:g.y + g.h }, { v:g.y + g.h/2, c:1 });
+    if (gap){ xs.push({ v:g.x - gap, gap:1 }, { v:g.x + g.w + gap, gap:1 }); ys.push({ v:g.y - gap, gap:1 }, { v:g.y + g.h + gap, gap:1 }); }
+  };
+  if (card){
+    for (const c of p.cards) if (!ids.includes(c.id)) addRect(geom(c), t.cardGap);
+    xs.push({ v:t.margin }, { v:p.w - t.margin });
+  } else {
+    const k0 = p.controls.find(k => k.id === ids[0]), c = cardOf(k0);
+    for (const k of p.controls) if (k.card === k0.card && !ids.includes(k.id)) addRect(ctlGeom(k), 0);
+    if (c){ const g = geom(c); xs.push({ v:g.x + t.cardPad }, { v:g.x + g.w - t.cardPad }, { v:g.x + g.w/2, c:1 }); ys.push({ v:g.y + (c.header ?? t.headerH) + t.cardPad }, { v:g.y + g.h - t.cardPad }); }
+  }
+  return { xs, ys };
+}
+function snapAxis(edgesNow, list, guides, axis){
+  // edgesNow: the dragged box's start, centre and end on this axis; the closest target within 4 screen px wins.
+  let best = null, bd = 4 / zoom;
+  for (const [i, v] of edgesNow.entries()) for (const t of list){
+    const d = Math.abs(t.v - v); if (d < bd){ bd = d; best = { off:t.v - v, at:t.v }; }
+  }
+  if (best){ guides.push({ axis, at:best.at }); return best.off; }
+  return Math.round(edgesNow[0] / snap) * snap - edgesNow[0];
+}
+let drag = null, ghost = false;
+win.addEventListener("pointerdown", e => {
+  const el = e.target.closest(".el");
+  if (e.target.classList.contains("hdl")) return;
+  if (!el){ if (sel.length){ sel = []; render(); } return; }
+  let id = el.dataset.id; const p = P();
+  // Alt-drag on a knob grabs the card it sits in.
+  if (e.altKey){ const k = p.controls.find(k => k.id === id); if (k && k.card) id = k.card; }
+  const card = p.cards.find(c => c.id === id), ctl = p.controls.find(k => k.id === id);
+  if (card && card.locked) return;
+  if (ctl && mode !== "ctl") return;
+  e.preventDefault();
+  if (e.shiftKey){ sel = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]; render(); return; }
+  if (!sel.includes(id)) sel = [id];
+  const start = pt(e);
+  const items = sel.map(i => p.cards.find(c => c.id === i) || p.controls.find(k => k.id === i)).filter(Boolean);
+  drag = { start, items, orig:items.map(it => isCtl(it) ? { ...ctlGeom(it) } : { ...geom(it) }), card:!!card, before:snapshot(), moved:false, resize:false };
+  win.setPointerCapture(e.pointerId);
+  render();
+});
+win.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const p0 = pt(e), dx = p0.x - drag.start.x, dy = p0.y - drag.start.y;
+  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+  drag.moved = true;
+  const gs = [], T = targets(drag.items.map(i => i.id), drag.card);
+  if (drag.resize){
+    const it = drag.items[0], o = drag.orig[0];
+    const right = o.x + o.w + dx, bottom = o.y + o.h + dy;
+    const ox = snapAxis([right], T.xs, gs, "x"), oy = snapAxis([bottom], T.ys, gs, "y");
+    setG(it, { w:Math.max(it.w, Math.round(right + ox - o.x)), h:Math.max(it.h, Math.round(bottom + oy - o.y)) });
+  } else {
+    const b = { x0:Math.min(...drag.orig.map(o => o.x)), y0:Math.min(...drag.orig.map(o => o.y)), x1:Math.max(...drag.orig.map(o => o.x + o.w)), y1:Math.max(...drag.orig.map(o => o.y + o.h)) };
+    const nx = b.x0 + dx, ny = b.y0 + dy, w = b.x1 - b.x0, h = b.y1 - b.y0;
+    const ox = snapAxis([nx, nx + w/2, nx + w], T.xs, gs, "x"), oy = snapAxis([ny, ny + h/2, ny + h], T.ys, gs, "y");
+    drag.items.forEach((it, i) => {
+      const o = drag.orig[i], x = Math.round(o.x + dx + ox), y = Math.round(o.y + dy + oy);
+      if (isCtl(it)){ const g = ctlGeom(it); setCtl(it, { dx:g.dx + (x - g.x), dy:g.dy + (y - g.y) }); }
+      else setG(it, { x, y });
+    });
+  }
+  checkCache = null;
+  render();
+  for (const g of gs){
+    const d = document.createElement("div"); d.className = "guide";
+    if (g.axis === "x") Object.assign(d.style, { left:g.at + "px", top:0, width:(1/zoom) + "px", height:P().h + "px" });
+    else Object.assign(d.style, { top:g.at + "px", left:0, height:(1/zoom) + "px", width:P().w + "px" });
+    win.appendChild(d);
+  }
+  const it = drag.items[0], g = isCtl(it) ? ctlGeom(it) : geom(it);
+  const tag = document.createElement("div"); tag.className = "dim";
+  tag.textContent = drag.resize ? `${g.w} × ${g.h}` : isCtl(it) ? `${Math.round(g.dx)}, ${Math.round(g.dy)} in card` : `${g.x}, ${g.y}`;
+  Object.assign(tag.style, { left:g.x + "px", top:(g.y - 18/zoom) + "px", transform:`scale(${1/zoom})` });
+  win.appendChild(tag);
+});
+const endDrag = () => { if (!drag) return; const d = drag; drag = null; if (d.moved){ hist.push(d.before); fut.length = 0; commit(); } else render(); };
+win.addEventListener("pointerup", endDrag); win.addEventListener("pointercancel", endDrag);
+// The resize handle on a selected card.
+const addHandle = () => {
+  const p = P(), c = p.cards.find(c => c.id === sel[0]); if (!c || sel.length !== 1) return;
+  const g = geom(c), h = document.createElement("div"); h.className = "hdl";
+  Object.assign(h.style, { left:(g.x + g.w - 5) + "px", top:(g.y + g.h - 5) + "px", cursor:"nwse-resize", transform:`scale(${1/zoom})` });
+  h.addEventListener("pointerdown", e => {
+    e.preventDefault(); e.stopPropagation();
+    drag = { start:pt(e), items:[c], orig:[{ ...geom(c) }], card:true, before:snapshot(), moved:false, resize:true };
+    win.setPointerCapture(e.pointerId);
+  });
+  win.appendChild(h);
+};
+const _render = render; render = function(){ _render(); addHandle(); };
+
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input,textarea,select")) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y"){ e.preventDefault(); redo(); return; }
+  if (e.key === "Escape"){ sel = []; render(); return; }
+  const step = e.shiftKey ? 10 : 1;
+  const mv = { ArrowLeft:[-step,0], ArrowRight:[step,0], ArrowUp:[0,-step], ArrowDown:[0,step] }[e.key];
+  if (!mv || !sel.length) return;
+  e.preventDefault(); push();
+  const p = P();
+  for (const id of sel){
+    const c = p.cards.find(c => c.id === id), k = p.controls.find(k => k.id === id);
+    if (c) moveCard(c, mv[0], mv[1]); else if (k){ const g = ctlGeom(k); setCtl(k, { dx:g.dx + mv[0], dy:g.dy + mv[1] }); }
+  }
+  commit();
+});
+
+// ---------- Tool bar
+document.querySelectorAll("[data-z]").forEach(b => b.onclick = () => { zoomMode = b.dataset.z; if (zoomMode !== "fit") zoom = +zoomMode; applyZoom(); });
+document.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { snap = +b.dataset.s; render(); });
+$("#gridshow").onclick = () => { showGrid = !showGrid; render(); };
+$("#mode-cards").onclick = () => setMode("cards");
+$("#mode-ctl").onclick = () => setMode("ctl");
+$("#undo").onclick = undo; $("#redo").onclick = redo;
+$("#ghost").onclick = () => { ghost = !ghost; render(); };
+$("#resetpage").onclick = () => { push(); state.pages[page] = { els:{} }; sel = []; commit(); setStatus("page back to today (Undo brings yours back)"); };
+window.addEventListener("resize", () => { if (zoomMode === "fit") applyZoom(); });
+
+// ---------- Export: what changed, per page, in px, for Claude to build from
+function exportText(){
+  const out = { tool:"ilanaSynth layout arranger", basedOn:DATA.commit, theme:theme(), notes:state.notes, pages:{} };
+  for (const p of DATA.pages){
+    const changes = [];
+    for (const c of p.cards){ const g = geom(c, p.id); if (g.x !== c.x || g.y !== c.y || g.w !== c.w || g.h !== c.h) changes.push({ card:c.name, today:[c.x,c.y,c.w,c.h], now:[g.x,g.y,g.w,g.h] }); }
+    for (const k of p.controls){
+      const e = edits(p.id).els[k.id]; if (!e) continue;
+      const c = cardOf(k, p), g = ctlGeom(k, p);
+      const tdx = k.x - (c ? c.x : 0), tdy = k.y - (c ? c.y : 0);
+      if (Math.round(g.dx) !== tdx || Math.round(g.dy) !== tdy) changes.push({ control:k.label || k.kind, param:k.param || undefined, card:c ? c.name : "", inCardToday:[tdx,tdy], inCardNow:[Math.round(g.dx),Math.round(g.dy)], size:[k.w,k.h] });
+    }
+    page = p.id; checkCache = null;
+    const open = checks().list.map(i => (i.sev === "bad" ? "RULE: " : "look: ") + i.text + (i.detail ? " (" + i.detail + ")" : ""));
+    if (changes.length || open.length) out.pages[p.label] = { changes, checks:open };
+  }
+  checkCache = null;
+  return JSON.stringify(out, null, 1);
+}
+$("#export").onclick = async () => {
+  const text = exportText();
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div role="dialog" aria-label="Export"><h3 style="margin:0">Your layout, ready to send</h3>
+    <p class="hint">It is already saved, so Claude can read it straight from this page. To paste it in the chat instead, copy it here.</p>
+    <textarea id="exp" readonly>${esc(text)}</textarea>
+    <div class="row"><button class="btn on" id="exp-copy">Copy</button><button class="btn" id="exp-dl" hidden>Download .json</button><button class="btn" id="exp-close">Close</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector("#exp-close").onclick = () => m.remove();
+  m.onclick = ev => { if (ev.target === m) m.remove(); };
+  m.querySelector("#exp-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(text); setStatus("copied", true); } catch (_) { const t = m.querySelector("#exp"); t.focus(); t.select(); setStatus("selected: press Ctrl+C"); }
+  };
+  try {
+    const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+    if (dl){ const b = m.querySelector("#exp-dl"); b.hidden = false; b.onclick = async () => { try { await dl.save({ filename:"ilanasynth-layout.json", data:text }); } catch (_) {} }; }
+  } catch (_) {}
+};
+
+// ---------- Saving: in the page's database (Claude reads it), with a copy in this browser
+let db = null, saveTimer = null, lastSaved = "";
+function setStatus(t, ok){ const s = $("#status"); s.textContent = t; s.className = "status" + (ok ? " ok" : ""); }
+function commit(){ checkCache = null; render(); scheduleSave(); }
+function scheduleSave(){
+  try { localStorage.setItem("arr-state", snapshot()); } catch (_) {}
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 600);
+  setStatus(db ? "saving…" : "saved in this browser");
+}
+async function save(){
+  if (!db) return;
+  const body = snapshot(); if (body === lastSaved){ setStatus("saved", true); return; }
+  try { await db.doc("layouts/current").set({ state:body, basedOn:DATA.commit, updatedAt:new Date().toISOString() }); lastSaved = body; setStatus("saved " + new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }), true); }
+  catch (err){ setStatus("not saved: " + (err && err.code || "error")); }
+}
+function normalise(s){ return { pages:s && s.pages || {}, theme:s && s.theme || null, notes:s && s.notes || {}, general:s && s.general || "" }; }
+
+// My starting proposal on PLAY (sound path on top, ENVELOPE and LFO below); WEST waits in the parking strip because it
+// becomes FILTER's third pill (F1 | F2 | WEST), and the ADD OSC row because it scrolls under the oscillators anyway.
+function applyProposal(){
+  const keep = page;
+  for (const [pid, cards] of Object.entries(DATA.proposal)){
+    page = pid;
+    const p = P(); if (!p) continue;
+    for (const [name, g] of Object.entries(cards)){
+      const c = p.cards.find(c => c.name === name); if (!c) continue;
+      setG(c, { x:g[0], y:g[1], w:g[2], h:g[3] });
+      if (g[1] < p.h) centreControls(c);
+    }
+    state.notes["_page:" + pid] = DATA.proposalNote || "";
+  }
+  page = keep; checkCache = null;
+}
+$("#proposal").onclick = () => { push(); state.pages = {}; applyProposal(); sel = []; commit(); setStatus("my proposal loaded (Undo goes back)"); };
+
+// ---------- Start
+(async () => {
+  try { DATA = await (await fetch("data/pages.json")).json(); } catch (err){ $("#loading").textContent = "The layout data did not load."; return; }
+  $("#loading").remove();
+  state.theme = null;
+  try { const l = localStorage.getItem("arr-state"); if (l) state = normalise(JSON.parse(l)); } catch (_) {}
+  try { const pg = localStorage.getItem("arr-page"); page = DATA.pages.some(p => p.id === pg) ? pg : DATA.pages[0].id; } catch (_) { page = DATA.pages[0].id; }
+  if (!Object.keys(state.pages).length && DATA.proposal) applyProposal();
+  render();
+  setStatus("connecting…");
+  try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch (_) { db = null; }
+  if (!db){ setStatus("saved in this browser"); return; }
+  db.doc("layouts/current").onSnapshot(snap => {
+    const d = snap.data();
+    if (d && typeof d.state === "string" && d.state !== lastSaved && d.state !== snapshot() && !drag){
+      try { state = normalise(JSON.parse(d.state)); lastSaved = d.state; checkCache = null; render(); setStatus("loaded your saved layout", true); } catch (_) {}
+    } else if (d && typeof d.state === "string") lastSaved = d.state;
+    if (!d) save(); else if ($("#status").textContent === "connecting…") setStatus("saved", true);
+  }, err => setStatus("database: " + (err && err.code || "error")));
+})();
+})();
+</script>

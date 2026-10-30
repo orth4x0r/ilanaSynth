@@ -70,7 +70,7 @@ public:
 
         // The well frames the plot only; the time ruler sits under it,
         // outside the frame (UI review 7, V7-23).
-        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (slim ? 0.0f : rulerHeight + 2.0f), 6.0f);
+        IlanaTheme::paintWell (g, bounds.withTrimmedBottom (slim || rulerInside ? 0.0f : rulerHeight + 2.0f), 6.0f);
 
         const auto geo = layoutGeometry();
 
@@ -231,12 +231,14 @@ public:
     // curve, its handles or DELAY, and read as an axis.
     static constexpr float rulerHeight = 14.0f;
 
-    bool slim = false;
+    bool slim = false, rulerInside = false;
     bool handlesOnHover = false;
 
 public:
     // PLAY's graph is a slim strip across the card: no time ruler under it.
     void setSlim (bool shouldBeSlim) { slim = shouldBeSlim; repaint(); }
+    // The pop-up's graph: the ruler inside the frame, along its foot, so the frame takes the whole area (ilana 2026-10-29).
+    void setRulerInside (bool inside) { rulerInside = inside; repaint(); }
     // PLAY: the handles show only while the pointer is over the graph.
     void setHandlesOnHover (bool shouldBe) { handlesOnHover = shouldBe; setRepaintsOnMouseActivity (shouldBe); repaint(); }
     bool showsHandlesOnHoverOnly() const { return handlesOnHover; }
@@ -245,6 +247,8 @@ public:
     {
         if (slim)
             return getLocalBounds().toFloat().reduced (12.0f, 9.0f);
+        if (rulerInside)
+            return getLocalBounds().toFloat().withTrimmedTop (12.0f).withTrimmedBottom (rulerHeight + 3.0f + 5.0f).reduced (12.0f, 0.0f);
         return getLocalBounds().toFloat().withTrimmedTop (14.0f).withTrimmedBottom (rulerHeight + 2.0f + 8.0f).reduced (12.0f, 0.0f);
     }
 
@@ -605,7 +609,7 @@ private:
         const auto font = IlanaTheme::font (IlanaTheme::TextSize::tiny);
         g.setFont (font);
         std::vector<juce::Range<float>> labelled;
-        const auto rulerY = (float) getHeight() - rulerHeight;
+        const auto rulerY = (float) getHeight() - rulerHeight - (rulerInside ? 3.0f : 0.0f);
 
         // KEY UP, where the release starts: a dashed line through the plot
         // and its name on the ruler, so the release's "+" times read as

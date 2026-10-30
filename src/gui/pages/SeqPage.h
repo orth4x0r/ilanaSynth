@@ -344,7 +344,7 @@ public:
         }
 
         IlanaTheme::paintCardHeader (g, generateCard.reduced (12, 0).removeFromTop (26), "GENERATE",
-                                     "shapes the keys you play before the pattern plays them", generateColour(), 12);
+                                     "the pattern, then what shapes the keys you play", generateColour(), 12);
 
         // Three boxes, each a part with its own switch: its title, a quiet
         // note on what it does now, the switch at the right.
@@ -353,7 +353,8 @@ public:
             { snapBox, "SNAP TO KEY", scaleSwitch.isOn(),
               ! scaleSwitch.isOn() ? "off" : tuningOn ? "snaps in 12-TET steps" : readOn ("gen_snap") ? "snaps every note" : "snaps generated notes" },
             { strumBox, "STRUM", strumSwitch.isOn(), strumSwitch.isOn() ? "spreads chords" : "off" },
-            { sprayBox, "SPRAY", readOn ("spray_on"), readOn ("spray_on") ? "throws extra notes" : "off" }
+            { sprayBox, "SPRAY", readOn ("spray_on"), readOn ("spray_on") ? "throws extra notes" : "off" },
+            { engineBox, engineTabs.getSelected() == 1 ? "EUCLID" : engineTabs.getSelected() == 2 ? "PROB SEQ" : "ARP", true, "the pattern" }
         };
 
         for (const auto& part : boxes)
@@ -481,6 +482,10 @@ public:
         // two beside them stood 73 % empty below its four knobs).
         const auto controls = arpArea.removeFromBottom (knobRowHeight);
         arpArea.removeFromBottom (12); // (the row's gap above it as wide as the one under its names)
+        // (ilana, 2026-10-29: the engine's controls stand in the GENERATE row, the lanes take their height; the clip's
+        // row stays here.)
+        if (engineTabs.getSelected() != 3)
+            arpArea.setBottom (controls.getBottom());
         const auto rowDisplay = arpArea.reduced (0, 2);
         arpLanes.setBounds (rowDisplay);
         euclidDisplay.setBounds (rowDisplay);
@@ -505,8 +510,13 @@ public:
         {
             leftAligned (controls, items);
             for (auto* item : items)
-                if (dynamic_cast<ComboControl*> (item) != nullptr && item->getWidth() > seqMenuWidth)
-                    item->setBounds (item->getBounds().withWidth (seqMenuWidth));
+                if (dynamic_cast<ComboControl*> (item) != nullptr)
+                {
+                    if (item->getWidth() > seqMenuWidth)
+                        item->setBounds (item->getBounds().withWidth (seqMenuWidth));
+                    // (ilana's layout, 2026-10-29: the menus 7 px lower, their boxes level with the rings.)
+                    item->setBounds (item->getBounds().withTrimmedTop (engineMenuDrop));
+                }
         };
         engineRow ({ &arpDiv, &arpMode, &arpSteps, &arpGate, &arpOctaves, &arpChance });
         engineRow ({ &eucDiv, &eucTarget, &eucSteps, &eucGate, &eucHits, &eucRotate });
@@ -568,12 +578,26 @@ public:
         area.removeFromBottom (8);
 
         struct Item { juce::Component* control; float weight; };
-        const std::vector<std::vector<Item>> groups {
-            { { &genRoot, 0.8f }, { &genScale, 1.45f }, { &genSnap, 1.0f } },
+        std::vector<std::vector<Item>> groups {
+            { { &genRoot, 0.8f }, { &genScale, 1.2f }, { &genSnap, 1.35f } },
             { { &sprayStrum, 1.05f }, { strumTime.get(), 0.9f } },
             { { &sprayDirection, 1.05f }, { sprayCount.get(), 1.0f }, { sprayRange.get(), 1.0f },
               { spraySpread.get(), 1.0f }, { sprayChance.get(), 1.0f }, { sprayVelocity.get(), 1.0f } }
         };
+        engineBox = {};
+        if (engineTabs.getSelected() != 3)
+        {
+            const auto engine = engineTabs.getSelected();
+            std::vector<Item> items;
+            if (engine == 0)
+                items = { { &arpDiv, 1.0f }, { &arpMode, 1.0f }, { &arpSteps, 0.8f }, { &arpGate, 0.8f }, { &arpOctaves, 0.8f }, { &arpChance, 0.8f } };
+            else if (engine == 1)
+                items = { { &eucDiv, 1.0f }, { &eucTarget, 1.0f }, { &eucSteps, 0.8f }, { &eucGate, 0.8f }, { &eucHits, 0.8f }, { &eucRotate, 0.8f } };
+            else
+                items = { { &pseqDiv, 1.0f }, { &pseqLength, 0.8f }, { &pseqGate, 0.8f } };
+            groups.insert (groups.begin(), items);
+        }
+        const auto merged = groups.size() == 4;
         constexpr int gap = 8, padding = 6;
         auto total = 0.0f;
         for (const auto& group : groups)
@@ -581,9 +605,15 @@ public:
                 total += item.weight;
 
         // (Capped, so the boxes stay a group at the left rather than spreading over the card.)
-        const auto unit = juce::jmin (118.0f, (float) (area.getWidth() - gap * 2 - padding * 2 * 3) / total);
-        std::array<juce::Rectangle<int>*, 3> boxes { &snapBox, &strumBox, &sprayBox };
-        std::array<juce::Component*, 3> switches { &scaleSwitch, &strumSwitch, &sprayOn };
+        const auto boxCount = (int) groups.size();
+        const auto unit = juce::jmin (118.0f, (float) (area.getWidth() - gap * (boxCount - 1) - padding * 2 * boxCount) / total);
+        std::vector<juce::Rectangle<int>*> boxes { &snapBox, &strumBox, &sprayBox };
+        std::vector<juce::Component*> switches { &scaleSwitch, &strumSwitch, &sprayOn };
+        if (merged)
+        {
+            boxes.insert (boxes.begin(), &engineBox);
+            switches.insert (switches.begin(), nullptr);
+        }
         auto x = (float) area.getX();
 
         for (size_t g = 0; g < groups.size(); ++g)
@@ -600,7 +630,8 @@ public:
             // The switch closes the box's title line (a bare switch: the
             // title names it).
             const auto title = box.withHeight (boxHeaderHeight);
-            switches[g]->setBounds (juce::Rectangle<int> (title.getRight() - 8 - 40, title.getCentreY() - 23, 40, 13 + 20));
+            if (switches[g] != nullptr)
+                switches[g]->setBounds (juce::Rectangle<int> (title.getRight() - 8 - 40, title.getCentreY() - 23, 40, 13 + 20));
 
             // The controls: names on one line at the band's top.
             auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight).withTrimmedBottom (4);
@@ -619,7 +650,8 @@ public:
                 }
                 const auto preferred = preferredControlHeight (item.control, cell.getWidth());
                 const auto height = preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight();
-                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height));
+                // (ilana's layout, 2026-10-29: 6 px higher, the menu boxes level with the rings.)
+                item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height).translated (0, -generateMenuRise));
             }
         }
     }
@@ -1034,6 +1066,7 @@ private:
     StepEditor step1, step2;
     IlanaSynthAudioProcessor& processorRef;
     ArpLanesEditor arpLanes;
+    static constexpr int engineMenuDrop = 7, generateMenuRise = 6;
     ComboControl arpMode, arpDiv;
     KnobControl arpOctaves, arpGate, arpChance;
     ComboControl genScale, genRoot;
@@ -1062,7 +1095,7 @@ private:
     juce::Rectangle<int> clipDivider, clipDivider2;
     int boxSignature = -1;
     static constexpr int boxHeaderHeight = 24, seqKnobWidth = 88, seqMenuWidth = 168;
-    juce::Rectangle<int> snapBox, strumBox, sprayBox;
+    juce::Rectangle<int> snapBox, strumBox, sprayBox, engineBox;
     std::unique_ptr<juce::FileChooser> clipChooser;
     std::array<std::array<juce::TextButton, IlanaSynthAudioProcessor::numLfos>, 2> lfoButtons;
     std::array<juce::TextButton, 2> useButtons;

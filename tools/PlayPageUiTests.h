@@ -196,7 +196,9 @@ void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         {
             const auto shown = [card] { return juce::StringArray::fromTokens (card->getProperties()["shownSources"].toString(), ",", ""); };
             const auto selected = [card] { return card->getProperties()["selectedSource"].toString(); };
-            expect (shown().size() < 5, "PLAY: the ENVELOPE card has more envelopes than pills (the case ilana hit; " + juce::String (shown().size()) + " pills)");
+            // (Since ilana's arranger pass, 2026-10-29, the card is wide enough for all 5 pills; the stepping check
+            // below still covers the narrow case if it comes back.)
+            expect (shown().size() >= 2, "PLAY: the ENVELOPE card shows its pills (" + juce::String (shown().size()) + " pills)");
             juce::String missing;
             for (int i = 0; i < 10; ++i)
             {

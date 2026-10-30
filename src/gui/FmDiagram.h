@@ -105,7 +105,6 @@ public:
         const auto radius = operatorRadius();
         const auto shown = shownOscillators();
 
-        const auto amountLabels = amountLabelLayout();
         const auto haloRoom = getHaloRoom();
 
         // Routes between different oscillators.
@@ -121,8 +120,8 @@ public:
                 // A route into an oscillator that ignores FM stays in the
                 // patch but is drawn faint, without the flowing energy.
                 const auto live = receivesFm (processorRef, target);
-                const auto colour = oscColour (source).withAlpha ((0.35f + 0.6f * amount) * (live ? 1.0f : 0.3f));
-                const auto thickness = 1.5f + amount * 6.0f;
+                const auto colour = oscColour (source).withAlpha ((0.45f + 0.5f * amount) * (live ? 1.0f : 0.3f));
+                const auto thickness = 2.2f;
 
                 if (source == target)
                 {
@@ -144,66 +143,46 @@ public:
                     continue;
                 }
 
-                // Offset the two directions of a pair so both are visible.
-                auto from = centres[(size_t) source];
-                auto to = centres[(size_t) target];
-                const auto direction = (to - from) / juce::jmax (1.0f, from.getDistanceFrom (to));
-                const juce::Point<float> normal (-direction.y, direction.x);
+                // (ilana, 2026-10-29: PATCH's cables.) A thin cable from the source box's edge to the target's, a port
+                // dot at each end; its depth is the knob on it (FmPage), so no arrowhead and no printed amount.
                 const auto both = read (routeId (target, source)) > 0.001f;
-                const auto offset = normal * (both ? 7.0f : 0.0f);
-                // From above, a route lands on the node's top, clear of
-                // the caption on its right (V7-3).
-                const auto landing = landingPoint (source, target, centres, radius);
-                from = from + direction * radius + offset;
-                to = landing.has_value() ? *landing - ((*landing - from) / juce::jmax (1.0f, from.getDistanceFrom (*landing))) * 6.0f
-                                         : to - direction * (radius + 6.0f) + offset;
-
-                // A route that would cross another operator bends around it.
-                const auto bend = bendFor (source, target, centres, radius);
-                juce::Path arrow;
-                if (bend == 0.0f)
-                    arrow.addArrow ({ from, to }, thickness, 10.0f + thickness, 12.0f);
-                else
-                    addBentArrow (arrow, centres[(size_t) source], landing.value_or (centres[(size_t) target]), bend, radius,
-                                  landing.has_value() ? 6.0f : radius + 6.0f, thickness);
+                const auto cable = cablePath (source, target, centres, radius, both);
                 g.setColour (colour);
-                g.fillPath (arrow);
-                if (bend != 0.0f)
+                g.strokePath (cable, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                const auto from = cable.getPointAlongPath (0.0f), to = cable.getPointAlongPath (cable.getLength());
+                for (const auto port : { from, to })
                 {
-                    // Its flow rides the bend's middle.
-                    const auto bentEnd = landing.value_or (centres[(size_t) target]);
-                    const auto bentDirection = (bentEnd - centres[(size_t) source]) / juce::jmax (1.0f, centres[(size_t) source].getDistanceFrom (bentEnd));
-                    const auto middle = (centres[(size_t) source] + bentEnd) * 0.5f
-                                        + juce::Point<float> (-bentDirection.y, bentDirection.x) * bend * 0.5f;
-                    from = middle - direction * 4.0f;
-                    to = middle + direction * 4.0f;
+                    const auto disc = juce::Rectangle<float> (8.0f, 8.0f).withCentre (port);
+                    g.setColour (oscColour (source).withAlpha (live ? 1.0f : 0.4f));
+                    g.fillEllipse (disc);
                 }
 
-                // Energy flowing along the route: faster and brighter while notes play.
+                // Energy flowing along the cable: faster and brighter while notes play.
                 if (live)
                 {
                     const auto playing = processorRef.getActiveVoiceCount() > 0;
-                    const auto now = liveSeconds;
                     const auto speed = (playing ? 0.9 : 0.3) * (0.5 + amount);
-
+                    const auto length = cable.getLength();
                     for (int dot = 0; dot < 3; ++dot)
                     {
-                        const auto t = (float) std::fmod (now * speed + dot / 3.0, 1.0);
-                        const auto position = from + (to - from) * (t * 0.88f);
+                        const auto t = (float) std::fmod (liveSeconds * speed + dot / 3.0, 1.0);
+                        const auto position = cable.getPointAlongPath (length * (0.06f + t * 0.88f));
                         const auto alpha = std::sin (t * juce::MathConstants<float>::pi) * (playing ? 0.95f : 0.5f);
                         g.setColour (juce::Colours::white.withAlpha (alpha));
-                        g.fillEllipse (juce::Rectangle<float> (4.0f + thickness * 0.4f, 4.0f + thickness * 0.4f).withCentre (position));
+                        g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (position));
                     }
                 }
-
-                g.setColour (juce::Colours::white.withAlpha (live ? 0.75f : 0.3f));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                // Beside the arrow where it crosses no node or caption.
-                for (const auto& label : amountLabels)
-                    if (label.first == std::make_pair (source, target))
-                        g.drawText (juce::String (juce::roundToInt (amount * 100.0f)) + "%", label.second, juce::Justification::centred);
             }
         }
+
+        // A dark disc under each depth knob (FmPage's), so its value reads over the cable.
+        for (const auto source : shown)
+            for (const auto target : shown)
+                if (const auto handle = getRouteHandle (source, target))
+                {
+                    g.setColour (IlanaTheme::Ui::bg);
+                    g.fillEllipse (juce::Rectangle<float> (handleDisc, handleDisc).withCentre (*handle));
+                }
 
         // The OSC card's WARP FM and Ring: OSC 2 into OSC 1, OSC 1 into the
         // others. Dashed, labelled, so all the FM in the patch shows here
@@ -321,7 +300,7 @@ public:
             const auto prefix = juce::String (OscillatorIds::prefixes[(size_t) osc]);
             const auto out = read (prefix + "_out") > 0.5f;
             const auto on = read (prefix + "_on") > 0.5f;
-            const auto circle = juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre);
+            const auto circle = nodeBox (centre, radius);
 
             // A soft halo that breathes while this operator sounds, never
             // reaching its neighbour's (V8-7).
@@ -329,23 +308,25 @@ public:
             {
                 const auto breath = 0.5f + 0.5f * std::sin ((float) liveSeconds * 4.0f + (float) osc);
                 g.setColour (colour.withAlpha (0.10f + 0.12f * breath));
-                g.fillEllipse (circle.expanded (haloRoom * (0.6f + 0.4f * breath)));
+                g.fillRoundedRectangle (circle.expanded (haloRoom * (0.6f + 0.4f * breath)), 10.0f);
             }
 
+            // PATCH's box (ilana, 2026-10-29): the panel, a tint of the oscillator's colour, its edge in that colour
+            // while it plays (dashed while off), the tag dot and the name, and OUT / MOD / OFF under it.
             g.setColour (IlanaTheme::Ui::panel);
-            g.fillEllipse (circle);
-            g.setColour (colour.withAlpha (on ? 0.25f : 0.06f));
-            g.fillEllipse (circle.reduced (3.0f));
+            g.fillRoundedRectangle (circle, 8.0f);
+            g.setColour (colour.withAlpha (on ? 0.14f : 0.05f));
+            g.fillRoundedRectangle (circle.reduced (1.0f), 7.0f);
             if (on)
             {
-                g.setColour (colour);
-                g.drawEllipse (circle.reduced (1.0f), hoverOsc == osc ? 2.6f : 1.8f);
+                g.setColour (out ? colour : colour.withAlpha (0.55f));
+                g.drawRoundedRectangle (circle.reduced (0.5f), 8.0f, hoverOsc == osc ? 2.2f : out ? 1.5f : 1.0f);
             }
             else
             {
                 // Switched off: dashed and dim (S7-14).
                 juce::Path ring, dashed;
-                ring.addEllipse (circle.reduced (1.0f));
+                ring.addRoundedRectangle (circle.reduced (0.5f), 8.0f);
                 const float dashes[] { 4.0f, 3.0f };
                 juce::PathStrokeType (hoverOsc == osc ? 2.2f : 1.5f).createDashedStroke (dashed, ring, dashes, 2);
                 g.setColour (colour.withAlpha (0.4f));
@@ -356,14 +337,16 @@ public:
             // it whether it is heard (OUT), modulates (MOD) or is off.
             const auto nameFont = IlanaTheme::font (radius < compactRadius ? IlanaTheme::TextSize::tiny
                                                     : radius < 26.0f ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body, true);
+            auto text = circle.reduced (juce::jmin (10.0f, radius * 0.3f), 2.0f);
+            const auto nameRow = text.removeFromTop (text.getHeight() * 0.55f);
+            IlanaTheme::paintTag (g, { nameRow.getX() + 3.0f, nameRow.getBottom() - 7.0f }, colour.withMultipliedAlpha (on ? 1.0f : 0.4f));
             g.setColour (on ? juce::Colours::white : IlanaTheme::Ui::text3);
             g.setFont (nameFont);
-            g.drawText ("OSC " + juce::String (osc + 1), circle.withTrimmedBottom (radius * 0.97f).withTrimmedTop (radius * 0.2f),
-                        juce::Justification::centredBottom, false);
+            g.drawText ("OSC " + juce::String (osc + 1), nameRow.withTrimmedLeft (11.0f), juce::Justification::bottomLeft, false);
 
             g.setColour (! on ? IlanaTheme::Ui::text3 : out ? colour : IlanaTheme::Ui::text2);
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-            g.drawText (! on ? "OFF" : out ? "OUT" : "MOD", circle.withTrimmedTop (radius * 1.1f), juce::Justification::centredTop, false);
+            g.drawText (! on ? "OFF" : out ? "OUT" : "MOD", text.withTrimmedLeft (11.0f), juce::Justification::topLeft, false);
 
             // Its tuning and level to its right, so the graph reads without
             // opening each operator (UI review 4, S14); an oscillator that is
@@ -506,7 +489,7 @@ public:
         const auto radius = operatorRadius();
         std::vector<juce::Rectangle<float>> nodes;
         for (const auto osc : shownOscillators())
-            nodes.push_back (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centres[(size_t) osc]));
+            nodes.push_back (nodeBox (centres[(size_t) osc], radius));
         return nodes;
     }
 
@@ -524,13 +507,30 @@ public:
     // caption).
     std::vector<juce::Rectangle<float>> getAmountLabelBoundsList() const
     {
-        std::vector<juce::Rectangle<float>> labels;
-        for (const auto& label : amountLabelLayout())
-            labels.push_back (label.second);
-        return labels;
+        // (2026-10-29: the depth is a knob on the cable, FmPage's; no printed amount.)
+        return {};
     }
 
     float getOperatorRadius() const { return operatorRadius(); }
+
+    // Where a route's depth knob sits: on its cable, at the middle (a long link nearer the node it drives); on a
+    // feedback loop's top. Nothing for a route not drawn.
+    std::optional<juce::Point<float>> getRouteHandle (int source, int target) const
+    {
+        const auto shown = shownOscillators();
+        const auto isShown = [&shown] (int osc) { return std::find (shown.begin(), shown.end(), osc) != shown.end(); };
+        if (! isShown (source) || ! isShown (target) || read (routeId (source, target)) < 0.001f)
+            return std::nullopt;
+        const auto centres = operatorCentres();
+        const auto radius = operatorRadius();
+        if (source == target)
+        {
+            return feedbackLoop (source, centres, radius).getCentre();
+        }
+        const auto cable = cablePath (source, target, centres, radius, read (routeId (target, source)) > 0.001f);
+        const auto length = cable.getLength();
+        return cable.getPointAlongPath (length * (length > radius * 6.0f ? 0.62f : 0.5f));
+    }
 
     // How far a sounding node's halo reaches past its ring: up to 10 px,
     // and short of halfway to the nearest other node.
@@ -579,7 +579,7 @@ private:
     // compactRadius the node's name takes the small font.
     static constexpr int minimumRadius = 16;
     static constexpr float maximumRadius = 30.0f, singleRowRadius = 44.0f, compactRadius = 20.0f, stackGap = 20.0f;
-    static constexpr float captionWidth = 58.0f;
+    static constexpr float captionWidth = 58.0f, boxWidthScale = 1.25f, handleDisc = 34.0f;
 
     struct Geometry
     {
@@ -593,7 +593,7 @@ private:
         const auto area = layoutArea();
         const auto rows = (float) getStackRows();
         const auto slot = area.getWidth() / (float) columns().count;
-        const auto byWidth = (slot - captionWidth - 10.0f) * 0.5f;
+        const auto byWidth = (slot - captionWidth - 10.0f) * 0.5f / boxWidthScale;
         // The top and bottom nodes touch the area's edges at the most.
         const auto byHeight = rows > 1.0f ? (area.getHeight() - stackGap * (rows - 1.0f)) / (2.0f * rows)
                                           : area.getHeight() * 0.5f - 4.0f;
@@ -831,10 +831,12 @@ private:
         const auto delta = centres[(size_t) source] - centres[(size_t) target];
         if (delta.y >= -radius * 0.5f)
             return std::nullopt;
+        const auto top = boxHalfHeight (radius);
         if (std::abs (delta.x) < radius * 1.5f)
-            return centres[(size_t) target] - juce::Point<float> (0.0f, radius);
+            return centres[(size_t) target] - juce::Point<float> (0.0f, top);
+        // (On the box's top edge, leaning toward the source by up to 35 degrees.)
         const auto angle = juce::jlimit (-0.61f, 0.61f, std::atan2 (delta.x, -delta.y));
-        return centres[(size_t) target] + juce::Point<float> (std::sin (angle), -std::cos (angle)) * radius;
+        return centres[(size_t) target] + juce::Point<float> (juce::jlimit (-radius * 0.8f, radius * 0.8f, std::tan (angle) * top), -top);
     }
 
     // A route's sideways bend (0: straight) when the straight line would run
@@ -901,6 +903,47 @@ private:
             }
         }
         return 0.0f;
+    }
+
+    // A node's box (PATCH's): as wide as the old circle, a little lower.
+    static float boxHalfHeight (float radius) { return juce::jmax (15.0f, radius * 0.72f); }
+    static float boxHalfWidth (float radius) { return radius * boxWidthScale; }
+    static juce::Rectangle<float> nodeBox (juce::Point<float> centre, float radius)
+    {
+        return juce::Rectangle<float> (boxHalfWidth (radius) * 2.0f, boxHalfHeight (radius) * 2.0f).withCentre (centre);
+    }
+
+    // Where a line from a box's centre toward a point leaves the box.
+    static juce::Point<float> boxEdge (juce::Point<float> centre, juce::Point<float> toward, float radius)
+    {
+        const auto delta = toward - centre;
+        const auto halfW = boxHalfWidth (radius), halfH = boxHalfHeight (radius);
+        const auto scale = 1.0f / juce::jmax (std::abs (delta.x) / halfW, std::abs (delta.y) / halfH, 1.0e-4f);
+        return centre + delta * juce::jmin (1.0f, scale);
+    }
+
+    // A route's cable: from the source box's edge to the target's (or its landing on the target's top), bent round
+    // what is in the way as the old arrows were; the two directions of a pair side by side.
+    juce::Path cablePath (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius,
+                          bool both) const
+    {
+        const auto centre = centres[(size_t) source];
+        const auto landing = landingPoint (source, target, centres, radius);
+        const auto aim = landing.value_or (centres[(size_t) target]);
+        const auto direction = (aim - centre) / juce::jmax (1.0f, centre.getDistanceFrom (aim));
+        const juce::Point<float> normal (-direction.y, direction.x);
+        const auto offset = normal * (both ? 6.0f : 0.0f);
+        const auto bend = bendFor (source, target, centres, radius);
+        const auto control = (centre + aim) * 0.5f + normal * bend;
+        const auto start = boxEdge (centre, bend != 0.0f ? control : aim, radius) + offset;
+        const auto end = landing.has_value() ? *landing + offset : boxEdge (centres[(size_t) target], bend != 0.0f ? control : centre, radius) + offset;
+        juce::Path cable;
+        cable.startNewSubPath (start);
+        if (bend == 0.0f)
+            cable.lineTo (end);
+        else
+            cable.quadraticTo (control + offset, end);
+        return cable;
     }
 
     // A route's path as a few straight pieces (for keeping labels off it).
@@ -1065,16 +1108,19 @@ private:
     {
         const auto size = juce::jmax (12.0f, radius * 0.7f);
         const auto centre = centres[(size_t) osc];
-        const auto side = radius + size * 0.5f + 3.0f;
-        const juce::Point<float> offsets[] { { -side * 0.82f, -side * 0.6f }, { -side, 0.0f }, { 0.0f, -side }, { -side * 0.82f, side * 0.6f } };
+        // Clear of the box by the route knob's disc that sits on the loop, not only the loop.
+        const auto knobHalf = juce::jmax (size * 0.5f, handleDisc * 0.5f);
+        const auto sideX = boxHalfWidth (radius) + knobHalf + 4.0f, sideY = boxHalfHeight (radius) + knobHalf + 4.0f;
+        const juce::Point<float> offsets[] { { -sideX, 0.0f }, { -sideX, -sideY * 0.6f }, { 0.0f, -sideY }, { -sideX, sideY * 0.6f } };
         const auto shown = shownOscillators();
         for (const auto offset : offsets)
         {
             const auto box = juce::Rectangle<float> (size, size).withCentre (centre + offset);
-            auto clear = getLocalBounds().toFloat().reduced (2.0f).contains (box);
+            const auto room = juce::Rectangle<float> (knobHalf * 2.0f, knobHalf * 2.0f).withCentre (box.getCentre());
+            auto clear = getLocalBounds().toFloat().reduced (2.0f).contains (room);
             for (const auto other : shown)
-                clear = clear && ! box.intersects (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centres[(size_t) other]).reduced (radius * 0.12f))
-                        && ! box.intersects (getCaptionBounds (other, centres, radius));
+                clear = clear && ! room.intersects (nodeBox (centres[(size_t) other], radius))
+                        && ! room.intersects (getCaptionBounds (other, centres, radius));
             if (clear)
                 return box;
         }
@@ -1084,7 +1130,7 @@ private:
     juce::Rectangle<float> getCaptionBounds (int osc, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
     {
         const auto centre = centres[(size_t) osc];
-        return { centre.x + radius + 5.0f, centre.y - 13.0f, captionWidth, 26.0f };
+        return { centre.x + boxHalfWidth (radius) + 5.0f, centre.y - 13.0f, captionWidth, 26.0f };
     }
 
     // The noise operator's node: in a corner clear of the operators and
@@ -1119,7 +1165,7 @@ private:
         const auto centres = operatorCentres();
 
         for (const auto osc : shownOscillators())
-            if (centres[(size_t) osc].getDistanceFrom (position) <= operatorRadius() + 4.0f)
+            if (nodeBox (centres[(size_t) osc], operatorRadius()).expanded (4.0f).contains (position))
                 return osc;
 
         return -1;

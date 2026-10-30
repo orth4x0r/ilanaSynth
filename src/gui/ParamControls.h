@@ -1265,6 +1265,7 @@ public:
     bool isPacked() const { return packedD > 0.0f; }
     float getPackedDial() const { return packedD; }
     // The packed name's size in units, and on screen in device pixels (the text floor test's measure).
+    juce::Rectangle<int> getPackedNameArea() const { return packedNameArea; }
     float packedNameUnits() const { return packedNameSize > 0.0f ? packedNameSize : juce::jlimit (7.6f, 8.6f, 7.6f * packedD / 26.0f); }
     float packedNameDevicePx() const { return IlanaTheme::font (packedNameUnits(), true).getHeight() * IlanaTheme::uiScaleRef(); }
     // The packed number's height on screen in device pixels, and the dial's (a layout test's measure:
@@ -3717,7 +3718,8 @@ public:
             if (packedPlace == NamePlace::below)
             {
                 g.setColour (IlanaTheme::Ui::text3.withMultipliedAlpha (on));
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
+                g.setFont (belowNameSize > 0.0f ? IlanaTheme::font (belowNameSize, true)
+                                                : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f));
                 IlanaTheme::drawFitted (g, button.getButtonText(), juce::Rectangle<int> { 0, b.getBottom() + 1 + nameDrop, getWidth(), juce::jmax (0, getHeight() - b.getBottom() - 1 - nameDrop) }, juce::Justification::centredTop, 1);
             }
             else if (packedPlace == NamePlace::left || packedPlace == NamePlace::leftFlush)
@@ -3796,6 +3798,8 @@ public:
 
     // The packed switch's name lower under it, level with a knob row's names.
     void setNameDrop (int pixels) { nameDrop = pixels; repaint(); }
+    // The name under the switch at a ring knob's name size, so it reads as one row with them (0: the packed label).
+    void setBelowNameSize (float size) { belowNameSize = size; repaint(); }
 
     // Lowers the switch under its name, to sit level with the dials of the
     // knobs in its row (S13-1); 0 is the usual place.
@@ -3813,7 +3817,7 @@ private:
     int switchDrop = 0, nameDrop = 0;
     bool inlineLabel = false, groupStyle = false, bareSwitch = false, smallName = false;
     NamePlace packedPlace = NamePlace::none;
-    float rightNameSize = 7.3f;
+    float rightNameSize = 7.3f, belowNameSize = 0.0f;
     juce::Colour groupColour;
     juce::String groupText;
     static constexpr int inlineSwitchWidth = 34;

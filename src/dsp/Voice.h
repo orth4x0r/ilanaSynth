@@ -16,7 +16,6 @@
 #include "Modulation.h"
 #include "Mseg.h"
 #include "OscillatorIds.h"
-#include "PolyBlepOsc.h"
 #include "ResonatorBank.h"
 #include "SpectralCache.h"
 #include "SamplePlayer.h"

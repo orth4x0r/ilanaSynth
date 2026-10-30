@@ -255,61 +255,52 @@ void runFilterTests()
            "SVF stable near Nyquist at max resonance (peak " + juce::String (extremePeak, 3) + ")");
 }
 
-void runSubOscillatorTests()
+void runPitchShiftInterpolationTest()
 {
+    // The Octaver's 0.5 ratio on a 3 kHz sine: with whole-sample reads every
+    // sample played twice and mirrored the 1.5 kHz output up near 22.5 kHz.
     constexpr double sampleRate = 48000.0;
-    constexpr double frequency = 1000.0;
     constexpr int renderSize = 16384;
 
-    PolyBlepOsc osc;
-    osc.setSampleRate (sampleRate);
-    osc.setFrequency (frequency);
-    osc.setShape (PolyBlepOsc::Shape::Square);
+    GranularPitchShift shifter;
+    shifter.prepare (sampleRate);
+    shifter.setRatio (0.5);
 
     std::vector<float> samples ((size_t) renderSize, 0.0f);
 
-    for (int i = 0; i < renderSize; ++i)
-        samples[(size_t) i] = osc.getNextSample();
+    for (int i = 0; i < 8192 + renderSize; ++i)
+    {
+        shifter.push ((float) std::sin (juce::MathConstants<double>::twoPi * 3000.0 * (double) i / sampleRate));
+        const auto out = shifter.process();
+
+        if (i >= 8192)
+            samples[(size_t) (i - 8192)] = out;
+    }
 
     juce::dsp::WindowingFunction<float> window ((size_t) renderSize,
                                                 juce::dsp::WindowingFunction<float>::hann, true);
     window.multiplyWithWindowingTable (samples.data(), (size_t) renderSize);
 
-    juce::dsp::FFT fft (14);
-
-    std::vector<std::complex<float>> input ((size_t) renderSize);
-    std::vector<std::complex<float>> output ((size_t) renderSize);
-
-    for (int i = 0; i < renderSize; ++i)
-        input[(size_t) i] = { samples[(size_t) i], 0.0f };
-
-    fft.perform (input.data(), output.data(), false);
+    std::vector<float> fftData ((size_t) renderSize * 2, 0.0f);
+    std::copy (samples.begin(), samples.end(), fftData.begin());
+    juce::dsp::FFT (14).performFrequencyOnlyForwardTransform (fftData.data());
 
     const auto binWidth = sampleRate / (double) renderSize;
-
-    auto peak = 0.0f;
-    auto worstOffHarmonic = 0.0f;
+    auto inBand = 0.0, image = 0.0;
 
     for (int bin = 1; bin < renderSize / 2; ++bin)
     {
-        const auto magnitude = std::abs (output[(size_t) bin]);
-        peak = juce::jmax (peak, magnitude);
+        const auto power = (double) fftData[(size_t) bin] * (double) fftData[(size_t) bin];
+        const auto hz = (double) bin * binWidth;
 
-        const auto binFrequency = (double) bin * binWidth;
-        const auto nearestHarmonic = std::round (binFrequency / frequency);
-
-        if (nearestHarmonic >= 1.0)
-        {
-            const auto distance = std::abs (binFrequency - nearestHarmonic * frequency);
-
-            if (distance > 40.0)
-                worstOffHarmonic = juce::jmax (worstOffHarmonic, magnitude);
-        }
+        if (hz < 6000.0)
+            inBand += power;
+        else if (hz > 12000.0)
+            image += power;
     }
 
-    const auto ratio = peak > 0.0f ? worstOffHarmonic / peak : 0.0f;
-
-    check (ratio < 0.02f, "polyBLEP square alias rejection (off-harmonic ratio " + juce::String (ratio, 6) + ")");
+    const auto imageDb = 10.0 * std::log10 (image / juce::jmax (1.0e-20, inBand) + 1.0e-20);
+    check (imageDb < -60.0, "pitch shift 0.5 image above 12 kHz " + juce::String (imageDb, 1) + " dB (under -60)");
 }
 
 void runVoiceSmokeTest()

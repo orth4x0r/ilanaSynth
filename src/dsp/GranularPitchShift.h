@@ -55,8 +55,7 @@ public:
             const auto window = 0.5f - 0.5f * (float) std::cos (
                 juce::MathConstants<double>::twoPi * (double) grain.age / (double) grainLength);
 
-            const auto position = grain.start + (juce::int64) ((double) grain.age * ratio);
-            output += readAt (position) * window;
+            output += readInterpolated (grain.start, (double) grain.age * ratio) * window;
 
             if (++grain.age >= grainLength)
                 restartGrain (grain);
@@ -83,6 +82,23 @@ private:
     {
         grain.start = juce::jmax ((juce::int64) 0, (juce::int64) writeCount - (juce::int64) ((double) grainLength * ratio));
         grain.age = 0;
+    }
+
+    // A 4-point Hermite read between samples: a ratio like the Octaver's 0.5
+    // used to play each sample twice (a staircase that aliased).
+    float readInterpolated (juce::int64 start, double offset) const
+    {
+        const auto whole = (juce::int64) offset;
+        const auto t = (float) (offset - (double) whole);
+        const auto index = start + whole;
+        const auto y0 = readAt (index - 1);
+        const auto y1 = readAt (index);
+        const auto y2 = readAt (index + 1);
+        const auto y3 = readAt (index + 2);
+        const auto c1 = 0.5f * (y2 - y0);
+        const auto c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+        const auto c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+        return ((c3 * t + c2) * t + c1) * t + y1;
     }
 
     float readAt (juce::int64 position) const

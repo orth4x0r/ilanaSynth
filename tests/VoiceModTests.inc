@@ -571,6 +571,116 @@ void runStereoStringsTest()
                                 + juce::String (worst, 8) + ")");
 }
 
+// The twin in one call (KarplusStrong::processPair, 2026-10-30, ilana: "make stereo cheaper"): both sides played
+// together must be exactly the two strings played one after the other, for every exciter (the shared paths and
+// the ones that fall back), with the knobs moving mid-note, STIFF and the pickup off, and the key released.
+void runStringPairTest()
+{
+    using KS = KarplusStrong;
+    struct Knobs { float damp, decay, stiff, pickup, position, hammer, bow; };
+    const auto set = [] (KS& k, int excite, const Knobs& n)
+    {
+        k.setParams ((KS::Excite) excite, 0.5f, n.damp, n.decay);
+        k.setPhysicalParams (n.stiff, n.pickup, n.position, 0.6f, 0.0f, false);
+        k.setBowAndBuzz (n.bow, 0.5f, 0.0f, 0.0f);
+        k.setKeysParams (n.hammer, 0.3f);
+        k.setEco (false);
+    };
+    auto worst = 0.0f;
+    juce::String where;
+    for (int excite = 0; excite < KS::numExcites; ++excite)
+        for (int variant = 0; variant < 2; ++variant)
+            for (const auto hz : { 55.0, 196.0, 1760.0 })
+            {
+                const Knobs left { 0.25f, 0.85f, variant == 0 ? 0.45f : 0.0f, variant == 0 ? 0.1f : 0.0f, 0.2f, 0.4f, 0.4f };
+                const Knobs right { 0.55f, 0.70f, variant == 0 ? 0.15f : 0.0f, variant == 0 ? 0.3f : 0.0f, 0.3f, 0.6f, 0.6f };
+                KS a (5), b (5), pairLeft (5), pairRight (5);
+                for (auto* k : { &a, &b, &pairLeft, &pairRight })
+                    k->prepare (48000.0);
+                set (a, excite, left); set (pairLeft, excite, left);
+                set (b, excite, right); set (pairRight, excite, right);
+                for (auto* k : { &a, &b, &pairLeft, &pairRight })
+                {
+                    k->setFrequency (hz);
+                    k->trigger (0.8f);
+                }
+                for (int i = 0; i < 24000; ++i)
+                {
+                    if (i == 8000)
+                    {
+                        auto movedLeft = left, movedRight = right;
+                        movedLeft.damp += 0.1f;
+                        movedLeft.pickup = 0.2f;
+                        movedRight.decay -= 0.05f;
+                        set (a, excite, movedLeft); set (pairLeft, excite, movedLeft);
+                        set (b, excite, movedRight); set (pairRight, excite, movedRight);
+                    }
+                    const auto held = i < 20000;
+                    const auto input = 0.3f * std::sin ((float) i * 0.05f);
+                    const auto expectedLeft = a.process (0.0f, held, input);
+                    const auto expectedRight = b.process (0.0f, held, input);
+                    float gotLeft = 0.0f, gotRight = 0.0f;
+                    pairLeft.processPair (pairRight, 0.0f, held, input, gotLeft, gotRight);
+                    const auto difference = juce::jmax (std::abs (gotLeft - expectedLeft), std::abs (gotRight - expectedRight));
+                    if (difference > worst)
+                    {
+                        worst = difference;
+                        where = "exciter " + juce::String (excite) + " at " + juce::String (hz) + " Hz";
+                    }
+                }
+            }
+    check (worst == 0.0f, "a stereo twin played in one call is the two strings bit for bit"
+                              + (worst > 0.0f ? " (largest difference " + juce::String (worst, 9) + ", " + where + ")" : juce::String()));
+}
+
+// ILANA_STEREO_BENCH=1: what a stereo string route costs a whole voice (8 notes of a pluck and of the Piano
+// exciter, with and without a stereo route into DAMP), for docs/ROUTING-CPU.md.
+void runStereoStringBench()
+{
+    for (const auto excite : { 0, 9 })
+    {
+        double best[2] { 1.0e9, 1.0e9 };
+        const auto rounds = juce::SystemStats::getEnvironmentVariable ("ILANA_STEREO_BENCH_ROUNDS", "5").getIntValue();
+        for (int round = 0; round < rounds; ++round)
+            for (int stereo = 0; stereo < 2; ++stereo)
+            {
+                // (ILANA_STEREO_BENCH_ONLY=0 or 1 times one side, for an instruction count.)
+                const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_STEREO_BENCH_ONLY", "");
+                if (only.isNotEmpty() && only.getIntValue() != stereo)
+                    continue;
+                IlanaSynthAudioProcessor processor;
+                processor.setNonRealtime (true);
+                setParam (processor, "sub_on", 0.0f);
+                setParam (processor, "osc1_mode", 1.0f);
+                setParam (processor, "osc1_excite", (float) excite);
+                setParam (processor, "osc1_string_stiffness", 0.3f);
+                setParam (processor, "osc1_string_decay", 0.8f);
+                setParam (processor, "macro1", 1.0f);
+                setParam (processor, "mod1_src", (float) Mod::Source::Macro1);
+                setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_string_damp"));
+                setParam (processor, "mod1_amt", 0.2f);
+                setParam (processor, "mod1_stereo", (float) stereo);
+                processor.prepareToPlay (48000.0, 256);
+                juce::AudioBuffer<float> buffer (2, 256);
+                double seconds = 0.0;
+                for (int block = 0; block < 750; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block % 188 == 0)
+                        for (const auto note : { 40, 47, 52, 55, 59, 64, 67, 71 })
+                            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+                    buffer.clear();
+                    const auto start = juce::Time::getMillisecondCounterHiRes();
+                    processor.processBlock (buffer, midi);
+                    seconds += (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+                }
+                best[stereo] = juce::jmin (best[stereo], seconds);
+            }
+        std::printf ("stereo string bench, %s: mono %.1f ms, stereo route %.1f ms (+%.0f%%)\n", excite == 0 ? "pluck" : "piano",
+                     best[0] * 1000.0, best[1] * 1000.0, 100.0 * (best[1] / best[0] - 1.0));
+    }
+}
+
 void runPerVoiceLfoSpectralTest()
 {
     // An LFO that retriggers per note, routed into SPEC AMT, morphs each note from its own start; a free LFO does not.

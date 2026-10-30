@@ -3260,8 +3260,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                             left.addLiveInput (liveAmount);
                             right.addLiveInput (liveAmount);
                         }
-                        auto rawL = left.process (aftertouchValue, noteHeld, fm);
-                        auto rawR = right.process (aftertouchValue, noteHeld, fm);
+                        // Both sides in one call (the same as two process() calls).
+                        float rawL, rawR;
+                        left.processPair (right, aftertouchValue, noteHeld, fm, rawL, rawR);
                         auto sideL = left.side(), sideR = right.side();
                         if (match)
                         {

@@ -583,7 +583,11 @@ private:
     void paintDynamics (juce::Graphics& g)
     {
         auto area = plotArea();
-        const auto meters = area.removeFromRight (type == 20 ? 34.0f : 14.0f);
+        // OTT's three band meters take the width the curve and its readings leave (about 500 px stood
+        // empty between them, UI review 27), up to 240.
+        const auto curveWidth = juce::jmin (area.getWidth(), juce::jmax (180.0f, area.getHeight() * 2.2f));
+        const auto ottMeters = juce::jlimit (34.0f, 240.0f, area.getWidth() - curveWidth - 18.0f - 190.0f - 6.0f);
+        const auto meters = area.removeFromRight (type == 20 ? ottMeters : 14.0f);
         area.removeFromRight (6.0f);
         // The curve is a picture of its own shape, not a line stretched over
         // the whole card: it keeps a 2.2 : 1 plot and the spare width carries

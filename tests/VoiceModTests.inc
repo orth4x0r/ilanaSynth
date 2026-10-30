@@ -444,6 +444,133 @@ void runStereoModulationTest()
                + ", on " + juce::String (on, 2) + ")");
 }
 
+// Stereo everywhere (2026-10-30, ilana: "stereo frame, stereo everything"): a stereo route into a filter's
+// resonance, morph or drive, or a wavetable oscillator's FRAME or WARP, puts energy in the side (L - R); the same
+// route unflagged leaves the patch mono. A stereo flag at depth 0 on a one-voice oscillator (the left / right
+// twin) sounds as the plain voice.
+static double stereoSideShare (int destination, bool stereo, float depth, std::function<void (IlanaSynthAudioProcessor&)> setup,
+                               juce::AudioBuffer<float>* keep = nullptr, Mod::Source source = Mod::Source::Velocity)
+{
+    IlanaSynthAudioProcessor processor;
+    processor.setNonRealtime (true);
+    setParam (processor, "sub_on", 0.0f);
+    if (setup != nullptr)
+        setup (processor);
+    setParam (processor, "mod1_src", (float) source);
+    setParam (processor, "mod1_dst", (float) destination);
+    setParam (processor, "mod1_amt", depth);
+    setParam (processor, "mod1_stereo", stereo ? 1.0f : 0.0f);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    auto side = 0.0, total = 0.0;
+    if (keep != nullptr)
+        keep->setSize (2, 512 * 30);
+    for (int block = 0; block < 30; ++block)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127), 0);
+        processor.processBlock (buffer, midi);
+        if (keep != nullptr)
+            for (int ch = 0; ch < 2; ++ch)
+                keep->copyFrom (ch, block * 512, buffer, ch, 0, 512);
+        if (block > 8)
+            for (int i = 0; i < 512; ++i)
+            {
+                const auto l = (double) buffer.getSample (0, i), r = (double) buffer.getSample (1, i);
+                side += (l - r) * (l - r);
+                total += l * l + r * r;
+            }
+    }
+    check (std::isfinite (side) && total > 0.0, "stereo route renders audio (destination " + juce::String (destination) + ")");
+    return side / (total + 1.0e-12);
+}
+
+void runStereoEverywhereTest()
+{
+    using D = Mod::Destination;
+    const auto resonant = [] (IlanaSynthAudioProcessor& p) { setParam (p, "f1_cutoff", 900.0f); setParam (p, "f1_reso", 0.4f); };
+    const auto morphing = [] (IlanaSynthAudioProcessor& p) { setParam (p, "f1_cutoff", 900.0f); setParam (p, "f1_type", 11.0f); setParam (p, "f1_morph", 0.5f); };
+    const auto driven = [] (IlanaSynthAudioProcessor& p) { setParam (p, "f1_cutoff", 2000.0f); setParam (p, "f1_drive", 2.0f); };
+    const auto warped = [] (IlanaSynthAudioProcessor& p) { setParam (p, "osc1_warp", 1.0f); setParam (p, "osc1_warp_amt", 0.3f); };
+    struct Case { D destination; std::function<void (IlanaSynthAudioProcessor&)> setup; const char* name; };
+    const Case cases[] { { D::Filter1Reso, resonant, "Filter 1 resonance" }, { D::Filter1Morph, morphing, "Filter 1 morph" },
+                         { D::Filter1Drive, driven, "Filter 1 drive" }, { D::Osc1Frame, nullptr, "OSC 1 frame (one voice: the twin)" },
+                         { D::Osc1Warp, warped, "OSC 1 warp (one voice: the twin)" } };
+    for (const auto& c : cases)
+    {
+        const auto off = stereoSideShare ((int) c.destination, false, 0.6f, c.setup);
+        const auto on = stereoSideShare ((int) c.destination, true, 0.6f, c.setup);
+        check (off < 1.0e-6 && on > 1.0e-3,
+               juce::String ("a stereo route into ") + c.name + " splits left and right (side share off " + juce::String (off, 7)
+                   + ", on " + juce::String (on, 5) + ")");
+    }
+
+    // The twin at depth 0 plays the plain voice.
+    juce::AudioBuffer<float> plain, twin;
+    stereoSideShare ((int) D::Osc1Frame, false, 0.0f, nullptr, &plain);
+    stereoSideShare ((int) D::Osc1Frame, true, 0.0f, nullptr, &twin);
+    auto worst = 0.0f;
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < plain.getNumSamples(); ++i)
+            worst = juce::jmax (worst, std::abs (plain.getSample (ch, i) - twin.getSample (ch, i)));
+    check (worst < 1.0e-5f, "a one-voice oscillator's stereo twin at depth 0 sounds as the plain voice (largest difference "
+                                + juce::String (worst, 8) + ")");
+}
+
+// Stereo physical strings (2026-10-30, ilana: "cant physical oscs still do stereo"): a stereo route into a string
+// knob plays one string as a left / right twin (or spreads the unison strings); unflagged it stays mono, and the
+// twin at depth 0 is the plain string.
+void runStereoStringsTest()
+{
+    const auto string = [] (int excite, int unison)
+    {
+        return [excite, unison] (IlanaSynthAudioProcessor& p)
+        {
+            setParam (p, "osc1_mode", 1.0f);
+            setParam (p, "osc1_excite", (float) excite);
+            setParam (p, "osc1_unison", (float) unison);
+            setParam (p, "osc1_spread", 1.0f);
+            setParam (p, "osc1_string_stiffness", 0.3f);
+            setParam (p, "osc1_string_excite_pos", 0.3f);
+            setParam (p, "osc1_string_decay", 0.6f);
+            setParam (p, "macro1", 1.0f);
+        };
+    };
+    // (EXCITE POSITION shapes the pluck as the note starts: a macro, already up then, drives every case.)
+    struct Case { const char* id; int excite; int unison; const char* name; };
+    const Case cases[] { { "osc1_string_decay", 0, 1, "decay (pluck twin)" }, { "osc1_string_damp", 0, 1, "damping (pluck twin)" },
+                         { "osc1_string_stiffness", 0, 1, "stiffness (pluck twin)" },
+                         { "osc1_string_excite_pos", 0, 1, "excite position (pluck twin)" },
+                         { "osc1_bow_pressure", 4, 1, "bow pressure (bow twin)" }, { "osc1_hammer_hard", 9, 1, "hammer (piano twin)" },
+                         { "osc1_string_damp", 0, 3, "damping (three unison strings)" } };
+    for (const auto& c : cases)
+    {
+        const auto destination = Mod::destinationForParamId (c.id);
+        check (Mod::canBeStereoAnywhere (destination), juce::String ("the matrix offers STEREO on ") + c.id);
+        // Unison strings sit apart already; there the flag must add to the side, not make it.
+        const auto off = stereoSideShare (destination, false, 0.5f, string (c.excite, c.unison), nullptr, Mod::Source::Macro1);
+        const auto on = stereoSideShare (destination, true, 0.5f, string (c.excite, c.unison), nullptr, Mod::Source::Macro1);
+        check (c.unison > 1 ? on > off * 1.15 + 1.0e-4 : (off < 1.0e-6 && on > 1.0e-3),
+               juce::String ("a stereo route into a string's ") + c.name + " splits left and right (side share off "
+                   + juce::String (off, 7) + ", on " + juce::String (on, 5) + ")");
+    }
+
+    juce::AudioBuffer<float> plain, twin;
+    const auto decay = Mod::destinationForParamId ("osc1_string_decay");
+    // (A route from the mod wheel, at rest: the twin plays, with nothing to split it.)
+    stereoSideShare (decay, false, 0.5f, string (0, 1), &plain, Mod::Source::ModWheel);
+    stereoSideShare (decay, true, 0.5f, string (0, 1), &twin, Mod::Source::ModWheel);
+    auto worst = 0.0f;
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < plain.getNumSamples(); ++i)
+            worst = juce::jmax (worst, std::abs (plain.getSample (ch, i) - twin.getSample (ch, i)));
+    check (worst < 1.0e-5f, "a string's stereo twin with its route at rest sounds as the plain string (largest difference "
+                                + juce::String (worst, 8) + ")");
+}
+
 void runPerVoiceLfoSpectralTest()
 {
     // An LFO that retriggers per note, routed into SPEC AMT, morphs each note from its own start; a free LFO does not.

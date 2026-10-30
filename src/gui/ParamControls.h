@@ -349,7 +349,7 @@ public:
         bool bipolar = false;
         int polarity = 0;           // Mod::Polarity
         bool stereo = false;
-        bool stereoAllowed = false; // Mod::canBeStereo (its destination)
+        bool stereoAllowed = false; // Mod::canBeStereoAnywhere (its destination)
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
@@ -2473,7 +2473,7 @@ private:
 
             const auto bipolar = Mod::isBipolarRoute (slot);
             found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar, (int) slot.polarity,
-                               slot.stereo && Mod::canBeStereo (slot.destination), Mod::canBeStereo (slot.destination) });
+                               slot.stereo && Mod::canBeStereoAnywhere (slot.destination), Mod::canBeStereoAnywhere (slot.destination) });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {
@@ -3508,11 +3508,20 @@ public:
     int size() const { return (int) items.size(); }
 
     // Each tile's rectangle: the tiles spread over the width, the gaps even.
+    // When the row is too narrow for full tiles (12 exciters in a short
+    // panel), every tile shrinks evenly so the last one is never cut off.
     juce::Rectangle<float> tile (int index) const
     {
         const auto n = juce::jmax (1, (int) items.size());
-        const auto gap = n > 1 ? juce::jmax (0.0f, ((float) getWidth() - (float) n * tileW) / (float) (n - 1)) : 0.0f;
-        return { (float) index * (tileW + gap), ((float) getHeight() - tileH) * 0.5f, tileW, tileH };
+        const auto w = tileScale() * tileW, h = tileScale() * tileH;
+        const auto gap = n > 1 ? juce::jmax (0.0f, ((float) getWidth() - (float) n * w) / (float) (n - 1)) : 0.0f;
+        return { (float) index * (w + gap), ((float) getHeight() - h) * 0.5f, w, h };
+    }
+    float tileScale() const
+    {
+        const auto n = juce::jmax (1, (int) items.size());
+        const auto minGap = 2.0f;
+        return juce::jlimit (0.5f, 1.0f, ((float) getWidth() - (float) (n - 1) * minGap) / ((float) n * tileW));
     }
 
     void paint (juce::Graphics& g) override
@@ -3530,7 +3539,8 @@ public:
             g.drawRoundedRectangle (r, 3.0f, 1.0f);
 
             const auto ink = (lit ? colour : hover ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2).withMultipliedAlpha (on);
-            const auto transform = juce::AffineTransform::translation (r.getX() + 1.5f, r.getY() + 0.5f);
+            const auto transform = juce::AffineTransform::scale (tileScale())
+                                       .translated (r.getX() + 1.5f * tileScale(), r.getY() + 0.5f * tileScale());
             g.setColour (ink);
             for (const auto& [path, stroke] : glyphs[(size_t) i])
             {

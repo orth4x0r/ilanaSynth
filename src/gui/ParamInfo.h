@@ -1004,7 +1004,7 @@ inline const HelpRow helpRows[] {
     { ends ("_pol").also (starts ("mod")), "Polarity: Auto keeps the source's own range (LFOs, key, random and MSEG swing both ways; envelopes, velocity, macros and the wheel push one way); Unipolar moves 0 to +depth; Bipolar moves either side of the knob." },
     { ends ("_aux").also (starts ("mod")), "Via: a second source that scales this route (e.g. the mod wheel fading in an LFO). None = always full." },
     { ends ("_byp").also (starts ("mod")), "Bypass: switches this route off without losing its settings." },
-    { ends ("_stereo").also (starts ("mod")), "Stereo: the left and right filters get opposite amounts from this route, so a filter cutoff spreads across the stereo field." },
+    { ends ("_stereo").also (starts ("mod")), "Stereo: the left and right sides get opposite amounts from this route, so the sound spreads across the stereo field. Works on filter cutoff, resonance, morph and drive, on an oscillator's FRAME and WARP, and on a physical string's decay, damping, stiffness, excite position, hammer and bow pressure (one voice plays as a left and right twin)." },
     // Singles that had no help.
     { ends ("_sample_factory"), "Factory sample for Sample and Granular. A loaded or dropped wav replaces it." },
     { is ("gen_root"), "Root note of the GENERATE scale (scale snap, note spray, Euclid and the probability sequencer)." },

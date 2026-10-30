@@ -224,6 +224,71 @@ void runTests()
             check (peak > 0.05f && peak < 1.5f, "Felt Hammer Board plays a chord at a sensible level (peak " + juce::String (peak, 3) + ")");
         }
     }
+
+    // The Modal Piano: its table loads, every note and knob extreme plays
+    // and stays finite, it sounds at its key, and the dampers stop it.
+    {
+        const auto& table = ModalPianoTable::get();
+        check (table.valid() && table.notes.size() == 88 && table.velocities.size() == 3,
+               "the Modal Piano table loads (" + juce::String ((int) table.notes.size()) + " notes x "
+                   + juce::String ((int) table.velocities.size()) + " velocities)");
+
+        const auto play = [] (int note, float velocity, float knobs, bool eco, int samples, int releaseAt = -1)
+        {
+            ModalPiano piano;
+            piano.prepare (48000.0);
+            piano.setNote (440.0 * std::pow (2.0, (note - 69) / 12.0), note);
+            piano.setParams (knobs, knobs == 0.5f ? 0.0f : knobs, knobs, knobs, knobs, eco);
+            piano.trigger (velocity, 0.37f);
+            std::vector<float> out ((size_t) samples);
+            for (int i = 0; i < samples; ++i)
+                out[(size_t) i] = piano.process (releaseAt < 0 || i < releaseAt);
+            return out;
+        };
+
+        auto finite = true, quiet = false;
+        for (int note : { 21, 40, 60, 90, 108 })
+            for (float velocity : { 0.01f, 0.5f, 1.0f })
+                for (float knobs : { 0.0f, 0.5f, 1.0f })
+                    for (bool eco : { false, true })
+                    {
+                        auto peak = 0.0f;
+                        for (auto v : play (note, velocity, knobs, eco, 24000))
+                        {
+                            finite = finite && std::isfinite (v);
+                            peak = juce::jmax (peak, std::abs (v));
+                        }
+                        finite = finite && peak < 4.0f;
+                        quiet = quiet || peak < 1.0e-6f;
+                    }
+        check (finite && ! quiet, "the Modal Piano is stable at every note, velocity, knob extreme and quality");
+
+        // C4: the strongest partial in its first second is the fundamental.
+        {
+            const auto x = play (60, 0.5f, 0.5f, false, 48000);
+            auto best = 0.0, bestHz = 0.0;
+            for (double hz = 100.0; hz < 1000.0; hz += 0.5)
+            {
+                std::complex<double> sum;
+                for (int i = 4800; i < 48000; ++i)
+                    sum += (double) x[(size_t) i] * std::polar (1.0, -juce::MathConstants<double>::twoPi * hz * i / 48000.0);
+                if (std::abs (sum) > best)
+                {
+                    best = std::abs (sum);
+                    bestHz = hz;
+                }
+            }
+            check (std::abs (bestHz - 261.63) < 1.5, "the Modal Piano's C4 sounds at its key (" + juce::String (bestHz, 1) + " Hz)");
+        }
+
+        // DAMPER all the way: 0.5 s after the key comes up the note is 40 dB down.
+        {
+            const auto x = play (60, 0.8f, 1.0f, false, 72000, 24000);
+            const auto rms = [&x] (int from) { auto e = 0.0; for (int i = from; i < from + 2400; ++i) e += x[(size_t) i] * x[(size_t) i]; return std::sqrt (e / 2400.0); };
+            const auto drop = juce::Decibels::gainToDecibels (rms (48000 + 2400) / juce::jmax (1.0e-12, rms (21600)));
+            check (drop < -40.0, "the Modal Piano's dampers stop the note (" + juce::String (drop, 1) + " dB in 0.5 s)");
+        }
+    }
 }
 } // namespace M82
 

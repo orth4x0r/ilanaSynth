@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <complex>
 #include <cmath>
 
 #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
@@ -47,6 +48,7 @@ public:
     void prepare (double newSampleRate)
     {
         sampleRate = newSampleRate;
+        designNoise();
         reset();
     }
 
@@ -172,6 +174,14 @@ public:
         attackPosition = 0.0;
         attackFade = 1.0f;
         partialRamp = 0.0f;
+        hasNoise = ! modeA->noiseLevels.empty();
+        for (auto& band : noise)
+        {
+            band.x1 = band.x2 = band.y1 = band.y2 = band.u1 = band.u2 = band.z1 = band.z2 = 0.0f;
+            band.gain = band.step = 0.0f;
+        }
+        noisePower.fill (0.0f);
+        noiseSeed = seed;
 
         elapsed = 0;
         released = -1;
@@ -219,6 +229,23 @@ public:
             amp[k] += step[k];
         }
        #endif
+        if (hasNoise)
+        {
+            noiseSeed = noiseSeed * 1664525u + 1013904223u;
+            // Uniform, unit variance.
+            const auto white = ((float) (noiseSeed >> 8) * (2.0f / 16777216.0f) - 1.0f) * 1.7320508f;
+            for (auto& band : noise)
+            {
+                const auto y = band.b0 * white + band.b1 * band.x1 + band.b2 * band.x2 - band.a1 * band.y1 - band.a2 * band.y2;
+                band.x2 = band.x1; band.x1 = white;
+                band.y2 = band.y1; band.y1 = y;
+                const auto z = band.b0 * y + band.b1 * band.u1 + band.b2 * band.u2 - band.a1 * band.z1 - band.a2 * band.z2;
+                band.u2 = band.u1; band.u1 = y;
+                band.z2 = band.z1; band.z1 = z;
+                out += band.gain * z;
+                band.gain += band.step;
+            }
+        }
         out *= partialRamp;
         partialRamp += partialRampStep;
 
@@ -361,6 +388,19 @@ private:
                 levelA[k] = a + levelOffset;
                 levelB[k] = b + levelOffset;
             }
+            if (hasNoise)
+                for (int b = 0; b < ModalPianoTable::noiseBandCount; ++b)
+                {
+                    auto a = 0.0f, c = 0.0f;
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        const auto& e = *corners.entries[(size_t) i];
+                        a += corners.weights[(size_t) i] * e.noiseLevels[(size_t) (b * times + s)];
+                        c += corners.weights[(size_t) i] * e.noiseLevels[(size_t) (b * times + s + 1)];
+                    }
+                    noiseA[b] = a + levelOffset;
+                    noiseB[b] = c + levelOffset;
+                }
             const auto w = corners.velocityWeight;
             for (int k = count; k < slots; ++k)
             {
@@ -397,6 +437,41 @@ private:
             const auto norm = 1.5f - 0.5f * (re[k] * re[k] + im[k] * im[k]);
             re[k] *= norm;
             im[k] *= norm;
+        }
+
+        if (hasNoise)
+        {
+            // The table's noise is the median FFT bin: back to power per bin,
+            // then to the variance each band's filter needs at this rate
+            // (the filters overlap: a few Gauss-Seidel passes find the
+            // non-negative powers that come closest).
+            const auto& table = ModalPianoTable::get();
+            std::array<float, ModalPianoTable::noiseBandCount> variance {};
+            const auto toVariance = (float) ModalPianoTable::noiseFftSize / 6.0f * (float) (sampleRate / table.rate) / 0.6931472f;
+            for (int b = 0; b < ModalPianoTable::noiseBandCount; ++b)
+            {
+                auto db = noiseA[b] + u * (noiseB[b] - noiseA[b]);
+                if (beyond > 0.0f)
+                    db += juce::jmin (-1.0f, (noiseB[b] - noiseA[b]) / (t1 - t0)) * beyond;
+                db -= releaseRate * releasedFor;
+                loudest = juce::jmax (loudest, db);
+                variance[(size_t) b] = db < -140.0f ? 0.0f : std::pow (10.0f, db / 10.0f) * toVariance;
+            }
+            auto& power = noisePower;
+            for (int pass = 0; pass < 6; ++pass)
+                for (int b = 0; b < ModalPianoTable::noiseBandCount; ++b)
+                {
+                    auto others = 0.0f;
+                    for (int j = 0; j < ModalPianoTable::noiseBandCount; ++j)
+                        if (j != b)
+                            others += noiseLeak[b][j] * power[(size_t) j];
+                    power[(size_t) b] = juce::jmax (0.0f, (variance[(size_t) b] - others) / noiseLeak[b][b]);
+                }
+            for (int j = 0; j < ModalPianoTable::noiseBandCount; ++j)
+            {
+                auto& band = noise[(size_t) j];
+                band.step = (std::sqrt (power[(size_t) j]) - band.gain) / (float) blockSize;
+            }
         }
 
         // The crossfade from the recording's attack into the partials, as
@@ -436,6 +511,80 @@ private:
     float levelA[maxSlots] {}, levelB[maxSlots] {};
 
     float modeHz[maxModes] {};
+
+    // The noise between the partials: white noise through one filter per
+    // band of the table's (a low-pass, then octave band-passes), each two
+    // biquads deep: the bass's noise is ~50 dB above the treble's, and a
+    // second-order skirt would leak more than that into the top bands.
+    struct NoiseBand
+    {
+        float b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+        float x1 = 0, x2 = 0, y1 = 0, y2 = 0, u1 = 0, u2 = 0, z1 = 0, z2 = 0;
+        float gain = 0, step = 0;
+    };
+    std::array<NoiseBand, ModalPianoTable::noiseBandCount> noise {};
+    float noiseA[ModalPianoTable::noiseBandCount] {}, noiseB[ModalPianoTable::noiseBandCount] {};
+    float noiseLeak[ModalPianoTable::noiseBandCount][ModalPianoTable::noiseBandCount] {};
+    std::array<float, ModalPianoTable::noiseBandCount> noisePower {};
+    std::uint32_t noiseSeed = 1;
+    bool hasNoise = false;
+
+    void designNoise()
+    {
+        constexpr int bands = ModalPianoTable::noiseBandCount;
+        const auto nyquist = 0.49 * sampleRate;
+        for (int j = 0; j < bands; ++j)
+        {
+            const auto lo = (double) ModalPianoTable::noiseBands[j][0], hi = juce::jmin ((double) ModalPianoTable::noiseBands[j][1], nyquist);
+            auto& f = noise[(size_t) j];
+            if (j == 0)
+            {
+                // Below the band's top: the bass's noise falls ~30 dB by the
+                // next band, and the skirt must be well down by then.
+                const auto w = juce::MathConstants<double>::twoPi * 0.6 * hi / sampleRate, alpha = std::sin (w) / (2.0 * 0.7071), c = std::cos (w);
+                const auto a0 = 1.0 + alpha;
+                f.b0 = f.b2 = (float) ((1.0 - c) / 2.0 / a0);
+                f.b1 = (float) ((1.0 - c) / a0);
+                f.a1 = (float) (-2.0 * c / a0);
+                f.a2 = (float) ((1.0 - alpha) / a0);
+            }
+            else
+            {
+                const auto centre = std::sqrt (lo * juce::jmax (lo * 1.01, hi)), q = 4.0; // (narrower than the band, for the same reason)
+                const auto w = juce::MathConstants<double>::twoPi * centre / sampleRate, alpha = std::sin (w) / (2.0 * q), c = std::cos (w);
+                const auto a0 = 1.0 + alpha;
+                f.b0 = (float) (alpha / a0);
+                f.b1 = 0.0f;
+                f.b2 = (float) (-alpha / a0);
+                f.a1 = (float) (-2.0 * c / a0);
+                f.a2 = (float) ((1.0 - alpha) / a0);
+            }
+        }
+
+        // noiseLeak[b][j]: band j's filter's mean power gain over band b
+        // (log-spaced: the table's median sits near the band's middle).
+        for (int b = 0; b < bands; ++b)
+        {
+            const auto lo = juce::jmax (20.0, (double) ModalPianoTable::noiseBands[b][0]);
+            const auto hi = juce::jmin ((double) ModalPianoTable::noiseBands[b][1], nyquist);
+            for (int j = 0; j < bands; ++j)
+            {
+                const auto& f = noise[(size_t) j];
+                auto sum = 0.0;
+                constexpr int points = 48;
+                for (int i = 0; i < points; ++i)
+                {
+                    const auto hz = lo * std::pow (hi / lo, (i + 0.5) / points);
+                    const auto z = std::polar (1.0, -juce::MathConstants<double>::twoPi * hz / sampleRate);
+                    const auto h = ((double) f.b0 + (double) f.b1 * z + (double) f.b2 * z * z)
+                                   / (1.0 + (double) f.a1 * z + (double) f.a2 * z * z);
+                    sum += std::norm (h) * std::norm (h); // (two stages)
+                }
+                noiseLeak[b][j] = (float) (hi > lo ? sum / points : (b == j ? 1.0 : 0.0));
+            }
+            noiseLeak[b][b] = juce::jmax (1.0e-6f, noiseLeak[b][b]);
+        }
+    }
     const ModalPianoTable::Entry* modeA = nullptr;
     const ModalPianoTable::Entry* modeB = nullptr;
     const std::vector<float>* attackA = nullptr;

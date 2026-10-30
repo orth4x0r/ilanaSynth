@@ -273,6 +273,7 @@ inline const FactoryTagRow factoryTagRows[] {
     { "Live Grains", "Live Input, Granular, Warm, Sustained, Wide" },
     { "Live Strings", "Strings, Live Input, Physical, Bright, Sustained" },
     { "Felt Hammer Board", "Physical, Warm, Sustained" },
+    { "Modal Grand", "Physical, Warm, Sustained" },
     { "Nylon Twelve", "Physical, Bright, Sustained" },
     { "Cello Section", "Strings, Detuned, Physical, Warm, Slow Attack" },
     { "Solo Cello", "Strings, Physical, Warm, Slow Attack" },

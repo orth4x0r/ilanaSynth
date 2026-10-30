@@ -38,7 +38,7 @@ namespace
         const auto count = in.read<std::uint16_t>();
         const auto timeCount = in.read<std::uint16_t>();
         table.rate = in.read<float>();
-        if ((version != 1 && version != 2) || timeCount == 0)
+        if (version < 1 || version > 3 || timeCount == 0)
             return {};
         for (int t = 0; t < timeCount; ++t)
             table.times.push_back (in.read<float>());
@@ -69,6 +69,14 @@ namespace
                     entry.modes.push_back (in.read<float>());
                 for (int i = 0; i < modes * timeCount; ++i)
                     entry.modeLevels.push_back ((float) in.read<std::int16_t>() / 64.0f);
+            }
+            if (version >= 3)
+            {
+                const auto bands = in.read<std::uint16_t>();
+                if (bands != ModalPianoTable::noiseBandCount || ! in.has ((size_t) bands * 2 * (size_t) timeCount))
+                    return {};
+                for (int i = 0; i < bands * timeCount; ++i)
+                    entry.noiseLevels.push_back ((float) in.read<std::int16_t>() / 64.0f);
             }
             read.push_back (std::move (entry));
         }

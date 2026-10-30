@@ -35,6 +35,9 @@ ATTACK_SECONDS = 0.1
 # the note's partials, kept with their level over time (fixed in Hz).
 MODE_TOP = 1200.0
 MAX_MODES = 12
+# The noise between the partials and modes (hammer, dampers, the board's
+# hiss): its level in these bands (Hz), over time.
+NOISE_BANDS = [(0, 500), (500, 1000), (1000, 2000), (2000, 4000), (4000, 8000), (8000, 16000)]
 
 
 def read_wav(path):
@@ -135,6 +138,26 @@ def body_modes(x, rate, f0, partials):
     return sorted(found)
 
 
+def noise_levels(x, rate, f0, partials, modes):
+    """Median magnitude per band of the bins away from every partial and
+    mode: the same measure the engine's noise is calibrated against."""
+    size = 16384
+    freqs = np.fft.rfftfreq(size, 1 / rate)
+    keep = np.ones(len(freqs), bool)
+    for f in partials:
+        keep &= np.abs(freqs - f) > max(6.0, 0.2 * f0)
+    for f in modes:
+        keep &= np.abs(freqs - f) > 6.0
+    levels = np.full((len(NOISE_BANDS), len(TIMES)), -160.0)
+    for t, when in enumerate(TIMES):
+        mag = spectrum(x, max(0, int(when * rate) - size // 2), size)
+        for b, (lo, hi) in enumerate(NOISE_BANDS):
+            k = keep & (freqs >= max(lo, 20)) & (freqs < hi)
+            if k.sum() >= 8:
+                levels[b, t] = 20 * np.log10(np.median(mag[k]) + 1e-9)
+    return levels
+
+
 def mode_levels(x, rate, modes):
     size = 16384
     freqs = np.fft.rfftfreq(size, 1 / rate)
@@ -192,15 +215,16 @@ def main():
             f0, ratios, levels = analyse(seg, rate, note)
             stereo = seg[:int(ATTACK_SECONDS * rate)]
             attack = stereo[:, 0] * np.sqrt((stereo ** 2).mean() / max(1e-20, (stereo[:, 0] ** 2).mean()))
-            entries.append((note, velocity, f0, ratios, levels, attack, modes[note], mode_levels(seg, rate, modes[note])))
+            entries.append((note, velocity, f0, ratios, levels, attack, modes[note], mode_levels(seg, rate, modes[note]),
+                            noise_levels(seg, rate, f0, ratios * f0, modes[note])))
             print("note %d vel %d: %d partials, %d board modes, attack peak %.3f"
                   % (note, velocity, len(ratios), len(modes[note]), np.abs(attack).max()), flush=True)
 
     # Little-endian: magic, version, counts, the time grid, then each entry.
     out = bytearray(b"IMPT")
-    out += struct.pack("<HHHf", 2, len(entries), len(TIMES), float(rate))
+    out += struct.pack("<HHHf", 3, len(entries), len(TIMES), float(rate))
     out += struct.pack("<%df" % len(TIMES), *TIMES)
-    for note, velocity, f0, ratios, levels, attack, modes, mlevels in entries:
+    for note, velocity, f0, ratios, levels, attack, modes, mlevels, nlevels in entries:
         scale = max(1e-9, float(np.abs(attack).max()))
         out += struct.pack("<HHHI", note, velocity, len(ratios), len(attack))
         out += struct.pack("<f", scale)
@@ -212,6 +236,9 @@ def main():
         out += struct.pack("<H", len(modes))
         out += struct.pack("<%df" % len(modes), *modes)
         out += np.clip(np.round(mlevels * 64), -32768, 32767).astype("<i2").tobytes()
+        # Version 3: the noise, per band (NOISE_BANDS, the engine's bands).
+        out += struct.pack("<H", len(NOISE_BANDS))
+        out += np.clip(np.round(nlevels * 64), -32768, 32767).astype("<i2").tobytes()
     with open(args.out, "wb") as f:
         f.write(out)
     print("wrote %s (%d bytes, %d entries)" % (args.out, len(out), len(entries)))

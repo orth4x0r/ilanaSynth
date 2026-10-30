@@ -2875,6 +2875,24 @@ inline std::vector<FactoryPreset> buildLaterPacks()
     // ilana's search pack: tools/qd_search.py winners she kept (tools/bake_search.py).
     addSearchPresets (add);
 
+    using B = Builder;
+
+    // The Modal Piano exciter: Piano V's grand rebuilt from its measured
+    // partials, its knobs at the middle (DAMP at 0) so it plays as measured.
+    // No soundboard: the recording has its own. Master matches Felt Hammer
+    // Board's trimmed level (+7 dB).
+    add (B ("Modal Grand", "Keys")
+             .piano (1, 0.8f, 0.5f, 1, 0.0f, 0.0f, 0.35f, 0.0f, 0.5f, 0.0f, 0.5f)
+             .set ("osc1_excite", 11)
+             .set ("osc2_on", 0).set ("sub_on", 0)
+             .filter1 (LP, 20000.0f, 0.0f)
+             .amp (0.001f, 5.0f, 1.0f, 1.0f).velocity (0.0f)
+             .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
+             .macro (2, "DECAY", { { param ("osc1_string_decay"), 0.3f } })
+             .macro (3, "DAMP", { { param ("osc1_string_damp"), 0.5f } })
+             .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
+             .master (7.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
     return list;
 }
 } // namespace Library

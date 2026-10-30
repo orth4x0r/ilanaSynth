@@ -19,7 +19,15 @@ struct ModalPianoTable
         // fixed in Hz, the same for every velocity of a note.
         std::vector<float> modes;       // Hz
         std::vector<float> modeLevels;  // [modes * times], dB
+        // The noise between them, per band (noiseBands): the median FFT bin
+        // (16384 points, Hann) away from every partial and mode, in dB.
+        std::vector<float> noiseLevels; // [bands * times], dB
     };
+
+    static constexpr int noiseBandCount = 6;
+    static constexpr float noiseBands[noiseBandCount][2] { { 0, 500 }, { 500, 1000 }, { 1000, 2000 },
+                                                          { 2000, 4000 }, { 4000, 8000 }, { 8000, 16000 } };
+    static constexpr int noiseFftSize = 16384;
 
     std::vector<float> times;       // seconds after the strike
     float rate = 44100.0f;

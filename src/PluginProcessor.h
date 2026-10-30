@@ -1441,6 +1441,11 @@ private:
     void buildParamCache();
     std::array<float, (size_t) maxDestinations> paramDestinationOffsets {};
     bool anyParamModulation = false;
+    // Stereo routes into a physical string's knobs (Mod::StereoString): the
+    // left strings' offset per oscillator and knob (the right ones get minus
+    // it), and which oscillators have such a route at all (even at 0 now).
+    std::array<std::array<float, Mod::StereoString::numFields>, 6> stringStereoOffsets {};
+    std::array<bool, 6> stringStereoRouted {};
 
     // The last note played and the loudest voice's per-voice sources, for
     // modulation that has to be synth-wide.

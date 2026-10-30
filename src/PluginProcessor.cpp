@@ -1573,6 +1573,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         const auto& electric = electricParamIds[(size_t) oscIndex];
         osc.epDistance = getParam (electric[0]);
         osc.epPosition = getParam (electric[1]);
+        osc.stringStereo = stringStereoRouted[(size_t) oscIndex];
+        osc.stringStereoOffsets = stringStereoOffsets[(size_t) oscIndex];
         if (osc.stringExcite == 10)
         {
             osc.fbGain = getParam (feedbackParamIds[(size_t) oscIndex][0]);

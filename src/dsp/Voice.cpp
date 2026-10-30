@@ -512,11 +512,19 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
                                                    + settings.cents / 100.0) / 12.0)
                                : oscFrequencyFactor (settings);
 
+        // A stereo string route: the twin (or each unison string) starts on its own side of it.
+        const auto unison = settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano
+                                ? 1 : juce::jlimit (1, VoiceParams::maxBufferedUnison, settings.unison);
+        stringTwin[osc] = settings.stringStereo && unison == 1;
+        const auto count = stringTwin[osc] ? 2 : unison;
+        if (stringTwin[osc])
+            stringFor (osc, 1).matchNoise (stringFor (osc, 0));
+
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
         {
             auto& string = stringFor (osc, u);
             string.setFrequency (pitch);
-            configureString (string, settings);
+            configureString (string, settings, u < count ? stringSide (osc, u, count) : 0.0f);
             string.trigger (velocity);
         }
     }
@@ -955,7 +963,7 @@ void Voice::reExcite (float level)
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (params.oscillators[osc].stringMode && params.oscillatorEnabled[osc])
-            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+            for (int u = 0; u < stringsPlaying (osc); ++u)
                 stringFor (osc, u).trigger (juce::jlimit (0.0f, 1.0f, level * velocityLevel * 1.25f));
 }
 
@@ -1452,6 +1460,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // The Modal Piano's recording already has all of a note's strings.
         if (settings.stringMode && settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano)
             numOscUnison[osc] = juce::jmin (numOscUnison[osc], 1);
+
+        // A stereo string route on one string: a second plays its right side.
+        const auto twin = settings.stringMode && settings.stringStereo && numOscUnison[osc] == 1;
+        if (twin && ! stringTwin[osc] && settings.stringMode == lastStringMode[osc])
+        {
+            // (A route added mid-note: the twin picks up where the string is.)
+            stringFor (osc, 1) = stringFor (osc, 0);
+        }
+        stringTwin[osc] = twin;
     }
 
     updateUnisonLayout();
@@ -1475,9 +1492,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     {
         const auto& settings = params.oscillators[osc];
 
-        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+        const auto count = stringsPlaying (osc);
+        for (int u = 0; u < count; ++u)
         {
-            configureString (stringFor (osc, u), settings);
+            configureString (stringFor (osc, u), settings, stringSide (osc, u, count));
         }
     };
 
@@ -1486,7 +1504,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     configureStrings (2);
 
     if (params.oscillators[2].stringMode && ! lastStringMode[2] && params.oscillatorEnabled[2])
-        for (int u = 0; u < juce::jmin (numOscUnison[2], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (2); ++u)
             stringFor (2, u).trigger (velocityLevel);
 
     lastStringMode[2] = params.oscillators[2].stringMode;
@@ -1580,7 +1598,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         configureStrings (osc);
 
     if (params.oscillators[0].stringMode && ! lastStringMode[0])
-        for (int u = 0; u < juce::jmin (numOscUnison[0], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (0); ++u)
             stringFor (0, u).trigger (velocityLevel);
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
@@ -1591,7 +1609,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
 
     if (params.oscillators[1].stringMode && ! lastStringMode[1])
-        for (int u = 0; u < juce::jmin (numOscUnison[1], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (1); ++u)
             stringFor (1, u).trigger (velocityLevel);
 
     for (int osc = 0; osc < 2; ++osc)
@@ -1604,7 +1622,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         configureStrings (osc);
         if (params.oscillators[osc].stringMode && ! lastStringMode[osc])
-            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+            for (int u = 0; u < stringsPlaying (osc); ++u)
                 stringFor (osc, u).trigger (velocityLevel);
         lastStringMode[osc] = params.oscillators[osc].stringMode;
     }
@@ -2024,7 +2042,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                             if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
                                 for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                                     if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
-                                        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                                        for (int u = 0; u < stringsPlaying (osc); ++u)
                                             stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (wetL + wetR));
                             l = l * (1.0f - resonatorAmount) + wetL * resonatorAmount;
                             r = r * (1.0f - resonatorAmount) + wetR * resonatorAmount;
@@ -2211,7 +2229,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
                     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                         if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
-                            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                            for (int u = 0; u < stringsPlaying (osc); ++u)
                                 stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (bodyWetL + bodyWetR));
             }
 
@@ -3230,7 +3248,41 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     const auto route = routes[osc];
                     auto mono = oscMono[osc];
                     auto bl = busL[route], br = busR[route];
-                    for (int u = 0; u < numOscUnison[osc]; ++u)
+                    if (stringTwin[osc])
+                    {
+                        // A stereo route on one string: string 0 is the left
+                        // side and its twin the right, each at the voice's
+                        // own pan (identical while the route sits at 0).
+                        auto& left = stringFor (osc, 0);
+                        auto& right = stringFor (osc, 1);
+                        if (liveIn)
+                        {
+                            left.addLiveInput (liveAmount);
+                            right.addLiveInput (liveAmount);
+                        }
+                        auto rawL = left.process (aftertouchValue, noteHeld, fm);
+                        auto rawR = right.process (aftertouchValue, noteHeld, fm);
+                        auto sideL = left.side(), sideR = right.side();
+                        if (match)
+                        {
+                            rawL *= trim;
+                            rawR *= trim;
+                            sideL *= trim;
+                            sideR *= trim;
+                        }
+                        const auto raw = 0.5f * (rawL + rawR);
+                        stringSum += raw;
+
+                        const auto gain = unisonGains[osc][0] * renderLevel * enable * envFactor * keyGain;
+                        mono += raw * gain;
+                        if (out)
+                        {
+                            const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
+                            bl += (rawL + sideL) * heard * panGainL[osc][0];
+                            br += (rawR - sideR) * heard * panGainR[osc][0];
+                        }
+                    }
+                    for (int u = 0; u < (stringTwin[osc] ? 0 : numOscUnison[osc]); ++u)
                     {
                         auto& string = stringFor (osc, u);
                         if (liveIn)
@@ -3472,7 +3524,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                 if (otherCount == 0)
                     continue;
-                const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
+                const auto count = stringsPlaying (osc);
                 for (int u = 0; u < count; ++u)
                     stringFor (osc, u).addBridgeInput (0.015f * params.bodyCoupling * otherDrive / (float) otherCount);
             }
@@ -3551,11 +3603,28 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     }
 }
 
-void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const
+void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams& settings, float side) const
 {
     auto stiffness = settings.stringStiffness;
     auto damping = settings.stringDamping;
     auto decay = settings.stringDecay;
+    auto excitePosition = settings.stringExcitationPosition;
+    auto hammer = settings.hammerHardness;
+    auto bowPressure = settings.bowPressure;
+
+    // Stereo string routes: this string's side of them (every knob is 0..1).
+    if (side != 0.0f)
+    {
+        namespace S = Mod::StereoString;
+        const auto& offsets = settings.stringStereoOffsets;
+        const auto moved = [side] (float value, float offset) { return juce::jlimit (0.0f, 1.0f, value + side * offset); };
+        decay = moved (decay, offsets[S::decay]);
+        damping = moved (damping, offsets[S::damping]);
+        stiffness = moved (stiffness, offsets[S::stiffness]);
+        excitePosition = moved (excitePosition, offsets[S::excitePosition]);
+        hammer = moved (hammer, offsets[S::hammer]);
+        bowPressure = moved (bowPressure, offsets[S::bowPressure]);
+    }
 
     // Register map: short, stiff, bright treble strings; long, looser bass
     // strings that ring longer.
@@ -3575,12 +3644,12 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
     string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, KarplusStrong::numExcites - 1, settings.stringExcite)),
                       settings.stringSustain, damping, decay);
     string.setPhysicalParams (stiffness, settings.stringPickup,
-                              settings.stringExcitationPosition, settings.stringPickHardness,
+                              excitePosition, settings.stringPickHardness,
                               settings.stringPickPosition, settings.stringSlap);
-    string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
+    string.setBowAndBuzz (bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setSplit (settings.stringSplit);
     string.setClick (settings.stringClick);
-    string.setKeysParams (settings.hammerHardness, settings.damper);
+    string.setKeysParams (hammer, settings.damper);
     string.setEco (params.quality == 0);
     string.setFeedbackParams (settings.fbGain, settings.fbDistance);
     if (string.isElectric())
@@ -3741,6 +3810,8 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
             if (u < VoiceParams::maxBufferedUnison)
             {
                 stringFor (osc, u).setFrequency (frequencyU);
+                if (stringTwin[osc])
+                    stringFor (osc, 1).setFrequency (frequencyU);
                 const auto* zone = sampleZone[osc];
                 const auto* played = zone != nullptr ? zone->data.get() : settings.sample;
                 sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : plainRootHz (settings.sampleRoot)) : 1.0;

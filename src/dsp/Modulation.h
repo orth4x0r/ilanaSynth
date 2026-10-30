@@ -843,6 +843,49 @@ inline bool canBeStereo (int destination)
     return stereoIndexFor (destination) >= 0;
 }
 
+// Physical strings (2026-10-30, ilana: "cant physical oscs still do stereo"):
+// a stereo route into one of these knobs plays the oscillator's strings
+// apart, the left ones up by the amount and the right ones down (one string
+// plays as a left / right twin). The fields of VoiceParams::OscParams::stringStereo.
+namespace StereoString
+{
+    enum Field { decay, damping, stiffness, excitePosition, hammer, bowPressure, numFields };
+    inline constexpr const char* suffixes[numFields] { "_string_decay", "_string_damp", "_string_stiffness",
+                                                       "_string_excite_pos", "_hammer_hard", "_bow_pressure" };
+    inline constexpr const char* prefixes[6] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+
+    struct Target
+    {
+        int osc = -1, field = -1;
+    };
+
+    // The oscillator and knob a parameter destination moves, or { -1, -1 }.
+    inline Target targetFor (int destination)
+    {
+        static const auto table = []
+        {
+            std::vector<Target> targets (getParamDestinations().size());
+            for (size_t i = 0; i < targets.size(); ++i)
+            {
+                const juce::String id (getParamDestinations()[i].id);
+                for (int osc = 0; osc < 6; ++osc)
+                    for (int field = 0; field < numFields; ++field)
+                        if (id == juce::String (prefixes[osc]) + suffixes[field])
+                            targets[i] = { osc, field };
+            }
+            return targets;
+        }();
+        const auto index = paramDestinationIndex (destination);
+        return index >= 0 && index < (int) table.size() ? table[(size_t) index] : Target {};
+    }
+}
+
+// Whether a route into this destination can be stereo: the explicit ones above and the string knobs.
+inline bool canBeStereoAnywhere (int destination)
+{
+    return canBeStereo (destination) || StereoString::targetFor (destination).osc >= 0;
+}
+
 // The internal index (Count + i) a stereo slot sums into, else -1.
 inline int stereoTargetFor (const Slot& slot)
 {

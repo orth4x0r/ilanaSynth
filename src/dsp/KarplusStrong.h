@@ -62,6 +62,10 @@ public:
     {
     }
 
+    // A stereo twin (Voice::stringTwin) draws the same noise as the string it
+    // pairs with, so the two only differ where their knobs do.
+    void matchNoise (const KarplusStrong& other) { random.setSeed (other.random.getSeed()); }
+
     void prepare (double newSampleRate)
     {
         sampleRate = newSampleRate;

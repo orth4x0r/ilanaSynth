@@ -735,6 +735,7 @@ int main()
     timedRun ("runFrameBlendTests", [] { runFrameBlendTests(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });
+    timedRun ("runStereoStringsTest", [] { runStereoStringsTest(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });

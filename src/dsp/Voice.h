@@ -230,6 +230,11 @@ struct VoiceParams
         float hammerHardness = 0.5f, couple = 0.0f, damper = 0.0f, registerMap = 0.0f;
         float epDistance = 0.5f, epPosition = 0.5f; // M7.3 tine/reed pickup
         float fbGain = 0.5f, fbDistance = 0.5f;     // M8.5 feedback amp
+        // Stereo routes into the string knobs (Mod::StereoString): the left
+        // strings get + these and the right ones minus; one string plays as a
+        // left / right twin while any such route is set.
+        bool stringStereo = false;
+        std::array<float, Mod::StereoString::numFields> stringStereoOffsets {};
         int chord = 0;
 
         bool sampleMode = false;
@@ -685,7 +690,20 @@ private:
     int neededExtraEnvs[11] {};
     int numNeededExtraEnvs = 0;
     bool hasActiveAmpEnvelope() const;
-    void configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const;
+    // side: +1 the left strings, -1 the right ones (stereo string routes), 0 both.
+    void configureString (KarplusStrong& string, const VoiceParams::OscParams& settings, float side = 0.0f) const;
+    // A one-voice physical oscillator with a stereo route plays a second string as its right side.
+    bool stringTwin[VoiceParams::numOscillators] {};
+    int stringsPlaying (int osc) const { return stringTwin[osc] ? 2 : juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); }
+    // Where unison string u of n sits: +1 the leftmost, -1 the rightmost (the twin: 0 left, 1 right).
+    float stringSide (int osc, int u, int count) const
+    {
+        if (! params.oscillators[osc].stringStereo)
+            return 0.0f;
+        if (stringTwin[osc])
+            return u == 0 ? 1.0f : -1.0f;
+        return count > 1 ? 1.0f - 2.0f * (float) u / (float) (count - 1) : 0.0f;
+    }
     float voiceLfoValue (int lfo) const;
     float blockMod (Mod::Destination destination) const { return blockMods[(size_t) destination]; }
 

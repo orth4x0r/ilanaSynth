@@ -349,7 +349,7 @@ public:
         bool bipolar = false;
         int polarity = 0;           // Mod::Polarity
         bool stereo = false;
-        bool stereoAllowed = false; // Mod::canBeStereo (its destination)
+        bool stereoAllowed = false; // Mod::canBeStereoAnywhere (its destination)
     };
 
     std::function<void (int slot, float depth)> onDepthChange;
@@ -2473,7 +2473,7 @@ private:
 
             const auto bipolar = Mod::isBipolarRoute (slot);
             found.push_back ({ i, (int) slot.source, Mod::visualDepth (slot), slot.bypass, bipolar, (int) slot.polarity,
-                               slot.stereo && Mod::canBeStereo (slot.destination), Mod::canBeStereo (slot.destination) });
+                               slot.stereo && Mod::canBeStereoAnywhere (slot.destination), Mod::canBeStereoAnywhere (slot.destination) });
 
             if (! slot.bypass && std::abs (slot.depth) > strongest)
             {

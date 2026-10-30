@@ -156,17 +156,17 @@ void runModulationTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPro
                         && processor.readModSlot (0).polarity == Mod::Polarity::Natural,
                     "Stereo and Bipolar from the ring menu set the route, one undo step each");
 
-            routeSlot (2, Mod::Source::Lfo3, Mod::Destination::Filter1Reso, 0.3f);
+            routeSlot (2, Mod::Source::Lfo3, (Mod::Destination) Mod::destinationForParamId ("f1_keytrack"), 0.3f);
             settle (200);
-            if (auto* reso = findKnob ("f1_reso"); reso != nullptr)
+            if (auto* keyTrack = findKnob ("f1_keytrack"); keyTrack != nullptr)
             {
-                reso->syncRoutings();
-                expect (reso->getNumRoutings() == 1 && ! itemsOf (reso->getRouting (0)).at ("Stereo").isEnabled,
-                        "Stereo is greyed on a knob that can't split left and right (F1 RESO)");
+                keyTrack->syncRoutings();
+                expect (keyTrack->getNumRoutings() == 1 && ! itemsOf (keyTrack->getRouting (0)).at ("Stereo").isEnabled,
+                        "Stereo is greyed on a knob that can't split left and right (F1 KEY TRACK); resonance can since 2026-10-30");
             }
             else
             {
-                expect (false, "the filter page shows F1 RESO");
+                expect (false, "the filter page shows F1 KEY TRACK");
             }
             processor.clearModSlot (2);
             settle (100);

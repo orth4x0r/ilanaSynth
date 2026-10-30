@@ -173,7 +173,8 @@ public:
                             cell.reduced (3.0f, 1.0f).toNearestInt(), juce::Justification::topRight);
             }
 
-            paintAlgorithm (g, algorithm, cell.withTrimmedTop (11.0f).reduced (3.0f, 3.0f), lit);
+            // (13 px: under the number and the "+1 OSC" note; at 11 the glyphs ran into the note, UI review 27.)
+            paintAlgorithm (g, algorithm, cell.withTrimmedTop (13.0f).reduced (3.0f, 3.0f), lit);
         }
     }
 

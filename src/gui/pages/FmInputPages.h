@@ -1002,7 +1002,7 @@ private:
     {
         const auto routes = activeRoutes();
         IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "ROUTES",
-                                     routes.empty() ? juce::String ("none yet") : juce::String ((int) routes.size()) + juce::String::fromUTF8 (" \xc2\xb7 each one automatable"),
+                                     routes.empty() ? juce::String ("none yet") : juce::String ((int) routes.size()) + (routes.size() == 1 ? " route" : " routes"),
                                      fmColour(), 0);
         for (const auto& [route, row] : routeRows)
         {

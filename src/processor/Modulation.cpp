@@ -1159,6 +1159,8 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
     // or the source values read below would include last block's offsets.
     anyParamModulation = false;
     std::fill (paramDestinationOffsets.begin(), paramDestinationOffsets.end(), 0.0f);
+    stringStereoOffsets = {};
+    stringStereoRouted = {};
 
     for (int i = 0; i < numSlots; ++i)
     {
@@ -1175,6 +1177,15 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
 
         if (slot.aux != Mod::Source::None)
             value *= Mod::auxScale (slot.aux, globalSourceValue (slot.aux));
+
+        // A stereo route into a string knob moves the sides apart, not the knob.
+        if (slot.stereo)
+            if (const auto target = Mod::StereoString::targetFor (slot.destination); target.osc >= 0)
+            {
+                stringStereoOffsets[(size_t) target.osc][(size_t) target.field] += slot.depth * value;
+                stringStereoRouted[(size_t) target.osc] = stringStereoRouted[(size_t) target.osc] || slot.depth != 0.0f;
+                continue;
+            }
 
         totals[slot.destination] += slot.depth * value;
     }

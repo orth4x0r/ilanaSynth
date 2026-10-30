@@ -1851,14 +1851,17 @@ public:
             for (auto& pill : pills[(size_t) index])
                 if (pill->isVisible())
                     shown.push_back (pill.get());
-            // Packed from the left, or (SHAPE in the title row) each centred in an equal share of the column,
-            // over the knobs when there are as many.
-            const auto share = shown.empty() ? 0 : column.getWidth() / (int) shown.size();
+            // Packed from the left, or (SHAPE in the title row) one row of buttons filling the column, as on
+            // PLAY's LFO card: centred word-wide over the knobs, RETRIG and KEY read as SMOOTH's and START's
+            // names (UI review 27).
+            const auto share = shown.empty() ? 0 : (column.getWidth() + 4) / (int) shown.size();
             auto x = column.getX();
             for (size_t i = 0; i < shown.size(); ++i)
             {
-                const auto width = (int) std::ceil (shown[i]->textWidth()) + 8;
-                const auto left = inTitle && width <= share ? column.getX() + (int) i * share + (share - width) / 2 : x;
+                const auto textW = (int) std::ceil (shown[i]->textWidth()) + 8;
+                const auto fill = inTitle && textW <= share - 4;
+                const auto left = fill ? column.getX() + (int) i * share : x;
+                const auto width = fill ? share - 4 : textW;
                 shown[i]->setBounds ({ left, line (lines).getY(), width, compactLine });
                 x = left + width + 2;
             }

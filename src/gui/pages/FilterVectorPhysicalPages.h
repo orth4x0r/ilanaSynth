@@ -522,15 +522,25 @@ public:
         motionBox = inner;
 
         auto corners = cornersBox.reduced (padding, 0).withTrimmedTop (boxHeaderHeight + 2).withTrimmedBottom (8);
-        const auto rowHeight = corners.getHeight() / 2;
+        // A row whose two corners name no oscillator ("OSC 4: none") keeps only its menus: its pictures
+        // would be two empty boxes (UI review 27), so the other row's pictures take the room.
+        const auto missing = [this] (int corner)
+        {
+            const auto osc = processorRef.getVectorCorner (corner);
+            return ! (osc >= 0 && osc < OscillatorIds::count && processorRef.isOscillatorShown (osc));
+        };
+        const auto menuOnly = 46 + 4;
+        const auto bare1 = missing (0) && missing (1), bare2 = missing (2) && missing (3);
+        const auto rowHeight = bare1 == bare2 ? corners.getHeight() / 2 : bare1 ? menuOnly : corners.getHeight() - menuOnly;
         auto row1 = corners.removeFromTop (rowHeight);
         auto row2 = corners;
-        const auto cell = [this] (juce::Rectangle<int> area, ComboControl& menu, VectorCornerWave& wave)
+        const auto cell = [] (juce::Rectangle<int> area, ComboControl& menu, VectorCornerWave& wave)
         {
             area = area.reduced (3, 2);
             menu.setBounds (area.removeFromTop (46));
             area.removeFromTop (2);
             wave.setBounds (area);
+            wave.setVisible (area.getHeight() > 20);
         };
         cell (row1.removeFromLeft (row1.getWidth() / 2), cornerA, cornerWaves[0]);
         cell (row1, cornerB, cornerWaves[1]);
@@ -566,9 +576,19 @@ private:
             shown |= processorRef.isOscillatorShown (osc) && readParam (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_on") < 0.5f ? 1 << (osc + 8) : 0;
         }
 
+        auto corners = 0;
+        for (int corner = 0; corner < 4; ++corner)
+            corners = corners * 16 + processorRef.getVectorCorner (corner) + 1;
+        if (corners != cornerKey)
+        {
+            cornerKey = corners;
+            resized();
+        }
+
         if (shown != shownOscillators)
         {
             shownOscillators = shown;
+            resized(); // (a corner row with no oscillator folds to its menus)
             for (auto* corner : { &cornerA, &cornerB, &cornerC, &cornerD })
             {
                 auto& box = corner->getComboBox();
@@ -616,6 +636,7 @@ private:
     static constexpr int boxHeaderHeight = 24;
     bool shownActive = false;
     int shownOscillators = -1;
+    int cornerKey = -1; // (the four corners' picks: a change relayouts the corner rows)
 };
 
 } // namespace

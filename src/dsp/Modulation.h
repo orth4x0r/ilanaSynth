@@ -804,24 +804,95 @@ inline int spectralOscFor (int destination)
 constexpr int maxSlots = 64;
 constexpr int remapSize = 256;
 
-// Stereo routes into a filter cutoff are summed per voice into two internal
-// destinations just past the explicit ones (never stored in a patch): the
-// left channel gets +sum, the right -sum. Returns the internal index
-// (Count or Count + 1) for a stereo slot on Filter 1 / 2 Cutoff, else -1.
-constexpr int numStereoDestinations = 2;
-// Whether a route into this destination can be stereo (the menus grey the choice elsewhere).
-inline bool canBeStereo (int destination)
+// Stereo routes are summed per voice into internal destinations just past
+// the explicit ones (never stored in a patch): the left side gets +sum, the
+// right -sum. Filter 1 / 2 cutoff keep internal indices Count and Count + 1;
+// 2026-10-30 (ilana: "stereo frame, stereo everything") added the filters'
+// resonance, morph and drive, and each oscillator's FRAME and WARP (a
+// wavetable oscillator plays its unison voices, or one voice as a left /
+// right twin, apart). Order is internal only: append freely.
+inline constexpr std::array<Destination, 20> stereoDestinations {
+    Destination::Filter1Cutoff, Destination::Filter2Cutoff,
+    Destination::Filter1Reso, Destination::Filter2Reso,
+    Destination::Filter1Morph, Destination::Filter2Morph,
+    Destination::Filter1Drive, Destination::Filter2Drive,
+    Destination::Osc1Frame, Destination::Osc2Frame, Destination::SubFrame,
+    Destination::Osc4Frame, Destination::Osc5Frame, Destination::Osc6Frame,
+    Destination::Osc1Warp, Destination::Osc2Warp, Destination::SubWarp,
+    Destination::Osc4Warp, Destination::Osc5Warp, Destination::Osc6Warp,
+};
+constexpr int numStereoDestinations = (int) stereoDestinations.size();
+// Indices into stereoDestinations (add Destination::Count for the internal destination).
+namespace StereoIndex
 {
-    return destination == (int) Destination::Filter1Cutoff || destination == (int) Destination::Filter2Cutoff;
+    constexpr int cutoff1 = 0, cutoff2 = 1, reso1 = 2, reso2 = 3, morph1 = 4, morph2 = 5, drive1 = 6, drive2 = 7,
+                  frame = 8, warp = 14; // + the oscillator (0..5)
 }
 
+inline int stereoIndexFor (int destination)
+{
+    for (int i = 0; i < numStereoDestinations; ++i)
+        if ((int) stereoDestinations[(size_t) i] == destination)
+            return i;
+    return -1;
+}
+
+// Whether a route into this destination can be stereo (the matrix greys STEREO elsewhere).
+inline bool canBeStereo (int destination)
+{
+    return stereoIndexFor (destination) >= 0;
+}
+
+// Physical strings (2026-10-30, ilana: "cant physical oscs still do stereo"):
+// a stereo route into one of these knobs plays the oscillator's strings
+// apart, the left ones up by the amount and the right ones down (one string
+// plays as a left / right twin). The fields of VoiceParams::OscParams::stringStereo.
+namespace StereoString
+{
+    enum Field { decay, damping, stiffness, excitePosition, hammer, bowPressure, numFields };
+    inline constexpr const char* suffixes[numFields] { "_string_decay", "_string_damp", "_string_stiffness",
+                                                       "_string_excite_pos", "_hammer_hard", "_bow_pressure" };
+    inline constexpr const char* prefixes[6] { "osc1", "osc2", "sub", "osc4", "osc5", "osc6" };
+
+    struct Target
+    {
+        int osc = -1, field = -1;
+    };
+
+    // The oscillator and knob a parameter destination moves, or { -1, -1 }.
+    inline Target targetFor (int destination)
+    {
+        static const auto table = []
+        {
+            std::vector<Target> targets (getParamDestinations().size());
+            for (size_t i = 0; i < targets.size(); ++i)
+            {
+                const juce::String id (getParamDestinations()[i].id);
+                for (int osc = 0; osc < 6; ++osc)
+                    for (int field = 0; field < numFields; ++field)
+                        if (id == juce::String (prefixes[osc]) + suffixes[field])
+                            targets[i] = { osc, field };
+            }
+            return targets;
+        }();
+        const auto index = paramDestinationIndex (destination);
+        return index >= 0 && index < (int) table.size() ? table[(size_t) index] : Target {};
+    }
+}
+
+// Whether a route into this destination can be stereo: the explicit ones above and the string knobs.
+inline bool canBeStereoAnywhere (int destination)
+{
+    return canBeStereo (destination) || StereoString::targetFor (destination).osc >= 0;
+}
+
+// The internal index (Count + i) a stereo slot sums into, else -1.
 inline int stereoTargetFor (const Slot& slot)
 {
     if (! slot.stereo)
         return -1;
-
-    return slot.destination == (int) Destination::Filter1Cutoff ? (int) Destination::Count
-         : slot.destination == (int) Destination::Filter2Cutoff ? (int) Destination::Count + 1 : -1;
+    const auto index = stereoIndexFor (slot.destination);
+    return index >= 0 ? (int) Destination::Count + index : -1;
 }
 
 // A route into a spectral amount that the voices evaluate themselves.

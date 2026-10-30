@@ -512,11 +512,19 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
                                                    + settings.cents / 100.0) / 12.0)
                                : oscFrequencyFactor (settings);
 
+        // A stereo string route: the twin (or each unison string) starts on its own side of it.
+        const auto unison = settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano
+                                ? 1 : juce::jlimit (1, VoiceParams::maxBufferedUnison, settings.unison);
+        stringTwin[osc] = settings.stringStereo && unison == 1;
+        const auto count = stringTwin[osc] ? 2 : unison;
+        if (stringTwin[osc])
+            stringFor (osc, 1).matchNoise (stringFor (osc, 0));
+
         for (int u = 0; u < VoiceParams::maxBufferedUnison; ++u)
         {
             auto& string = stringFor (osc, u);
             string.setFrequency (pitch);
-            configureString (string, settings);
+            configureString (string, settings, u < count ? stringSide (osc, u, count) : 0.0f);
             string.trigger (velocity);
         }
     }
@@ -955,7 +963,7 @@ void Voice::reExcite (float level)
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (params.oscillators[osc].stringMode && params.oscillatorEnabled[osc])
-            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+            for (int u = 0; u < stringsPlaying (osc); ++u)
                 stringFor (osc, u).trigger (juce::jlimit (0.0f, 1.0f, level * velocityLevel * 1.25f));
 }
 
@@ -1452,6 +1460,15 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         // The Modal Piano's recording already has all of a note's strings.
         if (settings.stringMode && settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano)
             numOscUnison[osc] = juce::jmin (numOscUnison[osc], 1);
+
+        // A stereo string route on one string: a second plays its right side.
+        const auto twin = settings.stringMode && settings.stringStereo && numOscUnison[osc] == 1;
+        if (twin && ! stringTwin[osc] && settings.stringMode == lastStringMode[osc])
+        {
+            // (A route added mid-note: the twin picks up where the string is.)
+            stringFor (osc, 1) = stringFor (osc, 0);
+        }
+        stringTwin[osc] = twin;
     }
 
     updateUnisonLayout();
@@ -1475,9 +1492,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     {
         const auto& settings = params.oscillators[osc];
 
-        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+        const auto count = stringsPlaying (osc);
+        for (int u = 0; u < count; ++u)
         {
-            configureString (stringFor (osc, u), settings);
+            configureString (stringFor (osc, u), settings, stringSide (osc, u, count));
         }
     };
 
@@ -1486,7 +1504,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     configureStrings (2);
 
     if (params.oscillators[2].stringMode && ! lastStringMode[2] && params.oscillatorEnabled[2])
-        for (int u = 0; u < juce::jmin (numOscUnison[2], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (2); ++u)
             stringFor (2, u).trigger (velocityLevel);
 
     lastStringMode[2] = params.oscillators[2].stringMode;
@@ -1580,7 +1598,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         configureStrings (osc);
 
     if (params.oscillators[0].stringMode && ! lastStringMode[0])
-        for (int u = 0; u < juce::jmin (numOscUnison[0], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (0); ++u)
             stringFor (0, u).trigger (velocityLevel);
 
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
@@ -1591,7 +1609,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         }
 
     if (params.oscillators[1].stringMode && ! lastStringMode[1])
-        for (int u = 0; u < juce::jmin (numOscUnison[1], VoiceParams::maxBufferedUnison); ++u)
+        for (int u = 0; u < stringsPlaying (1); ++u)
             stringFor (1, u).trigger (velocityLevel);
 
     for (int osc = 0; osc < 2; ++osc)
@@ -1604,7 +1622,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
 
         configureStrings (osc);
         if (params.oscillators[osc].stringMode && ! lastStringMode[osc])
-            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+            for (int u = 0; u < stringsPlaying (osc); ++u)
                 stringFor (osc, u).trigger (velocityLevel);
         lastStringMode[osc] = params.oscillators[osc].stringMode;
     }
@@ -1621,12 +1639,24 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // loop's input); every other model is driven by a tanh in front.
     const auto inside1 = FilterType::drivesInside (params.filter1.type);
     const auto inside2 = FilterType::drivesInside (params.filter2.type);
-    for (auto* filter : { &filter1L, &filter1R, &bothFilter1L, &bothFilter1R })
-        filter->setDrive (inside1 ? driveAmount1 : 1.0f);
-    for (auto* filter : { &filter2L, &filter2R, &bothFilter2L, &bothFilter2R })
-        filter->setDrive (inside2 ? driveAmount2 : 1.0f);
-    const auto drive1 = inside1 ? 1.0f : driveAmount1;
-    const auto drive2 = inside2 ? 1.0f : driveAmount2;
+    // A stereo route into a drive: the left side gets more, the right less (2026-10-30).
+    const auto stereoDrive = [this] (float amount, int index)
+    {
+        const auto shift = stereoRouted[(size_t) index] ? blockMod ((Mod::Destination) ((int) Mod::Destination::Count + index)) * driveRange : 0.0f;
+        return DriveAmounts { juce::jlimit (1.0f, 10.0f, amount + shift), juce::jlimit (1.0f, 10.0f, amount - shift) };
+    };
+    const auto drives1 = stereoDrive (driveAmount1, Mod::StereoIndex::drive1);
+    const auto drives2 = stereoDrive (driveAmount2, Mod::StereoIndex::drive2);
+    for (auto* filter : { &filter1L, &bothFilter1L })
+        filter->setDrive (inside1 ? drives1.l : 1.0f);
+    for (auto* filter : { &filter1R, &bothFilter1R })
+        filter->setDrive (inside1 ? drives1.r : 1.0f);
+    for (auto* filter : { &filter2L, &bothFilter2L })
+        filter->setDrive (inside2 ? drives2.l : 1.0f);
+    for (auto* filter : { &filter2R, &bothFilter2R })
+        filter->setDrive (inside2 ? drives2.r : 1.0f);
+    const auto drive1 = inside1 ? DriveAmounts {} : drives1;
+    const auto drive2 = inside2 ? DriveAmounts {} : drives2;
 
     auto* left = outputBuffer.getWritePointer (0);
     auto* right = outputBuffer.getNumChannels() > 1 ? outputBuffer.getWritePointer (1) : nullptr;
@@ -1877,10 +1907,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const auto drive = [] (float value, float amount) { return amount > 1.0f ? FastMath::tanh (value * amount) : value; };
 
     // A mono source feeds both sides alike: drive it once (the same result).
-    const auto drivePair = [&drive] (float l, float r, float amount, float& outL, float& outR)
+    const auto drivePair = [&drive] (float l, float r, DriveAmounts amount, float& outL, float& outR)
     {
-        outL = drive (l, amount);
-        outR = r == l ? outL : drive (r, amount);
+        outL = drive (l, amount.l);
+        outR = r == l && amount.r == amount.l ? outL : drive (r, amount.r);
     };
 
     // M8.3: the west-coast voice's control (the LED's drive): a strike on
@@ -2012,7 +2042,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                             if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
                                 for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                                     if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
-                                        for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                                        for (int u = 0; u < stringsPlaying (osc); ++u)
                                             stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (wetL + wetR));
                             l = l * (1.0f - resonatorAmount) + wetL * resonatorAmount;
                             r = r * (1.0f - resonatorAmount) + wetR * resonatorAmount;
@@ -2169,10 +2199,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             // bit-identical whenever no oscillator selects Both.
             if (bothActive)
             {
-                const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1));
-                const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1));
-                const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2));
-                const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2));
+                const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1.l));
+                const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1.r));
+                const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2.l));
+                const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2.r));
                 sampleL += (both1L + both2L) * 0.7071f;
                 sampleR += (both1R + both2R) * 0.7071f;
             }
@@ -2199,7 +2229,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                 if (params.bodyCouplingMode == 2 && params.bodyCoupling > 0.0f)
                     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
                         if (params.oscillatorEnabled[osc] && params.oscillators[osc].stringMode)
-                            for (int u = 0; u < juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); ++u)
+                            for (int u = 0; u < stringsPlaying (osc); ++u)
                                 stringFor (osc, u).addBridgeInput (0.01f * params.bodyCoupling * (bodyWetL + bodyWetR));
             }
 
@@ -3218,7 +3248,41 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     const auto route = routes[osc];
                     auto mono = oscMono[osc];
                     auto bl = busL[route], br = busR[route];
-                    for (int u = 0; u < numOscUnison[osc]; ++u)
+                    if (stringTwin[osc])
+                    {
+                        // A stereo route on one string: string 0 is the left
+                        // side and its twin the right, each at the voice's
+                        // own pan (identical while the route sits at 0).
+                        auto& left = stringFor (osc, 0);
+                        auto& right = stringFor (osc, 1);
+                        if (liveIn)
+                        {
+                            left.addLiveInput (liveAmount);
+                            right.addLiveInput (liveAmount);
+                        }
+                        auto rawL = left.process (aftertouchValue, noteHeld, fm);
+                        auto rawR = right.process (aftertouchValue, noteHeld, fm);
+                        auto sideL = left.side(), sideR = right.side();
+                        if (match)
+                        {
+                            rawL *= trim;
+                            rawR *= trim;
+                            sideL *= trim;
+                            sideR *= trim;
+                        }
+                        const auto raw = 0.5f * (rawL + rawR);
+                        stringSum += raw;
+
+                        const auto gain = unisonGains[osc][0] * renderLevel * enable * envFactor * keyGain;
+                        mono += raw * gain;
+                        if (out)
+                        {
+                            const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
+                            bl += (rawL + sideL) * heard * panGainL[osc][0];
+                            br += (rawR - sideR) * heard * panGainR[osc][0];
+                        }
+                    }
+                    for (int u = 0; u < (stringTwin[osc] ? 0 : numOscUnison[osc]); ++u)
                     {
                         auto& string = stringFor (osc, u);
                         if (liveIn)
@@ -3460,7 +3524,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     }
                 if (otherCount == 0)
                     continue;
-                const auto count = juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison);
+                const auto count = stringsPlaying (osc);
                 for (int u = 0; u < count; ++u)
                     stringFor (osc, u).addBridgeInput (0.015f * params.bodyCoupling * otherDrive / (float) otherCount);
             }
@@ -3539,11 +3603,28 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     }
 }
 
-void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams& settings) const
+void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams& settings, float side) const
 {
     auto stiffness = settings.stringStiffness;
     auto damping = settings.stringDamping;
     auto decay = settings.stringDecay;
+    auto excitePosition = settings.stringExcitationPosition;
+    auto hammer = settings.hammerHardness;
+    auto bowPressure = settings.bowPressure;
+
+    // Stereo string routes: this string's side of them (every knob is 0..1).
+    if (side != 0.0f)
+    {
+        namespace S = Mod::StereoString;
+        const auto& offsets = settings.stringStereoOffsets;
+        const auto moved = [side] (float value, float offset) { return juce::jlimit (0.0f, 1.0f, value + side * offset); };
+        decay = moved (decay, offsets[S::decay]);
+        damping = moved (damping, offsets[S::damping]);
+        stiffness = moved (stiffness, offsets[S::stiffness]);
+        excitePosition = moved (excitePosition, offsets[S::excitePosition]);
+        hammer = moved (hammer, offsets[S::hammer]);
+        bowPressure = moved (bowPressure, offsets[S::bowPressure]);
+    }
 
     // Register map: short, stiff, bright treble strings; long, looser bass
     // strings that ring longer.
@@ -3563,12 +3644,12 @@ void Voice::configureString (KarplusStrong& string, const VoiceParams::OscParams
     string.setParams (static_cast<KarplusStrong::Excite> (juce::jlimit (0, KarplusStrong::numExcites - 1, settings.stringExcite)),
                       settings.stringSustain, damping, decay);
     string.setPhysicalParams (stiffness, settings.stringPickup,
-                              settings.stringExcitationPosition, settings.stringPickHardness,
+                              excitePosition, settings.stringPickHardness,
                               settings.stringPickPosition, settings.stringSlap);
-    string.setBowAndBuzz (settings.bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
+    string.setBowAndBuzz (bowPressure, settings.bowSpeed, settings.bridgeBuzz, settings.fretRattle);
     string.setSplit (settings.stringSplit);
     string.setClick (settings.stringClick);
-    string.setKeysParams (settings.hammerHardness, settings.damper);
+    string.setKeysParams (hammer, settings.damper);
     string.setEco (params.quality == 0);
     string.setFeedbackParams (settings.fbGain, settings.fbDistance);
     if (string.isElectric())
@@ -3711,6 +3792,14 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
         oscBank[osc].setWarp (settings.warpMode, warp);
         oscBank[osc].setWarp2 (settings.warpMode2, warp2);
         oscBank[osc].setSpreads (settings.frameSpread, settings.warpSpread);
+        {
+            // Stereo FRAME / WARP routes (2026-10-30): the bank plays its voices apart, one voice as a left / right twin.
+            const auto frameIndex = Mod::StereoIndex::frame + osc, warpIndex = Mod::StereoIndex::warp + osc;
+            const auto stereoFrame = stereoRouted[(size_t) frameIndex], stereoWarp = stereoRouted[(size_t) warpIndex];
+            oscBank[osc].setStereo (stereoFrame || stereoWarp,
+                                    stereoFrame ? mods[(int) Mod::Destination::Count + frameIndex] : 0.0f,
+                                    stereoWarp ? mods[(int) Mod::Destination::Count + warpIndex] : 0.0f);
+        }
 
         oscBank[osc].setFrequencies (baseFreq, unisonRatio[osc], numOscUnison[osc]);
 
@@ -3721,6 +3810,8 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
             if (u < VoiceParams::maxBufferedUnison)
             {
                 stringFor (osc, u).setFrequency (frequencyU);
+                if (stringTwin[osc])
+                    stringFor (osc, 1).setFrequency (frequencyU);
                 const auto* zone = sampleZone[osc];
                 const auto* played = zone != nullptr ? zone->data.get() : settings.sample;
                 sampleRatio[osc][u] = settings.sampleTuned ? frequencyU / (zone != nullptr ? zone->rootHz() : plainRootHz (settings.sampleRoot)) : 1.0;
@@ -3914,7 +4005,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     };
     const auto open1 = ! disableOpenFilterBypass && params.filter1.type == FilterType::LowPass
                        && ! params.filter1.slope24 && cutoff1 >= openFilterHz && reso1 <= 0.3f && fmOctaves1 == 0.0
-                       && ! stereoRouted[0] && filter1Static();
+                       && ! filterStereo (0) && filter1Static();
 
     if (open1 != filter1Open)
     {
@@ -3953,14 +4044,18 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
         const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
         const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
 
-        if (stereoRouted[0])
+        if (filterStereo (0))
         {
-            // A stereo route: the left cutoff moves up as the right moves down.
-            const auto shift = (double) mods[(int) D::Count] * (double) Mod::Range::cutoffOctaves;
+            // A stereo route: the left cutoff (resonance, morph) moves up as the right moves down.
+            const auto shift = (double) mods[(int) D::Count + Mod::StereoIndex::cutoff1] * (double) Mod::Range::cutoffOctaves;
+            const auto resoShift = mods[(int) D::Count + Mod::StereoIndex::reso1];
+            const auto morphShift = mods[(int) D::Count + Mod::StereoIndex::morph1];
             const auto left = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
-                                                            juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)), reso1, morph1);
+                                                            juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)),
+                                                            juce::jlimit (0.0f, 1.0f, reso1 + resoShift), juce::jlimit (0.0f, 1.0f, morph1 + morphShift));
             const auto right = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
-                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (-shift)), reso1, morph1);
+                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (-shift)),
+                                                             juce::jlimit (0.0f, 1.0f, reso1 - resoShift), juce::jlimit (0.0f, 1.0f, morph1 - morphShift));
 
             if (filter1Linked)
             {
@@ -3999,7 +4094,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     // be heard doing). Moving between the two starts the new one from rest.
     const auto open2 = ! disableOpenFilterBypass && params.filter2.type == FilterType::LowPass
                        && ! params.filter2.slope24 && cutoff2 >= openFilterHz && reso2 <= 0.3f && fmOctaves2 == 0.0
-                       && ! stereoRouted[1];
+                       && ! filterStereo (1);
 
     if (open2 != filter2Open)
     {
@@ -4032,13 +4127,17 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     const auto morph2 = juce::jlimit (0.0f, 1.0f, params.filter2.morph + mods[(int) D::Filter2Morph]);
     const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2, morph2);
 
-    if (stereoRouted[1])
+    if (filterStereo (1))
     {
-        const auto shift = (double) mods[(int) D::Count + 1] * (double) Mod::Range::cutoffOctaves;
+        const auto shift = (double) mods[(int) D::Count + Mod::StereoIndex::cutoff2] * (double) Mod::Range::cutoffOctaves;
+        const auto resoShift = mods[(int) D::Count + Mod::StereoIndex::reso2];
+        const auto morphShift = mods[(int) D::Count + Mod::StereoIndex::morph2];
         const auto left = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
-                                                        juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)), reso2, morph2);
+                                                        juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)),
+                                                        juce::jlimit (0.0f, 1.0f, reso2 + resoShift), juce::jlimit (0.0f, 1.0f, morph2 + morphShift));
         const auto right = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
-                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (-shift)), reso2, morph2);
+                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (-shift)),
+                                                         juce::jlimit (0.0f, 1.0f, reso2 - resoShift), juce::jlimit (0.0f, 1.0f, morph2 - morphShift));
 
         if (filter2Linked)
         {

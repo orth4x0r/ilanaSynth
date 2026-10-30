@@ -104,6 +104,9 @@ public:
                 rows[lane] = nullptr;
             }
         }
+
+        if (twin && count == 1)
+            copyLaneZeroToTwin();
     }
 
     // Warps raise the harmonics, so they move the table level too. Only the
@@ -137,7 +140,12 @@ public:
         }
     }
 
-    void resetPhase (int lane, double newPhase) { phase[lane] = toFixed (newPhase - fastFloor (newPhase)); }
+    void resetPhase (int lane, double newPhase)
+    {
+        phase[lane] = toFixed (newPhase - fastFloor (newPhase));
+        if (lane == 0 && twin && lastCount == 1)
+            phase[1] = phase[0];
+    }
     float getPhase (int lane) const { return (float) ((double) phase[lane] * phaseToDouble); }
     bool lane0Wrapped() const { return wrapped; }
 
@@ -146,6 +154,34 @@ public:
     void setWeights (const float* gains, const float* panL, const float* panR, int count)
     {
         count = juce::jlimit (0, maxLanes, count);
+        std::copy (gains, gains + count, lastGains);
+        std::copy (panL, panL + count, lastPanL);
+        std::copy (panR, panR + count, lastPanR);
+        lastCount = count;
+
+        // Stereo twin (2026-10-30, ilana: "process it twice like a unison"): one voice with a stereo route
+        // plays as two lanes at the same pitch and phase, lane 0 heard only on the left and lane 1 only on
+        // the right, so a stereo FRAME or WARP route can move them apart. Both lanes run in the same
+        // 4-wide group, so it costs about what two unison voices do.
+        if (twin && count == 1)
+        {
+            numGroups = 1;
+            numLanesInUse = 2;
+            for (int lane = 0; lane < maxLanes; ++lane)
+            {
+                lanePosition[lane] = 0.0f;
+                laneSide[lane] = 0.0f;
+                weightMono[lane] = weightLeft[lane] = weightRight[lane] = 0.0f;
+            }
+            weightMono[0] = weightMono[1] = 0.5f * gains[0];
+            weightLeft[0] = gains[0] * panL[0];
+            weightRight[1] = gains[0] * panR[0];
+            laneSide[0] = 1.0f;
+            laneSide[1] = -1.0f;
+            copyLaneZeroToTwin();
+            phase[1] = phase[0];
+            return;
+        }
         numGroups = (count + laneWidth - 1) / laneWidth;
         numLanesInUse = count;
 
@@ -158,6 +194,28 @@ public:
             weightMono[lane] = gain;
             weightLeft[lane] = lane < count ? gain * panL[lane] : 0.0f;
             weightRight[lane] = lane < count ? gain * panR[lane] : 0.0f;
+            // Which side a stereo route pushes this lane to: +1 hard left, -1 hard right, by its pan.
+            const auto l = lane < count ? panL[lane] : 0.0f, r = lane < count ? panR[lane] : 0.0f;
+            laneSide[lane] = l + r > 0.0f ? (l - r) / (l + r) : 0.0f;
+        }
+    }
+
+    // A stereo route on this oscillator: whether one voice plays as a left / right twin (set once a route
+    // exists, so the lane count doesn't flicker with the route's value), and the left lane's offsets
+    // (the right lane gets the opposite) for the frame position and the warp amount.
+    void setStereo (bool shouldTwin, float frameOffset, float warpOffset)
+    {
+        if (shouldTwin != twin)
+        {
+            twin = shouldTwin;
+            if (lastCount > 0)
+                setWeights (lastGains, lastPanL, lastPanR, lastCount);
+        }
+        stereoFrame = frameOffset;
+        if (warpOffset != stereoWarp)
+        {
+            stereoWarp = warpOffset;
+            updateStretch();
         }
     }
 
@@ -238,7 +296,7 @@ public:
         if (table == nullptr || table->getNumFrames() == 0 || sampleRate <= 0.0 || numGroups == 0)
             return out;
 
-        if (numLanesInUse > 1 && (frameSpread > 0.0f || warpSpread > 0.0f))
+        if (numLanesInUse > 1 && (frameSpread > 0.0f || warpSpread > 0.0f || stereoFrame != 0.0f || stereoWarp != 0.0f))
             return renderSpread (phaseModulation, frames, rate, oversample);
 
         const auto modulation = toFixed (phaseModulation - fastFloor (phaseModulation));
@@ -486,8 +544,9 @@ private:
             {
                 auto laneFrames = frames;
 
-                if (frameSpread > 0.0f)
-                    laneFrames = WavetableOscillator::frameReadFor (table, frames.position + 0.5f * frameSpread * lanePosition[lane],
+                if (frameSpread > 0.0f || stereoFrame != 0.0f)
+                    laneFrames = WavetableOscillator::frameReadFor (table, juce::jlimit (0.0f, 1.0f, frames.position + 0.5f * frameSpread * lanePosition[lane]
+                                                                                                         + stereoFrame * laneSide[lane]),
                                                                     frames.stepped);
 
                 std::int32_t index;
@@ -495,7 +554,7 @@ private:
 
                 if (warping)
                 {
-                    const auto amount = juce::jlimit (0.0f, 1.0f, warpAmount + 0.5f * warpSpread * lanePosition[lane]);
+                    const auto amount = juce::jlimit (0.0f, 1.0f, warpAmount + 0.5f * warpSpread * lanePosition[lane] + stereoWarp * laneSide[lane]);
                     warpedRead (phase[lane] + modulation, amount, index, fraction, gain);
                 }
                 else
@@ -671,11 +730,19 @@ private:
     void updateStretch()
     {
         // A warp spread raises some voices' amounts: size the table level for the top one.
-        const auto topAmount = juce::jmin (1.0f, warpAmount + 0.5f * warpSpread);
+        const auto topAmount = juce::jmin (1.0f, warpAmount + 0.5f * warpSpread + std::abs (stereoWarp));
         stretch = warpMode != Warp::Off ? Warp::harmonicStretch (warpMode, topAmount) : 1.0;
 
         if (warpMode2 != Warp::Off)
             stretch *= Warp::harmonicStretch (warpMode2, warpAmount2);
+    }
+
+    void copyLaneZeroToTwin()
+    {
+        frequency[1] = frequency[0];
+        incrementCycles[1] = incrementCycles[0];
+        increment[1] = increment[0];
+        rows[1] = rows[0];
     }
 
     void refreshAllLanes()
@@ -718,5 +785,11 @@ private:
     float frameSpread = 0.0f;
     float warpSpread = 0.0f;
     float lanePosition[maxLanes] {};
+    float laneSide[maxLanes] {};
+    float stereoFrame = 0.0f;
+    float stereoWarp = 0.0f;
+    bool twin = false;
+    float lastGains[maxLanes] {}, lastPanL[maxLanes] {}, lastPanR[maxLanes] {};
+    int lastCount = 0;
     bool wrapped = false;
 };

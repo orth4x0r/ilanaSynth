@@ -683,8 +683,10 @@ public:
         bypass.setTooltip ("Switch this routing on or off without losing its settings.");
 
         stereo.setClickingTogglesState (true);
-        stereo.setTooltip ("Stereo\nOn: the left and right filters get opposite amounts (the sign flips on the right), "
-                           "so the cutoff spreads across the stereo field.  Works on filter cutoffs.");
+        stereo.setTooltip ("Stereo\nOn: the left and right sides get opposite amounts (the sign flips on the right), "
+                           "so the sound spreads across the stereo field.  Works on filter cutoff, resonance, morph and drive, "
+                           "on a wavetable oscillator's FRAME and WARP, and on a physical string's decay, damping, stiffness, "
+                           "excite position, hammer and bow pressure.");
 
         remove.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));
         remove.setTooltip ("Remove this routing");
@@ -794,6 +796,15 @@ public:
             amount.setColour (juce::Slider::rotarySliderFillColourId, colour);
             curve.setColour (IlanaTheme::Ui::text2);
             polarity.setColour (IlanaTheme::Ui::text2);
+        }
+
+        // STEREO only where a destination can split left and right: elsewhere the chip is greyed and
+        // can't be pressed (it was lit on every row, UI review 27).
+        const auto stereoAllowed = slot.destination >= 0 && Mod::canBeStereoAnywhere (slot.destination);
+        if (stereo.isEnabled() != stereoAllowed)
+        {
+            stereo.setEnabled (stereoAllowed);
+            stereo.setAlpha (stereoAllowed ? 1.0f : 0.35f);
         }
 
         curve.refresh();

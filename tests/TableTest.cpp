@@ -49,6 +49,10 @@ template <typename Suite>
 void timedRun (const char* name, Suite&& suite)
 {
     static const auto report = juce::SystemStats::getEnvironmentVariable ("ILANA_TEST_TIMES", "").isNotEmpty();
+    // ILANA_TEST_SUITE="runStereoEverywhereTest": run that suite alone (where the main list reaches it).
+    static const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_TEST_SUITE", "");
+    if (only.isNotEmpty() && only != name)
+        return;
     const auto start = juce::Time::getMillisecondCounterHiRes();
     suite();
 
@@ -729,6 +733,8 @@ int main()
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
     timedRun ("runFrameBlendTests", [] { runFrameBlendTests(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
+    timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });
+    timedRun ("runStereoStringsTest", [] { runStereoStringsTest(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });

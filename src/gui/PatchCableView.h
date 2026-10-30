@@ -1737,6 +1737,9 @@ private:
         const auto hovered = ! selected && drag.kind == DragKind::none && hoverCable >= 0 && hoverCable < (int) graph.cables().size()
                              && graph.cables()[(size_t) hoverCable].from == cable.from && graph.cables()[(size_t) hoverCable].to == cable.to;
         colour = colour.withAlpha (selected || hovered ? 1.0f : 0.35f + 0.5f * juce::jlimit (0.0f, 1.0f, std::abs (cable.gain)));
+        // A cable out of a bypassed or unused box carries nothing: drawn faint, like the box (UI review 27).
+        if (source != nullptr && source->bypassed && ! selected && ! hovered)
+            colour = colour.withMultipliedAlpha (0.4f);
         const auto width = selected ? 2.6f : hovered ? 2.4f : 2.0f;
 
         if (isModCable (cable))

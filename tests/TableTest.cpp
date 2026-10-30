@@ -19,7 +19,6 @@
 #include "dsp/LfoCurve.h"
 #include "dsp/LfoShape.h"
 #include "dsp/Modulation.h"
-#include "dsp/PolyBlepOsc.h"
 #include "dsp/PitchDetect.h"
 #include "dsp/SampleRange.h"
 #include "dsp/SpectralFreeze.h"
@@ -697,7 +696,7 @@ int main()
     timedRun ("runAliasTests", [] { runAliasTests(); });
     timedRun ("runLoaderTest", [] { runLoaderTest(); });
     timedRun ("runFilterTests", [] { runFilterTests(); });
-    timedRun ("runSubOscillatorTests", [] { runSubOscillatorTests(); });
+    timedRun ("runPitchShiftInterpolationTest", [] { runPitchShiftInterpolationTest(); });
     timedRun ("runVoiceSmokeTest", [] { runVoiceSmokeTest(); });
     timedRun ("runFrameModulationTest", [] { runFrameModulationTest(); });
     timedRun ("runCrossModulationTest", [] { runCrossModulationTest(); });

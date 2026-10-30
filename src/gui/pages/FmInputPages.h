@@ -65,6 +65,7 @@ public:
         : processorRef (p),
           diagram (p),
           algorithms (p),
+          outputView (p),
           envelope (p, OperatorEnvEditor::Place::fmCard),
           pageTabs ({ "BASIC", "DX7 1-16", "DX7 17-32" }, { fmColour(), fmColour(), fmColour() }, false),
           mode (p.apvts, "fm_mode", "FM MODE"),
@@ -72,6 +73,7 @@ public:
           effectRules (p)
     {
         addAll (*this, diagram, algorithms, pageTabs, mode, hardSync);
+        addChildComponent (outputView);
         hardSync.showAsSwitch();
         ringMod = std::make_unique<KnobControl> (p.apvts, "ring_mod", "RING MOD", fmColour(), false);
         ringMod->setSizeRole (IlanaTheme::KnobSize::minimum);
@@ -99,6 +101,16 @@ public:
                 knob->setSizeRole (IlanaTheme::KnobSize::mini);
                 addAndMakeVisible (*knob);
                 knobs[(size_t) source][(size_t) target] = std::move (knob);
+            }
+
+            for (int target = 0; target < OscillatorIds::count; ++target)
+            {
+                // (ilana, 2026-10-29: the depth on the cable itself, PATCH's way; the same parameter as the ROUTES
+                // list's knob, so both automate and take modulation.)
+                auto handle = std::make_unique<KnobControl> (p.apvts, FmDiagram::routeId (source, target), "", FmDiagram::oscColour (source), false);
+                handle->setPackedDial (30.0f);
+                addChildComponent (*handle);
+                cableKnobs[(size_t) source][(size_t) target] = std::move (handle);
             }
 
             outs[(size_t) source] = std::make_unique<ToggleControl> (
@@ -131,6 +143,15 @@ public:
         noiseTypeMenu.setTooltip (describeParameter ("fm_noise_type"));
         addAndMakeVisible (noiseTypeMenu);
         noiseTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (p.apvts, "fm_noise_type", noiseTypeMenu);
+
+        addRouteButton.setButtonText ("+ ADD ROUTE");
+        addRouteButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        addRouteButton.setColour (juce::TextButton::textColourOffId, fmColour());
+        addRouteButton.setTooltip ("Add an FM route: pick the oscillator that modulates, then the one it modulates. Or drag from one box to another in the picture.");
+        addRouteButton.onClick = [this] { showAddRouteMenu(); };
+        addAndMakeVisible (addRouteButton);
+        ringMod->setLabelText ("RING MOD");
+        noiseColourKnob->setLabelText ("COLOUR");
 
         // The same heading as the open section ("EXTRAS", at the matrix's
         // foot) whatever the operator count (review 10, I10-5).
@@ -190,17 +211,6 @@ public:
         extrasOpen = ! anyOperatorEnv();
         selectOperator (shown.empty() ? 0 : shown.front());
         startTimerHz (12);
-        flow.tick = [this]
-        {
-            if (cablesAnimated && IlanaAnim::showing (*this))
-            {
-                flowPhase = std::fmod (flowPhase + 0.014f, 1.0f);
-                for (auto& entry : cableGrow)
-                    entry.second = juce::jmin (1.0f, entry.second + 0.06f); // (about 0.7 s)
-                repaint (matrixCard);
-            }
-        };
-        flow.startTimerHz (24);
         IlanaTheme::identityColourListeners (&p).add (this);
     }
 
@@ -276,7 +286,7 @@ public:
                                     juce::Justification::centredLeft, 3);
         }
 
-        paintMatrix (g);
+        paintRoutes (g);
     }
 
     void visibilityChanged() override
@@ -315,6 +325,13 @@ public:
                 repaint (algorithmsTitle);
             }
         }
+
+        if (routesSignature() != lastRoutesSignature)
+        {
+            layoutRoutes();
+            repaint (matrixCard);
+        }
+        layoutCableKnobs();
 
         const auto inputsChanged = refreshFmInputs (false);
         const auto cellsChanged = refreshCellKnobs();
@@ -409,9 +426,9 @@ public:
         // The matrix as wide as its cells (one cell size for every patch,
         // V8-35), at least as wide as its FM MODE line; the rest goes to
         // the diagram and the operator card.
-        const auto count = juce::jmax (1, (int) gridOps().size());
-        matrixCard = area.removeFromRight (juce::jlimit (minimumMatrixWidth, area.getWidth() * 44 / 100,
-                                                         20 + headWidth + count * cellWidth));
+        // (ilana, 2026-10-29, FM option A: the picture is the editor; at the right, the ROUTES list, FM MODE and the
+        // extras in one narrow column.)
+        matrixCard = area.removeFromRight (juce::jlimit (260, 300, area.getWidth() * 29 / 100));
         area.removeFromRight (10);
 
         // Left column: algorithms (one row, its pages on the heading's line),
@@ -430,20 +447,20 @@ public:
         lastDiagramMinimum = diagram.getMinimumHeight();
         lastAnyOperatorEnv = anyOperatorEnv();
         lastExtrasShown = matrixExtrasShown();
-        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (operatorCardHeight, area.getHeight() - 150)));
+        // (ilana, 2026-10-29: "osc + env section could prolly be smaller": a patch with no Operator Env gets the
+        // one-row card; one height per patch, so switching operators never moves the picture.)
+        const auto cardHeight = anyOperatorEnv() ? operatorCardHeight : plainCardHeight;
+        operatorCard = area.removeFromBottom (juce::jmax (150, juce::jmin (cardHeight, area.getHeight() - 150)));
         area.removeFromBottom (8);
         diagram.setBounds (area);
 
         layoutOperatorCard();
-        layoutMatrix();
+        layoutRoutes();
+        layoutCableKnobs();
     }
 
     juce::Rectangle<int> getOperatorCardBounds() const { return operatorCard; }
     juce::Rectangle<int> getMatrixCardBounds() const { return matrixCard; }
-    juce::Rectangle<int> getMatrixCellBounds (int source, int target) const
-    {
-        return source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target];
-    }
     bool areMatrixExtrasShown() const { return ringMod->isVisible(); }
 
 private:
@@ -656,12 +673,17 @@ private:
     void layoutPlainOperator (OperatorControls& controls)
     {
         for (auto& each : operators)
+        {
             setOperatorCardStyle (*each, true);
+            each->feedbackType.setCompactLayout (false); // (a menu in the menus' row, the same look)
+        }
 
         auto inner = operatorCard.reduced (10, 0);
         inner.removeFromTop (30);
         inner.removeFromBottom (8);
-        const auto gridWidth = juce::jmin (336, inner.getWidth() * 62 / 100);
+        // TUNING, SNAP, ENVELOPE and FB TYPE in one row of menus, the knobs in one row under them, the hint at the
+        // foot; the envelope's graph fills the height at the right.
+        const auto gridWidth = juce::jmin (380, inner.getWidth() * 62 / 100);
         auto left = inner.removeFromLeft (gridWidth);
         inner.removeFromLeft (10);
         if (ampGraph != nullptr)
@@ -672,46 +694,25 @@ private:
         if (tune == OscTuning::Ratio)
             menus.push_back (&controls.snap);
         menus.push_back (&controls.ampEnv);
+        menus.push_back (&controls.feedbackType);
 
-        std::vector<juce::Component*> knobsInGrid;
+        std::vector<juce::Component*> knobsInRow;
         if (tune == OscTuning::Ratio)
-            knobsInGrid.push_back (&controls.ratio);
+            knobsInRow.push_back (&controls.ratio);
         if (tune == OscTuning::Fixed)
-            knobsInGrid.push_back (&controls.fixedHz);
+            knobsInRow.push_back (&controls.fixedHz);
         for (auto* knob : { &controls.semi, &controls.fine, &controls.level, &controls.keyLevel, &controls.feedback })
-            knobsInGrid.push_back (knob);
-        // Five knobs leave the grid's last cell: FB TYPE takes it, the hint
-        // then has the foot row to itself.
-        const auto fbInGrid = knobsInGrid.size() < 6;
-        if (fbInGrid)
-            knobsInGrid.push_back (&controls.feedbackType);
+            knobsInRow.push_back (knob);
 
-        constexpr int menuHeight = 40, footHeight = 30, gap = 6, columns = 3;
+        constexpr int menuHeight = 40, footHeight = 18, gap = 6;
         layoutRow (left.removeFromTop (menuHeight), menus);
         left.removeFromTop (gap);
-        auto foot = left.removeFromBottom (footHeight);
-        left.removeFromBottom (gap);
-        const auto rowHeight = (left.getHeight() - gap) / 2;
-        const auto cellWidth = left.getWidth() / columns;
-
-        for (size_t i = 0; i < knobsInGrid.size(); ++i)
-        {
-            const auto column = (int) i % columns, row = (int) i / columns;
-            auto cell = juce::Rectangle<int> (left.getX() + column * cellWidth, left.getY() + row * (rowHeight + gap), cellWidth, rowHeight);
-            // PLAY's ring knobs (one knob style, UI review 26); FB TYPE level with their middles.
-            if (auto* knob = dynamic_cast<KnobControl*> (knobsInGrid[i]))
-                knob->placeAsRing (cell.reduced (2, 0));
-            else
-                knobsInGrid[i]->setBounds (cell.withSizeKeepingCentre (cell.getWidth() - 8, 30));
-        }
-
-        if (fbInGrid)
-            ampHint = foot.withTrimmedLeft (2);
-        else
-        {
-            controls.feedbackType.setBounds (foot.removeFromLeft (92).withSizeKeepingCentre (92, 30));
-            ampHint = foot.withTrimmedLeft (8);
-        }
+        ampHint = left.removeFromBottom (footHeight).withTrimmedLeft (2);
+        const auto columns = (int) knobsInRow.size();
+        const auto cellWidth = left.getWidth() / juce::jmax (1, columns);
+        for (int i = 0; i < columns; ++i)
+            if (auto* knob = dynamic_cast<KnobControl*> (knobsInRow[(size_t) i]))
+                knob->placeAsRing (juce::Rectangle<int> (left.getX() + i * cellWidth, left.getY(), cellWidth, left.getHeight()).reduced (2, 0), 40);
         // Another type's way to the operator's controls, at the hint's end.
         if (makeOperator.isVisible())
         {
@@ -800,6 +801,237 @@ private:
         layoutRow (inner, bottom);
     }
 
+    // One route of the ROUTES list: an oscillator into another, into itself (feedback), or the noise (-1) into one.
+    struct Route { int source = 0, target = 0; };
+
+    std::vector<Route> activeRoutes() const
+    {
+        std::vector<Route> routes;
+        for (const auto target : shown)
+        {
+            for (const auto source : shown)
+                if (cellAmount (source, target) > 0.0005f)
+                    routes.push_back ({ source, target });
+            if (cellAmount (-1, target) > 0.0005f)
+                routes.push_back ({ -1, target });
+        }
+        // Into OSC 1 first, then OSC 2, and so on; within a target, the modulators in order, feedback and noise last.
+        return routes;
+    }
+
+    juce::String routesSignature() const
+    {
+        juce::String signature;
+        for (const auto& route : activeRoutes())
+            signature << route.source << ">" << route.target << (isLiveCell (route.source, route.target) ? "" : "x") << ",";
+        return signature;
+    }
+
+    juce::String routeName (const Route& route) const
+    {
+        const auto arrow = juce::String::fromUTF8 (" \xe2\x86\x92 ");
+        const auto from = route.source < 0 ? juce::String ("NOISE") : "OSC " + juce::String (route.source + 1);
+        return from + arrow + (route.source == route.target ? juce::String ("itself") : "OSC " + juce::String (route.target + 1));
+    }
+
+    juce::TextButton& removeButtonFor (const Route& route)
+    {
+        auto& button = removeButtons[{ route.source, route.target }];
+        if (button == nullptr)
+        {
+            button = std::make_unique<juce::TextButton> (juce::String::fromUTF8 ("\xc3\x97"));
+            button->setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            button->setColour (juce::TextButton::textColourOffId, IlanaTheme::Ui::text3);
+            button->setName ("removeRoute");
+            button->setTooltip ("Remove this route");
+            button->onClick = [this, route]
+            {
+                const auto id = route.source < 0 ? "fm_noise" + juce::String (route.target + 1) : FmDiagram::routeId (route.source, route.target);
+                if (auto* parameter = processorRef.apvts.getParameter (id))
+                {
+                    processorRef.getUndoManager().beginNewTransaction ("Remove FM route");
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost (0.0f);
+                    parameter->endChangeGesture();
+                }
+            };
+            addChildComponent (*button);
+        }
+        return *button;
+    }
+
+    void showAddRouteMenu()
+    {
+        juce::PopupMenu menu;
+        const auto addInto = [this] (int source, int target)
+        {
+            const auto id = source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target);
+            if (auto* parameter = processorRef.apvts.getParameter (id))
+            {
+                processorRef.getUndoManager().beginNewTransaction ("Add FM route");
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (0.5f);
+                parameter->endChangeGesture();
+            }
+        };
+        for (int source = -1; source < OscillatorIds::count; ++source)
+        {
+            if (source >= 0 && std::find (shown.begin(), shown.end(), source) == shown.end())
+                continue;
+            juce::PopupMenu into;
+            for (const auto target : shown)
+            {
+                const auto name = source == target ? juce::String ("itself (feedback)") : "OSC " + juce::String (target + 1);
+                const auto used = cellAmount (source, target) > 0.0005f;
+                into.addItem (name, isLiveCell (source, target) && ! used, used, [addInto, source, target] { addInto (source, target); });
+            }
+            menu.addSubMenu (source < 0 ? juce::String ("NOISE into") : "OSC " + juce::String (source + 1) + " into", into);
+        }
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addRouteButton));
+    }
+
+    // ROUTES (a row per route: its colour, its name, its depth, a remove cross), + ADD ROUTE, FM MODE, then the
+    // extras on one grid: RING MOD, SYNC 2 TO 1, the noise's type and COLOUR.
+    void layoutRoutes()
+    {
+        lastRoutesSignature = routesSignature();
+        auto inner = matrixCard.reduced (12, 0);
+        inner.removeFromTop (30);
+        inner.removeFromBottom (10);
+
+        for (int source = 0; source < OscillatorIds::count; ++source)
+        {
+            outs[(size_t) source]->setVisible (false);
+            noiseKnobs[(size_t) source]->setVisible (false);
+            for (auto& knob : knobs[(size_t) source])
+                knob->setVisible (false);
+        }
+        for (auto& entry : removeButtons)
+            entry.second->setVisible (false);
+        moreButton.setVisible (false);
+
+        // From the top (as the mock-up ilana okayed): the list, + ADD ROUTE, FM MODE, then the extras.
+        routeRows.clear();
+        constexpr int rowHeight = 40, extrasRowHeight = 58, titleHeight = 18;
+        const auto routes = activeRoutes();
+        const auto roomForRows = juce::jmax (0, (inner.getHeight() - 26 - 14 - 44 - 18 - titleHeight - extrasRowHeight) / rowHeight);
+        for (size_t i = 0; i < routes.size() && (int) i < roomForRows; ++i)
+        {
+            const auto& route = routes[i];
+            auto row = inner.removeFromTop (rowHeight);
+            routeRows.push_back ({ route, row });
+            auto& knob = cellKnob (route.source, route.target);
+            knob.setVisible (true);
+            knob.setCompact (false);
+            knob.setPackedDial (26.0f);
+            auto remove = row.removeFromRight (22);
+            auto& button = removeButtonFor (route);
+            button.setVisible (true);
+            button.setBounds (remove.withSizeKeepingCentre (22, 22));
+            knob.setBounds (KnobControl::packedBoundsFor (row.removeFromRight (cell).withSizeKeepingCentre (cell, 26 + 10).translated (0, 5)));
+        }
+        inner.removeFromTop (4);
+        addRouteButton.setBounds (inner.removeFromTop (26).withWidth (juce::jmin (inner.getWidth(), 130)));
+        inner.removeFromTop (routes.empty() ? 44 : 14);
+
+        mode.setBounds (inner.removeFromTop (44));
+        inner.removeFromTop (18);
+
+        extrasTitle = inner.removeFromTop (titleHeight);
+        auto extras = inner.removeFromTop (extrasRowHeight);
+        // (Cells as wide as what they hold: SYNC 2 TO 1's name and the noise type's longest word.)
+        constexpr std::array<float, 4> weights { 0.9f, 1.3f, 1.1f, 0.9f };
+        const auto unit = (float) extras.getWidth() / (weights[0] + weights[1] + weights[2] + weights[3]);
+        const auto cellAt = [&] (int i)
+        {
+            auto x = (float) extras.getX();
+            for (int k = 0; k < i; ++k)
+                x += weights[(size_t) k] * unit;
+            return juce::Rectangle<int> (juce::roundToInt (x), extras.getY(), juce::roundToInt (weights[(size_t) i] * unit), extras.getHeight());
+        };
+        ringMod->setVisible (true);
+        hardSync.setVisible (true);
+        noiseTypeMenu.setVisible (true);
+        noiseColourKnob->setVisible (true);
+        ringMod->setCompact (false);
+        ringMod->placeAsRing (cellAt (0), 30);
+        noiseColourKnob->setCompact (false);
+        noiseColourKnob->placeAsRing (cellAt (3), 30);
+        // One row like the knobs': the switch and the menu on the rings' middle line, every name on the
+        // knob names' line.
+        const auto middle = ringMod->getY() + juce::roundToInt (ringMod->getDialCentre().y);
+        const auto nameTop = ringMod->getY() + ringMod->getPackedNameArea().getY();
+        hardSync.setPackedName (ToggleControl::NamePlace::below);
+        hardSync.setBelowNameSize (ringMod->packedNameUnits());
+        hardSync.setBounds (cellAt (1).withTop (middle - 7).withBottom (extras.getBottom()));
+        hardSync.setNameDrop (juce::jmax (0, nameTop - (middle - 7 + 15 + 1)));
+        noiseTypeMenu.setBounds (cellAt (2).withSizeKeepingCentre (cellAt (2).getWidth() - 6, 24).withY (middle - 12));
+        noiseTypeTitle = cellAt (2).withTop (nameTop).withHeight (14);
+
+        // The rest: the sound's wave and spectrum, live, so a route's depth shows as sidebands as it turns (no bare
+        // foot under a short list).
+        inner.removeFromTop (14);
+        outputTitle = inner.removeFromTop (titleHeight);
+        outputView.setVisible (inner.getHeight() >= 70);
+        outputView.setBounds (inner.withTrimmedTop (4));
+        if (! outputView.isVisible())
+            outputTitle = {};
+        refreshCellKnobs (true);
+    }
+
+    void layoutCableKnobs()
+    {
+        for (int source = 0; source < OscillatorIds::count; ++source)
+            for (int target = 0; target < OscillatorIds::count; ++target)
+            {
+                auto& knob = *cableKnobs[(size_t) source][(size_t) target];
+                const auto handle = diagram.getRouteHandle (source, target);
+                knob.setVisible (handle.has_value() && isVisible());
+                if (! handle.has_value())
+                    continue;
+                knob.setEnabled (isLiveCell (source, target));
+                const auto centre = diagram.getPosition().toFloat() + *handle;
+                const auto bounds = KnobControl::packedBoundsFor (juce::Rectangle<int> (cell, 30 + 8).withCentre (centre.toInt().translated (0, 4)));
+                if (knob.getBounds() != bounds)
+                    knob.setBounds (bounds);
+                knob.toFront (false);
+            }
+    }
+
+    void paintRoutes (juce::Graphics& g)
+    {
+        const auto routes = activeRoutes();
+        IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "ROUTES",
+                                     routes.empty() ? juce::String ("none yet") : juce::String ((int) routes.size()) + juce::String::fromUTF8 (" \xc2\xb7 each one automatable"),
+                                     fmColour(), 0);
+        for (const auto& [route, row] : routeRows)
+        {
+            const auto live = isLiveCell (route.source, route.target);
+            const auto colour = route.source < 0 ? noiseColour() : FmDiagram::oscColour (route.source);
+            g.setColour (colour.withAlpha (live ? 1.0f : 0.35f));
+            g.fillRoundedRectangle (juce::Rectangle<float> (3.0f, (float) row.getHeight() - 12.0f).withPosition ((float) row.getX(), (float) row.getY() + 6.0f), 1.5f);
+            g.setColour (live ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, true));
+            IlanaTheme::drawFitted (g, routeName (route), row.withTrimmedLeft (12).withTrimmedRight (22 + cell + 4), juce::Justification::centredLeft, 1);
+            g.setColour (IlanaTheme::Ui::line);
+            g.fillRect (row.getX(), row.getBottom() - 1, row.getWidth(), 1);
+        }
+        if (routes.empty())
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+            IlanaTheme::drawFitted (g, noRoutesText(), addRouteButton.getBounds().translated (0, 28).withWidth (matrixCard.getWidth() - 24).withHeight (32),
+                                    juce::Justification::topLeft, 2);
+        }
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.08f));
+        g.drawText ("EXTRAS", extrasTitle, juce::Justification::bottomLeft, false);
+        g.drawText ("OUTPUT", outputTitle, juce::Justification::bottomLeft, false);
+        g.setColour (IlanaTheme::Ui::text3);
+        g.setFont (IlanaTheme::font (ringMod->packedNameUnits(), true));
+        g.drawText ("NOISE TYPE", noiseTypeTitle, juce::Justification::centredTop, false);
+    }
+
     // RING MOD, SYNC 2 TO 1 and the NOISE FM row mean nothing to a DX7
     // voice: on a patch whose oscillators play the Operator Env they fold
     // behind a MORE line unless one is in use (S8-21).
@@ -813,720 +1045,13 @@ private:
 
     bool matrixExtrasShown() const { return extrasOpen || matrixExtrasInUse(); }
 
-    // The oscillators the matrix has rows and columns for: those that play (a switched-off one has
-    // nothing to modulate or be modulated, its cells were a dead tile each, V14-5); all of them
-    // when none plays.
-    std::vector<int> gridOps() const
-    {
-        std::vector<int> result;
-        for (const auto op : shown)
-            if (playing[(size_t) op])
-                result.push_back (op);
-        return result.empty() ? shown : result;
-    }
-
-    void layoutMatrix()
-    {
-        const auto ops = gridOps();
-        const auto extras = matrixExtrasShown();
-        auto inner = matrixCard.reduced (10, 0);
-        inner.removeFromTop (26);
-
-        // The FM style across the top, a note on what sets the depth beside
-        // it; OSC 1 and OSC 2's ring mod and sync in a row under the matrix
-        // (V6-14).
-        // (The block starts right under the header: a small patch's cells are
-        // sized up to fill the card instead, V12-6.)
-        auto top = inner.removeFromTop (44);
-        mode.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 2)).reduced (3, 2));
-        topNote = top.withTrimmedLeft (12).withTrimmedTop (13);
-        inner.removeFromTop (6);
-
-        for (int source = 0; source < OscillatorIds::count; ++source)
-        {
-            const auto sourceShown = std::find (ops.begin(), ops.end(), source) != ops.end();
-            outs[(size_t) source]->setVisible (sourceShown);
-            noiseKnobs[(size_t) source]->setVisible (sourceShown && extras);
-
-            for (int target = 0; target < OscillatorIds::count; ++target)
-                knobs[(size_t) source][(size_t) target]->setVisible (
-                    sourceShown && std::find (ops.begin(), ops.end(), target) != ops.end());
-        }
-        noiseColourKnob->setVisible (extras);
-        noiseTypeMenu.setVisible (extras);
-        ringMod->setVisible (extras);
-        hardSync.setVisible (extras);
-        moreButton.setVisible (true);
-        // (An up caret in place of the down one while they are open, as OSC's MORE: one disclosure mark, P-7.)
-        moreButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM "))
-                                  + juce::String (juce::CharPointer_UTF8 (extras ? "\xe2\x96\xb4" : "\xe2\x96\xbe")));
-
-        // One cell size for every patch: the grid (row names and cells)
-        // centred across the card, the card as tall as what it holds.
-        const auto count = juce::jmax (1, (int) ops.size());
-        const auto rows = count + (extras ? 1 : 0);
-        const auto bottomHeight = extras ? 62 + 6 : 28;
-        // (Three oscillators or fewer draw larger cells, so the matrix of a
-        // small patch fills its card: UI review 9, V9-8.)
-        const auto fewOperators = count <= 3;
-        // (V15-3: a one- or two-oscillator patch's cells are near-square, not 170 x 240 px with one
-        // dot each: the card's spare height goes to the readout at its foot, which lists the routes.)
-        // (Cells are sized for their count, not stretched to the card: a
-        // three-oscillator matrix has modest cells, a six-operator one larger
-        // than its minimum, so neither is a grid of empty boxes or leaves the
-        // card's foot bare: V10-13.)
-        // (One or two oscillators: 140 px cells, still near-square, so the card isn't
-        // two thirds bare: Impeccable audit, FM matrix 69 % bare at 100 px.)
-        // (They leave the routing picture its room under the grid and the pair
-        // row, or it drops out and the readout is a bare band; cells stay square.)
-        const auto reserve = count <= 2 ? readoutHeight + 90 : readoutHeight;
-        const auto rowHeight = juce::jmin (fewOperators ? (count <= 2 ? 140 : 130) : 66, (inner.getHeight() - 22 - bottomHeight - 8 - reserve) / rows);
-        const auto columnWidth = juce::jmin (fewOperators ? (count <= 2 ? juce::jmax (100, rowHeight) : 124) : 76, (inner.getWidth() - headWidth) / count);
-        const auto gridWidth = headWidth + columnWidth * count;
-        // The grid centred between the FM MODE line and the bottom row.
-        const auto gridHeight = 22 + rowHeight * rows;
-        auto grid = juce::Rectangle<int> (inner.getX() + (inner.getWidth() - gridWidth) / 2,
-                                          inner.getY(), gridWidth, gridHeight);
-
-        matrixGridBottom = grid.getBottom();
-        auto heads = grid.removeFromTop (18);
-        heads.removeFromLeft (headWidth);
-        for (const auto i : ops)
-            columnHeads[(size_t) i] = heads.removeFromLeft (columnWidth);
-
-        grid.removeFromTop (4);
-
-        // Short cells get compact knobs, their values drawn in the cell's
-        // corner: the knob's own value box overlapped it.
-        compactCells = rowHeight < 82;
-        const auto layoutCells = [&] (juce::Rectangle<int> row, auto&& knobFor, auto&& storeCell)
-        {
-            for (const auto target : ops)
-            {
-                auto cell = row.removeFromLeft (columnWidth).reduced (4, 0);
-                storeCell (target, cell);
-                auto& knob = knobFor (target);
-                knob.setCompact (compactCells);
-                if (compactCells)
-                {
-                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 22, IlanaTheme::KnobSize::mini);
-                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize).translated (0, -6));
-                }
-                else
-                {
-                    const auto knobSize = juce::jmin (cell.getWidth() - 12, cell.getHeight() - 8, IlanaTheme::KnobSize::mini + 30);
-                    knob.setBounds (cell.withSizeKeepingCentre (knobSize, knobSize + 4));
-                }
-            }
-        };
-
-        // A row's name above its OUT button, centred in the row head (they
-        // overlapped the next row's name in short rows).
-        const auto layoutHead = [] (juce::Rectangle<int> head)
-        {
-            return head.withSizeKeepingCentre (head.getWidth(), juce::jmin (60, head.getHeight()));
-        };
-
-        for (const auto source : ops)
-        {
-            auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
-            auto head = row.removeFromLeft (headWidth);
-            rowHeads[(size_t) source] = layoutHead (head);
-            // The row's name, then its OUT switch with that name above it.
-            const auto& block = rowHeads[(size_t) source];
-            outs[(size_t) source]->setBounds (block.withTrimmedTop (20).withHeight (13 + juce::jmin (22, block.getHeight() - 33)));
-
-            layoutCells (row,
-                         [this, source] (int target) -> KnobControl& { return *knobs[(size_t) source][(size_t) target]; },
-                         [this, source] (int target, juce::Rectangle<int> cell) { cells[(size_t) source][(size_t) target] = cell; });
-        }
-
-        noiseHead = {};
-        for (auto& cell : noiseCells)
-            cell = {};
-        if (extras)
-        {
-            auto row = grid.removeFromTop (rowHeight).reduced (0, 3);
-            auto head = row.removeFromLeft (headWidth);
-            // NOISE, then its colour (a small dial with its name and value), then
-            // the noise's type under it. A short row keeps the type menu too
-            // (ilana 2026-10-15): the head sits at the row's top, tighter.
-            const auto roomForMenu = head.getHeight() >= 82;
-            const auto tight = ! roomForMenu && head.getHeight() >= 70;
-            noiseHead = tight ? head.withHeight (juce::jmin (head.getHeight(), 74)) : layoutHead (head);
-            const auto knobY = noiseHead.getY() + (tight ? 16 : 20);
-            noiseColourKnob->setBounds (noiseHead.getX() - 2, knobY, 30, 30);
-            noiseTypeMenu.setBounds (roomForMenu || tight ? juce::Rectangle<int> (noiseHead.getX(), noiseHead.getY() + (tight ? 48 : 54), juce::jmin (noiseHead.getWidth(), 112), 24)
-                                                          : juce::Rectangle<int>());
-            layoutCells (row,
-                         [this] (int target) -> KnobControl& { return *noiseKnobs[(size_t) target]; },
-                         [this] (int target, juce::Rectangle<int> cell) { noiseCells[(size_t) target] = cell; });
-        }
-
-        // Along the card's bottom: OSC 1 x OSC 2's pair controls, or the
-        // MORE line that opens them.
-        // (Right under the grid, not at the card's foot, so nothing floats:
-        // UI review 9, V9-8.)
-        const auto gridBottom = juce::jmin (inner.getBottom() - 8, matrixGridBottom + 12);
-        inner.removeFromBottom (8);
-        pairRow = {};
-        pairText = {};
-        if (extras)
-        {
-            pairRow = juce::Rectangle<int> (inner.getX(), juce::jmin (inner.getBottom() - 62, gridBottom), inner.getWidth(), 62);
-            inner.setBottom (pairRow.getY());
-            auto row = pairRow.reduced (4, 0);
-            // The words, then the two controls right after them (not the
-            // controls parked at the far edge with air between: V11-3).
-            pairText = row.removeFromLeft (juce::jmin (row.getWidth() - 200, 300));
-            row.removeFromLeft (8);
-            ringMod->placeAsRing (row.removeFromLeft (80), 38);
-            row.removeFromLeft (12);
-            // (Level with RING MOD's ring, PLAY's knob beside it: UI review 26.)
-            hardSync.setBounds (row.removeFromLeft (100).withSizeKeepingCentre (100, 37));
-            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
-                                                                           moreButton.getButtonText()) + 34;
-            moreButton.setBounds (juce::Rectangle<int> (pairText.getX(), pairText.getY() + 2, juce::jmin (pairText.getWidth(), width), 22));
-        }
-        else
-        {
-            const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::minInteractive)),
-                                                                           moreButton.getButtonText()) + 34;
-            juce::ignoreUnused (width);
-            // (The words, then EXTRAS as a bar across the card's width: no bare
-            // corner beside a short button, V12-3.)
-            const auto readoutTop = matrixGridBottom + 4;
-            // (EXTRAS sits on the card's foot and the readout takes what is
-            // between it and the grid: no bare band under the bar, V12-3.)
-            const auto buttonY = juce::jmax (readoutTop, matrixCard.getBottom() - 12 - 22);
-            readoutArea = buttonY - 4 - readoutTop >= readoutHeight - 6
-                              ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, buttonY - 4 - readoutTop)
-                              : juce::Rectangle<int>();
-            moreButton.setBounds (juce::Rectangle<int> (inner.getX() + 4, buttonY, inner.getWidth() - 8, 22));
-        }
-
-        // A line under the controls says what the matrix holds in words.
-        if (extras)
-        {
-            const auto readoutTop = pairRow.getBottom() + 4;
-            const auto room = matrixCard.getBottom() - 6 - readoutTop;
-            readoutArea = room >= 14 ? juce::Rectangle<int> (matrixCard.getX() + 14, readoutTop, matrixCard.getWidth() - 28, room)
-                                     : juce::Rectangle<int>();
-        }
-    }
-
-    // The matrix as a picture (N16-1): a node per oscillator in the grid, an arc over the row
-    // for each route with its depth, a short stem down from each one that is heard.
-    void paintRoutingPicture (juce::Graphics& g, juce::Rectangle<int> area) const
-    {
-        const auto ops = gridOps();
-        if (area.getHeight() < 70 || ops.empty())
-            return;
-
-        const auto count = (int) ops.size();
-        const auto scale = juce::jlimit (1.0f, 1.8f, ((float) area.getHeight() - 20.0f) / 80.0f);
-        const auto step = juce::jmin (90.0f * scale, (float) (area.getWidth() - 40) / (float) juce::jmax (1, count));
-        const auto left = (float) area.getCentreX() - step * (float) (count - 1) * 0.5f;
-        const auto rowY = (float) area.getCentreY() - 6.0f * scale;
-        const auto nodeAt = [&] (int k) { return juce::Point<float> (left + step * (float) k, rowY); };
-
-        for (int from = 0; from < count; ++from)
-            for (int to = 0; to < count; ++to)
-            {
-                const auto source = ops[(size_t) from], target = ops[(size_t) to];
-                if (from == to || ! isLiveCell (source, target) || cellAmount (source, target) <= 0.001f)
-                    continue;
-
-                const auto a = nodeAt (from), b = nodeAt (to);
-                const auto height = juce::jmin (40.0f * scale, (14.0f + 10.0f * (float) std::abs (to - from)) * scale);
-                juce::Path arc;
-                arc.startNewSubPath (a.translated (0.0f, -12.0f * scale));
-                arc.cubicTo (a.translated (0.0f, -12.0f * scale - height), b.translated (0.0f, -12.0f * scale - height), b.translated (0.0f, -15.0f * scale));
-                g.setColour (FmDiagram::oscColour (source).withAlpha (0.8f));
-                g.strokePath (arc, juce::PathStrokeType (1.4f));
-                juce::Path head;
-                head.addTriangle (b.x - 3.5f * scale, b.y - 21.0f * scale, b.x + 3.5f * scale, b.y - 21.0f * scale, b.x, b.y - 14.0f * scale);
-                g.fillPath (head);
-            }
-
-        for (int k = 0; k < count; ++k)
-        {
-            const auto op = ops[(size_t) k];
-            const auto centre = nodeAt (k);
-            const auto colour = FmDiagram::oscColour (op);
-            g.setColour (colour.withAlpha (0.18f));
-            g.fillEllipse (juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre));
-            g.setColour (colour.withAlpha (0.9f));
-            g.drawEllipse (juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre), 1.4f);
-            g.setColour (IlanaTheme::Ui::text);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-            IlanaTheme::drawFitted (g, juce::String (op + 1), juce::Rectangle<float> (24.0f * scale, 24.0f * scale).withCentre (centre).toNearestInt(),
-                                    juce::Justification::centred, 1);
-
-            if (read (FmOperatorInfo::prefixOf (op) + "_out") > 0.5f)
-            {
-                g.setColour (colour.withAlpha (0.7f));
-                g.fillRect (centre.x - 0.75f, centre.y + 12.0f * scale, 1.5f, 8.0f * scale);
-                g.setColour (IlanaTheme::Ui::text3);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-                IlanaTheme::drawFitted (g, "OUT", juce::Rectangle<float> (34.0f, 14.0f).withCentre (centre.translated (0.0f, 27.0f * scale)).toNearestInt(),
-                                        juce::Justification::centred, 1);
-            }
-        }
-    }
-
-    void paintMatrix (juce::Graphics& g)
-    {
-        const auto ops = gridOps();
-        IlanaTheme::paintCardHeader (g, matrixCard.reduced (12, 0).withHeight (26), "FM MATRIX", "rows modulate columns", fmColour(), 0);
-
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, anyOperatorEnv() ? juce::String (juce::CharPointer_UTF8 ("Depth = the modulating operator's OUTPUT (on its card) "
-                                                                             "\xc3\x97 this cell. Click a cell's + to add a route."))
-                                           : juce::String ("Each cell is how deeply its row modulates its column. Click a cell's + to add a route."),
-                          topNote, juce::Justification::topLeft, 3);
-
-        if (! readoutArea.isEmpty())
-        {
-            juce::StringArray routes;
-            auto strongest = 0.0f;
-            juce::String best;
-            for (const auto source : shown)
-                for (const auto target : shown)
-                    if (source != target && isLiveCell (source, target) && cellAmount (source, target) > 0.001f)
-                    {
-                        const auto text = "OSC " + juce::String (source + 1) + " modulates OSC " + juce::String (target + 1) + " at "
-                                          + juce::String (juce::roundToInt (cellAmount (source, target) * 100.0f)) + "%";
-                        routes.add (text);
-                        if (cellAmount (source, target) > strongest)
-                        {
-                            strongest = cellAmount (source, target);
-                            best = text;
-                        }
-                    }
-            g.setColour (IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-            constexpr int lineHeight = 20;
-            const auto lines = readoutArea.getHeight() / lineHeight;
-            if (lines >= 2)
-            {
-                // Room for more than one line (a small patch's cells are short): every route in
-                // words, or how to make one.
-                auto area = readoutArea;
-                if (routes.isEmpty())
-                    IlanaTheme::drawFitted (g, noRoutesText(), area.removeFromTop (lineHeight),
-                                            juce::Justification::centredLeft, 1);
-                else
-                {
-                    // (The routes' words, then the picture of them under: the lines it needs first.)
-                    const auto words = juce::jmin (routes.size(), juce::jmax (1, lines - 4));
-                    for (int line = 0; line < words; ++line)
-                    {
-                        const auto last = line == words - 1 && routes.size() > words;
-                        IlanaTheme::drawFitted (g, last ? juce::String (routes.size() - line) + " more routes." : routes[line] + ".",
-                                                area.removeFromTop (lineHeight), juce::Justification::centredLeft, 1);
-                    }
-                }
-                paintRoutingPicture (g, area.withTrimmedTop (4));
-            }
-            else
-                IlanaTheme::drawFitted (g, routes.isEmpty() ? noRoutesText()
-                                                             : best + (routes.size() > 1 ? ", and " + juce::String (routes.size() - 1) + " more." : "."),
-                                        readoutArea, juce::Justification::centredLeft, 1);
-        }
-
-        // Matrix cells: tinted by the source, brighter the deeper the route;
-        // an empty one shows its + until the mouse brings up its knob.
-        const auto paintCell = [&g, this] (int source, int target, juce::Rectangle<float> cell, juce::Colour colour)
-        {
-            const auto amount = cellAmount (source, target);
-            if (! isLiveCell (source, target))
-            {
-                // This oscillator is off or ignores FM: a flat, empty cell.
-                g.setColour (juce::Colours::black.withAlpha (0.3f));
-                g.fillRoundedRectangle (cell, 6.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.05f));
-                g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
-                return;
-            }
-
-            g.setColour (juce::Colours::black.withAlpha (0.22f));
-            g.fillRoundedRectangle (cell, 6.0f);
-            g.setColour (colour.withAlpha (0.04f + 0.22f * amount));
-            g.fillRoundedRectangle (cell, 6.0f);
-            g.setColour (colour.withAlpha (amount > 0.001f ? 0.55f : 0.12f));
-            g.drawRoundedRectangle (cell.reduced (0.5f), 6.0f, 1.0f);
-
-            if (cellKnob (source, target).getAlpha() < 0.01f)
-            {
-                // The add target shows at rest, a ring with a plus, so the cell
-                // says "click me" without a hover (Impeccable audit, FM).
-                const auto centre = cellKnob (source, target).getBounds().toFloat().getCentre();
-                g.setColour (colour.withAlpha (0.45f));
-                g.drawEllipse (juce::Rectangle<float> (16.0f, 16.0f).withCentre (centre), 1.2f);
-                g.setColour (colour.withAlpha (0.8f));
-                g.fillRect (juce::Rectangle<float> (7.0f, 1.4f).withCentre (centre));
-                g.fillRect (juce::Rectangle<float> (1.4f, 7.0f).withCentre (centre));
-            }
-        };
-
-        paintCableLayers (g, ops);
-
-        for (const auto source : ops)
-        {
-            for (const auto target : ops)
-            {
-                const auto cell = cells[(size_t) source][(size_t) target].toFloat();
-                paintCell (source, target, cell, FmDiagram::oscColour (source));
-
-                // Feedback: a loop in the corner, clear of the knob (V6-15).
-                if (source == target && isLiveCell (source, target))
-                    paintFeedbackGlyph (g, cell.reduced (6.0f, 5.0f).withSize (11.0f, 11.0f), FmDiagram::oscColour (source));
-            }
-
-            if (! noiseHead.isEmpty())
-                paintCell (-1, source, noiseCells[(size_t) source].toFloat(), noiseColour());
-        }
-
-        // Each amount under its knob (compact cells), or a DX7 feedback's
-        // number in the corner (I6-40).
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        for (const auto target : ops)
-        {
-            for (int source = noiseHead.isEmpty() ? 0 : -1; source < OscillatorIds::count; ++source)
-            {
-                if (source >= 0 && std::find (ops.begin(), ops.end(), source) == ops.end())
-                    continue;
-                const auto& knob = cellKnob (source, target);
-                const auto cell = source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target];
-                const auto amount = cellAmount (source, target);
-                const auto feedback = source == target ? dx7FeedbackText (source) : juce::String();
-                if (compactCells && knob.getAlpha() > 0.01f)
-                {
-                    const auto id = source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target);
-                    const auto value = describeValue (id, amount);
-                    g.setColour (juce::Colours::white.withAlpha (amount > 0.001f ? 0.85f : 0.4f) .withMultipliedAlpha (knob.getAlpha()));
-                    g.drawText (feedback.isNotEmpty() ? feedback + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + value : value,
-                                cell.withTrimmedBottom (2).removeFromBottom (14), juce::Justification::centred);
-                }
-                else if (! compactCells && feedback.isNotEmpty())
-                {
-                    g.setColour (FmDiagram::oscColour (source).withAlpha (0.8f));
-                    g.drawText (feedback, cell.reduced (6, 4).withTrimmedLeft (14).withHeight (12), juce::Justification::centredLeft);
-                }
-            }
-        }
-
-        // Column and row headings: an off oscillator is dimmed, with no
-        // "OFF" away from its switch (I6-37; review 8, I8-20).
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
-
-        for (const auto i : ops)
-        {
-            const auto name = "OSC " + juce::String (i + 1);
-            const auto live = fmIn[(size_t) i] && playing[(size_t) i];
-            g.setColour (FmDiagram::oscColour (i).withAlpha (live ? 1.0f : 0.4f));
-            // (Every column says TO; one that can't take FM or is off is dimmed: V9-28.)
-            g.drawText ("TO " + name, columnHeads[(size_t) i], juce::Justification::centred);
-            g.setColour (playing[(size_t) i] ? FmDiagram::oscColour (i) : IlanaTheme::Ui::text3);
-            g.drawText (name, rowHeads[(size_t) i].withHeight (18),
-                        juce::Justification::centredLeft);
-        }
-
-        if (noiseHead.isEmpty())
-            return;
-
-        g.setColour (noiseColour());
-        // Noise as a modulator, with its own colour: the NOISE you hear (SUB +
-        // NOISE on PLAY and OSC) is a separate, white source (V7-30).
-        g.drawText ("NOISE FM", noiseHead.withHeight (18), juce::Justification::centredLeft);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
-        g.setColour (IlanaTheme::Ui::text3);
-        const auto colourText = juce::Rectangle<int> (noiseColourKnob->getRight() + 2, noiseColourKnob->getY() + 2,
-                                                      noiseHead.getRight() - noiseColourKnob->getRight() - 2, 13);
-        g.drawText ("COLOUR", colourText, juce::Justification::centredLeft);
-        g.setColour (IlanaTheme::Ui::text2);
-        g.drawText (describeValue ("fm_noise_color", read ("fm_noise_color")), colourText.translated (0, 13),
-                    juce::Justification::centredLeft);
-
-        // OSC 1 x OSC 2: the two pair controls, said in a line.
-        g.setColour (IlanaTheme::Ui::line);
-        g.drawHorizontalLine (pairRow.getY() - 3, (float) pairRow.getX() + 4.0f, (float) pairRow.getRight() - 4.0f);
-        g.setColour (IlanaTheme::Ui::text3);
-        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-        IlanaTheme::drawFitted (g, "RING MOD: OSC 1 times OSC 2. SYNC: OSC 1 restarts OSC 2.",
-                          pairText.withTrimmedTop (pairText.getHeight() / 2 + 4), juce::Justification::topLeft, 2);
-    }
-
-    // Review 20 (ilana: "virtual cables illustrating what connects to what",
-    // "under the UI, blurred like Windows Aero", "thinner, animated"): each
-    // route with an amount is a thin cable from its row's output dot along the
-    // row into the target's cell and up to that column's heading, the PATCH
-    // cables' look: the source's colour, brighter and a little thicker the
-    // deeper the route, a soft pulse running along it. The cells are frosted
-    // glass over them: outside a cell the cable is sharp, behind it blurred.
-    // Only on the BASIC matrix (four rows or fewer): a DX7 algorithm's cells
-    // are many and small.
-    struct RouteCable
-    {
-        juce::Colour colour;
-        float amount = 0.0f, length = 0.0f;
-        int source = 0, target = 0;
-        std::vector<juce::Point<float>> points;
-    };
-
-    std::vector<RouteCable> routeCables (const std::vector<int>& ops) const
-    {
-        std::vector<RouteCable> result;
-        if (ops.empty() || ops.size() > 4)
-            return result;
-        const auto first = ops.front();
-        const auto add = [&] (int source, int target, juce::Colour colour)
-        {
-            const auto amount = cellAmount (source, target);
-            if (amount <= 0.001f || source == target || ! isLiveCell (source, target))
-                return;
-            const auto row = (source < 0 ? noiseCells[(size_t) first] : cells[(size_t) source][(size_t) first]).toFloat();
-            const auto cell = (source < 0 ? noiseCells[(size_t) target] : cells[(size_t) source][(size_t) target]).toFloat();
-            const auto head = columnHeads[(size_t) target].toFloat();
-            const juce::Point<float> port (row.getX() - 8.0f, row.getCentreY());
-            const juce::Point<float> socket (cell.getCentreX(), head.getBottom() + 1.0f);
-            // Hangs under its own weight: a diagonal from the dot to the heading
-            // with a sag below the straight line.
-            const auto straight = port.getDistanceFrom (socket);
-            const auto sag = juce::jlimit (14.0f, 46.0f, straight * 0.22f);
-            const juce::Point<float> control ((port.x + socket.x) * 0.5f, (port.y + socket.y) * 0.5f + sag * 2.0f);
-            RouteCable cable;
-            cable.colour = colour;
-            cable.amount = amount;
-            cable.source = source;
-            cable.target = target;
-            for (int k = 0; k <= 24; ++k)
-            {
-                const auto t = (float) k / 24.0f, u = 1.0f - t;
-                cable.points.push_back ({ u * u * port.x + 2 * u * t * control.x + t * t * socket.x,
-                                          u * u * port.y + 2 * u * t * control.y + t * t * socket.y });
-            }
-            for (size_t k = 1; k < cable.points.size(); ++k)
-                cable.length += cable.points[k].getDistanceFrom (cable.points[k - 1]);
-            result.push_back (std::move (cable));
-        };
-        for (const auto target : ops)
-        {
-            for (const auto source : ops)
-                add (source, target, FmDiagram::oscColour (source));
-            if (! noiseHead.isEmpty())
-                add (-1, target, noiseColour());
-        }
-        return result;
-    }
-
-    static juce::Point<float> pointAlong (const RouteCable& cable, float distance)
-    {
-        for (size_t k = 1; k < cable.points.size(); ++k)
-        {
-            const auto segment = cable.points[k].getDistanceFrom (cable.points[k - 1]);
-            if (distance <= segment || k + 1 == cable.points.size())
-                return cable.points[k - 1] + (cable.points[k] - cable.points[k - 1]) * (segment > 0.0f ? juce::jmin (1.0f, distance / segment) : 0.0f);
-            distance -= segment;
-        }
-        return cable.points.back();
-    }
-
-    void paintCableLayers (juce::Graphics& g, const std::vector<int>& ops)
-    {
-        const auto cables = routeCables (ops);
-        cablesAnimated = ! cables.empty();
-        if (cables.empty())
-        {
-            cableGrow.clear();
-            cableGrowKnown = false;
-            return;
-        }
-
-        // A route made now draws itself from its row to its column heading
-        // (ilana 2026-10-15: "extending and connecting"); the cables already
-        // there when the page opens are drawn whole. A removed route is gone.
-        {
-            std::map<std::pair<int, int>, float> next;
-            for (const auto& cable : cables)
-            {
-                const auto id = std::make_pair (cable.source, cable.target);
-                const auto found = cableGrow.find (id);
-                next[id] = found != cableGrow.end() ? found->second : (cableGrowKnown ? 0.0f : 1.0f);
-            }
-            cableGrow = std::move (next);
-            cableGrowKnown = true;
-        }
-        const auto growOf = [this] (const RouteCable& cable) { return cableGrow[std::make_pair (cable.source, cable.target)]; };
-
-        // Glass: every cell's rectangle.
-        juce::Array<juce::Rectangle<int>> glass;
-        for (const auto target : ops)
-        {
-            for (const auto source : ops)
-                glass.add (cells[(size_t) source][(size_t) target]);
-            if (! noiseHead.isEmpty())
-                glass.add (noiseCells[(size_t) target]);
-        }
-
-        // The still cables, drawn once into an image and a blurred copy of it
-        // (redrawn only when a route or the layout changes).
-        const auto area = matrixCard.expanded (4);
-        juce::String key;
-        key << area.toString();
-        for (const auto& cable : cables)
-            key << ";" << cable.colour.toString() << ":" << juce::roundToInt (cable.amount * 100.0f) << ":"
-                << cable.points.front().toString() << cable.points.back().toString() << (growOf (cable) >= 1.0f ? "" : "g");
-        if (key != cableKey || ! cableSharp.isValid())
-        {
-            cableKey = key;
-            cableSharp = juce::Image (juce::Image::ARGB, area.getWidth(), area.getHeight(), true);
-            juce::Graphics ig (cableSharp);
-            ig.addTransform (juce::AffineTransform::translation ((float) -area.getX(), (float) -area.getY()));
-            for (const auto& cable : cables)
-            {
-                if (growOf (cable) < 1.0f)
-                    continue; // (drawn growing, below)
-                juce::Path path;
-                path.startNewSubPath (cable.points.front());
-                for (size_t k = 1; k < cable.points.size(); ++k)
-                    path.lineTo (cable.points[k]);
-                ig.setColour (cable.colour.withAlpha (0.65f + 0.3f * cable.amount));
-                ig.strokePath (path, juce::PathStrokeType (0.8f + 1.3f * cable.amount, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                for (auto point : { cable.points.front(), cable.points.back() })
-                    ig.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (point));
-            }
-            cableBlur = cableSharp.createCopy();
-            cableBlur.getPixelData()->applyGaussianBlurEffect (2.4f);
-        }
-
-        const auto pulses = [&] (float alpha, float size)
-        {
-            for (size_t index = 0; index < cables.size(); ++index)
-                for (int k = 0; k < 2; ++k)
-                {
-                    const auto& cable = cables[index];
-                    const auto t = std::fmod (flowPhase + 0.5f * (float) k + 0.19f * (float) index, 1.0f);
-                    const auto at = pointAlong (cable, t * cable.length);
-                    const auto fade = std::sin (t * juce::MathConstants<float>::pi);
-                    const auto radius = (1.6f + 1.4f * cable.amount) * size;
-                    g.setColour (cable.colour.brighter (0.5f).withAlpha (alpha * 0.2f * fade));
-                    g.fillEllipse (juce::Rectangle<float> (radius * 5.0f, radius * 5.0f).withCentre (at));
-                    g.setColour (cable.colour.brighter (0.7f).withAlpha (alpha * fade));
-                    g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (at));
-                }
-        };
-
-        // A cable still extending: its start dot, the line so far and a bright tip.
-        const auto growing = [&] (float alpha)
-        {
-            for (const auto& cable : cables)
-            {
-                const auto grow = growOf (cable);
-                if (grow >= 1.0f)
-                    continue;
-                const auto eased = grow * grow * (3.0f - 2.0f * grow);
-                juce::Path path;
-                path.startNewSubPath (cable.points.front());
-                auto remaining = eased * cable.length;
-                auto tip = cable.points.front();
-                for (size_t k = 1; k < cable.points.size() && remaining > 0.0f; ++k)
-                {
-                    const auto segment = cable.points[k].getDistanceFrom (cable.points[k - 1]);
-                    tip = segment > 0.0f ? cable.points[k - 1] + (cable.points[k] - cable.points[k - 1]) * juce::jmin (1.0f, remaining / segment)
-                                         : cable.points[k];
-                    path.lineTo (tip);
-                    remaining -= segment;
-                }
-                g.setColour (cable.colour.withAlpha (alpha * (0.65f + 0.3f * cable.amount)));
-                g.strokePath (path, juce::PathStrokeType (0.8f + 1.3f * cable.amount, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (cable.points.front()));
-                g.setColour (cable.colour.brighter (0.8f).withAlpha (alpha));
-                g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (tip));
-            }
-        };
-
-        // Outside the cells: sharp.
-        {
-            juce::Graphics::ScopedSaveState state (g);
-            for (const auto& rect : glass)
-                g.excludeClipRegion (rect);
-            g.drawImageAt (cableSharp, area.getX(), area.getY());
-            growing (1.0f);
-            pulses (0.85f, 1.0f);
-        }
-        // Behind the glass: the blurred copy and a softer pulse.
-        for (const auto& rect : glass)
-        {
-            juce::Graphics::ScopedSaveState state (g);
-            juce::Path clip;
-            clip.addRoundedRectangle (rect.toFloat(), 6.0f);
-            g.reduceClipRegion (clip);
-            g.drawImageAt (cableBlur, area.getX(), area.getY());
-            growing (0.35f);
-            pulses (0.3f, 1.2f);
-        }
-    }
-
-    juce::Image cableSharp, cableBlur;
-    juce::String cableKey;
-    float flowPhase = 0.0f;
-    bool cablesAnimated = false;
-    // How far each route's cable has extended (0 to 1), by (source, target; -1 is the noise row).
-    std::map<std::pair<int, int>, float> cableGrow;
-    bool cableGrowKnown = false;
-
-    // The pulses on the cables: 24 frames a second, only while the page is
-    // showing and a route has an amount.
-    struct FlowTimer : IlanaAnim::FrameTimer
-    {
-        std::function<void()> tick;
-        void timerCallback() override { if (tick != nullptr) tick(); }
-    } flow;
-
-    // "FB 6" for a DX7 feedback at one of the DX7's own steps (they import
-    // as 2^(n - 8)), else empty.
-    juce::String dx7FeedbackText (int osc) const
-    {
-        if (juce::roundToInt (read (FmOperatorInfo::prefixOf (osc) + "_fb_type")) != FmFeedback::Dx7)
-            return {};
-        const auto amount = read (FmDiagram::routeId (osc, osc));
-        if (amount <= 0.0f)
-            return {};
-        const auto steps = 8.0f + std::log2 (amount);
-        const auto step = juce::roundToInt (steps);
-        return std::abs (steps - (float) step) < 0.02f && step >= 1 && step <= 7 ? "FB " + juce::String (step) : juce::String();
-    }
-
-    static void paintFeedbackGlyph (juce::Graphics& g, juce::Rectangle<float> box, juce::Colour colour)
-    {
-        // A loop back into itself: most of a circle and its arrowhead.
-        juce::Path loop;
-        const auto centre = box.getCentre();
-        const auto radius = box.getWidth() * 0.4f;
-        loop.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, 0.5f, juce::MathConstants<float>::twoPi - 0.2f, true);
-        g.setColour (colour.withAlpha (0.8f));
-        g.strokePath (loop, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        const auto tip = centre + juce::Point<float> (std::sin (-0.2f), -std::cos (-0.2f)) * radius;
-        juce::Path head;
-        head.addTriangle (tip.x - 3.2f, tip.y - 2.6f, tip.x + 1.0f, tip.y, tip.x - 3.2f, tip.y + 2.6f);
-        g.fillPath (head);
-    }
-
-    int matrixGridBottom = 0;
-    static constexpr int readoutHeight = 24;
-    static constexpr int headWidth = 76;
-    static constexpr int operatorCardHeight = 240;
-    // Matrix cells: one size for every patch, about the size six
-    // oscillators leave (V8-6, V8-35).
-    static constexpr int cellWidth = 56, cellHeight = 52, minimumMatrixWidth = 410;
+    static constexpr int operatorCardHeight = 240, plainCardHeight = 168;
 
     IlanaSynthAudioProcessor& processorRef;
     std::array<bool, OscillatorIds::count> fmIn {}, playing {};
     FmDiagram diagram;
     FmAlgorithmStrip algorithms;
+    OutputView outputView;
     OperatorEnvEditor envelope;
     OscPicker picker;
     juce::TextButton pitchLfoLink, makeOperator;
@@ -1538,8 +1063,14 @@ private:
     std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> knobs;
     std::array<std::unique_ptr<ToggleControl>, OscillatorIds::count> outs;
     std::array<std::unique_ptr<KnobControl>, OscillatorIds::count> noiseKnobs;
-    bool compactCells = false, extrasOpen = false, lastExtrasShown = true;
-    juce::TextButton moreButton;
+    bool extrasOpen = false, lastExtrasShown = true;
+    juce::TextButton moreButton, addRouteButton;
+    std::array<std::array<std::unique_ptr<KnobControl>, OscillatorIds::count>, OscillatorIds::count> cableKnobs;
+    std::map<std::pair<int, int>, std::unique_ptr<juce::TextButton>> removeButtons;
+    std::vector<std::pair<Route, juce::Rectangle<int>>> routeRows;
+    juce::Rectangle<int> extrasTitle, noiseTypeTitle, outputTitle;
+    juce::String lastRoutesSignature;
+    static constexpr int cell = 35;
     // An operator on another envelope shows that envelope where an Operator
     // Env operator shows its own (one card anatomy, I8-11, V8-6).
     std::unique_ptr<EnvelopeDisplay> ampGraph;
@@ -1548,9 +1079,7 @@ private:
     juce::ComboBox noiseTypeMenu;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> noiseTypeAttachment;
     std::array<std::unique_ptr<OperatorControls>, OscillatorIds::count> operators;
-    std::array<juce::Rectangle<int>, OscillatorIds::count> columnHeads, rowHeads, noiseCells;
-    std::array<std::array<juce::Rectangle<int>, OscillatorIds::count>, OscillatorIds::count> cells;
-    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, noiseHead, topNote, pairRow, pairText, ampHint, readoutArea;
+    juce::Rectangle<int> matrixCard, operatorCard, algorithmsTitle, ampHint;
     std::vector<std::atomic<float>*> tuneValues;
     std::array<int, OscillatorIds::count * 4> lastTune {};
     std::vector<int> shown;

@@ -519,6 +519,8 @@ public:
 
     // A small picture (PLAY's LFO card): no value scale, no GRID chip.
     void setMinimal (bool shouldBeMinimal) { minimal = shouldBeMinimal; setRepaintsOnMouseActivity (shouldBeMinimal); repaint(); }
+    // The pop-up's graph: the ruler inside the frame, along its foot, so the frame takes the whole area (ilana 2026-10-29).
+    void setRulerInside (bool inside) { rulerInside = inside; repaint(); }
 
 private:
     void mouseDown (const juce::MouseEvent& event) override
@@ -752,10 +754,20 @@ private:
         const auto bounds = getLocalBounds().toFloat();
         if (minimal)
             return bounds;
-        return LfoSimShapes::isSim ((int) readParam ("_shape")) ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
+        return LfoSimShapes::isSim ((int) readParam ("_shape")) || rulerInside ? bounds : bounds.withTrimmedBottom (rulerHeight + 2.0f);
     }
 
-    juce::Rectangle<float> plotArea() const { return minimal ? wellArea().reduced (8.0f, 7.0f) : wellArea().reduced (10.0f, 14.0f); }
+    juce::Rectangle<float> plotArea() const
+    {
+        if (minimal)
+            return wellArea().reduced (8.0f, 7.0f);
+        if (rulerInside && ! LfoSimShapes::isSim ((int) readParam ("_shape")))
+            return wellArea().reduced (10.0f, 0.0f).withTrimmedTop (12.0f).withTrimmedBottom (rulerHeight + 8.0f);
+        return wellArea().reduced (10.0f, 14.0f);
+    }
+
+    // The ruler's top: under the frame, or inside it along its foot.
+    float rulerTop() const { return (float) getHeight() - rulerHeight - (rulerInside ? 3.0f : 0.0f); }
 
     // One cycle's ruler under the graph: its time at RATE in Hz, or note
     // values while SYNC is on, at the quarters.
@@ -763,7 +775,7 @@ private:
     {
         if (minimal)
             return;
-        const auto rulerY = (float) getHeight() - rulerHeight;
+        const auto rulerY = rulerTop();
         const auto synced = readParam ("_sync") > 0.5f;
         juce::StringArray labels;
 
@@ -1424,7 +1436,7 @@ private:
             if (stepWidth >= 16.0f || step % 4 == 0)
             {
                 g.setColour (step % 4 == 0 || lit ? IlanaTheme::Ui::text2 : IlanaTheme::Ui::text3);
-                g.drawText (juce::String (step + 1), juce::Rectangle<float> (x, (float) getHeight() - rulerHeight + 2.0f, stepWidth, 12.0f),
+                g.drawText (juce::String (step + 1), juce::Rectangle<float> (x, rulerTop() + 2.0f, stepWidth, 12.0f),
                             juce::Justification::centred);
             }
         }
@@ -1564,7 +1576,7 @@ private:
     int brush = 0;                     // the paint brush (Brush), 0: off
     int lastPaintCell = -1;            // the cell the stroke last stamped
     std::unique_ptr<juce::FileChooser> shapeChooser;
-    bool minimal = false;
+    bool minimal = false, rulerInside = false;
     bool pendingConvert = false;       // a press on a preset wave, converted on the first drag
     int pendingOutputDrag = -1;        // a press on a simulated shape's output tag (0 A, 1 B)
     int draggedStep = -1;              // the step being set, for its readout

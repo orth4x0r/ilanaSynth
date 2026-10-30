@@ -1003,6 +1003,9 @@ public:
         thumbs.setVisible (! compact);
         opEditor.setCompact (compact);
         for (auto& unit : units)
+            if (auto* envelope = dynamic_cast<EnvelopeDisplay*> (unit.display))
+                envelope->setRulerInside (compact);
+        for (auto& unit : units)
             for (auto* knob : unit.knobs)
                 if (auto* dial = dynamic_cast<KnobControl*> (knob))
                     dial->setPackedDial (compact ? compactDial : 0.0f);
@@ -1013,6 +1016,8 @@ public:
     static constexpr float compactDial = 28.0f;
     static constexpr int compactPitch = 41, compactRow = 39, compactGap = 10; // (41: VELOCITY and KEY RATE 12 px apart at 175 %, UI review 26)
     static constexpr int compactKnobsWidth = 4 * compactPitch, compactHeight = 2 * compactRow;
+    // The pop-up's graph starts this much above the knobs (ilana's layout, 2026-10-29): its owner gives the section the room.
+    static constexpr int compactGraphRise = 6;
 
     // What the section needs below its cards: the panel's header and one
     // row of full-size knobs.
@@ -1050,6 +1055,7 @@ public:
             auto& unit = units[(size_t) unitIndex];
             unit.display->setBounds (area.removeFromLeft (area.getWidth() - compactGap - compactKnobsWidth));
             area.removeFromLeft (compactGap);
+            area.removeFromTop (compactGraphRise);
             // (The knobs come in the graph's order: DELAY ATTACK HOLD DECAY SUSTAIN RELEASE VEL KEY RATE.)
             const std::array<size_t, 8> order { 1, 3, 4, 5, 0, 2, 6, 7 };
             for (size_t i = 0; i < order.size(); ++i)
@@ -1477,6 +1483,8 @@ public:
         compact = shouldBeCompact;
         thumbs.setVisible (! compact);
         opLfoEditor.setCompact (compact);
+        for (auto& display : displays)
+            display->setRulerInside (compact);
         const auto dial = compact ? compactDial : 0.0f;
         for (size_t lfo = 0; lfo < controlsList.size(); ++lfo)
         {
@@ -1525,6 +1533,19 @@ public:
 
     // The compact layout's size changed (another shape, another source).
     std::function<void()> onCompactSizeChanged;
+
+    // The pop-up (ilana's layout, 2026-10-29): SHAPE sits in its title row. The section's bounds then start
+    // `skip` px higher (the title row and the gap under it); SHAPE goes in the first `row` px of them,
+    // ending `rightInset` px short of the right edge (clear of the pop-up's close button).
+    void setCompactTitleRow (int skip, int row, int rightInset)
+    {
+        titleSkip = skip;
+        titleRow = row;
+        titleRightInset = rightInset;
+        resized();
+    }
+
+    int titleSkip = 0, titleRow = 0, titleRightInset = 0;
 
     static constexpr float compactDial = 28.0f;
     static constexpr int compactColumn = 4 * 46, compactPitch = 46, compactRow = 39, compactGap = 10, compactLine = 16, compactLineGap = 4;
@@ -1772,19 +1793,23 @@ public:
     {
         panel = {};
         infoArea = {};
+        const auto title = area.removeFromTop (titleSkip).withHeight (titleRow);
         auto column = area.removeFromRight (compactColumn);
         area.removeFromRight (compactGap);
         const auto line = [&column] (int index)
         {
             return juce::Rectangle<int> (column.getX(), column.getY() + index * (compactLine + compactLineGap), column.getWidth(), compactLine);
         };
-        const auto placeKnobs = [&column] (const std::vector<juce::Component*>& knobs, int top)
+        const auto inTitle = titleSkip > 0;
+        const auto placeKnobs = [&column, inTitle] (const std::vector<juce::Component*>& knobs, int top)
         {
+            // (SHAPE in the title row: fewer than four knobs share the column's width.)
+            const auto pitch = inTitle && ! knobs.empty() && knobs.size() < 4 ? column.getWidth() / (int) knobs.size() : compactPitch;
             for (size_t i = 0; i < knobs.size(); ++i)
             {
                 const auto row = (int) i / 4, slot = (int) i % 4;
-                const juce::Rectangle<int> cell (column.getX() + slot * compactPitch, column.getY() + top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
-                                                 compactPitch, (int) compactDial + 10);
+                const juce::Rectangle<int> cell (column.getX() + slot * pitch, column.getY() + top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
+                                                 pitch, (int) compactDial + 10);
                 knobs[i]->setBounds (KnobControl::packedBoundsFor (cell));
             }
         };
@@ -1809,22 +1834,40 @@ public:
         const auto simulated = LfoSimShapes::isSim (shape);
         displays[(size_t) index]->setBounds (area);
         auto& c = *controlsList[(size_t) index];
-        c.shape.setBounds (line (0));
+        if (inTitle)
+        {
+            // (The switches and knobs centred beside the graph, no empty tail under them.)
+            const auto used = compactRowsTop (simulated ? 2 : 1) + compactRow * (((int) compactKnobs (index).size() + 3) / 4);
+            column.removeFromTop (juce::jmax (0, (column.getHeight() - used) / 2));
+        }
+        // (In the title row, SHAPE is as wide as the column and ends clear of the close button.)
+        const auto lines = inTitle ? 0 : 1;
+        c.shape.setBounds (inTitle ? juce::Rectangle<int> (title.getRight() - titleRightInset - compactColumn, title.getCentreY() - compactLine / 2, compactColumn, compactLine)
+                                   : line (0));
 
-        auto x = column.getX();
         if ((size_t) index < pills.size())
+        {
+            std::vector<PillToggle*> shown;
             for (auto& pill : pills[(size_t) index])
                 if (pill->isVisible())
-                {
-                    const auto width = (int) std::ceil (pill->textWidth()) + 8;
-                    pill->setBounds ({ x, line (1).getY(), width, compactLine });
-                    x += width + 2;
-                }
+                    shown.push_back (pill.get());
+            // Packed from the left, or (SHAPE in the title row) each centred in an equal share of the column,
+            // over the knobs when there are as many.
+            const auto share = shown.empty() ? 0 : column.getWidth() / (int) shown.size();
+            auto x = column.getX();
+            for (size_t i = 0; i < shown.size(); ++i)
+            {
+                const auto width = (int) std::ceil (shown[i]->textWidth()) + 8;
+                const auto left = inTitle && width <= share ? column.getX() + (int) i * share + (share - width) / 2 : x;
+                shown[i]->setBounds ({ left, line (lines).getY(), width, compactLine });
+                x = left + width + 2;
+            }
+        }
 
         if (simulated)
         {
             labelSimulated (c, shape);
-            auto third = line (2);
+            auto third = line (lines + 1);
             c.fire.setBounds (third.removeFromRight (40));
             third.removeFromRight (6);
             if (LfoSimInfo::get (shape).usesAxis)
@@ -1837,7 +1880,7 @@ public:
                 c.trigger.setBounds (third);
         }
 
-        placeKnobs (compactKnobs (index), compactRowsTop (simulated ? 3 : 2));
+        placeKnobs (compactKnobs (index), compactRowsTop ((simulated ? 3 : 2) - (inTitle ? 1 : 0)));
         c.rate.matchBounds();
     }
 

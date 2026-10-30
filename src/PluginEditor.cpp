@@ -52,7 +52,6 @@
 #include "gui/SectionColourPicker.h"
 #include "gui/TutorialOverlay.h"
 #include "gui/WaveDisplay.h"
-#include "gui/XtraDisplays.h"
 
 // Page classes (anonymous namespace), in dependency order.
 #include "gui/StateTabs.h"

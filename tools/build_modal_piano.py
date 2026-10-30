@@ -5,7 +5,7 @@ velocity, velocity-major (all notes at the first velocity, then the next).
 
 For each note and velocity it keeps the partials' frequencies (as ratios to
 the note's nominal pitch), each partial's level at a fixed set of times after
-the strike, and the first 100 ms of the recording itself (the hammer's
+the strike, and the first 85 ms of the recording itself (the hammer's
 attack, which the partials take over from).
 
     tools/build_modal_piano.py render.wav --notes 21,33,45,... --velocities 20,60,124 \
@@ -15,7 +15,10 @@ Needs numpy only. The render is read as 16/24/32-bit PCM WAV. A stereo render
 is not mixed to mono: a piano's spaced microphones are far out of phase with
 each other (Piano V's American Grand: L/R correlation down to -0.9), and their
 sum cancels whole partials. Levels are the two channels' power average (what
-two ears hear) and the attack is the left channel, scaled to that power.
+two ears hear). The stereo picture is kept apart from them: each partial's and
+board resonance's balance and phase between the channels (steady over the
+note, so one pair each, from the loudest velocity), and the attack in both
+channels.
 """
 
 import argparse
@@ -30,7 +33,7 @@ import numpy as np
 TIMES = [0.05, 0.08, 0.12, 0.2, 0.3, 0.45, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 5.5, 7.0, 9.0, 11.0]
 MAX_PARTIALS = 100
 MAX_FREQ = 16000.0
-ATTACK_SECONDS = 0.1
+ATTACK_SECONDS = 0.085
 # The board's own resonances: the strongest peaks below this that are not
 # the note's partials, kept with their level over time (fixed in Hz).
 MODE_TOP = 1200.0
@@ -158,6 +161,33 @@ def noise_levels(x, rate, f0, partials, modes):
     return levels
 
 
+def stereo(x, rate, freqs_hz):
+    """Each component's balance (dB, left over right) and phase (right
+    against left, radians), from the cross-spectrum over the first seconds."""
+    size = 16384
+    freqs = np.fft.rfftfreq(size, 1 / rate)
+    w = np.hanning(size)
+    cross = np.zeros(len(freqs_hz), complex)
+    left = np.zeros(len(freqs_hz))
+    right = np.zeros(len(freqs_hz))
+    for when in (0.15, 0.4, 0.8, 1.4, 2.2):
+        start = max(0, int(when * rate) - size // 2)
+        s = x[start:start + size]
+        if len(s) < size:
+            break
+        X = np.fft.rfft(s * w[:, None], axis=0)
+        for n, f in enumerate(freqs_hz):
+            k = int(round(f / freqs[1]))
+            if k < 2 or k >= len(freqs) - 2:
+                continue
+            k += int(np.argmax(np.abs(X[k - 2:k + 3]).sum(axis=1))) - 2
+            cross[n] += X[k, 1] * np.conj(X[k, 0])
+            left[n] += abs(X[k, 0]) ** 2
+            right[n] += abs(X[k, 1]) ** 2
+    balance = np.clip(10 * np.log10((left + 1e-30) / (right + 1e-30)), -40, 40)
+    return balance, np.angle(cross)
+
+
 def mode_levels(x, rate, modes):
     size = 16384
     freqs = np.fft.rfftfreq(size, 1 / rate)
@@ -201,30 +231,40 @@ def main():
         seg = x[max(0, begin - 4000):begin + int(min(args.slot, hold + 0.5) * rate) - int(0.05 * rate)]
         return seg[onset(seg, rate):]
 
-    # One set of board resonances per note, found at its loudest velocity.
-    modes = {}
+    # One set of board resonances per note, found at its loudest velocity,
+    # and the note's stereo picture (mono renders: centred).
+    modes, pictures = {}, {}
     for ni, note in enumerate(notes):
         seg = segment(len(velocities) - 1, ni)
         f0, ratios, _ = analyse(seg, rate, note)
         modes[note] = body_modes(seg, rate, f0, ratios * f0)
+        if seg.shape[1] >= 2:
+            pictures[note] = (stereo(seg, rate, ratios * f0), stereo(seg, rate, np.array(modes[note])))
+        else:
+            centre = lambda n: (np.zeros(n), np.zeros(n))
+            pictures[note] = (centre(len(ratios)), centre(len(modes[note])))
 
     entries = []
     for vi, velocity in enumerate(velocities):
         for ni, note in enumerate(notes):
             seg = segment(vi, ni)
             f0, ratios, levels = analyse(seg, rate, note)
-            stereo = seg[:int(ATTACK_SECONDS * rate)]
-            attack = stereo[:, 0] * np.sqrt((stereo ** 2).mean() / max(1e-20, (stereo[:, 0] ** 2).mean()))
+            start = seg[:int(ATTACK_SECONDS * rate)]
+            attack = (start[:, 0], start[:, 1 if start.shape[1] > 1 else 0])
+            # The stereo picture's partials, as many as this velocity's.
+            (pb, pp), mpic = pictures[note]
+            count = min(len(ratios), len(pb))
+            ppic = (np.pad(pb[:count], (0, len(ratios) - count)), np.pad(pp[:count], (0, len(ratios) - count)))
             entries.append((note, velocity, f0, ratios, levels, attack, modes[note], mode_levels(seg, rate, modes[note]),
-                            noise_levels(seg, rate, f0, ratios * f0, modes[note])))
+                            noise_levels(seg, rate, f0, ratios * f0, modes[note]), ppic, mpic))
             print("note %d vel %d: %d partials, %d board modes, attack peak %.3f"
-                  % (note, velocity, len(ratios), len(modes[note]), np.abs(attack).max()), flush=True)
+                  % (note, velocity, len(ratios), len(modes[note]), np.abs(start).max()), flush=True)
 
     # Little-endian: magic, version, counts, the time grid, then each entry.
     out = bytearray(b"IMPT")
-    out += struct.pack("<HHHf", 3, len(entries), len(TIMES), float(rate))
+    out += struct.pack("<HHHf", 4, len(entries), len(TIMES), float(rate))
     out += struct.pack("<%df" % len(TIMES), *TIMES)
-    for note, velocity, f0, ratios, levels, attack, modes, mlevels, nlevels in entries:
+    for note, velocity, f0, ratios, levels, (attack, attackRight), modes, mlevels, nlevels, ppic, mpic in entries:
         scale = max(1e-9, float(np.abs(attack).max()))
         out += struct.pack("<HHHI", note, velocity, len(ratios), len(attack))
         out += struct.pack("<f", scale)
@@ -239,6 +279,14 @@ def main():
         # Version 3: the noise, per band (NOISE_BANDS, the engine's bands).
         out += struct.pack("<H", len(NOISE_BANDS))
         out += np.clip(np.round(nlevels * 64), -32768, 32767).astype("<i2").tobytes()
+        # Version 4: the right channel's attack, then the stereo picture:
+        # balance (1/64 dB) and phase (1/10000 rad) per partial, then per mode.
+        right = max(1e-9, float(np.abs(attackRight).max()))
+        out += struct.pack("<f", right)
+        out += np.clip(np.round(attackRight / right * 32767), -32767, 32767).astype("<i2").tobytes()
+        for balance, phase in (ppic, mpic):
+            out += np.clip(np.round(balance * 64), -32768, 32767).astype("<i2").tobytes()
+            out += np.clip(np.round(phase * 10000), -32768, 32767).astype("<i2").tobytes()
     with open(args.out, "wb") as f:
         f.write(out)
     print("wrote %s (%d bytes, %d entries)" % (args.out, len(out), len(entries)))

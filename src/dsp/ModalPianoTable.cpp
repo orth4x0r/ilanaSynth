@@ -38,7 +38,7 @@ namespace
         const auto count = in.read<std::uint16_t>();
         const auto timeCount = in.read<std::uint16_t>();
         table.rate = in.read<float>();
-        if (version < 1 || version > 3 || timeCount == 0)
+        if (version < 1 || version > 4 || timeCount == 0)
             return {};
         for (int t = 0; t < timeCount; ++t)
             table.times.push_back (in.read<float>());
@@ -77,6 +77,32 @@ namespace
                     return {};
                 for (int i = 0; i < bands * timeCount; ++i)
                     entry.noiseLevels.push_back ((float) in.read<std::int16_t>() / 64.0f);
+            }
+            if (version >= 4)
+            {
+                const auto rightScale = in.read<float>();
+                const auto pictures = (size_t) entry.partials + entry.modes.size();
+                if (! in.has ((size_t) attackLength * 2 + pictures * 4))
+                    return {};
+                for (std::uint32_t i = 0; i < attackLength; ++i)
+                    entry.attackRight.push_back ((float) in.read<std::int16_t>() / 32767.0f * rightScale);
+                const auto readPicture = [&in] (size_t count, std::vector<float>& balance, std::vector<float>& phase)
+                {
+                    for (size_t i = 0; i < count; ++i)
+                        balance.push_back ((float) in.read<std::int16_t>() / 64.0f);
+                    for (size_t i = 0; i < count; ++i)
+                        phase.push_back ((float) in.read<std::int16_t>() / 10000.0f);
+                };
+                readPicture ((size_t) entry.partials, entry.balance, entry.phase);
+                readPicture (entry.modes.size(), entry.modeBalance, entry.modePhase);
+            }
+            else
+            {
+                entry.attackRight = entry.attack;
+                entry.balance.assign ((size_t) entry.partials, 0.0f);
+                entry.phase.assign ((size_t) entry.partials, 0.0f);
+                entry.modeBalance.assign (entry.modes.size(), 0.0f);
+                entry.modePhase.assign (entry.modes.size(), 0.0f);
             }
             read.push_back (std::move (entry));
         }

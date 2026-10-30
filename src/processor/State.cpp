@@ -551,9 +551,9 @@ int IlanaSynthAudioProcessor::migrateStringKnobs (const std::function<float (con
         remap ("_string_pickup", folded);
 
         // The plucked string's stiffness (an allpass of coefficient -0.7 at
-        // full) now reaches -0.95; the Piano's and the hammer's stiffness
-        // keep their own scale.
-        if (excite != 4 && excite != 5 && excite != 9)
+        // full) now reaches -0.95; the Piano's, the hammer's and the Modal
+        // Piano's stiffness keep their own scale.
+        if (excite != 4 && excite != 5 && excite != 9 && excite != 11)
             remap ("_string_stiffness", [] (float v) { return v * 0.7f / 0.95f; });
 
         // REGISTER's key scale doubled and its steps doubled again.

@@ -3224,8 +3224,12 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         if (liveIn)
                             string.addLiveInput (liveAmount);
                         auto raw = string.process (aftertouchValue, noteHeld, fm);
+                        auto side = string.side(); // (stereo exciters)
                         if (match)
+                        {
                             raw *= trim;
+                            side *= trim;
+                        }
                         stringSum += raw;
 
                         const auto gain = unisonGains[osc][u] * renderLevel * enable * envFactor * keyGain;
@@ -3233,8 +3237,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         if (out)
                         {
                             const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
-                            bl += raw * heard * panGainL[osc][u];
-                            br += raw * heard * panGainR[osc][u];
+                            bl += (raw + side) * heard * panGainL[osc][u];
+                            br += (raw - side) * heard * panGainR[osc][u];
                         }
                     }
                     oscMono[osc] = mono;
@@ -3247,6 +3251,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     float raw = 0.0f;
                     float sampleL = 0.0f;
                     float sampleR = 0.0f;
+                    float side = 0.0f; // (stereo exciters)
 
                     if (settings.liveMode)
                     {
@@ -3273,9 +3278,14 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     {
                         if (params.inputToStrings > 0.0f)
                             stringFor (osc, u).addLiveInput (liveSample * params.inputToStrings);
-                        raw = stringFor (osc, u).process (aftertouchValue, noteHeld, (float) fmInput[osc]);
+                        auto& string = stringFor (osc, u);
+                        raw = string.process (aftertouchValue, noteHeld, (float) fmInput[osc]);
+                        side = string.side();
                         if (params.exciterLevelMatch)
+                        {
                             raw *= exciterTrim (settings.stringExcite);
+                            side *= exciterTrim (settings.stringExcite);
+                        }
                         stringSum += raw;
                     }
 
@@ -3288,8 +3298,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         // Heard at the Operator Env's carrier scale too, so
                         // picking it changes every mode's level alike.
                         const auto heard = operatorEg ? gain * dx7CarrierScale : gain;
-                        busL[routes[osc]] += (settings.sampleMode ? sampleL : raw) * heard * panGainL[osc][u];
-                        busR[routes[osc]] += (settings.sampleMode ? sampleR : raw) * heard * panGainR[osc][u];
+                        busL[routes[osc]] += (settings.sampleMode ? sampleL : raw + side) * heard * panGainL[osc][u];
+                        busR[routes[osc]] += (settings.sampleMode ? sampleR : raw - side) * heard * panGainR[osc][u];
                     }
                 }
 

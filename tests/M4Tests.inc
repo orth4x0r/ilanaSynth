@@ -577,7 +577,9 @@ void debugPresetNotes (const juce::String& presetName)
                               item.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
             processor.prepareToPlay (48000.0, 480);
             juce::AudioBuffer<float> buffer (2, 480);
-            juce::AudioBuffer<float> output (1, 480 * totalBlocks);
+            // ILANA_NOTE_STEREO=1: both channels, not their average.
+            const auto stereo = juce::SystemStats::getEnvironmentVariable ("ILANA_NOTE_STEREO", "").isNotEmpty();
+            juce::AudioBuffer<float> output (stereo ? 2 : 1, 480 * totalBlocks);
             for (int block = 0; block < totalBlocks; ++block)
             {
                 buffer.clear();
@@ -586,14 +588,18 @@ void debugPresetNotes (const juce::String& presetName)
                 if (block == releaseBlock) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
                 processor.processBlock (buffer, midi);
                 output.copyFrom (0, block * 480, buffer, 0, 0, 480);
-                output.addFrom (0, block * 480, buffer, 1, 0, 480);
+                if (stereo)
+                    output.copyFrom (1, block * 480, buffer, 1, 0, 480);
+                else
+                    output.addFrom (0, block * 480, buffer, 1, 0, 480);
             }
-            output.applyGain (0.5f);
+            if (! stereo)
+                output.applyGain (0.5f);
             const auto file = folder.getChildFile (render.file);
             file.deleteFile();
             juce::WavAudioFormat format;
             if (auto stream = file.createOutputStream())
-                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (format.createWriterFor (stream.get(), 48000.0, 1, 24, {}, 0)))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (format.createWriterFor (stream.get(), 48000.0, (unsigned int) output.getNumChannels(), 24, {}, 0)))
                 {
                     stream.release();
                     writer->writeFromAudioSampleBuffer (output, 0, output.getNumSamples());

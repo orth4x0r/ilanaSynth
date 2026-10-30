@@ -48,6 +48,9 @@ public:
     bool isElectric() const { return excite == Excite::Tine || excite == Excite::Reed; }
     bool isPiano() const { return excite == Excite::Piano; }
     bool isModal() const { return excite == Excite::ModalPiano; }
+    // Stereo exciters (the Modal Piano): (left - right) / 2 of the sample
+    // process() last returned, which is their middle. 0 for the rest.
+    float side() const { return isModal() ? modal.side() : 0.0f; }
 
     KarplusStrong()
         : random (nextSeed())

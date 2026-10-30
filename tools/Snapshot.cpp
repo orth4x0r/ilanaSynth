@@ -2719,16 +2719,9 @@ int runUiTests()
                                         && neuroDiagram->getCaptionTexts()[2].isEmpty() && neuroDiagram->getCaptionTexts()[0].isNotEmpty();
                 expect (offCaption, "FM: an off oscillator's node shows no tuning or level captions (S8-36)");
                 const auto neuroCell = knobBounds ("fm_amount"), neuroNext = knobBounds ("fm_fb2");
-                // One layout on every patch (review 11, I11-5): the EXTRAS line opens and closes them.
-                {
-                    const auto extrasOpenText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xbe"));
-                    const auto extrasCloseText = juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xb4"));
-                    // (A basic patch opens with them showing, to fill the matrix card, V14-5; a DX7 voice folds them.)
-                    expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise1") && clickButton (extrasCloseText)
-                                && ! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (extrasOpenText)
-                                && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
-                            "FM: a basic patch has the EXTRAS line open (RING MOD, SYNC and NOISE FM) and it closes and opens again");
-                }
+                // (ilana's FM option A, 2026-10-29: the extras always stand in the right column under FM MODE.)
+                expect (visibleKnob ("ring_mod") && visibleKnob ("fm_noise_color"),
+                        "FM: a basic patch shows RING MOD, SYNC 2 TO 1 and the noise's COLOUR in the EXTRAS row");
                 expect (! pitchLfoLinkShown(), "FM: no OP PITCH link on a patch without the Operator Env");
                 std::vector<EnvelopeDisplay*> graphs;
                 findAll<EnvelopeDisplay> (*editor, graphs);
@@ -2740,7 +2733,10 @@ int runUiTests()
                 processor.loadFactoryPreset (names.indexOf ("E.PIANO 1 (ROM1A)"));
                 settle (300);
                 pickOsc (0);
-                auto sameKinds = sameOnOsc2 && diagramBounds().getHeight() == heightOnNeuro;
+                // (2026-10-29: a patch without the Operator Env gets the one-row card, a DX7 voice the taller one; within a
+                // patch the height never changes.)
+                const auto heightOnDx = diagramBounds().getHeight();
+                auto sameKinds = sameOnOsc2;
                 std::vector<CardTabs*> tabs;
                 findAll<CardTabs> (*editor, tabs);
                 for (auto* tab : tabs)
@@ -2748,21 +2744,27 @@ int runUiTests()
                     {
                         tab->setSelected (1, true);
                         settle (250);
-                        sameKinds = sameKinds && diagramBounds().getHeight() == heightOnNeuro;
+                        sameKinds = sameKinds && diagramBounds().getHeight() == heightOnDx;
                         tab->setSelected (0, true);
                     }
                 expect (pitchLfoLinkShown(), "FM: a DX7 voice's operator card links to OP PITCH and OP LFO");
                 pickOsc (1);
-                expect (sameKinds, "FM: the operator card keeps one height on every patch, operator kind and tab (I8-11)");
+                sameKinds = sameKinds && diagramBounds().getHeight() == heightOnDx;
+                expect (sameKinds, "FM: the operator card keeps one height across a patch's operators and tabs (I8-11)");
 
-                const auto dxCell = knobBounds ("fm_amount"), dxNext = knobBounds ("fm_fb2");
-                expect (! neuroCell.isEmpty() && ! dxCell.isEmpty() && neuroCell.getWidth() >= dxCell.getWidth()
-                            && neuroNext.getX() - neuroCell.getX() >= dxNext.getX() - dxCell.getX(),
-                        "FM: a three-oscillator matrix's cells are as large as, or larger than, a six-oscillator one's (V9-8: "
-                            + neuroCell.toString() + " / " + dxCell.toString() + ")");
-                expect (! visibleKnob ("ring_mod") && ! visibleKnob ("fm_noise1") && clickButton (juce::String (juce::CharPointer_UTF8 ("EXTRAS \xc2\xb7 RING MOD \xc2\xb7 SYNC \xc2\xb7 NOISE FM \xe2\x96\xbe")))
-                            && visibleKnob ("ring_mod") && visibleKnob ("fm_noise1"),
-                        "FM: a DX7 voice folds RING MOD, SYNC and NOISE FM behind MORE (S8-21)");
+                // Each route in use: a row in ROUTES and a knob on its cable, both the same parameter.
+                {
+                    std::vector<KnobControl*> all;
+                    findAll<KnobControl> (*editor, all);
+                    const auto shownFor = [&] (const juce::String& id)
+                    {
+                        return (int) std::count_if (all.begin(), all.end(), [&] (KnobControl* knob) { return visibleInTree (knob) && knob->getParameterId() == id; });
+                    };
+                    expect (shownFor ("fm_amount") == 2 && shownFor ("fm_fb6") == 2 && shownFor ("fm_1to2") == 0,
+                            "FM: a route in use has its ROUTES row and its knob on the cable; one not in use has neither ("
+                                + juce::String (shownFor ("fm_amount")) + ", " + juce::String (shownFor ("fm_fb6")) + ", " + juce::String (shownFor ("fm_1to2")) + ")");
+                }
+                expect (visibleKnob ("ring_mod"), "FM: a DX7 voice shows the EXTRAS too (one layout)");
             }
 
             // The operator card speaks the synth's words: a rate as a time, a
@@ -2860,26 +2862,26 @@ int runUiTests()
                 if (visibleInTree (combo) && combo->getComboBox().getText() == "DX7")
                     fbDimmed = fbDimmed || combo->getAlpha() < 1.0f;
             expect (fbDimmed, "FB TYPE dims on an operator with no feedback route");
-            auto emptyHidden = false, usedShown = false;
+            auto emptyHidden = true, usedShown = false;
             for (auto* knob : knobs)
             {
                 if (! visibleInTree (knob))
                     continue;
                 if (knob->getParameterId() == FmDiagram::routeId (0, 1))
-                    emptyHidden = knob->getAlpha() < 0.01f;
+                    emptyHidden = false;
                 if (knob->getParameterId() == FmDiagram::routeId (1, 0))
-                    usedShown = knob->getAlpha() > 0.99f;
+                    usedShown = usedShown || knob->getAlpha() > 0.99f;
             }
-            expect (emptyHidden && usedShown, "an empty FM cell is a dot; a route in use shows its knob");
+            expect (emptyHidden && usedShown, "an unused FM route shows no knob; a route in use shows its knob");
 
-            // A switched-off oscillator has no row or column in the matrix (a dead tile each, V14-5).
+            // A switched-off oscillator's routes stay listed but can't be edited.
             set ("osc2_on", 0.0f);
             settle (300);
             auto offRow = true;
             for (auto* knob : knobs)
                 if (visibleInTree (knob) && knob->getParameterId() == FmDiagram::routeId (1, 0))
-                    offRow = ! knob->isEnabled();
-            expect (offRow, "an off oscillator's matrix row can't be edited (it drops out of the grid)");
+                    offRow = offRow && ! knob->isEnabled();
+            expect (offRow, "an off oscillator's FM routes can't be edited");
             set ("osc2_on", 1.0f);
 
             // PITCH & LFO opens the voice's pitch envelope.
@@ -2894,10 +2896,10 @@ int runUiTests()
             for (auto* candidate : graphs)
                 pitchShown = pitchShown || (visibleInTree (candidate) && candidate->isPitch());
             expect (pitchShown && pages->getCurrentPageId() == "MAIN", "OP PITCH · OP LFO opens the pitch envelope's graph in its pop-up on PLAY");
-            // (Closed again: its cross.)
+            // (Closed again: its cross, not an FM route's remove button.)
             findAll<juce::TextButton> (*editor, buttons);
             for (auto* button : buttons)
-                if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && visibleInTree (button))
+                if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && button->getName() != "removeRoute" && visibleInTree (button))
                 {
                     button->triggerClick();
                     break;
@@ -7410,14 +7412,20 @@ int runUiTests()
             settle (400);
             std::vector<KnobControl*> knobs;
             findAll<KnobControl> (*editor, knobs);
+            // (2026-10-29: the sends are the ROUTES list's and the cables' small rings; a route makes them show.)
+            processor.apvts.getParameter ("fm_amount")->setValueNotifyingHost (0.5f);
+            settle (400);
+            knobs.clear();
+            findAll<KnobControl> (*editor, knobs);
             auto sends = 0, miniSends = 0;
             for (auto* knob : knobs)
                 if (visibleInTree (knob) && knob->getParameterId().startsWith ("fm_") && knob->getLabelText().isEmpty())
                 {
                     ++sends;
-                    miniSends += knob->getMaxDial() == IlanaTheme::KnobSize::mini ? 1 : 0;
+                    miniSends += knob->getWidth() <= 60 ? 1 : 0;
                 }
-            expect (sends > 0 && sends == miniSends, "FM: the matrix's send knobs are mini (" + juce::String (miniSends) + " of " + juce::String (sends) + ")");
+            expect (sends > 0 && sends == miniSends, "FM: the route knobs are small (" + juce::String (miniSends) + " of " + juce::String (sends) + ")");
+            processor.apvts.getParameter ("fm_amount")->setValueNotifyingHost (0.0f);
 
             pages->showPage ("MAIN");
             settle (300);
@@ -9491,7 +9499,7 @@ int main (int argc, char** argv)
                     std::vector<juce::TextButton*> buttons;
                     findAll<juce::TextButton> (*editor, buttons);
                     for (auto* button : buttons)
-                        if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && visibleInTree (button))
+                        if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && button->getName() != "removeRoute" && visibleInTree (button))
                         {
                             button->triggerClick();
                             break;

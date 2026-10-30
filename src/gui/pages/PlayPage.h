@@ -2489,7 +2489,7 @@ private:
     }
 
     // (UI review 26: FILTER back to mockup v4's width, its graph about 290 px; the knobs at 33 and WEST at 41 give the room.)
-    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42, filterPitch = 3 * westPitch / 2, gapToKnobs = 5;
+    static constexpr int westPitch = 42, stringsPitch = 43, bodyPitch = 42, filterPitch = 52, gapToKnobs = 5;
 
     IlanaSynthAudioProcessor& processorRef;
     EffectRules effectRules { processorRef };

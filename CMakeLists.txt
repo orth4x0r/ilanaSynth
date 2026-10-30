@@ -125,6 +125,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/SamplePortability.cpp
     src/processor/Dx7.cpp
     src/dsp/BuiltInTables.cpp
+    src/dsp/ModalPianoTable.cpp
 )
 
 juce_add_binary_data(ilanaFonts SOURCES
@@ -134,12 +135,14 @@ juce_add_binary_data(ilanaFonts SOURCES
 )
 
 # The human-made wavetables the editor carries (tools/build_builtin_wavetables.py;
-# src/dsp/BuiltInTables.cpp reads them). Every target built from the processor
+# src/dsp/BuiltInTables.cpp reads them), and the Modal Piano's partial table
+# (tools/build_modal_piano.py; src/dsp/ModalPianoTable.cpp). Every target built from the processor
 # links them (the foreach at the end).
 juce_add_binary_data(ilanaWavetables
     HEADER_NAME WavetableData.h
     NAMESPACE WavetableData
     SOURCES content/wavetables/builtin-wavetables.bin
+            content/piano/modal-piano.bin
 )
 
 target_sources(ilanaSynth PRIVATE

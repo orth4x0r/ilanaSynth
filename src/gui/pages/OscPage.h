@@ -2514,7 +2514,8 @@ private:
             { "Tine", "Electric piano. A struck tine and its pickup.", { { "M2 3H13V5H5V13M2 3V14M11 9H17V14H11ZM8 12H11", 1.5f } } },
             { "Reed", "Electric piano. A struck reed and its pickup.", { { "M2 4H16L11 11H2ZM2 14H16M3 6H11", 1.5f } } },
             { "Piano", "Strike. A felt strike; HAMMER sets brightness.", { { "M1 3H17V14H1ZM6 3V14M12 3V14", 1.1f }, { "M4 3H7V9H4ZM10 3H13V9H10Z", 0.0f } } },
-            { "Feedback", "Driven. The amp pushes sound back at the string.", { { "M15 5A6 6 0 1 0 15 11M12 2L16 5 12 7M5 8H11", 1.5f } } } };
+            { "Feedback", "Driven. The amp pushes sound back at the string.", { { "M15 5A6 6 0 1 0 15 11M12 2L16 5 12 7M5 8H11", 1.5f } } },
+            { "Modal Piano", "Strike. A measured grand, partial by partial.", { { "M1 8H17V15H1ZM6 8V15M12 8V15", 1.1f }, { "M1 4Q3 1 5 4T9 4T13 4T17 4", 1.2f } } } };
     }
 
     juce::String physicalHint (int osc) const
@@ -2530,8 +2531,9 @@ private:
             "A struck tine and its pickup.",
             "A struck reed and its pickup.",
             "A felt strike; HAMMER sets brightness.",
-            "The amp pushes sound back at the string." };
-        return hints[juce::jlimit (0, 10, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
+            "The amp pushes sound back at the string.",
+            "A measured grand, partial by partial." };
+        return hints[juce::jlimit (0, 11, juce::roundToInt (readFloat (juce::String (OscillatorIds::prefixes[(size_t) osc]) + "_excite")))];
     }
 
     bool unisonShown (int osc) const

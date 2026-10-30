@@ -1449,6 +1449,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             const auto note = getCurrentlyPlayingNote();
             numOscUnison[osc] = juce::jmin (numOscUnison[osc], note < 35 ? 1 : (note < 47 ? 2 : 3));
         }
+        // The Modal Piano's recording already has all of a note's strings.
+        if (settings.stringMode && settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano)
+            numOscUnison[osc] = juce::jmin (numOscUnison[osc], 1);
     }
 
     updateUnisonLayout();

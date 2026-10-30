@@ -249,7 +249,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
     addChoice ("sub_scale", "Osc3 Scale Quantize", Scales::getNames(), 0);
     addChoice ("sub_scale_root", "Osc3 Scale Root", Scales::getRootNames(), 0);
     addChoice ("sub_route", "Osc3 Filter Route", FilterRoute::getNames(), 0);
-    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+    addChoice ("sub_excite", "Osc3 Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback", "Modal Piano" }, 0);
     addFloat ("sub_string_decay", "Osc3 String Decay", 0.0f, 1.0f, 0.75f);
     addFloat ("sub_string_damp", "Osc3 String Damp", 0.0f, 1.0f, 0.35f);
     addFloat ("sub_string_sustain", "Osc3 String Sustain", 0.0f, 1.0f, 0.0f);
@@ -392,7 +392,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         const auto prefix = "osc" + juce::String (osc);
 
         addChoice (prefix + "_mode", "Osc" + juce::String (osc) + " Mode", oscModeChoices, 0);
-        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (prefix + "_excite", "Osc" + juce::String (osc) + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback", "Modal Piano" }, 0);
         addFloat (prefix + "_string_decay", "Osc" + juce::String (osc) + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (prefix + "_string_damp", "Osc" + juce::String (osc) + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (prefix + "_string_sustain", "Osc" + juce::String (osc) + " String Sustain", 0.0f, 1.0f, 0.0f);
@@ -730,7 +730,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IlanaSynthAudioProcessor::cr
         addChoice (id ("scale_root"), name + " Scale Root", Scales::getRootNames(), 0);
         addChoice (id ("route"), name + " Filter Route", FilterRoute::getNames(), 0);
         addChoice (id ("chord"), name + " Chord", { "Off", "Octave", "Fifth", "Power", "Major", "Minor", "Sus4" }, 0);
-        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback" }, 0);
+        addChoice (id ("excite"), name + " Excite", { "Burst", "Noise", "Saw", "Pulse", "Bow", "Bright Hammer", "Osc In", "Tine", "Reed", "Piano", "Feedback", "Modal Piano" }, 0);
         addFloat (id ("string_decay"), name + " String Decay", 0.0f, 1.0f, 0.75f);
         addFloat (id ("string_damp"), name + " String Damp", 0.0f, 1.0f, 0.35f);
         addFloat (id ("string_sustain"), name + " String Sustain", 0.0f, 1.0f, 0.0f);

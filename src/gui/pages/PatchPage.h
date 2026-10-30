@@ -2000,6 +2000,9 @@ private:
         }
         if (! table.used[VoiceRouting::west] || read ("west_on") < 0.5f)
             graph.setBypassed (voiceId + (PatchGraph::NodeId) (stageKind + VoiceRouting::west), true);
+        // (BODY dims the same way: NOT IN USE beside a bright cable read as playing, UI review 27.)
+        if (! table.used[VoiceRouting::body] || read ("res_on") < 0.5f)
+            graph.setBypassed (voiceId + (PatchGraph::NodeId) (stageKind + VoiceRouting::body), true);
 
         // The band behind them: 20 px round the boxes, room for its name above.
         auto bottom = (float) ((int) sources.size() - 1) * rowStep + PatchCableView::nodeHeight;

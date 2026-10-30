@@ -804,24 +804,52 @@ inline int spectralOscFor (int destination)
 constexpr int maxSlots = 64;
 constexpr int remapSize = 256;
 
-// Stereo routes into a filter cutoff are summed per voice into two internal
-// destinations just past the explicit ones (never stored in a patch): the
-// left channel gets +sum, the right -sum. Returns the internal index
-// (Count or Count + 1) for a stereo slot on Filter 1 / 2 Cutoff, else -1.
-constexpr int numStereoDestinations = 2;
-// Whether a route into this destination can be stereo (the menus grey the choice elsewhere).
-inline bool canBeStereo (int destination)
+// Stereo routes are summed per voice into internal destinations just past
+// the explicit ones (never stored in a patch): the left side gets +sum, the
+// right -sum. Filter 1 / 2 cutoff keep internal indices Count and Count + 1;
+// 2026-10-30 (ilana: "stereo frame, stereo everything") added the filters'
+// resonance, morph and drive, and each oscillator's FRAME and WARP (a
+// wavetable oscillator plays its unison voices, or one voice as a left /
+// right twin, apart). Order is internal only: append freely.
+inline constexpr std::array<Destination, 20> stereoDestinations {
+    Destination::Filter1Cutoff, Destination::Filter2Cutoff,
+    Destination::Filter1Reso, Destination::Filter2Reso,
+    Destination::Filter1Morph, Destination::Filter2Morph,
+    Destination::Filter1Drive, Destination::Filter2Drive,
+    Destination::Osc1Frame, Destination::Osc2Frame, Destination::SubFrame,
+    Destination::Osc4Frame, Destination::Osc5Frame, Destination::Osc6Frame,
+    Destination::Osc1Warp, Destination::Osc2Warp, Destination::SubWarp,
+    Destination::Osc4Warp, Destination::Osc5Warp, Destination::Osc6Warp,
+};
+constexpr int numStereoDestinations = (int) stereoDestinations.size();
+// Indices into stereoDestinations (add Destination::Count for the internal destination).
+namespace StereoIndex
 {
-    return destination == (int) Destination::Filter1Cutoff || destination == (int) Destination::Filter2Cutoff;
+    constexpr int cutoff1 = 0, cutoff2 = 1, reso1 = 2, reso2 = 3, morph1 = 4, morph2 = 5, drive1 = 6, drive2 = 7,
+                  frame = 8, warp = 14; // + the oscillator (0..5)
 }
 
+inline int stereoIndexFor (int destination)
+{
+    for (int i = 0; i < numStereoDestinations; ++i)
+        if ((int) stereoDestinations[(size_t) i] == destination)
+            return i;
+    return -1;
+}
+
+// Whether a route into this destination can be stereo (the matrix greys STEREO elsewhere).
+inline bool canBeStereo (int destination)
+{
+    return stereoIndexFor (destination) >= 0;
+}
+
+// The internal index (Count + i) a stereo slot sums into, else -1.
 inline int stereoTargetFor (const Slot& slot)
 {
     if (! slot.stereo)
         return -1;
-
-    return slot.destination == (int) Destination::Filter1Cutoff ? (int) Destination::Count
-         : slot.destination == (int) Destination::Filter2Cutoff ? (int) Destination::Count + 1 : -1;
+    const auto index = stereoIndexFor (slot.destination);
+    return index >= 0 ? (int) Destination::Count + index : -1;
 }
 
 // A route into a spectral amount that the voices evaluate themselves.

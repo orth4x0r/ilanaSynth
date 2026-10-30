@@ -3095,21 +3095,6 @@ private:
         const auto mixPanel = juce::Rectangle<int> (cols.x[2], top, cols.w[2], physTopH);
         const auto unisonPanel = juce::Rectangle<int> (cols.x[3], top, cols.w[3], physTopH);
         const juce::Rectangle<int> resPanel (cols.x[0], lowY, 156, physBottomH);
-        // (A tine or reed keeps only DAMPER under MORE, so the picture takes the rest of the row.)
-        const auto moreX = cols.x[0] + 160;
-        const juce::Rectangle<int> morePanel (moreX, lowY, electric ? 62 : cols.x[1] - moreX, physBottomH);
-        const auto stringX = electric ? morePanel.getRight() + panelGap : cols.x[1] + panelGap;
-        const juce::Rectangle<int> stringPanel (stringX, lowY, right - stringX, physBottomH);
-
-        card.panels.push_back ({ tonePanel, "TONE", {}, tint });
-        card.panels.push_back ({ exciterPanel, "EXCITER", {}, tint });
-        card.panels.push_back ({ pitchPanel, "PITCH", {}, tint });
-        card.panels.push_back ({ mixPanel, "MIX", {}, tint });
-        card.panels.push_back ({ unisonPanel, "UNISON", {}, tint });
-        card.panels.push_back ({ resPanel, "RESONANCE", {}, resonance });
-        card.panels.push_back ({ morePanel, "MORE", {}, grey });
-        card.panels.push_back ({ stringPanel, "STRING", {}, tint });
-
         // Which control goes where, from the exciter in use.
         const auto specs = physicalControlRows (excite);
         const auto& lookup = physicalLookup[(size_t) index];
@@ -3146,6 +3131,23 @@ private:
             exciterKnobs.insert (pickup == exciterKnobs.end() ? pickup : pickup + 1, &phys.click);
         }
 
+        // (A tine or reed, or Modal Piano, keeps only DAMPER under MORE, so MORE is one knob wide
+        // and the picture takes the rest of the row: UI review 27 found DAMPER alone in a 270 px panel.)
+        const auto narrowMore = electric || moreKnobs.size() <= 1;
+        const auto moreX = cols.x[0] + 160;
+        const juce::Rectangle<int> morePanel (moreX, lowY, narrowMore ? 62 : cols.x[1] - moreX, physBottomH);
+        const auto stringX = narrowMore ? morePanel.getRight() + panelGap : cols.x[1] + panelGap;
+        const juce::Rectangle<int> stringPanel (stringX, lowY, right - stringX, physBottomH);
+
+        card.panels.push_back ({ tonePanel, "TONE", {}, tint });
+        card.panels.push_back ({ exciterPanel, "EXCITER", {}, tint });
+        card.panels.push_back ({ pitchPanel, "PITCH", {}, tint });
+        card.panels.push_back ({ mixPanel, "MIX", {}, tint });
+        card.panels.push_back ({ unisonPanel, "UNISON", {}, tint });
+        card.panels.push_back ({ resPanel, "RESONANCE", {}, resonance });
+        card.panels.push_back ({ morePanel, "MORE", {}, grey });
+        card.panels.push_back ({ stringPanel, "STRING", {}, tint });
+
         // TONE: RING TIME, DARKEN, STIFF in 46 px cells; the partials' strip under them, named at its left.
         {
             auto x = tonePanel.getX() + 7;
@@ -3180,7 +3182,7 @@ private:
             auto x = exciterPanel.getX() + (exciterPanel.getWidth() - n * cell) / 2;
             for (auto* knob : exciterKnobs)
             {
-                placeKnob (*knob, x, exciterPanel.getY() + 35, cell, mainDial);
+                placeKnob (*knob, x, exciterPanel.getY() + 37, cell, mainDial); // (37: clear of the icon row)
                 x += cell;
             }
         }
@@ -3190,9 +3192,14 @@ private:
         placeKnob (osc.fine, pitchPanel.getX() + 80, pitchPanel.getY() + 17, 46, mainDial);
         osc.chord.setBounds (inPanel (pitchPanel, 8, 62, pitchPanel.getWidth() - 16, menuH));
 
-        // MIX: LEVEL and PAN.
-        placeKnob (osc.level, mixPanel.getX() + 34, mixPanel.getY() + 17, 48, mainDial);
-        placeKnob (osc.pan, mixPanel.getX() + 82, mixPanel.getY() + 17, 48, mainDial);
+        // MIX: LEVEL and PAN, the FILTER route under them as on the wavetable card (UI review 27).
+        placeKnob (osc.level, mixPanel.getX() + 34, mixPanel.getY() + 15, 48, mainDial);
+        placeKnob (osc.pan, mixPanel.getX() + 82, mixPanel.getY() + 15, 48, mainDial);
+        {
+            const auto labelW = 28, filterY = mixPanel.getY() + physTopH - filterH - 6;
+            card.labels.push_back ({ { mixPanel.getX() + 6, filterY, labelW, filterH }, "FILTER" });
+            pieces.routeBar.setBounds ({ mixPanel.getX() + 6 + labelW, filterY, mixPanel.getWidth() - 12 - labelW + 3, filterH });
+        }
 
         // UNISON: the mode menu, then VOICES, DETUNE, BLEND and SPREAD in 44 px cells.
         osc.uniMode.setBounds (inPanel (unisonPanel, 8, 25, 77, menuH));
@@ -4610,7 +4617,7 @@ private:
             const auto wavetableCard = usesPanels (kind) && kind == Kind::wavetable;
             pieces.prevTable.setVisible (wavetableCard);
             pieces.nextTable.setVisible (wavetableCard);
-            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
+            pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain || kind == Kind::physical);
             pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)

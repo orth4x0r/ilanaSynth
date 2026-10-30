@@ -1621,12 +1621,24 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // loop's input); every other model is driven by a tanh in front.
     const auto inside1 = FilterType::drivesInside (params.filter1.type);
     const auto inside2 = FilterType::drivesInside (params.filter2.type);
-    for (auto* filter : { &filter1L, &filter1R, &bothFilter1L, &bothFilter1R })
-        filter->setDrive (inside1 ? driveAmount1 : 1.0f);
-    for (auto* filter : { &filter2L, &filter2R, &bothFilter2L, &bothFilter2R })
-        filter->setDrive (inside2 ? driveAmount2 : 1.0f);
-    const auto drive1 = inside1 ? 1.0f : driveAmount1;
-    const auto drive2 = inside2 ? 1.0f : driveAmount2;
+    // A stereo route into a drive: the left side gets more, the right less (2026-10-30).
+    const auto stereoDrive = [this] (float amount, int index)
+    {
+        const auto shift = stereoRouted[(size_t) index] ? blockMod ((Mod::Destination) ((int) Mod::Destination::Count + index)) * driveRange : 0.0f;
+        return DriveAmounts { juce::jlimit (1.0f, 10.0f, amount + shift), juce::jlimit (1.0f, 10.0f, amount - shift) };
+    };
+    const auto drives1 = stereoDrive (driveAmount1, Mod::StereoIndex::drive1);
+    const auto drives2 = stereoDrive (driveAmount2, Mod::StereoIndex::drive2);
+    for (auto* filter : { &filter1L, &bothFilter1L })
+        filter->setDrive (inside1 ? drives1.l : 1.0f);
+    for (auto* filter : { &filter1R, &bothFilter1R })
+        filter->setDrive (inside1 ? drives1.r : 1.0f);
+    for (auto* filter : { &filter2L, &bothFilter2L })
+        filter->setDrive (inside2 ? drives2.l : 1.0f);
+    for (auto* filter : { &filter2R, &bothFilter2R })
+        filter->setDrive (inside2 ? drives2.r : 1.0f);
+    const auto drive1 = inside1 ? DriveAmounts {} : drives1;
+    const auto drive2 = inside2 ? DriveAmounts {} : drives2;
 
     auto* left = outputBuffer.getWritePointer (0);
     auto* right = outputBuffer.getNumChannels() > 1 ? outputBuffer.getWritePointer (1) : nullptr;
@@ -1877,10 +1889,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     const auto drive = [] (float value, float amount) { return amount > 1.0f ? FastMath::tanh (value * amount) : value; };
 
     // A mono source feeds both sides alike: drive it once (the same result).
-    const auto drivePair = [&drive] (float l, float r, float amount, float& outL, float& outR)
+    const auto drivePair = [&drive] (float l, float r, DriveAmounts amount, float& outL, float& outR)
     {
-        outL = drive (l, amount);
-        outR = r == l ? outL : drive (r, amount);
+        outL = drive (l, amount.l);
+        outR = r == l && amount.r == amount.l ? outL : drive (r, amount.r);
     };
 
     // M8.3: the west-coast voice's control (the LED's drive): a strike on
@@ -2169,10 +2181,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             // bit-identical whenever no oscillator selects Both.
             if (bothActive)
             {
-                const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1));
-                const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1));
-                const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2));
-                const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2));
+                const auto both1L = bothFilter1L.process (drive (busL[FilterRoute::Both], drive1.l));
+                const auto both1R = bothFilter1R.process (drive (busR[FilterRoute::Both], drive1.r));
+                const auto both2L = bothFilter2L.process (drive (busL[FilterRoute::Both], drive2.l));
+                const auto both2R = bothFilter2R.process (drive (busR[FilterRoute::Both], drive2.r));
                 sampleL += (both1L + both2L) * 0.7071f;
                 sampleR += (both1R + both2R) * 0.7071f;
             }
@@ -3711,6 +3723,14 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
         oscBank[osc].setWarp (settings.warpMode, warp);
         oscBank[osc].setWarp2 (settings.warpMode2, warp2);
         oscBank[osc].setSpreads (settings.frameSpread, settings.warpSpread);
+        {
+            // Stereo FRAME / WARP routes (2026-10-30): the bank plays its voices apart, one voice as a left / right twin.
+            const auto frameIndex = Mod::StereoIndex::frame + osc, warpIndex = Mod::StereoIndex::warp + osc;
+            const auto stereoFrame = stereoRouted[(size_t) frameIndex], stereoWarp = stereoRouted[(size_t) warpIndex];
+            oscBank[osc].setStereo (stereoFrame || stereoWarp,
+                                    stereoFrame ? mods[(int) Mod::Destination::Count + frameIndex] : 0.0f,
+                                    stereoWarp ? mods[(int) Mod::Destination::Count + warpIndex] : 0.0f);
+        }
 
         oscBank[osc].setFrequencies (baseFreq, unisonRatio[osc], numOscUnison[osc]);
 
@@ -3914,7 +3934,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     };
     const auto open1 = ! disableOpenFilterBypass && params.filter1.type == FilterType::LowPass
                        && ! params.filter1.slope24 && cutoff1 >= openFilterHz && reso1 <= 0.3f && fmOctaves1 == 0.0
-                       && ! stereoRouted[0] && filter1Static();
+                       && ! filterStereo (0) && filter1Static();
 
     if (open1 != filter1Open)
     {
@@ -3953,14 +3973,18 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
         const auto morph1 = juce::jlimit (0.0f, 1.0f, params.filter1.morph + mods[(int) D::Filter1Morph]);
         const auto coefficients1 = FilterUnit::makeCoefficients (params.filter1.type, sampleRate, cutoff1, reso1, morph1);
 
-        if (stereoRouted[0])
+        if (filterStereo (0))
         {
-            // A stereo route: the left cutoff moves up as the right moves down.
-            const auto shift = (double) mods[(int) D::Count] * (double) Mod::Range::cutoffOctaves;
+            // A stereo route: the left cutoff (resonance, morph) moves up as the right moves down.
+            const auto shift = (double) mods[(int) D::Count + Mod::StereoIndex::cutoff1] * (double) Mod::Range::cutoffOctaves;
+            const auto resoShift = mods[(int) D::Count + Mod::StereoIndex::reso1];
+            const auto morphShift = mods[(int) D::Count + Mod::StereoIndex::morph1];
             const auto left = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
-                                                            juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)), reso1, morph1);
+                                                            juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (shift)),
+                                                            juce::jlimit (0.0f, 1.0f, reso1 + resoShift), juce::jlimit (0.0f, 1.0f, morph1 + morphShift));
             const auto right = FilterUnit::makeCoefficients (params.filter1.type, sampleRate,
-                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (-shift)), reso1, morph1);
+                                                             juce::jlimit (20.0, sampleRate * 0.45, cutoff1 * std::exp2 (-shift)),
+                                                             juce::jlimit (0.0f, 1.0f, reso1 - resoShift), juce::jlimit (0.0f, 1.0f, morph1 - morphShift));
 
             if (filter1Linked)
             {
@@ -3999,7 +4023,7 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     // be heard doing). Moving between the two starts the new one from rest.
     const auto open2 = ! disableOpenFilterBypass && params.filter2.type == FilterType::LowPass
                        && ! params.filter2.slope24 && cutoff2 >= openFilterHz && reso2 <= 0.3f && fmOctaves2 == 0.0
-                       && ! stereoRouted[1];
+                       && ! filterStereo (1);
 
     if (open2 != filter2Open)
     {
@@ -4032,13 +4056,17 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
     const auto morph2 = juce::jlimit (0.0f, 1.0f, params.filter2.morph + mods[(int) D::Filter2Morph]);
     const auto coefficients2 = FilterUnit::makeCoefficients (params.filter2.type, sampleRate, cutoff2, reso2, morph2);
 
-    if (stereoRouted[1])
+    if (filterStereo (1))
     {
-        const auto shift = (double) mods[(int) D::Count + 1] * (double) Mod::Range::cutoffOctaves;
+        const auto shift = (double) mods[(int) D::Count + Mod::StereoIndex::cutoff2] * (double) Mod::Range::cutoffOctaves;
+        const auto resoShift = mods[(int) D::Count + Mod::StereoIndex::reso2];
+        const auto morphShift = mods[(int) D::Count + Mod::StereoIndex::morph2];
         const auto left = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
-                                                        juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)), reso2, morph2);
+                                                        juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (shift)),
+                                                        juce::jlimit (0.0f, 1.0f, reso2 + resoShift), juce::jlimit (0.0f, 1.0f, morph2 + morphShift));
         const auto right = FilterUnit::makeCoefficients (params.filter2.type, sampleRate,
-                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (-shift)), reso2, morph2);
+                                                         juce::jlimit (20.0, sampleRate * 0.45, cutoff2 * std::exp2 (-shift)),
+                                                         juce::jlimit (0.0f, 1.0f, reso2 - resoShift), juce::jlimit (0.0f, 1.0f, morph2 - morphShift));
 
         if (filter2Linked)
         {

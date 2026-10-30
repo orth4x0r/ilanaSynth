@@ -384,9 +384,11 @@ public:
         if (! chipBounds.isEmpty())
         {
             const auto chip = chipBounds.toFloat().reduced (0.5f);
-            g.setColour (colour.withAlpha (0.12f));
+            // (An LFO that drives nothing reads grey, idle; in its colour it looked like a warning, UI review 27.)
+            const auto chipColour = drivesNothing ? IlanaTheme::Ui::text3 : colour;
+            g.setColour (chipColour.withAlpha (0.12f));
             g.fillRoundedRectangle (chip, chip.getHeight() * 0.5f);
-            g.setColour (colour.withAlpha (0.8f));
+            g.setColour (chipColour.withAlpha (0.8f));
             g.drawRoundedRectangle (chip, chip.getHeight() * 0.5f, 1.0f);
             g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ chip.getX() + 8.0f, chip.getCentreY() }));
             g.setColour (IlanaTheme::Ui::text);
@@ -619,6 +621,7 @@ private:
             if (text != chipText)
             {
                 chipText = text;
+                drivesNothing = slots.empty();
                 repaint();
             }
         }
@@ -764,6 +767,7 @@ private:
     int selected = 0, firstShown = 0;
     juce::Rectangle<int> chipBounds;
     juce::String chipText;
+    bool drivesNothing = false;
     std::unique_ptr<juce::Component> graph;
     std::vector<std::unique_ptr<KnobControl>> knobs;
     std::vector<std::unique_ptr<PillToggle>> toggles;
@@ -956,9 +960,10 @@ public:
             else
                 path.lineTo (point);
         }
-        g.setOpacity (on);
-        IlanaTrace::paintArea (g, path, IlanaTheme::subNoiseColour(), plot.getBottom(), plot.getX(), plot.getRight());
-        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
+        // (The colour carries the dimming: setColour after setOpacity drops the opacity, UI review 27.)
+        const auto colour = IlanaTheme::subNoiseColour().withMultipliedAlpha (on);
+        IlanaTrace::paintArea (g, path, colour, plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, colour);
     }
 };
 
@@ -990,8 +995,8 @@ public:
             else
                 path.lineTo (point);
         }
-        g.setOpacity (read ("subosc_on") > 0.5f ? 1.0f : 0.45f);
-        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
+        // (The colour carries the dimming: setColour after setOpacity dropped it, so an off SUB stayed lit, UI review 27.)
+        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("subosc_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha));
     }
 };
 
@@ -1025,9 +1030,9 @@ public:
             else
                 path.lineTo (point);
         }
-        g.setOpacity (read ("noise_on") > 0.5f ? 1.0f : 0.45f);
-        IlanaTrace::paintArea (g, path, IlanaTheme::subNoiseColour(), plot.getBottom(), plot.getX(), plot.getRight());
-        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour());
+        const auto colour = IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("noise_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
+        IlanaTrace::paintArea (g, path, colour, plot.getBottom(), plot.getX(), plot.getRight());
+        IlanaTrace::paintTrace (g, path, colour);
     }
 };
 
@@ -2317,7 +2322,10 @@ private:
         const auto column = [left] (float i) { return left + juce::roundToInt (i * (float) stringsPitch); };
         const auto place = [knobH] (KnobControl& knob, int x, int y) { knob.setBounds (KnobControl::packedBoundsFor ({ x, y, cell, knobH })); };
         const auto row1 = body.getY() + 1, row2 = body.getBottom() - 1 - knobH;
-        const auto groupY = row1 + knobH + (row2 - row1 - knobH - 10) / 2;
+        // (TUNING sits centred between the knob names and AUTO / MANUAL: centred on the KEYS row's gap it stood
+        // 6 px under COUNT, UI review 27.)
+        const auto manualTop = body.getBottom() - 1 - 33;
+        const auto groupY = row1 + knobH + (manualTop - (row1 + knobH) - 10) / 2;
         for (size_t i = 0; i < stringsKnobs.size(); ++i)
             place (*stringsKnobs[i], column ((float) i), row1);
         place (*keysKnobs[0], column (0.5f), row1);
@@ -2328,8 +2336,8 @@ private:
         tuningGroup = { left, groupY, groupW, 10 };
         noiseGroup = { left, groupY, groupW, 10 };
         // (TUNING's two lines end where the knob row's names would.)
-        stringsManual->setBounds ({ left + 3, body.getBottom() - 1 - 36, groupW - 6, 16 });
-        tuneButton.setBounds ({ left + 3, body.getBottom() - 1 - 16, groupW - 6, 16 });
+        stringsManual->setBounds ({ left + 3, manualTop, groupW - 6, 15 });
+        tuneButton.setBounds ({ left + 3, body.getBottom() - 1 - 15, groupW - 6, 15 });
     }
 
     void layoutBodyCard()
@@ -2348,7 +2356,8 @@ private:
         // The picture at the left (ilana, 2026-10-29: no empty space), one grid of five columns at 42 px at the right,
         // two rows; every name inside its menu or under its knob.
         const auto top = card.getY() + headerHeight;
-        const auto left = card.getRight() - 4 * bodyPitch - cell;
+        // (5 px in from the edge: KEY TRACK is wider than its cell and touched the card's border, UI review 27.)
+        const auto left = card.getRight() - 5 - 4 * bodyPitch - cell;
         const auto pictureBounds = juce::Rectangle<int> (card.getX() + 6, top + 4, left - gapToKnobs - card.getX() - 6, card.getBottom() - 4 - top - 4);
         bodyPicture->setBounds (pictureBounds);
         const auto column = [left] (int i) { return left + i * bodyPitch; };

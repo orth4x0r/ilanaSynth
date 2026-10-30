@@ -890,7 +890,19 @@ private:
     // Per-voice spectral amount mods: slot targets -1000 - osc; worked out once a block.
     mutable std::array<float, 6> spectralMods {};
     std::array<float, 6> spectralBlock {};
-    std::array<bool, Mod::numStereoDestinations> stereoRouted {}; // a stereo route feeds Filter 1 / 2 cutoff
+    std::array<bool, Mod::numStereoDestinations> stereoRouted {}; // a stereo route feeds Mod::stereoDestinations[i]
+    // Whether Filter 1 (0) or 2 (1) has a stereo route (cutoff, resonance, morph or drive): its sides run apart.
+    bool filterStereo (int filter) const
+    {
+        using namespace Mod::StereoIndex;
+        return stereoRouted[(size_t) (cutoff1 + filter)] || stereoRouted[(size_t) (reso1 + filter)]
+               || stereoRouted[(size_t) (morph1 + filter)] || stereoRouted[(size_t) (drive1 + filter)];
+    }
+    // A filter's drive on each side (1 = clean).
+    struct DriveAmounts
+    {
+        float l = 1.0f, r = 1.0f;
+    };
 
     // Per render (prepareModSlots): each slot's target (a mods index, or
     // -2 - cell for an OSC 4-6 FM cell, or -1 for none) and, for sources that

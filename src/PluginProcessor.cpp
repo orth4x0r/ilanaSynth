@@ -1397,7 +1397,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                              ? spectralCache->get (osc, choice, getTableForChoice (choice),
                                                    (int) getParam (ids.spectral),
                                                    getParam (ids.spectralAmount),
-                                                   settings.frameBlend == FrameBlend::spectral)
+                                                   settings.frameBlend == FrameBlend::spectral,
+                                                   (double) buffer.getNumSamples() / currentSampleRate)
                              : getTableForChoice (choice);
         settings.spectralMode = (int) getParam (ids.spectral);
         settings.spectralTable = choice;

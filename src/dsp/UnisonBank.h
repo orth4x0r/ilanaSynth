@@ -53,11 +53,41 @@ public:
 
     // Called every block: tables are swapped by pointer, never rebuilt in
     // place, but the cached level rows are refreshed here anyway.
-    void setWavetable (const Wavetable* newTable)
+    //
+    // fromCache: a spectrally warped copy from SpectralCache (kept alive for
+    // seconds after it is replaced). Moving from one such copy to another of
+    // the same frame count (a SPEC AMT sweep: 2026-10-30, ilana: "spectral
+    // warps dont automate cleanly, theyre stepping") crossfades over about
+    // the time since the last change (2-100 ms), so a sweep glides from copy
+    // to copy instead of stepping. A change during a fade waits for its end.
+    void setWavetable (const Wavetable* newTable, bool fromCache = false)
     {
-        table = newTable;
+        if (newTable == table)
+        {
+            pendingTable = nullptr;
+        }
+        else if (fromCache && tableFromCache && ! hardSwitch && table != nullptr && newTable != nullptr
+                 && table->getNumFrames() > 0 && newTable->getNumFrames() == table->getNumFrames() && sampleRate > 0.0)
+        {
+            if (fadeTable != nullptr)
+                pendingTable = newTable;
+            else
+                beginTableFade (newTable);
+        }
+        else
+        {
+            table = newTable;
+            fadeTable = pendingTable = nullptr;
+        }
+
+        tableFromCache = fromCache;
+        hardSwitch = false;
         refreshAllLanes();
     }
+
+    // A new note: its first table is taken as it is (the last note's copy
+    // is not faded from).
+    void switchTableHard() noexcept { hardSwitch = true; }
 
     const Wavetable* getWavetable() const noexcept { return table; }
 
@@ -98,6 +128,9 @@ public:
                     ++level;
 
                 rows[lane] = table->getLevelFrames (level);
+                rowLevel[lane] = level;
+                if (fadeTable != nullptr)
+                    fadeRows[lane] = fadeTable->getLevelFrames (level);
             }
             else
             {
@@ -235,7 +268,7 @@ public:
 
     bool canRenderSingle (bool oversample) const
     {
-        return table != nullptr && table->getNumFrames() > 0 && sampleRate > 0.0 && numGroups > 0 && numLanesInUse == 1
+        return fadeTable == nullptr && table != nullptr && table->getNumFrames() > 0 && sampleRate > 0.0 && numGroups > 0 && numLanesInUse == 1
                && ! oversample && ! ((warpMode != Warp::Off && warpAmount > 0.0f) || (warpMode2 != Warp::Off && warpAmount2 > 0.0f));
     }
 
@@ -286,10 +319,55 @@ public:
         out.right += value * weightRight[0];
         phase[0] = before + step;
         wrapped = lane0Step > 0.0 && (lane0Step >= 1.0 || phase[0] < before);
+        ++samplesSinceSwitch;
         return out;
     }
 
     Sums render (double phaseModulation, const WavetableOscillator::FrameRead& frames, double rate, bool oversample)
+    {
+        ++samplesSinceSwitch;
+
+        if (fadeTable == nullptr)
+            return renderTable (phaseModulation, frames, rate, oversample);
+
+        // Mid-fade: the old copy first, from the same phases (put back
+        // after), then the new one, which moves the phases on.
+        alignas (16) std::uint32_t savedPhase[maxLanes];
+        std::copy (phase, phase + maxLanes, savedPhase);
+        const auto savedWrapped = wrapped;
+        const auto* current = table;
+        std::swap (rows, fadeRows);
+        table = fadeTable;
+        const auto from = renderTable (phaseModulation, frames, rate, oversample);
+        std::swap (rows, fadeRows);
+        table = current;
+        std::copy (savedPhase, savedPhase + maxLanes, phase);
+        wrapped = savedWrapped;
+        auto out = renderTable (phaseModulation, frames, rate, oversample);
+
+        const auto w = fadePosition;
+        out.mono = from.mono + (out.mono - from.mono) * w;
+        out.left = from.left + (out.left - from.left) * w;
+        out.right = from.right + (out.right - from.right) * w;
+
+        fadePosition += fadeStep;
+        if (fadePosition >= 1.0f)
+        {
+            fadeTable = nullptr;
+            if (pendingTable != nullptr)
+            {
+                beginTableFade (pendingTable);
+                pendingTable = nullptr;
+            }
+        }
+
+        return out;
+    }
+
+    bool isFadingTable() const noexcept { return fadeTable != nullptr; }
+
+private:
+    Sums renderTable (double phaseModulation, const WavetableOscillator::FrameRead& frames, double rate, bool oversample)
     {
         Sums out;
 
@@ -522,7 +600,6 @@ public:
         return out;
     }
 
-private:
     // The unison stack with a frame or warp spread: one lane at a time, as the
     // scalar branch of render() does, each lane reading its own frame pair and
     // warping by its own amount. (Not the hot path: only stacks that use a
@@ -743,6 +820,30 @@ private:
         incrementCycles[1] = incrementCycles[0];
         increment[1] = increment[0];
         rows[1] = rows[0];
+        fadeRows[1] = fadeRows[0];
+        rowLevel[1] = rowLevel[0];
+    }
+
+    // Start fading from the playing table to next, over about the time since
+    // the last change: a steady sweep becomes a straight line between copies.
+    void beginTableFade (const Wavetable* next)
+    {
+        const auto shortest = juce::jmax (1, (int) (sampleRate * 0.002));
+        const auto longest = juce::jmax (shortest, (int) (sampleRate * 0.1));
+        const auto length = (int) juce::jlimit ((std::uint32_t) shortest, (std::uint32_t) longest, samplesSinceSwitch);
+        fadeTable = table;
+        table = next;
+
+        // The levels are the same for every table: the new rows at the old ones.
+        for (int lane = 0; lane < maxLanes; ++lane)
+        {
+            fadeRows[lane] = rows[lane];
+            rows[lane] = rows[lane] != nullptr ? table->getLevelFrames (rowLevel[lane]) : nullptr;
+        }
+
+        fadePosition = 0.0f;
+        fadeStep = 1.0f / (float) length;
+        samplesSinceSwitch = 0;
     }
 
     void refreshAllLanes()
@@ -758,7 +859,13 @@ private:
         increment[lane] = toFixedStep (incrementCycles[lane] - fastFloor (incrementCycles[lane]));
 
         if (table != nullptr && table->getNumFrames() > 0 && sampleRate > 0.0)
-            rows[lane] = table->getLevelFrames (table->getLevelForFrequency (frequency[lane] * stretch, sampleRate));
+        {
+            const auto level = table->getLevelForFrequency (frequency[lane] * stretch, sampleRate);
+            rows[lane] = table->getLevelFrames (level);
+            rowLevel[lane] = level;
+            if (fadeTable != nullptr)
+                fadeRows[lane] = fadeTable->getLevelFrames (level);
+        }
         else
             rows[lane] = nullptr;
     }
@@ -772,8 +879,16 @@ private:
     double incrementCycles[maxLanes] {};
     double frequency[maxLanes] {};
     const float* const* rows[maxLanes] {};
+    const float* const* fadeRows[maxLanes] {}; // the faded-from table's, mid-fade
 
     const Wavetable* table = nullptr;
+    const Wavetable* fadeTable = nullptr;    // the copy being faded from
+    const Wavetable* pendingTable = nullptr; // the next copy, once the fade ends
+    float fadePosition = 0.0f, fadeStep = 0.0f;
+    int rowLevel[maxLanes] {};
+    std::uint32_t samplesSinceSwitch = 0;
+    bool tableFromCache = false;
+    bool hardSwitch = false;
     double sampleRate = 44100.0;
     double stretch = 1.0;
     int numGroups = 0;

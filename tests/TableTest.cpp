@@ -739,6 +739,7 @@ int main()
     timedRun ("runWarpTests", [] { runWarpTests(); });
     timedRun ("runUnisonTests", [] { runUnisonTests(); });
     timedRun ("runPerVoiceSpectralTest", [] { runPerVoiceSpectralTest(); });
+    timedRun ("runSpectralSweepTest", [] { runSpectralSweepTest(); });
     timedRun ("runFrameBlendTests", [] { runFrameBlendTests(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
     timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });

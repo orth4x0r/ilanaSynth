@@ -397,6 +397,156 @@ void runPerVoiceSpectralTest()
                + " Hz, hard " + juce::String (hard, 0) + " Hz, unrouted " + juce::String (plain, 0) + " Hz)");
 }
 
+// 2026-10-30, ilana: "spectral warps dont automate cleanly, theyre stepping". An automated SPEC AMT
+// sweep used to jump between 64 rebuilt copies of the table; now it builds finer copies while the amount
+// moves and fades from each to the next. Measured as spectral flux (how much the spectrum changes from one
+// block to the next): steps put it in a few blocks, a glide spreads it out. ILANA_SWEEP_WAV=<folder>
+// writes each sweep as a WAV.
+void runSpectralSweepTest()
+{
+    static const auto live = juce::SystemStats::getEnvironmentVariable ("ILANA_SWEEP_REALTIME", "").isNotEmpty();
+    const auto sweep = [] (int mode, std::vector<float>& left, std::vector<float>& right)
+    {
+        // ILANA_SWEEP_REALTIME=1: the live path instead (the warps built on their worker, blocks paced at
+        // about real time); printed only, as it depends on the machine.
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (! live);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_table", 10.0f);
+        setParam (processor, "osc1_spectral", (float) mode);
+        setParam (processor, "osc1_spectral_amt", 0.0f);
+        processor.prepareToPlay (48000.0, 512);
+
+        constexpr int blocks = 300; // 3.2 s: 0.3 s still, then 0 -> 1 over 2.6 s, then still
+        juce::AudioBuffer<float> buffer (2, 512);
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            const auto t = juce::jlimit (0.0f, 1.0f, (float) (block - 28) / 244.0f);
+            setParam (processor, "osc1_spectral_amt", t);
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+            if (live)
+                juce::Thread::sleep (10);
+
+            for (int i = 0; i < 512; ++i)
+            {
+                left.push_back (buffer.getSample (0, i));
+                right.push_back (buffer.getSample (1, i));
+            }
+        }
+    };
+
+    // Spectra of 2048-sample windows a block (512) apart, each scaled to sum 1; the flux between neighbours;
+    // its 95th percentile over its median. Steps make a few windows change a lot: about 2.6-8 before the fix.
+    const auto spikiness = [] (const std::vector<float>& samples, int first, int last)
+    {
+        constexpr int order = 11, size = 1 << order, hop = 512;
+        juce::dsp::FFT fft (order);
+        std::vector<float> previous, work ((size_t) size * 2);
+        std::vector<double> flux;
+
+        for (int start = first; start + size <= last; start += hop)
+        {
+            std::fill (work.begin(), work.end(), 0.0f);
+            for (int i = 0; i < size; ++i)
+                work[(size_t) i] = samples[(size_t) (start + i)] * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size));
+            fft.performFrequencyOnlyForwardTransform (work.data());
+            double total = 0.0;
+            for (int bin = 0; bin <= size / 2; ++bin)
+                total += work[(size_t) bin];
+            for (int bin = 0; bin <= size / 2; ++bin)
+                work[(size_t) bin] = (float) (work[(size_t) bin] / juce::jmax (1.0e-9, total));
+
+            if (! previous.empty())
+            {
+                double change = 0.0;
+                for (int bin = 0; bin <= size / 2; ++bin)
+                    change += std::abs (work[(size_t) bin] - previous[(size_t) bin]);
+                flux.push_back (change);
+            }
+
+            previous.assign (work.begin(), work.begin() + size / 2 + 1);
+        }
+
+        auto sorted = flux;
+        std::sort (sorted.begin(), sorted.end());
+        return sorted[sorted.size() * 95 / 100] / juce::jmax (1.0e-12, sorted[sorted.size() / 2]);
+    };
+
+    const auto folder = juce::SystemStats::getEnvironmentVariable ("ILANA_SWEEP_WAV", "");
+
+    for (const auto mode : { (int) SpectralWarp::HarmonicCut, (int) SpectralWarp::Shift, (int) SpectralWarp::LowPass,
+                             (int) SpectralWarp::Stretch })
+    {
+        std::vector<float> left, right;
+        sweep (mode, left, right);
+        // The moving part only (from 0.4 s to 2.9 s).
+        const auto score = spikiness (left, 48000 * 4 / 10, 48000 * 29 / 10);
+        const auto name = SpectralWarp::getNames()[mode];
+
+        if (folder.isNotEmpty())
+        {
+            juce::AudioBuffer<float> out (2, (int) left.size());
+            std::copy (left.begin(), left.end(), out.getWritePointer (0));
+            std::copy (right.begin(), right.end(), out.getWritePointer (1));
+            auto file = juce::File (folder).getChildFile ("sweep-" + name.removeCharacters (" /") + ".wav");
+            file.deleteFile();
+            juce::WavAudioFormat wav;
+            if (auto stream = std::unique_ptr<juce::OutputStream> (file.createOutputStream()))
+                if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 48000.0, 2, 24, {}, 0)))
+                {
+                    stream.release();
+                    writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
+                }
+        }
+
+        std::cout << "  spectral sweep " << name << ": flux 95th percentile / median " << juce::String (score, 2) << std::endl;
+        if (! live)
+            check (score < 2.0, "an automated " + name + " sweep glides instead of stepping (flux 95th percentile / median "
+                                + juce::String (score, 2) + ")");
+    }
+
+    // The bank's fade itself: switching between two warped copies mid-note leaves no jump in the wave.
+    {
+        Wavetable base;
+        base.buildFromFrames (TableFactory::generate (10));
+        std::unique_ptr<Wavetable> dark (SpectralWarp::warpTable (base, SpectralWarp::LowPass, 0.9f));
+        std::unique_ptr<Wavetable> bright (SpectralWarp::warpTable (base, SpectralWarp::LowPass, 0.0f));
+        const auto render = [&] (bool fromCache)
+        {
+            UnisonBank bank;
+            bank.setSampleRate (48000.0);
+            bank.setWavetable (dark.get(), true);
+            const float gain = 1.0f, panL = 1.0f, panR = 1.0f;
+            bank.setWeights (&gain, &panL, &panR, 1);
+            const double ratio = 1.0;
+            bank.setFrequencies (110.0, &ratio, 1);
+            WavetableOscillator::FrameRead frames;
+            auto jump = 0.0f, last = 0.0f;
+            for (int i = 0; i < 9600; ++i)
+            {
+                if (i == 4800)
+                {
+                    bank.setWavetable (bright.get(), fromCache);
+                    bank.setFrequencies (110.0, &ratio, 1);
+                }
+                const auto value = bank.render (0.0, frames, 1.0, false).mono;
+                if (i > 4790 && i < 4810)
+                    jump = juce::jmax (jump, std::abs (value - last));
+                last = value;
+            }
+            return jump;
+        };
+        const auto hard = render (false), faded = render (true);
+        check (faded < hard * 0.5f, "a switch between warped copies fades (largest step " + juce::String (hard, 3)
+                                        + " hard, " + juce::String (faded, 3) + " faded)");
+    }
+}
+
 void runStereoModulationTest()
 {
     // A stereo route on a filter cutoff opens one side and closes the other; the same route unflagged moves both alike.

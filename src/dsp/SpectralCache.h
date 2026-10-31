@@ -22,7 +22,14 @@ class SpectralCache : private juce::Thread
 {
 public:
     static constexpr int numOscillators = OscillatorIds::count;
+    // A still amount plays the nearest of 64 steps (as it always has, so
+    // patches sound the same); one that moves is built on a 256-step grid
+    // (every 4th is one of the 64), and the oscillator fades from each copy
+    // to the next (UnisonBank::setWavetable), so a sweep glides.
     static constexpr int amountSteps = 64;
+    static constexpr int fineSteps = 256;
+    static constexpr int fineScale = fineSteps / amountSteps;
+    static constexpr double settleSeconds = 0.25;
 
     // sourceFor(choice) returns the table behind a table choice (a factory
     // table, or a patch table that edits replace), kept alive by the pointer
@@ -46,7 +53,10 @@ public:
     // blend (FRAME BLEND Spectral) asks for the copy with spectrally blended
     // in-between frames (Wavetable::makeSpectralBlend), of the warped table
     // when a warp is on; until it is built the oscillator crossfades.
-    const Wavetable* get (int osc, int tableChoice, const Wavetable* base, int mode, float amount, bool blend = false)
+    // blockSeconds is how long the block is: an amount that has not moved
+    // for settleSeconds goes back to the 64 steps.
+    const Wavetable* get (int osc, int tableChoice, const Wavetable* base, int mode, float amount, bool blend = false,
+                          double blockSeconds = 0.0)
     {
         auto& slot = slots[(size_t) osc];
 
@@ -60,10 +70,32 @@ public:
         {
             slot.wantedMode = SpectralWarp::Off;
             slot.wantedBlend = false;
+            slot.heardAmount = -1.0f;
             return base;
         }
 
-        const auto step = mode == SpectralWarp::Off ? 0 : juce::jlimit (0, amountSteps, juce::roundToInt (amount * (float) amountSteps));
+        // Moving: an amount that changed within settleSeconds (the first one
+        // heard, or one after a table or mode change, counts as still).
+        if (tableChoice != slot.heardTable || mode != slot.heardMode)
+        {
+            slot.heardTable = tableChoice;
+            slot.heardMode = mode;
+            slot.heardAmount = -1.0f;
+        }
+
+        if (slot.heardAmount >= 0.0f && amount != slot.heardAmount)
+            slot.stillSeconds = 0.0;
+        else if (slot.heardAmount < 0.0f)
+            slot.stillSeconds = settleSeconds;
+        else
+            slot.stillSeconds += blockSeconds;
+
+        slot.heardAmount = amount;
+        const auto moving = slot.stillSeconds < settleSeconds;
+        const auto clamped = juce::jlimit (0.0f, 1.0f, amount);
+        const auto step = mode == SpectralWarp::Off ? 0
+                          : moving                  ? juce::roundToInt (clamped * (float) fineSteps)
+                                                    : juce::roundToInt (clamped * (float) amountSteps) * fineScale;
         slot.wantedTable = tableChoice;
         slot.wantedMode = mode;
         slot.wantedStep = step;
@@ -264,12 +296,13 @@ private:
         return warped.get();
     }
 
-    void serviceVoiceRequests()
+    // Returns whether it built a table.
+    bool serviceVoiceRequests()
     {
         for (auto& request : voiceRequests)
         {
             if (threadShouldExit())
-                return;
+                return false;
 
             const auto key = request.load();
 
@@ -287,11 +320,13 @@ private:
                 const juce::ScopedLock buildLock (voiceBuildLock);
                 buildVoiceTable (key, keyTable (key), keyMode (key), keyStep (key), juce::Time::getMillisecondCounter(), source);
                 request.store (0);
-                return; // one build a pass: the oscillators' own tables come first
+                return true; // one build a pass: the oscillators' own tables come first
             }
 
             request.store (0);
         }
+
+        return false;
     }
 
     struct Slot
@@ -306,23 +341,28 @@ private:
         std::shared_ptr<Wavetable> warped; // the warped table on its own frames, for display (null when only blended)
         const Wavetable* lastServed = nullptr; // audio thread only
         int lastServedTable = -1;              // audio thread only
+        // Audio thread only: whether the amount is moving.
+        int heardTable = -1, heardMode = -1;
+        float heardAmount = -1.0f;
+        double stillSeconds = 0.0;
     };
 
-    void build (Slot& slot, int table, int mode, int step, bool blend)
+    // Returns whether it built a table.
+    bool build (Slot& slot, int table, int mode, int step, bool blend)
     {
         const auto source = sourceFor (table);
 
         if (source == nullptr)
-            return;
+            return false;
 
         if (table == slot.builtTable && mode == slot.builtMode && step == slot.builtStep && blend == slot.builtBlend
             && source.get() == slot.builtSource.load())
-            return;
+            return false;
 
         std::shared_ptr<Wavetable> warped;
 
         if (mode > SpectralWarp::Off)
-            warped = SpectralWarp::warpTable (*source, mode, (float) step / (float) amountSteps);
+            warped = SpectralWarp::warpTable (*source, mode, (float) step / (float) fineSteps);
 
         std::shared_ptr<Wavetable> played = warped;
 
@@ -354,12 +394,15 @@ private:
         slot.builtStep = step;
         slot.builtBlend = blend;
         slot.builtSource = source.get();
+        return true;
     }
 
     void run() override
     {
         while (! threadShouldExit())
         {
+            auto busy = false;
+
             for (int osc = 0; osc < numOscillators && ! threadShouldExit(); ++osc)
             {
                 auto& slot = slots[(size_t) osc];
@@ -372,10 +415,10 @@ private:
                     continue;
 
                 const juce::ScopedLock buildLock (slot.buildLock);
-                build (slot, table, mode, step, blend);
+                busy = build (slot, table, mode, step, blend) || busy;
             }
 
-            serviceVoiceRequests();
+            busy = serviceVoiceRequests() || busy;
 
             // Free copies nothing can be playing any more.
             {
@@ -386,7 +429,9 @@ private:
                                retired.end());
             }
 
-            wait (15);
+            // A sweep keeps it building: look again almost at once, so the
+            // copies follow the amount closely; idle, every 15 ms.
+            wait (busy ? 1 : 15);
         }
     }
 

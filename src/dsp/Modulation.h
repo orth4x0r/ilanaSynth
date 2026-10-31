@@ -537,7 +537,8 @@ inline const std::vector<ParamDestination>& getParamDestinations()
 
         // Filter overhaul (append only): the spectral warps' amount. Moved at
         // block rate like the other parameter destinations; the warped table
-        // is rebuilt on the spectral worker (SpectralCache, 64 steps).
+        // is rebuilt on the spectral worker (SpectralCache: 256 steps while it
+        // moves, faded copy to copy; 64 once still).
         for (int osc = 0; osc < 6; ++osc)
             add (juce::String (prefixes[osc]) + "_spectral_amt", "Osc" + juce::String (osc + 1) + " Spectral Amount");
 

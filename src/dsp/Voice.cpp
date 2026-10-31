@@ -486,6 +486,9 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
             oscBank[osc].resetPhase (u, phase);
     }
 
+    for (auto& bank : oscBank)
+        bank.switchTableHard();
+
     resonatorL.reset();
     resonatorR.reset();
     materialBodyL.reset();
@@ -1485,7 +1488,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                                            juce::jlimit (0.0f, 1.0f, settings.spectralAmount + spectralBlock[(size_t) osc]),
                                                            settings.baseTable, table);
 
-            oscBank[osc].setWavetable (table);
+            // A warped copy fades from the last one (UnisonBank::setWavetable).
+            oscBank[osc].setWavetable (table, table != settings.baseTable);
         }
 
     const auto configureStrings = [this] (int osc)

@@ -1219,9 +1219,9 @@ private:
     // stepping to it.
     std::atomic<bool> patchCut { false };
     std::atomic<bool> easeStep { false };
-    // VoiceParams::exciterLevelMatch; saved as the state's "exciterLevels".
-    std::atomic<bool> exciterLevelMatch { true };
-    void updateExciterLevelMatch (bool savedWithMatch);
+    // VoiceParams::exciterLevels; saved as the state's "exciterLevels".
+    std::atomic<int> exciterLevels { Voice::currentExciterLevels };
+    void updateExciterLevelMatch (int savedLevels);
 
 public:
     // Loads one DX7 voice as the current patch (named after it): ordinary

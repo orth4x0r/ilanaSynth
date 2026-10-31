@@ -3241,8 +3241,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                                          && ! settings.sampleMode;
                 if (stringsOnly)
                 {
-                    const auto match = params.exciterLevelMatch;
-                    const auto trim = match ? exciterTrim (settings.stringExcite) : 1.0f;
+                    const auto trim = exciterTrimFor (settings.stringExcite, params.exciterLevels);
+                    const auto match = trim != 1.0f;
                     const auto liveIn = params.inputToStrings > 0.0f;
                     const auto liveAmount = liveSample * params.inputToStrings;
                     const auto envFactor = alternateAmpRouting ? selectedEnv : 1.0f;
@@ -3350,10 +3350,11 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         auto& string = stringFor (osc, u);
                         raw = string.process (aftertouchValue, noteHeld, (float) fmInput[osc]);
                         side = string.side();
-                        if (params.exciterLevelMatch)
+                        if (params.exciterLevels > 0)
                         {
-                            raw *= exciterTrim (settings.stringExcite);
-                            side *= exciterTrim (settings.stringExcite);
+                            const auto trim = exciterTrimFor (settings.stringExcite, params.exciterLevels);
+                            raw *= trim;
+                            side *= trim;
                         }
                         stringSum += raw;
                     }

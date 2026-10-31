@@ -166,6 +166,8 @@ void expect (bool condition, const juce::String& message)
 #include "OperatorUiTests.h"
 #include "OscTypeUiTests.h"
 #include "PlayPageUiTests.h"
+#include <set>
+#include "HitReachUiTests.h"
 #include "OscCardOverlapTests.h"
 #include "Review9T2Tests.h"
 
@@ -1109,6 +1111,15 @@ int runUiTests()
     if (only == "PG")
     {
         runPatchCableTests (processor);
+        pages->setAsksBeforeReplacingEdits (askedBefore);
+        editor.reset();
+        std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
+        return uiFailures == 0 ? 0 : 1;
+    }
+
+    if (only == "HR")
+    {
+        runHitReachTests (processor, *pages);
         pages->setAsksBeforeReplacingEdits (askedBefore);
         editor.reset();
         std::cout << (uiFailures == 0 ? "UI TESTS PASSED" : "UI TESTS FAILED") << " (" << uiFailures << " failures)" << std::endl;
@@ -7540,6 +7551,8 @@ int runUiTests()
     runOscRoutingUiTests (processor, *pages);
     // Duplicate, drag to reorder, x to remove (2026-10-26).
     runOscSlotUiTests (processor, *pages);
+    // Bug hunt 2026-10-31: every visible control takes a click at its centre, at 100 % and 175 %.
+    runHitReachTests (processor, *pages);
     // The RC 1.0 workflow fixes (2026-10-28).
     runWorkflowUiTests (processor, *pages);
     // The PATCH tab's LFO boxes.

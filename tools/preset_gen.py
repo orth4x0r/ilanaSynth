@@ -113,7 +113,7 @@ def read_preset(path):
 
 # The state's schema versions now (State.cpp): a file without them is migrated
 # on load as an old one.
-CURRENT_SCHEMA = {"osc3Schema": "2", "stringSchema": "2", "destSchema": "2", "tableSchema": "4", "exciterLevels": "1"}
+CURRENT_SCHEMA = {"osc3Schema": "2", "stringSchema": "2", "destSchema": "2", "tableSchema": "4", "exciterLevels": "2"}
 SCHEMA_KEYS = list(CURRENT_SCHEMA)
 
 

@@ -11,7 +11,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("modRangeSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 4, nullptr);
-    state.setProperty ("exciterLevels", exciterLevelMatch.load() ? 1 : 0, nullptr);
+    state.setProperty ("exciterLevels", exciterLevels.load(), nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
     {
@@ -1532,7 +1532,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     setFxPatch (fxPatchLoaded);
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
     moveLegacyMsegToLfo();
-    updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") == 1 : false);
+    updateExciterLevelMatch (state.hasProperty ("exciterLevels") ? (int) state.getProperty ("exciterLevels") : 0);
 
     // On the message thread the file loads queued above run now, so the patch
     // is whole when this returns (and what the editor remembers as loaded
@@ -1541,23 +1541,27 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
         handleUpdateNowIfNeeded();
 }
 
-// A patch saved with the matched exciter levels keeps them; one saved before
-// (or a factory preset) gets them only if it plays none of the trimmed
-// exciters, so nothing that was already made changes its level.
-void IlanaSynthAudioProcessor::updateExciterLevelMatch (bool savedWithMatch)
+// A patch keeps the exciter trims of the generation it was saved with; it
+// moves to the current one only if it plays no exciter whose trim came
+// later, so nothing that was already made changes its level. (A session
+// saved before the Modal Piano's +20 dB, 2026-10-30, saved 1: its Modal
+// Piano stays where it was heard.) Factory presets load as 0.
+void IlanaSynthAudioProcessor::updateExciterLevelMatch (int savedLevels)
 {
-    auto usesTrimmed = false;
+    const auto levels = juce::jlimit (0, Voice::currentExciterLevels, savedLevels);
+    auto usesUntrimmed = false;
 
     for (const auto* prefix : OscillatorIds::prefixes)
     {
         const auto* mode = apvts.getRawParameterValue (juce::String (prefix) + "_mode");
         const auto* excite = apvts.getRawParameterValue (juce::String (prefix) + "_excite");
         if (mode != nullptr && excite != nullptr && juce::roundToInt (mode->load()) == 1
-            && Voice::exciterTrim (juce::roundToInt (excite->load())) != 1.0f)
-            usesTrimmed = true;
+            && Voice::exciterTrim (juce::roundToInt (excite->load())) != 1.0f
+            && Voice::exciterTrimLevel (juce::roundToInt (excite->load())) > levels)
+            usesUntrimmed = true;
     }
 
-    exciterLevelMatch = savedWithMatch || ! usesTrimmed;
+    exciterLevels = usesUntrimmed ? levels : Voice::currentExciterLevels;
 }
 
 bool IlanaSynthAudioProcessor::loadTuningScale (const juce::String& sclText, juce::String& error)

@@ -86,8 +86,15 @@ public:
     }
 
     // A new note: its first table is taken as it is (the last note's copy
-    // is not faded from).
-    void switchTableHard() noexcept { hardSwitch = true; }
+    // is not faded from). A fade the last note left unfinished is dropped
+    // here too: the copy it faded from may have been freed while the voice
+    // sat idle (SpectralCache keeps old copies 3 s), and setWavetable keeps
+    // the fade going when the new note's table is the same copy.
+    void switchTableHard() noexcept
+    {
+        hardSwitch = true;
+        fadeTable = pendingTable = nullptr;
+    }
 
     const Wavetable* getWavetable() const noexcept { return table; }
 

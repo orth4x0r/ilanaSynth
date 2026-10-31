@@ -347,6 +347,47 @@ void runTests()
             check (std::abs (modal - wavetable) < 3.0f, "the Modal Piano plays at a wavetable osc's level (C4 peak "
                                                             + juce::String (modal, 1) + " dB vs " + juce::String (wavetable, 1) + " dB)");
         }
+
+        // A session saved before that trim (exciterLevels 1) keeps its Modal Piano where it was heard;
+        // saved again it stays so, and one saved now (2) plays the trim (bug hunt 2026-10-31).
+        {
+            const auto peakAfterLoad = [] (int savedLevels, int& resaved)
+            {
+                juce::MemoryBlock state;
+                {
+                    IlanaSynthAudioProcessor source;
+                    setParam (source, "osc1_mode", 1.0f);
+                    setParam (source, "osc1_excite", 11.0f);
+                    source.getStateInformation (state);
+                }
+                auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+                xml->setAttribute ("exciterLevels", savedLevels);
+                juce::AudioProcessor::copyXmlToBinary (*xml, state);
+                IlanaSynthAudioProcessor processor;
+                processor.setStateInformation (state.getData(), (int) state.getSize());
+                juce::MemoryBlock again;
+                processor.getStateInformation (again);
+                resaved = juce::AudioProcessor::getXmlFromBinary (again.getData(), (int) again.getSize())->getIntAttribute ("exciterLevels");
+                processor.prepareToPlay (48000.0, 256);
+                juce::AudioBuffer<float> buffer (2, 256);
+                auto peak = 0.0f;
+                for (int start = 0; start < 24000; start += 256)
+                {
+                    juce::MidiBuffer midi;
+                    if (start == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                    buffer.clear();
+                    processor.processBlock (buffer, midi);
+                    peak = juce::jmax (peak, buffer.getMagnitude (0, 256));
+                }
+                return juce::Decibels::gainToDecibels (peak);
+            };
+            int resavedOld = -1, resavedNew = -1;
+            const auto old = peakAfterLoad (1, resavedOld), current = peakAfterLoad (2, resavedNew);
+            check (current - old > 15.0f && resavedOld == 1 && resavedNew == 2,
+                   "a Modal Piano saved before its trim keeps its level (" + juce::String (old, 1) + " dB vs "
+                       + juce::String (current, 1) + " dB now; saved again as " + juce::String (resavedOld) + ")");
+        }
     }
 }
 } // namespace M82

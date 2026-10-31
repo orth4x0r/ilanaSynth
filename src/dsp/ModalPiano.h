@@ -7,8 +7,10 @@
 // velocity, every partial's frequency and its level over time
 // (ModalPianoTable, from tools/build_modal_piano.py). A note between two
 // recorded ones blends their two nearest notes and velocity layers. Each
-// partial is a sine (a complex rotator; four at a time with SSE) whose level
-// follows the measured curve at a block rate. The first few tens of
+// partial is a sine (a complex rotator; eight at a time with AVX, else
+// four with SSE) whose level follows the measured curve at a block rate.
+// Partials that have gone silent, or sit 90 dB under the loudest one, stop
+// running in groups of eight. The first few tens of
 // milliseconds are the recording's own attack (hammer thump and all),
 // resampled to the note's pitch, crossfading into the partials.
 //
@@ -37,6 +39,14 @@
 #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
  #define ILANA_MODAL_SSE 1
  #include <xmmintrin.h>
+ #include <immintrin.h>
+ // The AVX path is compiled for AVX on its own and picked at run time (the
+ // build targets SSE2), as the WEST folder's is.
+ #if defined(__GNUC__) || defined(__clang__)
+  #define ILANA_MODAL_AVX_TARGET __attribute__ ((target ("avx")))
+ #else
+  #define ILANA_MODAL_AVX_TARGET
+ #endif
 #else
  #define ILANA_MODAL_SSE 0
 #endif
@@ -46,10 +56,27 @@
 class ModalPiano
 {
 public:
-    static constexpr int maxPartials = 100; // a multiple of 4
+    static constexpr int maxPartials = 100;
     static constexpr int maxModes = 16;     // the board's resonances
-    static constexpr int maxSlots = maxPartials + maxModes;
+    static constexpr int group = 8;         // slots run and skipped together (one AVX register, two SSE)
+    static constexpr int maxSlots = (maxPartials + maxModes + group - 1) / group * group;
     static constexpr int blockSize = 32;
+    // Tests and benches turn it off to compare with every partial running
+    // (CPU round 2026-10-31): skipping groups of silent partials, and
+    // partials 90 dB under the loudest one (relativeCut).
+    inline static bool skipSilentGroups = true;
+    inline static float relativeCut = 90.0f;
+    // ILANA_NO_AVX (or a CPU without it) keeps the SSE path.
+    static bool& useAvx()
+    {
+       #if ILANA_MODAL_SSE
+        static bool use = juce::SystemStats::hasAVX()
+                          && juce::SystemStats::getEnvironmentVariable ("ILANA_NO_AVX", "").isEmpty();
+       #else
+        static bool use = false;
+       #endif
+        return use;
+    }
 
     void prepare (double newSampleRate)
     {
@@ -134,7 +161,7 @@ public:
             const auto phase = (float) (seed >> 8) * (juce::MathConstants<float>::twoPi / 16777216.0f);
             re[k] = std::cos (phase);
             im[k] = std::sin (phase);
-            amp[k] = step[k] = 0.0f;
+            amp[k] = 0.0f;
             count = k + 1;
         }
         corners = at;
@@ -156,13 +183,15 @@ public:
             const auto phase = (float) (seed >> 8) * (juce::MathConstants<float>::twoPi / 16777216.0f);
             re[k] = std::cos (phase);
             im[k] = std::sin (phase);
-            amp[k] = step[k] = 0.0f;
+            amp[k] = 0.0f;
         }
         for (int k = slots; k < roundedCount(); ++k)
         {
-            measured[k] = harmonic[k] = re[k] = im[k] = amp[k] = step[k] = 0.0f;
+            measured[k] = harmonic[k] = re[k] = im[k] = amp[k] = 0.0f;
             rotCos[k] = 1.0f;
             rotSin[k] = 0.0f;
+            turnCos[k] = turnSin[k] = 0.0f;
+            blockTurn[k] = 0.0;
         }
         updatePitch();
 
@@ -219,6 +248,9 @@ public:
         elapsed = 0;
         released = -1;
         segment = -1;
+        loudestPartial = -200.0f;
+        std::fill (std::begin (groupLive), std::end (groupLive), false);
+        std::fill (std::begin (missedTurn), std::end (missedTurn), 0.0);
         untilBlock = 0;
         silent = slots == 0 && attackLeft == 0;
     }
@@ -239,40 +271,47 @@ public:
         ++elapsed;
 
         // Each partial: sin on the left; on the right, the same sine shifted
-        // by its phase (sin (x + p) = sin x cos p + cos x sin p).
+        // by its phase (sin (x + p) = sin x cos p + cos x sin p). The
+        // rotator's length is the partial's level: its turn (turnCos/Sin)
+        // also grows or shrinks it to the next block's level, so no
+        // separate level ramp runs per sample (Mathews & Smith's phasor
+        // filter, SMAC 2003).
         auto left = 0.0f, right = 0.0f;
-        const auto n = roundedCount();
        #if ILANA_MODAL_SSE
-        auto sumLeft = _mm_setzero_ps(), sumRight = _mm_setzero_ps();
-        for (int k = 0; k < n; k += 4)
+        if (useAvx())
+            sumPartialsAvx (left, right);
+        else
         {
-            const auto r = _mm_load_ps (re + k), i = _mm_load_ps (im + k);
-            const auto c = _mm_load_ps (rotCos + k), s = _mm_load_ps (rotSin + k);
-            const auto a = _mm_load_ps (amp + k);
-            const auto nextRe = _mm_sub_ps (_mm_mul_ps (r, c), _mm_mul_ps (i, s));
-            const auto nextIm = _mm_add_ps (_mm_mul_ps (r, s), _mm_mul_ps (i, c));
-            _mm_store_ps (re + k, nextRe);
-            _mm_store_ps (im + k, nextIm);
-            sumLeft = _mm_add_ps (sumLeft, _mm_mul_ps (a, _mm_mul_ps (nextIm, _mm_load_ps (gainLeft + k))));
-            const auto shifted = _mm_add_ps (_mm_mul_ps (nextIm, _mm_load_ps (rightSin + k)), _mm_mul_ps (nextRe, _mm_load_ps (rightCos + k)));
-            sumRight = _mm_add_ps (sumRight, _mm_mul_ps (a, shifted));
-            _mm_store_ps (amp + k, _mm_add_ps (a, _mm_load_ps (step + k)));
+            auto sumLeft = _mm_setzero_ps(), sumRight = _mm_setzero_ps();
+            for (int g = 0; g < liveGroups; ++g)
+                for (int k = liveGroup[g]; k < liveGroup[g] + group; k += 4)
+                {
+                    const auto r = _mm_load_ps (re + k), i = _mm_load_ps (im + k);
+                    const auto c = _mm_load_ps (turnCos + k), s = _mm_load_ps (turnSin + k);
+                    const auto nextRe = _mm_sub_ps (_mm_mul_ps (r, c), _mm_mul_ps (i, s));
+                    const auto nextIm = _mm_add_ps (_mm_mul_ps (r, s), _mm_mul_ps (i, c));
+                    _mm_store_ps (re + k, nextRe);
+                    _mm_store_ps (im + k, nextIm);
+                    sumLeft = _mm_add_ps (sumLeft, _mm_mul_ps (nextIm, _mm_load_ps (gainLeft + k)));
+                    sumRight = _mm_add_ps (sumRight, _mm_add_ps (_mm_mul_ps (nextIm, _mm_load_ps (rightSin + k)),
+                                                                 _mm_mul_ps (nextRe, _mm_load_ps (rightCos + k))));
+                }
+            alignas (16) float lanes[4];
+            _mm_store_ps (lanes, sumLeft);
+            left = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+            _mm_store_ps (lanes, sumRight);
+            right = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
         }
-        alignas (16) float lanes[4];
-        _mm_store_ps (lanes, sumLeft);
-        left = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
-        _mm_store_ps (lanes, sumRight);
-        right = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
        #else
-        for (int k = 0; k < n; ++k)
-        {
-            const auto r = re[k];
-            re[k] = r * rotCos[k] - im[k] * rotSin[k];
-            im[k] = r * rotSin[k] + im[k] * rotCos[k];
-            left += amp[k] * im[k] * gainLeft[k];
-            right += amp[k] * (im[k] * rightSin[k] + re[k] * rightCos[k]);
-            amp[k] += step[k];
-        }
+        for (int g = 0; g < liveGroups; ++g)
+            for (int k = liveGroup[g]; k < liveGroup[g] + group; ++k)
+            {
+                const auto r = re[k];
+                re[k] = r * turnCos[k] - im[k] * turnSin[k];
+                im[k] = r * turnSin[k] + im[k] * turnCos[k];
+                left += im[k] * gainLeft[k];
+                right += im[k] * rightSin[k] + re[k] * rightCos[k];
+            }
        #endif
         if (hasNoise)
         {
@@ -312,6 +351,36 @@ public:
 
     // (left - right) / 2 of the sample process() last returned.
     float side() const { return lastSide; }
+
+   #if ILANA_MODAL_SSE
+    // The partials, eight to an AVX register.
+    ILANA_MODAL_AVX_TARGET void sumPartialsAvx (float& left, float& right)
+    {
+        auto sumLeft = _mm256_setzero_ps(), sumRight = _mm256_setzero_ps();
+        for (int g = 0; g < liveGroups; ++g)
+        {
+            const auto k = liveGroup[g];
+            const auto r = _mm256_loadu_ps (re + k), i = _mm256_loadu_ps (im + k);
+            const auto c = _mm256_loadu_ps (turnCos + k), s = _mm256_loadu_ps (turnSin + k);
+            const auto nextRe = _mm256_sub_ps (_mm256_mul_ps (r, c), _mm256_mul_ps (i, s));
+            const auto nextIm = _mm256_add_ps (_mm256_mul_ps (r, s), _mm256_mul_ps (i, c));
+            _mm256_storeu_ps (re + k, nextRe);
+            _mm256_storeu_ps (im + k, nextIm);
+            sumLeft = _mm256_add_ps (sumLeft, _mm256_mul_ps (nextIm, _mm256_loadu_ps (gainLeft + k)));
+            sumRight = _mm256_add_ps (sumRight, _mm256_add_ps (_mm256_mul_ps (nextIm, _mm256_loadu_ps (rightSin + k)),
+                                                               _mm256_mul_ps (nextRe, _mm256_loadu_ps (rightCos + k))));
+        }
+        left = sumOf (sumLeft);
+        right = sumOf (sumRight);
+    }
+    static ILANA_MODAL_AVX_TARGET float sumOf (__m256 x)
+    {
+        const auto sum = _mm_add_ps (_mm256_castps256_ps128 (x), _mm256_extractf128_ps (x, 1));
+        alignas (16) float lanes[4];
+        _mm_store_ps (lanes, sum);
+        return (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+    }
+   #endif
 
 private:
     struct Corners
@@ -384,7 +453,34 @@ private:
         return (float) (10.0 * std::log10 (power));
     }
 
-    int roundedCount() const { return (slots + 3) & ~3; }
+    // The rotator's length is the partial's level. Each block it is set
+    // back to exactly the level it should be at (no drift), then its turn
+    // is scaled so the length goes there and on to the next block's level
+    // along an exponential, which is how a level that falls in dB falls.
+    // A silent partial keeps a tiny length (-160 dB) so its phase stays.
+    void setLevel (int k, float target)
+    {
+        static constexpr float floorLevel = 1.0e-8f;
+        const auto from = amp[k] > 0.0f ? amp[k] : floorLevel;
+        const auto length2 = re[k] * re[k] + im[k] * im[k];
+        auto scale = length2 > 0.0f ? from / std::sqrt (length2) : 1.0f;
+        auto start = from;
+        if (amp[k] == 0.0f && target > 0.0f)
+        {
+            // Starting (the strike, or back from silence): at its level at once.
+            scale *= target / floorLevel;
+            start = target;
+        }
+        re[k] *= scale;
+        im[k] *= scale;
+        const auto to = target > 0.0f ? target : floorLevel;
+        const auto growth = start == to ? 1.0f : std::exp2 (std::log2 (to / start) * (1.0f / (float) blockSize));
+        turnCos[k] = rotCos[k] * growth;
+        turnSin[k] = rotSin[k] * growth;
+        amp[k] = target;
+    }
+
+    int roundedCount() const { return (slots + group - 1) / group * group; }
 
     void updatePitch()
     {
@@ -396,6 +492,7 @@ private:
             const auto w = juce::MathConstants<double>::twoPi * juce::jmin ((double) hz[k], sampleRate * 0.49) / sampleRate;
             rotCos[k] = (float) std::cos (w);
             rotSin[k] = (float) std::sin (w);
+            blockTurn[k] = blockSize * (double) std::atan2 (rotSin[k], rotCos[k]);
         }
         for (int k = count; k < slots; ++k)
         {
@@ -403,6 +500,7 @@ private:
             const auto w = juce::MathConstants<double>::twoPi * hz[k] / sampleRate;
             rotCos[k] = (float) std::cos (w);
             rotSin[k] = (float) std::sin (w);
+            blockTurn[k] = blockSize * (double) std::atan2 (rotSin[k], rotCos[k]);
         }
     }
 
@@ -470,7 +568,11 @@ private:
         const auto releaseRate = damper * 250.0f * juce::jlimit (0.4f, 1.5f, std::sqrt ((float) frequency / 262.0f));
         const auto seconds = (float) now;
 
-        auto loudest = -200.0f;
+        // A partial this far under the loudest one (last block's) is not
+        // heard next to it: it goes quiet as if under -140 dB.
+        const auto cut = skipSilentGroups ? loudestPartial - relativeCut : -1000.0f;
+        auto loudest = -200.0f, loudestNow = -200.0f;
+        bool slotLive[maxSlots];
         for (int k = 0; k < slots; ++k)
         {
             auto db = levelA[k] + u * (levelB[k] - levelA[k]);
@@ -479,12 +581,49 @@ private:
             db -= (dampRate * juce::jmin (8.0f, hz[k] / 1000.0f)) * seconds
                   + releaseRate * releasedFor;
             loudest = juce::jmax (loudest, db);
-            const auto target = db < -140.0f ? 0.0f : std::pow (10.0f, db / 20.0f);
-            step[k] = (target - amp[k]) / (float) blockSize;
-            // Keep the rotators on the unit circle.
-            const auto norm = 1.5f - 0.5f * (re[k] * re[k] + im[k] * im[k]);
-            re[k] *= norm;
-            im[k] *= norm;
+            loudestNow = juce::jmax (loudestNow, db);
+            const auto target = db < -140.0f || db < cut ? 0.0f : std::pow (10.0f, db / 20.0f);
+            slotLive[k] = target > 0.0f || amp[k] > 0.0f;
+            setLevel (k, target);
+        }
+        loudestPartial = loudestNow;
+        for (int k = slots; k < roundedCount(); ++k)
+            slotLive[k] = false;
+
+        // Only groups with a sounding partial run this block. A silent
+        // group's rotators stop too (CPU round 2026-10-31: most of a note's
+        // upper partials are silent within a second, many from the strike).
+        liveGroups = 0;
+        for (int k = 0; k < roundedCount(); k += group)
+        {
+            auto live = ! skipSilentGroups;
+            for (int j = k; j < k + group; ++j)
+                live = live || slotLive[j];
+            auto& wasLive = groupLive[k / group];
+            if (live)
+            {
+                liveGroup[liveGroups++] = k;
+                // Back from silence (the measured curve rises again, or a
+                // DECAY move): catch its rotators up with the turns they
+                // missed, so it comes back in the phase it would have had.
+                if (! wasLive)
+                    for (int j = k; j < k + group; ++j)
+                    {
+                        const auto c = std::cos (missedTurn[j]), sn = std::sin (missedTurn[j]);
+                        const auto r = (double) re[j], i = (double) im[j];
+                        re[j] = (float) (r * c - i * sn);
+                        im[j] = (float) (r * sn + i * c);
+                        missedTurn[j] = 0.0;
+                    }
+            }
+            else
+                for (int j = k; j < k + group; ++j)
+                {
+                    missedTurn[j] += blockTurn[j];
+                    if (missedTurn[j] > juce::MathConstants<double>::twoPi)
+                        missedTurn[j] -= juce::MathConstants<double>::twoPi;
+                }
+            wasLive = live;
         }
 
         if (hasNoise)
@@ -555,11 +694,18 @@ private:
     int count = 0, slots = 0, segment = -1, untilBlock = 0; // partials, then partials and modes
     long long elapsed = 0, released = -1;
 
-    alignas (16) float re[maxSlots] {}, im[maxSlots] {}, rotCos[maxSlots] {}, rotSin[maxSlots] {};
-    alignas (16) float amp[maxSlots] {}, step[maxSlots] {};
+    alignas (32) float re[maxSlots] {}, im[maxSlots] {}, rotCos[maxSlots] {}, rotSin[maxSlots] {};
+    alignas (32) float turnCos[maxSlots] {}, turnSin[maxSlots] {}; // this block's turn, with the level's change
+    float amp[maxSlots] {}; // each rotator's length at the block's start (0: silent)
+    float loudestPartial = -200.0f;
+    int liveGroup[maxSlots / group] {}; // the first slot of each group that sounds this block
+    int liveGroups = 0;
+    bool groupLive[maxSlots / group] {};
+    double missedTurn[maxSlots] {}; // radians a silent slot's rotator has not turned
+    double blockTurn[maxSlots] {};  // radians its rotator turns in a block
     // The stereo picture: the left's gain, and the right's as the parts of
     // the sine and cosine that make its gain and phase.
-    alignas (16) float gainLeft[maxSlots] {}, rightSin[maxSlots] {}, rightCos[maxSlots] {};
+    alignas (32) float gainLeft[maxSlots] {}, rightSin[maxSlots] {}, rightCos[maxSlots] {};
     float lastSide = 0.0f;
     float measured[maxSlots] {}, harmonic[maxSlots] {}, hz[maxSlots] {};
     float levelA[maxSlots] {}, levelB[maxSlots] {};

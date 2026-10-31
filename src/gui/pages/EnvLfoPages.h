@@ -1547,6 +1547,18 @@ public:
 
     int titleSkip = 0, titleRow = 0, titleRightInset = 0;
 
+    // In the pop-up the section's bounds reach up over the title row; only SHAPE there is its own, so the
+    // rest of that row (the drag strip, the close button, their hover) stays the pop-up's.
+    bool hitTest (int x, int y) override
+    {
+        if (titleSkip <= 0 || y >= titleSkip)
+            return true;
+        for (auto* child : getChildren())
+            if (child->isVisible() && child->getBounds().contains (x, y))
+                return true;
+        return false;
+    }
+
     static constexpr float compactDial = 28.0f;
     static constexpr int compactColumn = 4 * 46, compactPitch = 46, compactRow = 39, compactGap = 10, compactLine = 16, compactLineGap = 4;
 

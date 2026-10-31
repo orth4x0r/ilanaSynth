@@ -37,6 +37,12 @@
  #define ILANA_PIANO_SSE 0
 #endif
 
+#if defined (_MSC_VER)
+ #define ILANA_PIANO_INLINE __forceinline
+#else
+ #define ILANA_PIANO_INLINE inline __attribute__ ((always_inline))
+#endif
+
 #include "DamperTaper.h"
 #include "PianoModelTuning.h"
 
@@ -168,8 +174,76 @@ public:
 
     float process (bool noteHeld)
     {
-        if (buffer == nullptr)
+        float wave, h;
+        if (! arrive (noteHeld, wave, h))
             return 0.0f;
+        if (! eco)
+            dispersePair (wave, h);
+        return leave (noteHeld, wave, h);
+    }
+
+    // A stereo twin (KarplusStrong::processPair): the left and right strings
+    // in one pass, their four polarisations in the four lanes of one
+    // stiffness chain (the mono string leaves two lanes idle). Each lane does
+    // the arithmetic process() does, so the result is the same as two
+    // process() calls bit for bit. False (nothing played) when the two
+    // chains differ in length or either string is in Eco.
+    static bool processPair (PianoString& left, PianoString& right, bool noteHeld, float& outLeft, float& outRight)
+    {
+       #if ILANA_PIANO_SSE
+        if (left.buffer == nullptr || right.buffer == nullptr)
+            return false;
+        if (! left.designed)
+            left.design();
+        if (! right.designed)
+            right.design();
+        if (left.eco || right.eco || left.stages != right.stages)
+            return false;
+        float wl, hl, wr, hr;
+        left.arrive (noteHeld, wl, hl);
+        right.arrive (noteHeld, wr, hr);
+        const auto coefficient = _mm_set_ps (right.dispersion, right.dispersion, left.dispersion, left.dispersion);
+        auto x = _mm_set_ps (hr, wr, hl, wl);
+        for (int stage = 0; stage < left.stages; ++stage)
+        {
+            const auto pairOf = [stage] (float (&l)[maxStages][4], float (&r)[maxStages][4])
+            {
+                return _mm_loadh_pi (_mm_loadl_pi (_mm_setzero_ps(), reinterpret_cast<const __m64*> (l[stage])),
+                                     reinterpret_cast<const __m64*> (r[stage]));
+            };
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (coefficient, x), pairOf (left.chainIn, right.chainIn)),
+                                          _mm_mul_ps (coefficient, pairOf (left.chainState, right.chainState)));
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.chainIn[stage]), x);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.chainIn[stage]), x);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.chainState[stage]), next);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.chainState[stage]), next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        outLeft = left.leave (noteHeld, out[0], out[1]);
+        outRight = right.leave (noteHeld, out[2], out[3]);
+        return true;
+       #else
+        juce::ignoreUnused (left, right, noteHeld, outLeft, outRight);
+        return false;
+       #endif
+    }
+
+    // Register constants, for tests and the display.
+    double getHammerMass() const { return hammerMass; }
+    double getImpedance() const { return impedance; }
+    double getStrikeFraction() const { return strikeFraction; }
+    bool isHammerInContact() const { return hammerActive; }
+    double getInharmonicity() const { return inharmonicity; }
+
+private:
+    // process() in two halves around the stiffness chain (processPair runs
+    // two strings' chains together): up to the chain's inputs ...
+    ILANA_PIANO_INLINE bool arrive (bool noteHeld, float& waveOut, float& hOut)
+    {
+        if (buffer == nullptr)
+            return false;
         if (! designed)
             design();
         if (trebleDirty)
@@ -296,11 +370,20 @@ public:
         // lane 0 vertical, lane 1 horizontal, the same arithmetic per lane.
         auto h = 0.0f;
         if (! eco)
-        {
             h = readThiran (horizontalOffset, horizontalWrite, horizontalSize, horizontalTap, horizontalThiranIn, horizontalThiranOut);
-            dispersePair (wave, h);
-        }
-        else
+        waveOut = wave;
+        hOut = h;
+        heldBOut = bOut;
+        heldPush = push;
+        return true;
+    }
+
+    // ... and from its outputs on.
+    ILANA_PIANO_INLINE float leave (bool noteHeld, float wave, float h)
+    {
+        const auto bOut = heldBOut;
+        const auto push = heldPush;
+        if (eco)
         {
             for (int stage = 0; stage < stages; ++stage)
             {
@@ -413,14 +496,8 @@ public:
         return juce::jlimit (-8.0f, 8.0f, dcOut * outputGain * velocityGain);
     }
 
-    // Register constants, for tests and the display.
-    double getHammerMass() const { return hammerMass; }
-    double getImpedance() const { return impedance; }
-    double getStrikeFraction() const { return strikeFraction; }
-    bool isHammerInContact() const { return hammerActive; }
-    double getInharmonicity() const { return inharmonicity; }
+    float heldBOut = 0.0f, heldPush = 0.0f; // (arrive to leave)
 
-private:
     // A two-pole resonator with unity peak gain.
     struct Resonator
     {

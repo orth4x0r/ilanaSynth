@@ -1872,7 +1872,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     trackHeldKeys (midiForSynth);
     playResumedKeys (midiForSynth, buffer.getNumSamples());
 
-    p.exciterLevelMatch = exciterLevelMatch.load();
+    p.exciterLevels = exciterLevels.load();
 
     // M7.5: the live input and its envelope for the voices; live grains
     // read the input's history instead of the sample.

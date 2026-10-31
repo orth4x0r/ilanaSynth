@@ -545,6 +545,33 @@ void runSpectralSweepTest()
         check (faded < hard * 0.5f, "a switch between warped copies fades (largest step " + juce::String (hard, 3)
                                         + " hard, " + juce::String (faded, 3) + " faded)");
     }
+
+    // A voice that stopped mid-fade and restarts on the same copy does not
+    // keep fading from the old one (it may have been freed: bug hunt
+    // 2026-10-31, a use-after-free that crashed).
+    {
+        Wavetable base;
+        base.buildFromFrames (TableFactory::generate (10));
+        std::unique_ptr<Wavetable> first (SpectralWarp::warpTable (base, SpectralWarp::LowPass, 0.2f));
+        std::unique_ptr<Wavetable> second (SpectralWarp::warpTable (base, SpectralWarp::LowPass, 0.4f));
+        UnisonBank bank;
+        bank.setSampleRate (48000.0);
+        const float gain = 1.0f, pan = 1.0f;
+        const double ratio = 1.0;
+        bank.setWeights (&gain, &pan, &pan, 1);
+        bank.setWavetable (first.get(), true);
+        bank.setFrequencies (110.0, &ratio, 1);
+        WavetableOscillator::FrameRead frames;
+        for (int i = 0; i < 4800; ++i)
+            bank.render (0.0, frames, 1.0, false);
+        bank.setWavetable (second.get(), true);
+        for (int i = 0; i < 480; ++i)
+            bank.render (0.0, frames, 1.0, false);
+        const auto fadingAtStop = bank.isFadingTable();
+        bank.switchTableHard();
+        bank.setWavetable (second.get(), true);
+        check (fadingAtStop && ! bank.isFadingTable(), "a new note drops the last note's unfinished table fade");
+    }
 }
 
 void runStereoModulationTest()

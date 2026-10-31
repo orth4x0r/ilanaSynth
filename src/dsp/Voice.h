@@ -425,8 +425,10 @@ struct VoiceParams
     float inputToBody = 0.0f, inputToStrings = 0.0f;
     // Physical exciters at matched loudness (2026-10-01): Bow and Tine came
     // out ~8 dB over a plucked string. Off for patches saved before then that
-    // use those exciters, so they keep their sound.
-    bool exciterLevelMatch = false;
+    // use those exciters, so they keep their sound. Which trims apply: the
+    // exciter's own generation (exciterTrimLevel) up to this one (0 none;
+    // 1 Bow, Hammer, Tine, Reed, Piano; 2 also the Modal Piano, 2026-10-30).
+    int exciterLevels = 0;
     // The Operator EG (2026-10-02): its settings as a DX7 voice (only the
     // envelope, scaling, pitch EG and LFO bytes are read), filled when an
     // enabled oscillator's ENVELOPE is the Operator EG (operatorEgUsed).
@@ -528,6 +530,14 @@ public:
             case 11: return 10.0f;  // Modal Piano, +20 dB (the table is in Piano V's dBFS; level with Piano and a wavetable osc at C4)
             default: return 1.0f;
         }
+    }
+    // The generation of the state's "exciterLevels" that brought each trim in.
+    static constexpr int currentExciterLevels = 2;
+    static int exciterTrimLevel (int excite) noexcept { return excite == 11 ? 2 : 1; }
+    // The trim a patch at this generation plays (1 when it predates the exciter's trim).
+    static float exciterTrimFor (int excite, int levels) noexcept
+    {
+        return levels >= exciterTrimLevel (excite) ? exciterTrim (excite) : 1.0f;
     }
     float getWestGateLevel() const { return params.west.on && isVoiceActive() ? westGateL.getConductance() : 0.0f; }
     float getLastLifetimeValue() const { return lastLifetimeValue; }

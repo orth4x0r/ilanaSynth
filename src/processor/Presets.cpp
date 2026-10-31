@@ -769,16 +769,19 @@ void IlanaSynthAudioProcessor::applyPresetVoicing (const char* presetName, std::
         for (int slot = 1; slot <= Mod::maxSlots; ++slot)
         {
             const auto p = "mod" + juce::String (slot);
+            // (put() can grow values and move it, so src is not read after one.)
             auto* src = find (p + "_src");
+            auto isFree = src == nullptr || juce::roundToInt (src->second) == 0;
             if (src != nullptr && juce::roundToInt (src->second) == juce::roundToInt (source))
             {
                 src->second = 0.0f;
+                isFree = true;
                 put (p + "_dst", 0.0f);
                 put (p + "_amt", 0.0f);
                 put (p + "_curve", 0.0f);
                 put (p + "_aux", 0.0f);
             }
-            if (src == nullptr || juce::roundToInt (src->second) == 0)
+            if (isFree)
                 free.push_back (slot);
         }
 
@@ -1310,7 +1313,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     // An old MSEG module becomes an LFO drawn the same (UI review 9, I9-2).
     moveLegacyMsegToLfo();
 
-    updateExciterLevelMatch (false);
+    updateExciterLevelMatch (0);
 }
 
 bool IlanaSynthAudioProcessor::savePresetToFile (const juce::File& file)

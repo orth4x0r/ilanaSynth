@@ -69,6 +69,10 @@ private:
         if (gainchase < 0.0) gainchase = inputgain;
 
         biquadA[0] = 20000.0 / getSampleRate();
+        // ilanaSynth: under 44.1 kHz 20 kHz sits past Nyquist, the lowpass went
+        // unstable and the output turned to NaN (bug hunt 2026-10-31). Unchanged at
+        // 44.1 kHz and up.
+        if (biquadA[0] > 0.45) biquadA[0] = 0.45;
         biquadA[1] = 1.618033988749894848204586;
 
         double K = tan(M_PI * biquadA[0]); //lowpass

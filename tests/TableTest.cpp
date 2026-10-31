@@ -463,6 +463,15 @@ int main()
         return failures == 0 ? 0 : 1;
     }
 
+    // ILANA_FILTER2_TEST=1: the Filter 2 crossing test alone (and the spectral sweeps).
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_FILTER2_TEST", "").isNotEmpty())
+    {
+        runFilter2CrossingTest();
+        runSpectralSweepTest();
+        std::cout << (failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED") << " (" << failures << " failures)" << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_M82_TEST", "").isNotEmpty())
     {
         runM82PianoTests();
@@ -742,6 +751,7 @@ int main()
     timedRun ("runSpectralSweepTest", [] { runSpectralSweepTest(); });
     timedRun ("runFrameBlendTests", [] { runFrameBlendTests(); });
     timedRun ("runStereoModulationTest", [] { runStereoModulationTest(); });
+    timedRun ("runFilter2CrossingTest", [] { runFilter2CrossingTest(); });
     timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });
     timedRun ("runStereoStringsTest", [] { runStereoStringsTest(); });
     timedRun ("runStringPairTest", [] { runStringPairTest(); });

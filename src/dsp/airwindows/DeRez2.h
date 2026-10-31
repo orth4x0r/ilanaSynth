@@ -86,6 +86,10 @@ private:
         overallscale /= 44100.0;
         overallscale *= getSampleRate();
         targetA /= overallscale;
+        // ilanaSynth: below 44.1 kHz the step passed 1 sample, the hold
+        // position ran away and the output blew up (Toy Box Piano +20 dB at
+        // 32 kHz; bug hunt 2026-10-31). At 44.1 kHz and up this changes nothing.
+        if (targetA > 1.0) targetA = 1.0;
 
         while (--sampleFrames >= 0)
         {

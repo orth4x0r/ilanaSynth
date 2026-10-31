@@ -73,6 +73,9 @@ private:
 
         double driveone = pow(A*2.0,2);
         double iirAmount = pow(B,3)/overallscale;
+        // ilanaSynth: under 44.1 kHz this passed 1 and the highpass blew up (bug hunt
+        // 2026-10-31). At 44.1 kHz and up it never reaches 1, so nothing changes.
+        if (iirAmount > 1.0) iirAmount = 1.0;
         double output = C;
         double wet = D;
         double dry = 1.0-wet;

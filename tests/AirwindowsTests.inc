@@ -24,11 +24,11 @@ struct Result
 };
 
 // One algorithm on its own, fresh, for `seconds`.
-Result run (int algorithm, const std::array<float, 5>& knobs, Input input, double seconds = 1.5)
+Result run (int algorithm, const std::array<float, 5>& knobs, Input input, double seconds = 1.5, double rate = sr)
 {
     const auto& info = airwindows::registry()[(size_t) algorithm];
     auto instance = info.create();
-    instance->prepare (sr);
+    instance->prepare (rate);
 
     for (int k = 0; k < info.numKnobs; ++k)
         instance->setParam (info.knobs[k].parameter, info.knobs[k].toPlugin (knobs[(size_t) k]));
@@ -36,7 +36,7 @@ Result run (int algorithm, const std::array<float, 5>& knobs, Input input, doubl
     juce::Random random (1234);
     std::vector<float> left (block), right (block);
     Result result;
-    const auto total = (int) (seconds * sr);
+    const auto total = (int) (seconds * rate);
     auto phase = 0.0;
 
     for (int start = 0; start < total; start += block)
@@ -47,7 +47,7 @@ Result run (int algorithm, const std::array<float, 5>& knobs, Input input, doubl
             if (input == Input::sine)
             {
                 l = r = (float) (0.5 * std::sin (phase));
-                phase += juce::MathConstants<double>::twoPi * 220.0 / sr;
+                phase += juce::MathConstants<double>::twoPi * 220.0 / rate;
             }
             else if (input == Input::noise)
             {
@@ -70,7 +70,7 @@ Result run (int algorithm, const std::array<float, 5>& knobs, Input input, doubl
                     continue;
                 }
                 result.peak = std::max (result.peak, std::abs (x));
-                if (start + i >= total - (int) (0.5 * sr))
+                if (start + i >= total - (int) (0.5 * rate))
                     result.tailPeak = std::max (result.tailPeak, std::abs (x));
             }
         }
@@ -155,6 +155,49 @@ void runAlgorithmTests()
     check (unbounded.isEmpty(), "Airwindows: every algorithm's output is finite and under 4 ("
                                     + unbounded.joinIntoString (", ") + ")");
     check (noisy.isEmpty(), "Airwindows: silence in gives under -80 dBFS out (" + noisy.joinIntoString (", ") + ")");
+}
+
+// Under 44.1 kHz some of Chris's coefficients passed their stable range:
+// Console7 went to NaN, Spiral2 to +37 dB, DeRez2 ran away (bug hunt
+// 2026-10-31). Every algorithm at 22.05 and 32 kHz, at its defaults, its
+// extremes and a few seeded mixes, stays finite and no louder than at 48 kHz
+// (with room for 10 dB: a delay at full feedback peaks differently).
+void runLowRateTests()
+{
+    const auto& list = airwindows::registry();
+    juce::StringArray unbounded;
+    juce::Random random (31);
+
+    for (int a = 0; a < (int) list.size(); ++a)
+    {
+        std::vector<std::array<float, 5>> settings { defaultsOf (a), { 0, 0, 0, 0, 0 }, { 1, 1, 1, 1, 1 } };
+        for (int m = 0; m < 4; ++m)
+        {
+            std::array<float, 5> mix {};
+            for (auto& k : mix)
+                k = random.nextFloat() < 0.3f ? (random.nextBool() ? 1.0f : 0.0f) : random.nextFloat();
+            settings.push_back (mix);
+        }
+
+        for (const auto rate : { 22050.0, 32000.0 })
+            for (size_t s = 0; s < settings.size(); ++s)
+                for (const auto input : { Input::sine, Input::noise })
+                {
+                    const auto result = run (a, settings[s], input, 1.5, rate);
+                    if (result.finite && result.peak < 4.0f)
+                        continue;
+                    // Some settings are loud at every rate (a chorus at full
+                    // feedback); only a rate that is far louder than 48 kHz is wrong.
+                    const auto atNormalRate = run (a, settings[s], input);
+                    if (! result.finite || result.peak > 3.0f * std::max (atNormalRate.peak, 1.0f))
+                        unbounded.add (juce::String (list[(size_t) a].name) + " " + juce::String ((int) rate) + " Hz set "
+                                       + juce::String ((int) s) + " " + inputName (input) + " (peak "
+                                       + juce::String (result.peak, 2) + ", " + juce::String (atNormalRate.peak, 2) + " at 48 kHz)");
+                }
+    }
+
+    check (unbounded.isEmpty(), "Airwindows: every algorithm stays finite and under 4 at 22.05 and 32 kHz ("
+                                    + unbounded.joinIntoString (", ") + ")");
 }
 
 // Changing the algorithm starts it fresh: a reverb's tail does not come back
@@ -479,6 +522,7 @@ void runAirwindowsTests()
 
     AirwindowsTests::runRegistryTests();
     AirwindowsTests::runAlgorithmTests();
+    AirwindowsTests::runLowRateTests();
     AirwindowsTests::runResetTest();
     AirwindowsTests::runSlotTests();
     AirwindowsTests::runDelaySyncTests();

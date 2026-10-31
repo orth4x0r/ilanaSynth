@@ -506,7 +506,74 @@ public:
         return (float) (sum * (talkingSet ? 3.2 : 1.6));
     }
 
+    // A voice's left and right banks over a block, side by side in SSE2
+    // double lanes: process()'s arithmetic lane by lane (the same output to
+    // the bit) while both have the same settings. CPU round 2026-10-31.
+    static void processPairBlock (VowelFilter& l, VowelFilter& r, const float* inL, const float* inR,
+                                  float* outL, float* outR, int n)
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        if (l.pairsWith (r))
+        {
+            __m128d s1[5], s2[5], g[5], kg[5], a1[5], kGain[5];
+            for (int f = 0; f < 5; ++f)
+            {
+                const auto& a = l.bands[(size_t) f];
+                s1[f] = _mm_set_pd (r.bands[(size_t) f].s1, a.s1);
+                s2[f] = _mm_set_pd (r.bands[(size_t) f].s2, a.s2);
+                g[f] = _mm_set1_pd (a.g);
+                kg[f] = _mm_set1_pd (a.k + a.g);
+                a1[f] = _mm_set1_pd (a.a1);
+                kGain[f] = _mm_set1_pd (a.k);
+            }
+            const auto out = _mm_set1_pd (l.talkingSet ? 3.2 : 1.6);
+            alignas (16) double lanes[2];
+            for (int i = 0; i < n; ++i)
+            {
+                const auto x = _mm_set_pd ((double) inR[i], (double) inL[i]);
+                auto sum = _mm_setzero_pd();
+                for (int f = 0; f < 5; ++f)
+                {
+                    const auto hp = _mm_mul_pd (_mm_sub_pd (_mm_sub_pd (x, _mm_mul_pd (kg[f], s1[f])), s2[f]), a1[f]);
+                    const auto bp = _mm_add_pd (_mm_mul_pd (g[f], hp), s1[f]);
+                    s1[f] = _mm_add_pd (_mm_mul_pd (g[f], hp), bp);
+                    const auto lp = _mm_add_pd (_mm_mul_pd (g[f], bp), s2[f]);
+                    s2[f] = _mm_add_pd (_mm_mul_pd (g[f], bp), lp);
+                    sum = _mm_add_pd (sum, _mm_mul_pd (_mm_mul_pd (bp, kGain[f]), _mm_set1_pd (l.gains[(size_t) f])));
+                }
+                _mm_store_pd (lanes, _mm_mul_pd (sum, out));
+                outL[i] = (float) lanes[0];
+                outR[i] = (float) lanes[1];
+            }
+            for (int f = 0; f < 5; ++f)
+            {
+                _mm_store_pd (lanes, s1[f]);
+                l.bands[(size_t) f].s1 = lanes[0];
+                r.bands[(size_t) f].s1 = lanes[1];
+                _mm_store_pd (lanes, s2[f]);
+                l.bands[(size_t) f].s2 = lanes[0];
+                r.bands[(size_t) f].s2 = lanes[1];
+            }
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i]);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i]);
+    }
+
 private:
+    bool pairsWith (const VowelFilter& o) const
+    {
+        if (talkingSet != o.talkingSet || gains != o.gains)
+            return false;
+        for (size_t f = 0; f < 5; ++f)
+            if (bands[f].g != o.bands[f].g || bands[f].k != o.bands[f].k || bands[f].a1 != o.bands[f].a1)
+                return false;
+        return true;
+    }
+
     bool talkingSet = false;
     std::array<Svf2, 5> bands;
     std::array<double, 5> gains {};
@@ -766,7 +833,94 @@ public:
 
     static constexpr double outputGain = 0.4;
 
+    // A voice's left and right cascades over a block, side by side in SSE2
+    // double lanes: process()'s arithmetic lane by lane (the same output to
+    // the bit, a side that blows up resets alone) while both have the same
+    // settings. CPU round 2026-10-31: the heaviest factory presets use it.
+    static void processPairBlock (VowelMorph& l, VowelMorph& r, const float* inL, const float* inR,
+                                  float* outL, float* outR, int n)
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        if (l.pairsWith (r))
+        {
+            __m128d s1[5], s2[5], g[5], kg[5], a1[5];
+            const auto load = [&]
+            {
+                for (int f = 0; f < 5; ++f)
+                {
+                    s1[f] = _mm_set_pd (r.resonators[(size_t) f].s1, l.resonators[(size_t) f].s1);
+                    s2[f] = _mm_set_pd (r.resonators[(size_t) f].s2, l.resonators[(size_t) f].s2);
+                }
+            };
+            const auto store = [&]
+            {
+                alignas (16) double lanes[2];
+                for (int f = 0; f < 5; ++f)
+                {
+                    _mm_store_pd (lanes, s1[f]);
+                    l.resonators[(size_t) f].s1 = lanes[0];
+                    r.resonators[(size_t) f].s1 = lanes[1];
+                    _mm_store_pd (lanes, s2[f]);
+                    l.resonators[(size_t) f].s2 = lanes[0];
+                    r.resonators[(size_t) f].s2 = lanes[1];
+                }
+            };
+            for (int f = 0; f < 5; ++f)
+            {
+                const auto& a = l.resonators[(size_t) f];
+                g[f] = _mm_set1_pd (a.g);
+                kg[f] = _mm_set1_pd (a.k + a.g);
+                a1[f] = _mm_set1_pd (a.a1);
+            }
+            load();
+            const auto gain = _mm_set1_pd (outputGain);
+            alignas (16) double lanes[2];
+            for (int i = 0; i < n; ++i)
+            {
+                auto x = _mm_set_pd ((double) inR[i], (double) inL[i]);
+                for (int f = 0; f < 5; ++f)
+                {
+                    const auto hp = _mm_mul_pd (_mm_sub_pd (_mm_sub_pd (x, _mm_mul_pd (kg[f], s1[f])), s2[f]), a1[f]);
+                    const auto bp = _mm_add_pd (_mm_mul_pd (g[f], hp), s1[f]);
+                    s1[f] = _mm_add_pd (_mm_mul_pd (g[f], hp), bp);
+                    const auto lp = _mm_add_pd (_mm_mul_pd (g[f], bp), s2[f]);
+                    s2[f] = _mm_add_pd (_mm_mul_pd (g[f], bp), lp);
+                    x = lp;
+                }
+                _mm_store_pd (lanes, x);
+                if (std::isfinite (lanes[0]) && std::isfinite (lanes[1]))
+                {
+                    _mm_store_pd (lanes, _mm_mul_pd (x, gain));
+                    outL[i] = (float) lanes[0];
+                    outR[i] = (float) lanes[1];
+                    continue;
+                }
+                // A side that blew up resets, as process() does.
+                store();
+                outL[i] = std::isfinite (lanes[0]) ? (float) (lanes[0] * outputGain) : (l.reset(), 0.0f);
+                outR[i] = std::isfinite (lanes[1]) ? (float) (lanes[1] * outputGain) : (r.reset(), 0.0f);
+                load();
+            }
+            store();
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i]);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i]);
+    }
+
 private:
+    bool pairsWith (const VowelMorph& o) const
+    {
+        for (size_t f = 0; f < 5; ++f)
+            if (resonators[f].g != o.resonators[f].g || resonators[f].k != o.resonators[f].k
+                || resonators[f].a1 != o.resonators[f].a1)
+                return false;
+        return true;
+    }
+
     std::array<Svf2, 5> resonators;
 };
 

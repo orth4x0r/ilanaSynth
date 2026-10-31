@@ -1334,3 +1334,52 @@ void runPhase2StateAndCpuTest()
               << juce::String (extreme.first * 100.0, 1) << " % of one core" << std::endl;
     checkTiming (heavy.first < 0.5 && heavy.second && extreme.second, "heavy patch (8 notes x 32 unison voices) renders well inside real time");
 }
+
+// Filter 2 crossing its open line (Low Pass above ~19 kHz, low resonance) under a held note: the switch between
+// the cheap open copy and the full filter fades, as Filter 1's does, instead of restarting from rest (bug hunt
+// 2026-10-31: ramping Granular Pad's F2 KEY TRACK clicked once, at the crossing).
+void runFilter2CrossingTest()
+{
+    const auto worstClick = [] (bool bypass)
+    {
+        Voice::disableOpenFilterBypass = ! bypass;
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        processor.prepareToPlay (48000.0, 512);
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf ("Granular Pad"));
+        auto* keyTrack = processor.apvts.getParameter ("f2_keytrack");
+        std::vector<float> x;
+        juce::AudioBuffer<float> buffer (2, 512);
+        for (int done = 0; done < 48000 * 14 / 10; done += 512)
+        {
+            const auto t = (double) done / 48000.0;
+            keyTrack->setValueNotifyingHost ((float) juce::jlimit (0.3, 0.7, 0.3 + 0.4 * (t - 0.3)));
+            buffer.clear();
+            juce::MidiBuffer midi;
+            if (done == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+            for (int i = 0; i < 512; ++i)
+                x.push_back (buffer.getSample (0, i) + buffer.getSample (1, i));
+        }
+        Voice::disableOpenFilterBypass = false;
+        // The worst second difference against the largest one within 10 ms around it (3 samples either side left out).
+        std::vector<float> e (x.size(), 0.0f);
+        for (size_t i = 2; i < x.size(); ++i)
+            e[i] = std::abs (x[i] - 2.0f * x[i - 1] + x[i - 2]);
+        auto worst = 0.0f;
+        for (size_t i = 16800; i < 62400; ++i)
+        {
+            auto around = 1.0e-9f;
+            for (size_t j = i - 480; j <= i + 480; ++j)
+                if (j + 3 < i || j > i + 3)
+                    around = juce::jmax (around, e[j]);
+            worst = juce::jmax (worst, e[i] / around);
+        }
+        return worst;
+    };
+    const auto withSwitch = worstClick (true), without = worstClick (false);
+    check (withSwitch < without * 1.5f + 0.5f, "Filter 2 crossing its open line doesn't click (worst jump "
+                                                   + juce::String (withSwitch, 2) + "x its surroundings; "
+                                                   + juce::String (without, 2) + "x with the full filter throughout)");
+}

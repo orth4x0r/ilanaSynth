@@ -778,6 +778,34 @@ private:
     static constexpr int filterFadeLength = 32;
     int filter1Fade = 0;
     bool filter1FadeLinked = true, filter1Ran = false;
+    // Filter 2 the same (bug hunt 2026-10-31: crossing its open line clicked).
+    int filter2Fade = 0;
+    bool filter2FadeLinked = true, filter2Ran = false;
+    // Filter 2 over a block: the model in use, and while a switch fades, the old one faded out.
+    void processFilter2Block (const float* inL, const float* inR, float* outL, float* outR, int n)
+    {
+        if (filter2Open)
+            processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, inL, inR, outL, outR, n);
+        else
+            processFilterPairBlock (filter2L, filter2R, filter2Linked, inL, inR, outL, outR, n);
+        filter2Ran = true;
+
+        if (filter2Fade > 0)
+        {
+            float oldL[16], oldR[16]; // (renderNextBlock's chunks are at most 16)
+            jassert (n <= 16);
+            if (filter2Open)
+                processFilterPairBlock (filter2L, filter2R, filter2FadeLinked, inL, inR, oldL, oldR, n);
+            else
+                processOpenPairBlock (openFilter2L, openFilter2R, filter2FadeLinked, inL, inR, oldL, oldR, n);
+            for (int s = 0; s < n && filter2Fade > 0; ++s, --filter2Fade)
+            {
+                const auto g = (float) filter2Fade / (float) filterFadeLength;
+                outL[s] += (oldL[s] - outL[s]) * g;
+                outR[s] += (oldR[s] - outR[s]) * g;
+            }
+        }
+    }
 
     // Like processFilterPair: one filter while both sides are equal. The
     // linear filters from equal states stay equal, so the right one follows

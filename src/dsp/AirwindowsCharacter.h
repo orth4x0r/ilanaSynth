@@ -36,6 +36,10 @@
 #include <cstdint>
 #include <cstring>
 
+#if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+ #include <emmintrin.h>
+#endif
+
 namespace Airwindows
 {
 namespace detail
@@ -966,7 +970,107 @@ public:
         return (float) (need > n ? atN + (x - atN) * frac : x);
     }
 
+    // A voice's left and right Dispersers over a block, side by side in SSE2
+    // double lanes: process()'s arithmetic on each, lane by lane, so the
+    // output is the same to the bit, while both have the same settings and
+    // glide (else each runs on its own). CPU round 2026-10-31: a 64-section
+    // chain was 40 % of Koto Snap.
+    static void processPairBlock (Disperser& l, Disperser& r, const float* inL, const float* inR,
+                                  float* outL, float* outR, int n)
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        if (l.pairsWith (r))
+        {
+            l.processPair (r, inL, inR, outL, outR, n);
+            return;
+        }
+       #endif
+        for (int i = 0; i < n; ++i)
+            outL[i] = l.process (inL[i]);
+        for (int i = 0; i < n; ++i)
+            outR[i] = r.process (inR[i]);
+    }
+
 private:
+    bool pairsWith (const Disperser& o) const
+    {
+        return used == o.used && tiny == o.tiny && glide.left == o.glide.left && glide.primed == o.glide.primed
+               && std::memcmp (glide.cur, o.glide.cur, sizeof (glide.cur)) == 0
+               && std::memcmp (glide.step, o.glide.step, sizeof (glide.step)) == 0
+               && std::memcmp (glide.target, o.glide.target, sizeof (glide.target)) == 0;
+    }
+
+   #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+    void processPair (Disperser& o, const float* inL, const float* inR, float* outL, float* outR, int n)
+    {
+        using namespace detail;
+        // The sections' states as left / right pairs for the block.
+        __m128d s1[maxStages], s2[maxStages];
+        for (int i = 0; i < used; ++i)
+        {
+            s1[i] = _mm_set_pd (o.stage[i].s1, stage[i].s1);
+            s2[i] = _mm_set_pd (o.stage[i].s2, stage[i].s2);
+        }
+        alignas (16) double lanes[2];
+        for (int sample = 0; sample < n; ++sample)
+        {
+            glide.tick();
+            const double g = glide.cur[0], k = glide.cur[1], count = glide.cur[2];
+            const double a1 = 1.0 / (1.0 + k * g + g * g);
+            const double ga = g * a1, twoK = 2.0 * k, twoG = 2.0 * g, twoGa = 2.0 * ga;
+            const double c1 = k + g;
+            const double gain = 1.0 - twoK * ga;
+            int stages = (int) count;
+            double frac = count - stages;
+            if (stages >= maxStages) { stages = maxStages; frac = 0.0; }
+            if (stages < 1) { stages = 1; frac = 0.0; }
+            const int need = std::min (maxStages, stages + (frac > 1e-9 ? 1 : 0));
+            for (int i = used; i < need; ++i) // (sections past `used` are clean)
+                s1[i] = s2[i] = _mm_setzero_pd();
+            used = need;
+
+            auto x = _mm_add_pd (_mm_set_pd ((double) inR[sample], (double) inL[sample]), _mm_set1_pd (tinyFlip (tiny)));
+            auto atN = x;
+            const auto vc1 = _mm_set1_pd (c1), vga = _mm_set1_pd (ga), vtwoGa = _mm_set1_pd (twoGa);
+            const auto vtwoG = _mm_set1_pd (twoG), vgain = _mm_set1_pd (gain), vtwoK = _mm_set1_pd (twoK);
+            for (int i = 0; i < need; ++i)
+            {
+                const auto t = _mm_add_pd (_mm_mul_pd (vc1, s1[i]), s2[i]);
+                const auto base = _mm_sub_pd (s1[i], _mm_mul_pd (vga, t));
+                const auto bp = _mm_add_pd (_mm_mul_pd (vga, x), base);
+                s1[i] = _mm_add_pd (s1[i], _mm_mul_pd (vtwoGa, _mm_sub_pd (x, t)));
+                s2[i] = _mm_add_pd (s2[i], _mm_mul_pd (vtwoG, bp));
+                x = _mm_sub_pd (_mm_mul_pd (vgain, x), _mm_mul_pd (vtwoK, base));
+                if (i == stages - 1)
+                    atN = x;
+            }
+            if (need > stages)
+                x = _mm_add_pd (atN, _mm_mul_pd (_mm_sub_pd (x, atN), _mm_set1_pd (frac)));
+            _mm_store_pd (lanes, x);
+            outL[sample] = (float) lanes[0];
+            outR[sample] = (float) lanes[1];
+        }
+        // Back to the two filters; a section that dropped out is clean.
+        for (int i = 0; i < maxStages; ++i)
+        {
+            if (i < used)
+            {
+                _mm_store_pd (lanes, s1[i]);
+                stage[i].s1 = lanes[0];
+                o.stage[i].s1 = lanes[1];
+                _mm_store_pd (lanes, s2[i]);
+                stage[i].s2 = lanes[0];
+                o.stage[i].s2 = lanes[1];
+            }
+            else
+                stage[i] = o.stage[i] = Stage();
+        }
+        o.used = used;
+        o.tiny = tiny;
+        o.glide = glide;
+    }
+   #endif
+
     struct Stage { double s1 = 0.0, s2 = 0.0; };
     double tiny = detail::kTiny;
     int used = 0;

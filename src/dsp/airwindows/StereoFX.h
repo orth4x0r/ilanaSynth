@@ -80,6 +80,9 @@ private:
         double count;
         //Highpass section
         double iirAmount = pow(B,3)/overallscale;
+        // ilanaSynth: under 44.1 kHz this passed 1 and the highpass blew up (bug hunt
+        // 2026-10-31). At 44.1 kHz and up it never reaches 1, so nothing changes.
+        if (iirAmount > 1.0) iirAmount = 1.0;
         double tight = -0.33333333333333;
         double offset;
         //we are setting it up so that to either extreme we can get an audible sound,

@@ -144,23 +144,25 @@ public:
         depthG = 0.002146;
         depthH = 0.002088;
         //the individual vibrato rates for the delays
-        vibAL = awRand()*-2147483647;
-        vibBL = awRand()*-2147483647;
-        vibCL = awRand()*-2147483647;
-        vibDL = awRand()*-2147483647;
-        vibEL = awRand()*-2147483647;
-        vibFL = awRand()*-2147483647;
-        vibGL = awRand()*-2147483647;
-        vibHL = awRand()*-2147483647;
+        // (ilanaSynth: Airwindows' awRand()*-2147483647 overflowed int; the
+        // same wrapped values, computed in unsigned arithmetic.)
+        vibAL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibBL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibCL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibDL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibEL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibFL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibGL = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibHL = (double) (int) ((unsigned) awRand() * 2147483649u);
 
-        vibAR = awRand()*-2147483647;
-        vibBR = awRand()*-2147483647;
-        vibCR = awRand()*-2147483647;
-        vibDR = awRand()*-2147483647;
-        vibER = awRand()*-2147483647;
-        vibFR = awRand()*-2147483647;
-        vibGR = awRand()*-2147483647;
-        vibHR = awRand()*-2147483647;
+        vibAR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibBR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibCR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibDR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibER = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibFR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibGR = (double) (int) ((unsigned) awRand() * 2147483649u);
+        vibHR = (double) (int) ((unsigned) awRand() * 2147483649u);
         // ilanaSynth: the same phases taken modulo 2 pi. sin() of a value
         // near -2^31 needs glibc's slow argument reduction on every call
         // (a twentieth of a piano patch's CPU went to it); the vibrato is

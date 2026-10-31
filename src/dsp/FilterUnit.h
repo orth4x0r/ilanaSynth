@@ -1096,6 +1096,21 @@ public:
             Filters2::OtaFilter::processPairBlock (left.ota, right.ota, inLeft, inRight, outLeft, outRight, n);
             return;
         }
+        if ((left.type == FilterType::VowelBank || left.type == FilterType::Talking) && right.type == left.type)
+        {
+            Filters2::VowelFilter::processPairBlock (left.vowel, right.vowel, inLeft, inRight, outLeft, outRight, n);
+            return;
+        }
+        if (left.type == FilterType::VowelMorph && right.type == left.type)
+        {
+            Filters2::VowelMorph::processPairBlock (left.vowelMorph, right.vowelMorph, inLeft, inRight, outLeft, outRight, n);
+            return;
+        }
+        if (left.type == FilterType::Disperser && right.type == left.type)
+        {
+            Airwindows::Disperser::processPairBlock (left.disperser, right.disperser, inLeft, inRight, outLeft, outRight, n);
+            return;
+        }
         left.processBlock (inLeft, outLeft, n);
         right.processBlock (inRight, outRight, n);
     }

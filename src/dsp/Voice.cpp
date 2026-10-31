@@ -582,6 +582,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     filter1Open = filter2Open = false;
     filter1Fade = 0;
     filter1Ran = false;
+    filter2Fade = 0;
+    filter2Ran = false;
     openFilter1L.reset();
     openFilter1R.reset();
     openFilter2L.reset();
@@ -646,6 +648,8 @@ void Voice::resetForNewPatch()
     filter1Open = filter2Open = false;
     filter1Fade = 0;
     filter1Ran = false;
+    filter2Fade = 0;
+    filter2Ran = false;
     openFilter1L.reset();
     openFilter1R.reset();
     openFilter2L.reset();
@@ -2029,10 +2033,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             {
                 for (int s = 0; s < n; ++s)
                     drivePair (nodeL[stage][s], nodeR[stage][s], drive2, inL[s], inR[s]);
-                if (filter2Open)
-                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, inL, inR, stageL, stageR, n);
-                else
-                    processFilterPairBlock (filter2L, filter2R, filter2Linked, inL, inR, stageL, stageR, n);
+                processFilter2Block (inL, inR, stageL, stageR, n);
             }
             else if (stage == VoiceRouting::west)
             {
@@ -2162,13 +2163,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         westProcess (f2L[s], f2R[s], chunkWest[s]);
                     }
                 }
-                else if (filter2Open)
-                {
-                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
-                }
                 else
                 {
-                    processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, f2L, f2R, n);
+                    processFilter2Block (in2L, in2R, f2L, f2R, n);
                 }
 
                 // Balance fades one filter out; at the centre both are at full.
@@ -2195,13 +2192,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                         westProcess (outL[s], outR[s], chunkWest[s]);
                     }
                 }
-                else if (filter2Open)
-                {
-                    processOpenPairBlock (openFilter2L, openFilter2R, filter2Linked, in2L, in2R, outL, outR, n);
-                }
                 else
                 {
-                    processFilterPairBlock (filter2L, filter2R, filter2Linked, in2L, in2R, outL, outR, n);
+                    processFilter2Block (in2L, in2R, outL, outR, n);
                 }
             }
         }
@@ -4224,13 +4217,25 @@ void Voice::updateFilterCoefficients (const float* mods, float filterEnvValue, f
 
     if (open2 != filter2Open)
     {
+        // As Filter 1: the new model starts from rest; once Filter 2 has
+        // played, the old one keeps its state and fades out over
+        // filterFadeLength (processFilter2Block). It used to restart both,
+        // which clicked on every crossing (bug hunt 2026-10-31).
+        filter2Fade = filter2Ran ? filterFadeLength : 0;
+        filter2FadeLinked = filter2Linked;
         filter2Open = open2;
-        openFilter2L.reset();
-        openFilter2R.reset();
-        filter2L.reset();
-        filter2R.reset();
+        if (open2)
+        {
+            openFilter2L.reset();
+            openFilter2R.reset();
+            openCutoff2 = -1.0;
+        }
+        else
+        {
+            filter2L.reset();
+            filter2R.reset();
+        }
         filter2Linked = true;
-        openCutoff2 = -1.0;
     }
 
     if (open2)

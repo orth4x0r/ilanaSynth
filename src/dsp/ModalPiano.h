@@ -544,8 +544,10 @@ private:
     int note = 60;
     float timeScale = 1.0f, dampRate = 0.0f, stiffness = 1.0f, hardness = 0.5f, damper = 0.5f;
     bool eco = false, pitchDirty = true, silent = true;
-    // The table's sinusoid levels are the reference's in dBFS; this brings
-    // the Modal Piano to the Piano exciter's loudness.
+    // The table's sinusoid levels are the reference's in dBFS (about 20 dB
+    // quiet); Voice::exciterTrim brings the Modal Piano up to the other
+    // oscillators' level, so this stays 1 (Modal Grand, saved without the
+    // trim, keeps its level).
     static constexpr float outputGain = 1.0f;
 
     Corners corners;

@@ -317,6 +317,36 @@ void runTests()
                    "the Modal Piano plays in stereo (C4: correlation " + juce::String (correlation, 2)
                        + ", balance " + juce::String (balance, 1) + " dB)");
         }
+
+        // Level: through the whole synth, a Modal Piano C4 at velocity 100
+        // peaks within 3 dB of a default wavetable osc (it was 17 dB under).
+        {
+            const auto peakOf = [] (bool modal)
+            {
+                IlanaSynthAudioProcessor processor;
+                if (modal)
+                {
+                    setParam (processor, "osc1_mode", 1.0f);
+                    setParam (processor, "osc1_excite", 11.0f);
+                }
+                processor.prepareToPlay (48000.0, 256);
+                juce::AudioBuffer<float> buffer (2, 256);
+                auto peak = 0.0f;
+                for (int start = 0; start < 24000; start += 256)
+                {
+                    juce::MidiBuffer midi;
+                    if (start == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                    buffer.clear();
+                    processor.processBlock (buffer, midi);
+                    peak = juce::jmax (peak, buffer.getMagnitude (0, 256));
+                }
+                return juce::Decibels::gainToDecibels (peak);
+            };
+            const auto modal = peakOf (true), wavetable = peakOf (false);
+            check (std::abs (modal - wavetable) < 3.0f, "the Modal Piano plays at a wavetable osc's level (C4 peak "
+                                                            + juce::String (modal, 1) + " dB vs " + juce::String (wavetable, 1) + " dB)");
+        }
     }
 }
 } // namespace M82

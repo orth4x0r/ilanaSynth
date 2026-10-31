@@ -525,6 +525,7 @@ public:
             case 7:  return 0.398f; // Tine, -8 dB
             case 8:  return 0.708f; // Reed, -3 dB
             case 9:  return 2.0f;   // Piano, +6 dB (heard 2-6 dB under Hammer; the drive takes some back)
+            case 11: return 10.0f;  // Modal Piano, +20 dB (the table is in Piano V's dBFS; level with Piano and a wavetable osc at C4)
             default: return 1.0f;
         }
     }

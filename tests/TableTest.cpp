@@ -755,6 +755,7 @@ int main()
     timedRun ("runStereoEverywhereTest", [] { runStereoEverywhereTest(); });
     timedRun ("runStereoStringsTest", [] { runStereoStringsTest(); });
     timedRun ("runStringPairTest", [] { runStringPairTest(); });
+    timedRun ("runCpuSleepTests", [] { runCpuSleepTests(); });
     timedRun ("runPerVoiceLfoSpectralTest", [] { runPerVoiceLfoSpectralTest(); });
     timedRun ("runAudioImportModesTest", [] { runAudioImportModesTest(); });
     timedRun ("runPerVoiceLfoTest", [] { runPerVoiceLfoTest(); });

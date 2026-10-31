@@ -299,6 +299,65 @@ void runTests()
             check (drop < -40.0, "the Modal Piano's dampers stop the note (" + juce::String (drop, 1) + " dB in 0.5 s)");
         }
 
+        // Silent groups of partials stop running (CPU round 2026-10-31): the
+        // sound stays within -100 dB of every partial running, also while
+        // DECAY moves (it can bring a faded partial back), and it is cheaper.
+        {
+            auto worst = -300.0f;
+            double timeAll = 0.0, timeSkip = 0.0;
+            // ILANA_MODAL_CUT=dB: try another relative cut.
+            if (const auto cut = juce::SystemStats::getEnvironmentVariable ("ILANA_MODAL_CUT", ""); cut.isNotEmpty())
+                ModalPiano::relativeCut = cut.getFloatValue();
+            const auto render = [] (int note, float velocity, float knobs, bool moveDecay, double& seconds)
+            {
+                ModalPiano piano;
+                piano.prepare (48000.0);
+                piano.setNote (440.0 * std::pow (2.0, (note - 69) / 12.0), note);
+                piano.setParams (knobs, knobs == 0.5f ? 0.0f : knobs, knobs, knobs, knobs, false);
+                piano.trigger (velocity, 0.37f);
+                std::vector<float> out (48000 * 4);
+                const auto start = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < (int) out.size(); ++i)
+                {
+                    if (moveDecay && i % 480 == 0)
+                    {
+                        // Down for two seconds, then back up past where it began.
+                        const auto t = (float) i / (float) out.size();
+                        const auto decay = t < 0.5f ? 0.5f - t : t * 2.0f - 1.0f;
+                        piano.setParams (decay, 0.0f, 0.5f, 0.5f, 0.5f, false);
+                    }
+                    out[(size_t) i] = piano.process (i < 48000 * 3) + piano.side();
+                }
+                seconds += (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+                return out;
+            };
+            for (int note : { 21, 48, 60, 72, 96, 108 })
+                for (float velocity : { 0.2f, 0.9f })
+                    for (float knobs : { 0.0f, 0.5f, 1.0f })
+                        for (bool moveDecay : { false, true })
+                        {
+                            if (moveDecay && knobs != 0.5f)
+                                continue;
+                            ModalPiano::skipSilentGroups = false;
+                            const auto all = render (note, velocity, knobs, moveDecay, timeAll);
+                            ModalPiano::skipSilentGroups = true;
+                            const auto skip = render (note, velocity, knobs, moveDecay, timeSkip);
+                            auto peak = 1.0e-9f, diff = 0.0f;
+                            for (size_t i = 0; i < all.size(); ++i)
+                            {
+                                peak = juce::jmax (peak, std::abs (all[i]));
+                                diff = juce::jmax (diff, std::abs (all[i] - skip[i]));
+                            }
+                            const auto db = juce::Decibels::gainToDecibels (diff / peak, -300.0f);
+                            if (db > -80.0f) std::cout << "  modal skip " << note << " " << velocity << " " << knobs << " " << (int) moveDecay << ": " << db << " dB" << std::endl;
+                            worst = juce::jmax (worst, db);
+                        }
+            if (const auto cuts = juce::SystemStats::getEnvironmentVariable ("ILANA_MODAL_CUT", ""); cuts.isNotEmpty())
+                std::cout << "  relative cut " << ModalPiano::relativeCut << " dB: worst " << worst << " dB, time " << timeSkip / timeAll << "x" << std::endl;
+            check (worst < -80.0f && timeSkip < timeAll, "the Modal Piano sounds the same, within -80 dB, and costs less with quiet partials skipped (worst "
+                                        + juce::String (worst, 1) + " dB; time " + juce::String (timeSkip / timeAll, 2) + "x)");
+        }
+
         // Stereo: the reference's microphones are far out of phase at C4
         // (correlation about -0.9), and the two channels are about as loud.
         {

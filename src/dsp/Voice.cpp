@@ -349,6 +349,8 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
     const auto legato = mono && monoLegato;
     releaseSilentSamples = 0;
     releasePeak = 0.0f;
+    heldAsleep = false;
+    heldSilentSamples = 0;
     fadeTotal = fadeRemaining = 0;
     sounded = false;
     ampGainFade = 1.0f;
@@ -519,6 +521,7 @@ void Voice::startNote (int midiNoteNumber, float velocity, juce::SynthesiserSoun
         const auto unison = settings.stringExcite == (int) KarplusStrong::Excite::ModalPiano
                                 ? 1 : juce::jlimit (1, VoiceParams::maxBufferedUnison, settings.unison);
         stringTwin[osc] = settings.stringStereo && unison == 1;
+        twinAsleep[osc] = stringTwin[osc] && ! disableTwinSleep && stereoStringAtRest (osc);
         const auto count = stringTwin[osc] ? 2 : unison;
         if (stringTwin[osc])
             stringFor (osc, 1).matchNoise (stringFor (osc, 0));
@@ -968,6 +971,9 @@ void Voice::reExcite (float level)
     if (! isVoiceActive() || ! isKeyDown())
         return;
 
+    // A struck string sounds again: a sleeping held note wakes.
+    heldAsleep = false;
+    heldSilentSamples = 0;
     for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
         if (params.oscillators[osc].stringMode && params.oscillatorEnabled[osc])
             for (int u = 0; u < stringsPlaying (osc); ++u)
@@ -1307,6 +1313,16 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         return;
     }
 
+    // Held sleep: nothing this note plays can sound again until the key
+    // (or pedal) comes up; then it carries on from where it stopped.
+    if (heldAsleep)
+    {
+        if (noteHeld && ! monoPending && fadeTotal == 0 && heldSleepAllowed())
+            return;
+        heldAsleep = false;
+        heldSilentSamples = 0;
+    }
+
     sounded = true;
 
     // Step 33: the One Shot that held the release has played out.
@@ -1475,6 +1491,8 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
             // (A route added mid-note: the twin picks up where the string is.)
             stringFor (osc, 1) = stringFor (osc, 0);
         }
+        if (! twin)
+            twinAsleep[osc] = false;
         stringTwin[osc] = twin;
     }
 
@@ -1501,7 +1519,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         const auto& settings = params.oscillators[osc];
 
         const auto count = stringsPlaying (osc);
-        for (int u = 0; u < count; ++u)
+        if (twinAsleep[osc] && stringTwin[osc] && ! stereoStringAtRest (osc))
+        {
+            // The route moves: the twin wakes where string 0 is.
+            stringFor (osc, 1) = stringFor (osc, 0);
+            twinAsleep[osc] = false;
+        }
+        for (int u = 0; u < (stringTwin[osc] && twinAsleep[osc] ? 1 : count); ++u)
         {
             configureString (stringFor (osc, u), settings, stringSide (osc, u, count));
         }
@@ -2258,7 +2282,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                     right[startSample + i] += sampleR * ampGain;
                 else
                     left[startSample + i] += sampleR * ampGain;
-                if (watchReleaseSilence)
+                if (watchReleaseSilence || watchHeldSilence)
                     releasePeak = juce::jmax (releasePeak, std::abs (sampleL * ampGain), std::abs (sampleR * ampGain));
             }
         }
@@ -2995,6 +3019,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                           && ! legacyMaterialBody();
     if (! watchReleaseSilence)
         releaseSilentSamples = 0;
+    watchHeldSilence = ! disableHeldSilence && noteHeld && ! monoPending && ! dx7Playing && params.liveInput == nullptr
+                       && ! legacyMaterialBody() && heldSleepAllowed();
+    if (! watchHeldSilence)
+        heldSilentSamples = 0;
 
     for (int chunkStart = 0; chunkStart < numSamples;)
     {
@@ -3258,9 +3286,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
                             right.addLiveInput (liveAmount);
                         }
                         // Both sides in one call (the same as two process() calls).
+                        // A resting route: both sides are string 0.
                         float rawL, rawR;
-                        left.processPair (right, aftertouchValue, noteHeld, fm, rawL, rawR);
-                        auto sideL = left.side(), sideR = right.side();
+                        if (twinAsleep[osc])
+                            rawL = rawR = left.process (aftertouchValue, noteHeld, fm);
+                        else
+                            left.processPair (right, aftertouchValue, noteHeld, fm, rawL, rawR);
+                        auto sideL = left.side(), sideR = twinAsleep[osc] ? sideL : right.side();
                         if (match)
                         {
                             rawL *= trim;
@@ -3593,6 +3625,13 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         if (releaseSilentSamples >= (int) (sampleRate * 0.09))
             stopNote (0.0f, false);
     }
+    else if (watchHeldSilence)
+    {
+        heldSilentSamples = releasePeak < releaseSilence ? heldSilentSamples + numSamples : 0;
+        releasePeak = 0.0f;
+        if (heldSilentSamples >= (int) (sampleRate * 0.09))
+            heldAsleep = true;
+    }
 
     if (! hasActiveAmpEnvelope())
     {
@@ -3897,6 +3936,34 @@ bool Voice::bodyIsInChain() const
 
 // A material body outside the chain: struck by the strings, ringing beside
 // the filters and after the amp, as in every older patch.
+// Held sleep is only for notes whose every sound dies away by itself once
+// struck: physical strings with a one-off excitation (no bow, external
+// drive, feedback amp or SUSTAIN), the Modal Piano, nothing else sounding
+// (wavetable, sample, granular or live oscillators, noise) and no live
+// input into the strings.
+bool Voice::heldSleepAllowed() const
+{
+    using E = KarplusStrong::Excite;
+    if (params.noiseEnabled && params.noiseLevel > 0.0f)
+        return false;
+    if (params.inputToStrings > 0.0f)
+        return false;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        if (params.fmNoise[osc] > 0.0f)
+            return false;
+        if (! params.oscillatorEnabled[osc])
+            continue;
+        const auto& settings = params.oscillators[osc];
+        if (! settings.stringMode || settings.liveMode || settings.granularMode || settings.sampleMode)
+            return false;
+        const auto excite = (E) settings.stringExcite;
+        if (excite == E::Bow || excite == E::External || excite == E::Feedback || settings.stringSustain > 0.0f)
+            return false;
+    }
+    return true;
+}
+
 bool Voice::legacyMaterialBody() const
 {
     return params.resonatorOn && params.bodyType != 0 && ! bodyIsInChain();

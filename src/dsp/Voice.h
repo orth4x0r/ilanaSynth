@@ -704,6 +704,17 @@ private:
     void configureString (KarplusStrong& string, const VoiceParams::OscParams& settings, float side = 0.0f) const;
     // A one-voice physical oscillator with a stereo route plays a second string as its right side.
     bool stringTwin[VoiceParams::numOscillators] {};
+    // While the route sits at 0 the twin would play what string 0 plays, so
+    // it sleeps and string 0's output stands for both (CPU round 2026-10-31).
+    // The first block the route moves, the twin wakes as a copy of string 0.
+    bool twinAsleep[VoiceParams::numOscillators] {};
+    bool stereoStringAtRest (int osc) const
+    {
+        for (auto offset : params.oscillators[osc].stringStereoOffsets)
+            if (offset != 0.0f)
+                return false;
+        return true;
+    }
     int stringsPlaying (int osc) const { return stringTwin[osc] ? 2 : juce::jmin (numOscUnison[osc], VoiceParams::maxBufferedUnison); }
     // Where unison string u of n sits: +1 the leftmost, -1 the rightmost (the twin: 0 left, 1 right).
     float stringSide (int osc, int u, int count) const
@@ -833,6 +844,10 @@ public:
     inline static bool disableOpenFilterBypass = false;
     // Tests: keep released voices to the end of their release (no silence end).
     inline static bool disableReleaseSilence = false;
+    // Tests: keep rendering a held note whose strings have died away (no held sleep).
+    inline static bool disableHeldSilence = false;
+    // Tests: always play a stereo route's twin string, even while the route rests.
+    inline static bool disableTwinSleep = false;
     // Tests: every envelope computed every sample (no control-rate envelopes).
     inline static bool disableSlowEnvelopes = false;
     // The block-wise source path (renderNextBlock); ILANA_NO_BLOCK_SOURCES
@@ -1003,6 +1018,13 @@ private:
     bool watchReleaseSilence = false;
     float releasePeak = 0.0f;
     int releaseSilentSamples = 0;
+    // Held sleep (CPU round 2026-10-31): a held note (key or pedal) whose
+    // sources can only die away (struck and plucked strings, Modal Piano)
+    // stops rendering once its output has stayed under releaseSilence for
+    // about 90 ms, until the key comes up or the patch changes.
+    bool watchHeldSilence = false, heldAsleep = false;
+    int heldSilentSamples = 0;
+    bool heldSleepAllowed() const;
     // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
     LfoSim lfoSims[VoiceParams::numLfos];
     LfoSmoother lfoSmoothers[VoiceParams::numLfos];

@@ -69,9 +69,8 @@ public:
             for (int lane = 0; lane < 4; ++lane)
                 chainIn[stage][lane] = chainState[stage][lane] = 0.0f;
         lossState = horizontalLossState = 0.0f;
-        for (auto& path : quarterState)
-            for (auto& stage : path)
-                stage = {};
+        for (auto* state : { quarterX1, quarterX2, quarterY1, quarterY2 })
+            std::fill (state, state + 16, 0.0f);
         pushState1 = pushState2 = 0.0f;
         toneX1 = toneX2 = toneY1 = toneY2 = 0.0f;
         dipX1 = dipX2 = dipY1 = dipY2 = 0.0f;
@@ -399,7 +398,9 @@ private:
             atBridge *= damperTrip.get (damper, period, sampleRate);
         bridgeReturn = -atBridge;
 
-        auto output = quadrature ? quarterTurn (atBridge, 0) : atBridge;
+        // (With both directions sounding, their two quarter-turn chains run
+        // together as two SIMD lanes below.)
+        auto output = quadrature && eco ? quarterTurn (atBridge, 0) : atBridge;
 
         // The horizontal polarisation: the same string, driven by a share of
         // the strike through the strike-point comb, losing energy slowly.
@@ -420,7 +421,15 @@ private:
             buffer[horizontalOffset + horizontalWrite] = loop + drive;
             if (++horizontalWrite >= horizontalSize)
                 horizontalWrite = 0;
-            output += (quadrature ? quarterTurn (loop, 1) : loop) * horizontalMix;
+            if (quadrature)
+            {
+                float turned[4];
+                quarterTurnPair (atBridge, loop, turned);
+                output = turned[0];
+                output += turned[1] * horizontalMix;
+            }
+            else
+                output += loop * horizontalMix;
 
             // Phantom partials: the longitudinal modes, driven by the square
             // of the motion (sum and difference tones of the partials).
@@ -893,21 +902,43 @@ private:
     bool quadrature = false;
     // Two all-pass chains whose outputs stay 90 degrees apart over the whole
     // audible range (Niemitalo's Hilbert pair), one per string direction.
-    struct QuarterStage { float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f; };
-    QuarterStage quarterState[2][4];
+    // Their state per stage and lane (lane 0 the first chain, 1 the second).
+    alignas (16) float quarterX1[16] {}, quarterX2[16] {}, quarterY1[16] {}, quarterY2[16] {};
+    static constexpr float quarterA[2][4] = { { 0.6923878f, 0.9360654f, 0.9882295f, 0.9987488f }, { 0.4021921f, 0.8561711f, 0.9722910f, 0.9952885f } };
     float quarterTurn (float x, int path) noexcept
     {
-        static constexpr float a[2][4] = { { 0.6923878f, 0.9360654f, 0.9882295f, 0.9987488f }, { 0.4021921f, 0.8561711f, 0.9722910f, 0.9952885f } };
         for (int i = 0; i < 4; ++i)
         {
-            auto& s = quarterState[path][i];
-            const auto c = a[path][i] * a[path][i];
-            const auto y = c * (x + s.y2) - s.x2;
-            s.x2 = s.x1; s.x1 = x;
-            s.y2 = s.y1; s.y1 = y;
+            const auto at = i * 4 + path;
+            const auto c = quarterA[path][i] * quarterA[path][i];
+            const auto y = c * (x + quarterY2[at]) - quarterX2[at];
+            quarterX2[at] = quarterX1[at]; quarterX1[at] = x;
+            quarterY2[at] = quarterY1[at]; quarterY1[at] = y;
             x = y;
         }
         return x;
+    }
+    // Both chains at once, the same arithmetic per lane as quarterTurn (CPU
+    // round 2026-10-31): out[0] is chain 0 of a, out[1] chain 1 of b.
+    ILANA_PIANO_INLINE void quarterTurnPair (float a, float b, float (&out)[4]) noexcept
+    {
+       #if ILANA_PIANO_SSE
+        auto x = _mm_set_ps (0.0f, 0.0f, b, a);
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto c = _mm_set_ps (0.0f, 0.0f, quarterA[1][i] * quarterA[1][i], quarterA[0][i] * quarterA[0][i]);
+            const auto y = _mm_sub_ps (_mm_mul_ps (c, _mm_add_ps (x, _mm_load_ps (quarterY2 + i * 4))), _mm_load_ps (quarterX2 + i * 4));
+            _mm_store_ps (quarterX2 + i * 4, _mm_load_ps (quarterX1 + i * 4));
+            _mm_store_ps (quarterX1 + i * 4, x);
+            _mm_store_ps (quarterY2 + i * 4, _mm_load_ps (quarterY1 + i * 4));
+            _mm_store_ps (quarterY1 + i * 4, y);
+            x = y;
+        }
+        _mm_storeu_ps (out, x);
+       #else
+        out[0] = quarterTurn (a, 0);
+        out[1] = quarterTurn (b, 1);
+       #endif
     }
     bool toneActive = false;
     float toneB0 = 1.0f, toneA1 = 0.0f, toneA2 = 0.0f, toneX1 = 0.0f, toneX2 = 0.0f, toneY1 = 0.0f, toneY2 = 0.0f;

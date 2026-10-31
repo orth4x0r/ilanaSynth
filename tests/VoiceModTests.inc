@@ -810,6 +810,91 @@ void runStringPairTest()
                               + (worst > 0.0f ? " (largest difference " + juce::String (worst, 9) + ", " + where + ")" : juce::String()));
 }
 
+// CPU round 2026-10-31: a stereo route's twin string sleeps while the route
+// rests (bit for bit the same), and a held note whose strings have died away
+// stops rendering (its output differs only below -110 dB).
+void runCpuSleepTests()
+{
+    const auto render = [] (int excite, bool stereo, int moveAt, bool twinSleep, bool heldSleep, double& seconds)
+    {
+        Voice::disableTwinSleep = ! twinSleep;
+        Voice::disableHeldSilence = ! heldSleep;
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_mode", 1.0f);
+        setParam (processor, "osc1_excite", (float) excite);
+        setParam (processor, "osc1_string_decay", 0.3f);
+        setParam (processor, "macro1", 0.0f);
+        setParam (processor, "mod1_src", (float) Mod::Source::Macro1);
+        setParam (processor, "mod1_dst", (float) Mod::destinationForParamId ("osc1_string_damp"));
+        setParam (processor, "mod1_amt", 0.3f);
+        setParam (processor, "mod1_stereo", stereo ? 1.0f : 0.0f);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        std::vector<float> out;
+        for (int block = 0; block < 1500; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (const auto note : { 52, 59, 64 })
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+            if (block == 1300)
+                for (const auto note : { 52, 59, 64 })
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+            if (moveAt >= 0 && block == moveAt)
+                setParam (processor, "macro1", 0.7f);
+            buffer.clear();
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, midi);
+            seconds += (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+            for (int channel = 0; channel < 2; ++channel)
+                out.insert (out.end(), buffer.getReadPointer (channel), buffer.getReadPointer (channel) + 256);
+        }
+        Voice::disableTwinSleep = Voice::disableHeldSilence = false;
+        return out;
+    };
+    const auto largest = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        auto diff = 0.0f;
+        for (size_t i = 0; i < a.size(); ++i)
+            diff = juce::jmax (diff, std::abs (a[i] - b[i]));
+        return diff;
+    };
+
+    // The twin (pluck, Piano, Modal Piano), the route resting all along or
+    // moving at block 40: bit for bit what the awake twin plays.
+    auto worstTwin = 0.0f;
+    juce::String where;
+    for (const auto excite : { 0, 9, 11 })
+        for (const auto moveAt : { -1, 40 })
+        {
+            double unused = 0.0;
+            const auto difference = largest (render (excite, true, moveAt, false, false, unused),
+                                             render (excite, true, moveAt, true, false, unused));
+            if (difference > worstTwin)
+            {
+                worstTwin = difference;
+                where = " (exciter " + juce::String (excite) + ", " + juce::String (difference, 9) + ")";
+            }
+        }
+    check (worstTwin == 0.0f, "a resting stereo string route's twin sleeps, bit for bit the same" + where);
+
+    // Held sleep: dying plucks held 5 s, then let go: the same output to
+    // within -110 dB, and cheaper.
+    double awakeSeconds = 0.0, sleepSeconds = 0.0;
+    auto worstHeld = 0.0f;
+    for (int round = 0; round < 3; ++round)
+    {
+        const auto a = render (0, false, -1, true, false, awakeSeconds);
+        const auto b = render (0, false, -1, true, true, sleepSeconds);
+        worstHeld = juce::jmax (worstHeld, largest (a, b));
+    }
+    check (worstHeld < 3.0e-6f, "a held note whose string died away sleeps, within -110 dB (largest "
+                                    + juce::String (juce::Decibels::gainToDecibels (worstHeld, -300.0f), 1) + " dB)");
+    check (sleepSeconds < awakeSeconds, "held sleep is cheaper (" + juce::String (sleepSeconds / awakeSeconds, 2) + "x the time)");
+}
+
 // ILANA_STEREO_BENCH=1: what a stereo string route costs a whole voice (8 notes of a pluck and of the Piano
 // exciter, with and without a stereo route into DAMP), for docs/ROUTING-CPU.md.
 void runStereoStringBench()

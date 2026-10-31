@@ -120,6 +120,7 @@ public:
     {
         excite = newExcite;
         loopSetupDirty = true;
+        updatePairShape();
         if (isElectric())
             electric.setModel (excite == Excite::Tine ? ElectricPiano::Model::Tine : ElectricPiano::Model::Reed);
         updateDispersionDelay();
@@ -178,6 +179,7 @@ public:
         bowSpeed = juce::jlimit (0.0f, 1.0f, speed);
         buzz = juce::jlimit (0.0f, 1.0f, bridgeBuzz);
         rattle = juce::jlimit (0.0f, 1.0f, fretRattle);
+        updatePairShape();
     }
 
     // The second vibration direction of a plucked string (0 = off, the plain
@@ -193,6 +195,7 @@ public:
     void setSplit (float amount)
     {
         split = juce::jlimit (0.0f, 1.0f, amount);
+        updatePairShape();
     }
 
     // M4 keys: hammer hardness (felt, 0..1) and how strongly the damper stops
@@ -667,7 +670,165 @@ public:
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
 
+    // A stereo twin (Voice::stringTwin): this string is the left side and
+    // `right` the right one, both played in one call. They share the pitch,
+    // the exciter and the loop's shape (a stereo route only moves the
+    // knobs), so the per-sample setup is paid once and the two loops' sums
+    // interleave; each side does exactly the arithmetic process() would, so
+    // the result is the same as two process() calls bit for bit. What the
+    // shared path doesn't cover (split, buzz, rattle, slap, the bow, the
+    // hammers, the electric and feedback exciters) plays as two calls.
+    ILANA_NOINLINE void processPair (KarplusStrong& right, float expression, bool noteHeld, float externalInput,
+                                     float& outLeft, float& outRight)
+    {
+        auto& left = *this;
+        if (left.pairShape && right.pairShape && left.excite == right.excite && (left.slapRemaining | right.slapRemaining) == 0
+            && ! left.buffer.empty() && left.buffer.size() == right.buffer.size())
+        {
+            // process()'s setup, which it would do first thing anyway.
+            if (left.loopSetupDirty)
+                left.prepareLoop();
+            if (right.loopSetupDirty)
+                right.prepareLoop();
+            if (left.snapGlides)
+                left.snapToTargets();
+            if (right.snapGlides)
+                right.snapToTargets();
+            if (left.cachedPeriod == right.cachedPeriod && left.writePosition == right.writePosition
+                && left.loopUseDispersion == right.loopUseDispersion && left.plainStages == right.plainStages)
+            {
+                processPairedLoops (right, noteHeld, externalInput, outLeft, outRight);
+                return;
+            }
+        }
+        else if (left.isPiano() && right.isPiano() && ! left.buffer.empty() && ! right.buffer.empty()
+                 && PianoString::processPair (left.piano, right.piano, noteHeld, outLeft, outRight))
+        {
+            return;
+        }
+        outLeft = left.process (expression, noteHeld, externalInput);
+        outRight = right.process (expression, noteHeld, externalInput);
+    }
+
 private:
+    // processPair's shared path (with no slap sounding): a plucked or
+    // driven string without split, buzz or rattle. Kept by the setters.
+    bool pairShape = true;
+    void updatePairShape() noexcept
+    {
+        pairShape = (excite == Excite::Burst || excite == Excite::Noise || excite == Excite::Saw || excite == Excite::Pulse
+                     || excite == Excite::External)
+                    && split <= 0.0f && buzz == 0.0f && rattle == 0.0f;
+    }
+
+    // process()'s plucked-string loop for two strings at once (see
+    // processPair): the same steps in the same order on each side.
+    void processPairedLoops (KarplusStrong& right, bool noteHeld, float externalInput, float& outLeft, float& outRight) noexcept
+    {
+        auto& left = *this;
+        const auto size = (int) buffer.size();
+        const auto period = cachedPeriod;
+        const auto position = writePosition;
+
+        const auto read = [&] (KarplusStrong& s)
+        {
+            if (s.glidedDelay.moving (s.loopDelay) || s.glidedCoefficient.moving (s.loopCoefficient))
+            {
+                s.glidedDelay.step (s.loopDelay, (double) s.glideCoefficient, 1.0e-6);
+                s.glidedCoefficient.step (s.loopCoefficient, s.glideCoefficient, 1.0e-7f);
+            }
+            auto readPosition = (double) position - period + s.glidedDelay.value;
+            while (readPosition < 0.0)
+                readPosition += (double) size;
+            while (readPosition >= (double) size)
+                readPosition -= (double) size;
+            const auto index = (int) readPosition;
+            const auto nextIndex = index + 1 < size ? index + 1 : (index + 1) % size;
+            const auto fraction = (float) (readPosition - (double) index);
+            const auto* data = s.buffer.data();
+            return data[index] + (data[nextIndex] - data[index]) * fraction;
+        };
+        auto delayedL = read (left);
+        auto delayedR = read (right);
+
+        // The stiffness allpasses: the two chains side by side.
+        if (loopUseDispersion)
+        {
+            const auto cl = left.glidedCoefficient.value, cr = right.glidedCoefficient.value;
+            const auto stages = dispersionStages();
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                auto& inL = left.dispersionPairIn[stage][0];
+                auto& stateL = left.dispersionPairState[stage][0];
+                auto& inR = right.dispersionPairIn[stage][0];
+                auto& stateR = right.dispersionPairState[stage][0];
+                const auto nextL = cl * delayedL + inL - cl * stateL;
+                const auto nextR = cr * delayedR + inR - cr * stateR;
+                inL = delayedL;
+                stateL = nextL;
+                inR = delayedR;
+                stateR = nextR;
+                delayedL = nextL;
+                delayedR = nextR;
+            }
+        }
+
+        const auto finish = [&] (KarplusStrong& s, float delayed)
+        {
+            auto* data = s.buffer.data();
+            auto out = delayed;
+            if (s.pickupGlide.moving (s.pickupPosition))
+                s.pickupGlide.step (s.pickupPosition, s.glideCoefficient, 1.0e-6f);
+            const auto pickup = s.pickupGlide.value;
+            if (pickup > 0.0f)
+            {
+                auto tap = (double) position - period + s.glidedDelay.value - period * (double) pickup;
+                while (tap < 0.0)
+                    tap += (double) size;
+                while (tap >= (double) size)
+                    tap -= (double) size;
+                const auto tapIndex = (int) tap;
+                const auto tapNext = (tapIndex + 1) % size;
+                const auto tapFraction = (float) (tap - (double) tapIndex);
+                const auto depth = juce::jmin (1.0f, 16.0f * pickup);
+                out = (out - depth * (data[tapIndex] + (data[tapNext] - data[tapIndex]) * tapFraction))
+                      / std::sqrt (1.0f + depth * depth);
+            }
+
+            const auto lowpass = s.lowpassState + (delayed - s.lowpassState) * s.lowpassCoefficient;
+            s.lowpassState = lowpass;
+
+            auto excitation = 0.0f;
+            switch (s.excite)
+            {
+                case Excite::Noise:    excitation = (s.random.nextFloat() * 2.0f - 1.0f) * s.sustainLevel; break;
+                case Excite::Saw:      excitation = (float) (2.0 * s.phase - 1.0) * s.sustainLevel; break;
+                case Excite::Pulse:    excitation = (s.phase < 0.5 ? 1.0f : -1.0f) * s.sustainLevel; break;
+                case Excite::External: excitation = juce::jlimit (-2.0f, 2.0f, externalInput) * (0.02f + s.sustainLevel * 0.3f)
+                                                    * (0.25f + 0.75f * s.strikeVelocity); break;
+                default: break;
+            }
+            excitation += s.bridgeInput;
+            s.bridgeInput = 0.0f;
+
+            auto phase = s.phase + s.cachedPhaseStep;
+            if (phase >= 1.0)
+                phase -= 1.0;
+            s.phase = phase;
+
+            auto loopValue = lowpass * s.feedback;
+            if (s.damper > 0.0f && ! noteHeld)
+                loopValue *= s.damperLoss.get (s.damper, period, s.sampleRate);
+
+            const auto plain = s.stiffness == 0.0f && ! s.pickupGlide.moving (0.0f) && s.excite != Excite::External;
+            data[position] = loopValue + excitation;
+            s.writePosition = position + 1 < size ? position + 1 : (position + 1) % size;
+            return plain ? out : (std::isfinite (out) ? juce::jlimit (-8.0f, 8.0f, out) : 0.0f);
+        };
+        outLeft = finish (left, delayedL);
+        outRight = finish (right, delayedR);
+    }
+
     // Piano strings are much stiffer than the lengths of wire the Physical
     // mode was built for: more allpass stages make the upper partials
     // audibly sharp, as in a real piano's bass.

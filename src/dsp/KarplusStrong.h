@@ -21,8 +21,10 @@
 
 #if defined (_MSC_VER)
  #define ILANA_NOINLINE __declspec (noinline)
+ #define ILANA_KS_INLINE __forceinline
 #else
  #define ILANA_NOINLINE __attribute__ ((noinline))
+ #define ILANA_KS_INLINE inline __attribute__ ((always_inline))
 #endif
 
 class KarplusStrong
@@ -419,6 +421,9 @@ public:
         if (excite == Excite::Bow)
             return processBowed (expression, noteHeld);
 
+        if (excite == Excite::Hammer)
+            return processHammered (noteHeld);
+
         const auto size = (int) buffer.size();
         // The loop's pitch, delays and allpass coefficient follow the
         // setters (at most once a sub-block): worked out again only then.
@@ -427,19 +432,18 @@ public:
         if (snapGlides)
             snapToTargets();
         const auto period = cachedPeriod;
-        const auto hammered = excite == Excite::Hammer;
-        // Piano strings run two loops (see readHorizontal), one per half.
-        const auto loopSize = hammered ? size / 2 : size;
+        // (The KS hammer, two loops in two halves, plays in processHammered.)
+        const auto loopSize = size;
         const auto useDispersion = loopUseDispersion;
         // Modulation moves the knobs once a block: the loop's delay and
         // allpass glide there (a step in either is a click every block).
-        if (! hammered && (glidedDelay.moving (loopDelay) || glidedCoefficient.moving (loopCoefficient)))
+        if ((glidedDelay.moving (loopDelay) || glidedCoefficient.moving (loopCoefficient)))
         {
             glidedDelay.step (loopDelay, (double) glideCoefficient, 1.0e-6);
             glidedCoefficient.step (loopCoefficient, glideCoefficient, 1.0e-7f);
         }
-        const auto delay = hammered ? loopDelay : glidedDelay.value;
-        const auto coefficient = hammered ? loopCoefficient : glidedCoefficient.value;
+        const auto delay = glidedDelay.value;
+        const auto coefficient = glidedCoefficient.value;
 
         auto readPosition = (double) writePosition - period
                             + delay;
@@ -449,56 +453,22 @@ public:
         while (readPosition >= (double) size)
             readPosition -= (double) size;
 
-        // (A piano string reads through its Thiran allpass below instead.)
-        auto rawDelayed = 0.0f;
-        if (! hammered)
+        auto delayed = 0.0f;
         {
             const auto index = (int) readPosition;
             const auto nextIndex = index + 1 < size ? index + 1 : (index + 1) % size;
             const auto fraction = (float) (readPosition - (double) index);
-            rawDelayed = buffer[(size_t) index]
-                       + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+            delayed = buffer[(size_t) index]
+                    + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
         }
 
         // The second direction (see setSplit) reads its own loop, a hair longer.
-        const auto splitOn = split > 0.0f && ! hammered && ! bufferB.empty();
+        const auto splitOn = split > 0.0f && ! bufferB.empty();
         auto delayedB = 0.0f;
         if (splitOn)
             delayedB = readSplit (period, delay, size);
 
-        // Piano strings read the fractional part through a first-order
-        // allpass (Thiran) instead: linear interpolation averages neighbours,
-        // a low-pass that on a 23-sample treble loop costs ~170 dB/s.
-        if (hammered)
-        {
-            const auto length = period - delay;
-            if (length != verticalTap.length)
-                verticalTap = thiranTapFor (length);
-            const auto whole = verticalTap.whole;
-            auto readIndex = writePosition - whole;
-            while (readIndex < 0)
-                readIndex += loopSize;
-            const auto input = buffer[(size_t) (readIndex < loopSize ? readIndex : readIndex % loopSize)];
-            const auto a = verticalTap.a;
-            rawDelayed = a * input + thiranInput - a * thiranOutput;
-            thiranInput = input;
-            thiranOutput = rawDelayed;
-        }
-
-        auto delayed = rawDelayed;
-
-        // A piano string's horizontal polarisation reads its own half of the
-        // buffer, so it is read now and both run their (identical) stiffness
-        // allpasses together, one SIMD lane each.
-        auto horizontal = 0.0f;
-        if (hammered)
-            horizontal = readHorizontal (period);
-
-        if (hammered && useDispersion)
-        {
-            disperseHammeredPair (delayed, horizontal);
-        }
-        else if (useDispersion)
+        if (useDispersion)
         {
             if (splitOn)
             {
@@ -529,8 +499,6 @@ public:
 
         if (pickupGlide.value > 0.0f)
         {
-            // Within the loop's own buffer: a piano string's vertical loop
-            // is the first half (the horizontal one owns the second).
             auto tap = (double) writePosition - period + delay - period * (double) pickupGlide.value;
             while (tap < 0.0)
                 tap += (double) loopSize;
@@ -572,14 +540,6 @@ public:
                 break;
 
 
-            case Excite::Hammer:
-                if (hammerElapsed < hammerTotal)
-                {
-                    excitation = hammerExcitation();
-                    output += hammerThump();
-                }
-                break;
-
             case Excite::External:
                 excitation = juce::jlimit (-2.0f, 2.0f, externalInput) * (0.02f + sustainLevel * 0.3f)
                              * (0.25f + 0.75f * strikeVelocity);
@@ -596,7 +556,6 @@ public:
                 break;
         }
 
-        const auto drive = excitation;
         excitation += bridgeInput;
         bridgeInput = 0.0f;
 
@@ -639,9 +598,6 @@ public:
         buffer[(size_t) writePosition] = loopValue + excitation;
         writePosition = writePosition + 1 < loopSize ? writePosition + 1 : (writePosition + 1) % loopSize;
 
-        if (hammered)
-            output += finishHorizontal (horizontal, drive, noteHeld);
-
         if (slapRemaining > 0)
         {
             const auto envelope = (float) slapRemaining / (float) juce::jmax (1, slapSamples());
@@ -653,19 +609,8 @@ public:
         }
 
         if (stiffness == 0.0f && ! pickupGlide.moving (0.0f) && slapRemaining == 0
-            && buzz == 0.0f && rattle == 0.0f && excite != Excite::Bow
-            && excite != Excite::Hammer && excite != Excite::External)
+            && buzz == 0.0f && rattle == 0.0f && excite != Excite::External)
             return output;
-
-        // Piano strings: a 10 Hz DC blocker on what we hear (outside the
-        // loop; a high-pass inside it rings at a sub-audio rate).
-        if (excite == Excite::Hammer)
-        {
-            const auto blocked = output - outputDcIn + 0.9987f * outputDcOut;
-            outputDcIn = output;
-            outputDcOut = std::isfinite (blocked) ? blocked : 0.0f;
-            output = outputDcOut;
-        }
 
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }
@@ -676,8 +621,9 @@ public:
     // knobs), so the per-sample setup is paid once and the two loops' sums
     // interleave; each side does exactly the arithmetic process() would, so
     // the result is the same as two process() calls bit for bit. What the
-    // shared path doesn't cover (split, buzz, rattle, slap, the bow, the
-    // hammers, the electric and feedback exciters) plays as two calls.
+    // shared path doesn't cover (split, buzz, rattle, slap, the KS hammer,
+    // the electric and feedback exciters) plays as two calls; the bow and
+    // the Piano have their own paired paths below.
     ILANA_NOINLINE void processPair (KarplusStrong& right, float expression, bool noteHeld, float externalInput,
                                      float& outLeft, float& outRight)
     {
@@ -704,6 +650,35 @@ public:
         else if (left.isPiano() && right.isPiano() && ! left.buffer.empty() && ! right.buffer.empty()
                  && PianoString::processPair (left.piano, right.piano, noteHeld, outLeft, outRight))
         {
+            return;
+        }
+        else if (left.excite == Excite::Bow && right.excite == Excite::Bow && ! left.buffer.empty() && ! right.buffer.empty())
+        {
+            // Two bowed strings: both reads first, then both finishes. Each
+            // side keeps its own state, so the order changes nothing.
+            const auto stepL = left.bowRead();
+            const auto stepR = right.bowRead();
+            outLeft = left.bowFinish (stepL, expression, noteHeld);
+            outRight = right.bowFinish (stepR, expression, noteHeld);
+            return;
+        }
+        else if (left.excite == Excite::Hammer && right.excite == Excite::Hammer && ! left.buffer.empty() && ! right.buffer.empty())
+        {
+            // Two KS hammer strings: both reads, the four polarisations'
+            // stiffness chains in one 4-lane pass, then both finishes.
+            auto stepL = left.hammerRead();
+            auto stepR = right.hammerRead();
+            if (left.loopUseDispersion && right.loopUseDispersion)
+                disperseHammeredQuad (left, right, stepL, stepR);
+            else
+            {
+                if (left.loopUseDispersion)
+                    left.disperseHammeredPair (stepL.delayed, stepL.horizontal);
+                if (right.loopUseDispersion)
+                    right.disperseHammeredPair (stepR.delayed, stepR.horizontal);
+            }
+            outLeft = left.hammerFinish (stepL, noteHeld);
+            outRight = right.hammerFinish (stepR, noteHeld);
             return;
         }
         outLeft = left.process (expression, noteHeld, externalInput);
@@ -1336,6 +1311,18 @@ private:
     // on to larger differences. Both lines share the string's buffer.
     float processBowed (float expression, bool noteHeld)
     {
+        return bowFinish (bowRead(), expression, noteHeld);
+    }
+
+    // The bowed string in two halves (processPair runs two strings' halves
+    // side by side): the waveguides' reads ...
+    struct BowStep
+    {
+        double period;
+        float lpc, bridgeOut, neckOut;
+    };
+    ILANA_KS_INLINE BowStep bowRead() noexcept
+    {
         const auto size = (int) buffer.size();
         const auto half = size / 2;
         const auto period = sampleRate / frequency;
@@ -1370,6 +1357,17 @@ private:
 
         const auto bridgeOut = readLine (0, bowBridgeWrite, bridgeLength);
         const auto neckOut = readLine (half, bowNeckWrite, neckLength);
+        return { period, lpc, bridgeOut, neckOut };
+    }
+
+    // ... and the rest of the sample.
+    ILANA_KS_INLINE float bowFinish (const BowStep& step, float expression, bool noteHeld) noexcept
+    {
+        const auto half = (int) buffer.size() / 2;
+        const auto period = step.period;
+        const auto lpc = step.lpc;
+        const auto bridgeOut = step.bridgeOut;
+        const auto neckOut = step.neckOut;
 
         // Bridge: loss and damping on every reflection (DECAY and DAMP).
         lowpassState += (bridgeOut - lowpassState) * lpc;
@@ -1416,6 +1414,158 @@ private:
         if (rattle > 0.0f)
             output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity * std::abs (output) * 8.0f;
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
+    }
+
+    // The KS hammer string (two polarisations, one per half of the buffer)
+    // in three steps, so processPair can run two strings' stiffness chains
+    // as one: the reads, the chains, then the rest of the sample. The same
+    // arithmetic, in the same order, as the general loop in process().
+    float processHammered (bool noteHeld)
+    {
+        auto step = hammerRead();
+        if (loopUseDispersion)
+            disperseHammeredPair (step.delayed, step.horizontal);
+        return hammerFinish (step, noteHeld);
+    }
+
+    struct HammerStep
+    {
+        double period;
+        float delayed, horizontal;
+    };
+    ILANA_KS_INLINE HammerStep hammerRead() noexcept
+    {
+        if (loopSetupDirty)
+            prepareLoop();
+        if (snapGlides)
+            snapToTargets();
+        const auto period = cachedPeriod;
+        const auto loopSize = (int) buffer.size() / 2;
+        // The vertical polarisation through its Thiran allpass (see process()).
+        const auto length = period - loopDelay;
+        if (length != verticalTap.length)
+            verticalTap = thiranTapFor (length);
+        auto readIndex = writePosition - verticalTap.whole;
+        while (readIndex < 0)
+            readIndex += loopSize;
+        const auto input = buffer[(size_t) (readIndex < loopSize ? readIndex : readIndex % loopSize)];
+        const auto a = verticalTap.a;
+        const auto delayed = a * input + thiranInput - a * thiranOutput;
+        thiranInput = input;
+        thiranOutput = delayed;
+        const auto horizontal = readHorizontal (period);
+        return { period, delayed, horizontal };
+    }
+
+    ILANA_KS_INLINE float hammerFinish (const HammerStep& step, bool noteHeld) noexcept
+    {
+        const auto loopSize = (int) buffer.size() / 2;
+        const auto period = step.period;
+        const auto delayed = step.delayed;
+        auto output = delayed;
+
+        if (rattle > 0.0f)
+            output += (random.nextFloat() * 2.0f - 1.0f) * rattle * strikeVelocity * std::abs (delayed) * 8.0f;
+
+        if (pickupGlide.moving (pickupPosition))
+            pickupGlide.step (pickupPosition, glideCoefficient, 1.0e-6f);
+
+        if (pickupGlide.value > 0.0f)
+        {
+            auto tap = (double) writePosition - period + loopDelay - period * (double) pickupGlide.value;
+            while (tap < 0.0)
+                tap += (double) loopSize;
+            while (tap >= (double) loopSize)
+                tap -= (double) loopSize;
+            const auto tapIndex = (int) tap;
+            const auto tapNext = (tapIndex + 1) % loopSize;
+            const auto tapFraction = (float) (tap - (double) tapIndex);
+            const auto depth = juce::jmin (1.0f, 16.0f * pickupGlide.value);
+            output = (output - depth * (buffer[(size_t) tapIndex]
+                                        + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction))
+                     / std::sqrt (1.0f + depth * depth);
+        }
+
+        lowpassState += (delayed - lowpassState) * lowpassCoefficient;
+
+        auto excitation = 0.0f;
+        if (hammerElapsed < hammerTotal)
+        {
+            excitation = hammerExcitation();
+            output += hammerThump();
+        }
+        const auto drive = excitation;
+        excitation += bridgeInput;
+        bridgeInput = 0.0f;
+
+        phase += cachedPhaseStep;
+        if (phase >= 1.0)
+            phase -= 1.0;
+
+        auto loopValue = lowpassState * feedback;
+        if (damper > 0.0f && ! noteHeld)
+            loopValue *= damperLoss.get (damper, period, sampleRate);
+        if (buzz > 0.0f)
+        {
+            const auto contact = 0.04f;
+            loopValue -= buzz * 0.8f * (loopValue - contact * std::tanh (loopValue / contact));
+        }
+
+        buffer[(size_t) writePosition] = loopValue + excitation;
+        writePosition = writePosition + 1 < loopSize ? writePosition + 1 : (writePosition + 1) % loopSize;
+
+        output += finishHorizontal (step.horizontal, drive, noteHeld);
+
+        if (slapRemaining > 0)
+        {
+            const auto envelope = (float) slapRemaining / (float) juce::jmax (1, slapSamples());
+            output += (random.nextFloat() * 2.0f - 1.0f) * envelope * envelope * envelope * slapLevel * 10.0f;
+            output += (float) std::sin (slapPhase) * envelope * envelope * slapLevel * 3.0f;
+            slapPhase += juce::MathConstants<double>::twoPi * 110.0 / sampleRate;
+            --slapRemaining;
+        }
+
+        // A 10 Hz DC blocker on what we hear (see process()).
+        const auto blocked = output - outputDcIn + 0.9987f * outputDcOut;
+        outputDcIn = output;
+        outputDcOut = std::isfinite (blocked) ? blocked : 0.0f;
+        output = outputDcOut;
+
+        return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
+    }
+
+    // Two hammer strings' stiffness chains as one: left's two polarisations
+    // in lanes 0-1, right's in 2-3 (each side's own coefficient).
+    static void disperseHammeredQuad (KarplusStrong& left, KarplusStrong& right, HammerStep& l, HammerStep& r) noexcept
+    {
+       #if defined(_M_X64) || defined(__x86_64__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2) || defined(__SSE2__)
+        const auto c = _mm_set_ps (right.pianoCoefficient, right.pianoCoefficient, left.pianoCoefficient, left.pianoCoefficient);
+        auto x = _mm_set_ps (r.horizontal, r.delayed, l.horizontal, l.delayed);
+        for (int stage = 0; stage < maxDispersionStages; ++stage)
+        {
+            const auto pairOf = [stage] (float (&a)[maxDispersionStages][4], float (&b)[maxDispersionStages][4])
+            {
+                return _mm_loadh_pi (_mm_loadl_pi (_mm_setzero_ps(), reinterpret_cast<const __m64*> (a[stage])),
+                                     reinterpret_cast<const __m64*> (b[stage]));
+            };
+            const auto next = _mm_sub_ps (_mm_add_ps (_mm_mul_ps (c, x), pairOf (left.dispersionPairIn, right.dispersionPairIn)),
+                                          _mm_mul_ps (c, pairOf (left.dispersionPairState, right.dispersionPairState)));
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.dispersionPairIn[stage]), x);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.dispersionPairIn[stage]), x);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.dispersionPairState[stage]), next);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.dispersionPairState[stage]), next);
+            x = next;
+        }
+        alignas (16) float out[4];
+        _mm_store_ps (out, x);
+        l.delayed = out[0];
+        l.horizontal = out[1];
+        r.delayed = out[2];
+        r.horizontal = out[3];
+       #else
+        left.disperseHammeredPair (l.delayed, l.horizontal);
+        right.disperseHammeredPair (r.delayed, r.horizontal);
+       #endif
     }
 
     // Hammer force over the contact: a raised half-sine, flatter for soft felt.

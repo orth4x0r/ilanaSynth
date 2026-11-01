@@ -951,7 +951,7 @@ void runHeldSleepFilterWakeTest()
 // exciter, with and without a stereo route into DAMP), for docs/ROUTING-CPU.md.
 void runStereoStringBench()
 {
-    for (const auto excite : { 0, 9 })
+    for (const auto excite : { 0, 4, 9 })
     {
         double best[2] { 1.0e9, 1.0e9 };
         const auto rounds = juce::SystemStats::getEnvironmentVariable ("ILANA_STEREO_BENCH_ROUNDS", "5").getIntValue();
@@ -990,7 +990,7 @@ void runStereoStringBench()
                 }
                 best[stereo] = juce::jmin (best[stereo], seconds);
             }
-        std::printf ("stereo string bench, %s: mono %.1f ms, stereo route %.1f ms (+%.0f%%)\n", excite == 0 ? "pluck" : "piano",
+        std::printf ("stereo string bench, %s: mono %.1f ms, stereo route %.1f ms (+%.0f%%)\n", excite == 0 ? "pluck" : excite == 4 ? "bow" : "piano",
                      best[0] * 1000.0, best[1] * 1000.0, 100.0 * (best[1] / best[0] - 1.0));
     }
 }

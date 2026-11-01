@@ -1027,11 +1027,17 @@ void IlanaSynthAudioProcessor::FxEngine::processStutter (juce::AudioBuffer<float
         stutterWrite = 0;
         stutterRead = 0;
         stutterPosition = 0.0;
-        stutterRecording = true;
+        // Capture starts with the first sound, not on silence (a preset that
+        // loads with STUTTER on used to loop the silence before its first note).
+        stutterRecording = false;
+        stutterArmed = true;
+        stutterSilent = 0;
+        stutterFade = 1.0f;
     }
     else if (! stutterOn && stutterWasOn)
     {
         stutterRecording = false;
+        stutterArmed = false;
     }
 
     stutterWasOn = stutterOn;
@@ -1044,8 +1050,33 @@ void IlanaSynthAudioProcessor::FxEngine::processStutter (juce::AudioBuffer<float
         const auto channels = juce::jmin (2, numChannels);
         stutterRate = (float) std::exp2 (getParam ("fx_stutter_pitch") / 12.0f);
 
+        // -80 dB in: silence. A loop whose input has been silent for a whole
+        // loop fades out in 10 ms and waits for the next sound to capture
+        // (bug hunt 2026-11-01: Reverse Stutter looped its first note forever
+        // after the keys came up).
+        constexpr auto silence = 1.0e-4f;
+        const auto fadeStep = (float) (1.0 / (0.01 * currentSampleRate));
+        const auto inputLevel = [&buffer, channels] (int i)
+        {
+            auto level = 0.0f;
+            for (int channel = 0; channel < channels; ++channel)
+                level = juce::jmax (level, std::abs (buffer.getSample (channel, i)));
+            return level;
+        };
+
         for (int i = 0; i < numSamples; ++i)
         {
+            if (stutterArmed)
+            {
+                if (inputLevel (i) < silence)
+                    continue; // dry, as while recording
+                stutterArmed = false;
+                stutterRecording = true;
+                stutterWrite = 0;
+                stutterSilent = 0;
+                stutterFade = 1.0f;
+            }
+
             if (stutterRecording)
             {
                 for (int channel = 0; channel < channels; ++channel)
@@ -1068,13 +1099,26 @@ void IlanaSynthAudioProcessor::FxEngine::processStutter (juce::AudioBuffer<float
                 const auto next = (index + 1) % stutterLength;
                 const auto frac = (float) (readPosition - (double) index);
 
+                stutterSilent = inputLevel (i) < silence ? stutterSilent + 1 : 0;
+                if (stutterSilent >= stutterLength)
+                    stutterFade = juce::jmax (0.0f, stutterFade - fadeStep);
+                else if (stutterFade < 1.0f)
+                    stutterFade = juce::jmin (1.0f, stutterFade + fadeStep); // sound came back mid-fade
+
                 for (int channel = 0; channel < channels; ++channel)
                 {
                     const auto value = buffer.getSample (channel, i);
-                    const auto held = stutterBuffer.getSample (channel, index)
-                                      + (stutterBuffer.getSample (channel, next)
-                                         - stutterBuffer.getSample (channel, index)) * frac;
+                    const auto held = (stutterBuffer.getSample (channel, index)
+                                       + (stutterBuffer.getSample (channel, next)
+                                          - stutterBuffer.getSample (channel, index)) * frac) * stutterFade;
                     buffer.setSample (channel, i, value + (held - value) * mixRamp.at (i));
+                }
+
+                if (stutterFade == 0.0f)
+                {
+                    stutterArmed = true;
+                    stutterPosition = 0.0;
+                    continue;
                 }
 
                 stutterPosition += (double) stutterRate;

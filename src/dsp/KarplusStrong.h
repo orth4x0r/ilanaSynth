@@ -678,8 +678,9 @@ public:
     // knobs), so the per-sample setup is paid once and the two loops' sums
     // interleave; each side does exactly the arithmetic process() would, so
     // the result is the same as two process() calls bit for bit. What the
-    // shared path doesn't cover (split, buzz, rattle, slap, the bow, the
-    // hammers, the electric and feedback exciters) plays as two calls.
+    // shared path doesn't cover (split, buzz, rattle, slap, the KS hammer,
+    // the electric and feedback exciters) plays as two calls; the bow and
+    // the Piano have their own paired paths below.
     ILANA_NOINLINE void processPair (KarplusStrong& right, float expression, bool noteHeld, float externalInput,
                                      float& outLeft, float& outRight)
     {

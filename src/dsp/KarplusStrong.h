@@ -432,19 +432,18 @@ public:
         if (snapGlides)
             snapToTargets();
         const auto period = cachedPeriod;
-        const auto hammered = excite == Excite::Hammer;
-        // Piano strings run two loops (see readHorizontal), one per half.
-        const auto loopSize = hammered ? size / 2 : size;
+        // (The KS hammer, two loops in two halves, plays in processHammered.)
+        const auto loopSize = size;
         const auto useDispersion = loopUseDispersion;
         // Modulation moves the knobs once a block: the loop's delay and
         // allpass glide there (a step in either is a click every block).
-        if (! hammered && (glidedDelay.moving (loopDelay) || glidedCoefficient.moving (loopCoefficient)))
+        if ((glidedDelay.moving (loopDelay) || glidedCoefficient.moving (loopCoefficient)))
         {
             glidedDelay.step (loopDelay, (double) glideCoefficient, 1.0e-6);
             glidedCoefficient.step (loopCoefficient, glideCoefficient, 1.0e-7f);
         }
-        const auto delay = hammered ? loopDelay : glidedDelay.value;
-        const auto coefficient = hammered ? loopCoefficient : glidedCoefficient.value;
+        const auto delay = glidedDelay.value;
+        const auto coefficient = glidedCoefficient.value;
 
         auto readPosition = (double) writePosition - period
                             + delay;
@@ -454,56 +453,22 @@ public:
         while (readPosition >= (double) size)
             readPosition -= (double) size;
 
-        // (A piano string reads through its Thiran allpass below instead.)
-        auto rawDelayed = 0.0f;
-        if (! hammered)
+        auto delayed = 0.0f;
         {
             const auto index = (int) readPosition;
             const auto nextIndex = index + 1 < size ? index + 1 : (index + 1) % size;
             const auto fraction = (float) (readPosition - (double) index);
-            rawDelayed = buffer[(size_t) index]
-                       + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
+            delayed = buffer[(size_t) index]
+                    + (buffer[(size_t) nextIndex] - buffer[(size_t) index]) * fraction;
         }
 
         // The second direction (see setSplit) reads its own loop, a hair longer.
-        const auto splitOn = split > 0.0f && ! hammered && ! bufferB.empty();
+        const auto splitOn = split > 0.0f && ! bufferB.empty();
         auto delayedB = 0.0f;
         if (splitOn)
             delayedB = readSplit (period, delay, size);
 
-        // Piano strings read the fractional part through a first-order
-        // allpass (Thiran) instead: linear interpolation averages neighbours,
-        // a low-pass that on a 23-sample treble loop costs ~170 dB/s.
-        if (hammered)
-        {
-            const auto length = period - delay;
-            if (length != verticalTap.length)
-                verticalTap = thiranTapFor (length);
-            const auto whole = verticalTap.whole;
-            auto readIndex = writePosition - whole;
-            while (readIndex < 0)
-                readIndex += loopSize;
-            const auto input = buffer[(size_t) (readIndex < loopSize ? readIndex : readIndex % loopSize)];
-            const auto a = verticalTap.a;
-            rawDelayed = a * input + thiranInput - a * thiranOutput;
-            thiranInput = input;
-            thiranOutput = rawDelayed;
-        }
-
-        auto delayed = rawDelayed;
-
-        // A piano string's horizontal polarisation reads its own half of the
-        // buffer, so it is read now and both run their (identical) stiffness
-        // allpasses together, one SIMD lane each.
-        auto horizontal = 0.0f;
-        if (hammered)
-            horizontal = readHorizontal (period);
-
-        if (hammered && useDispersion)
-        {
-            disperseHammeredPair (delayed, horizontal);
-        }
-        else if (useDispersion)
+        if (useDispersion)
         {
             if (splitOn)
             {
@@ -534,8 +499,6 @@ public:
 
         if (pickupGlide.value > 0.0f)
         {
-            // Within the loop's own buffer: a piano string's vertical loop
-            // is the first half (the horizontal one owns the second).
             auto tap = (double) writePosition - period + delay - period * (double) pickupGlide.value;
             while (tap < 0.0)
                 tap += (double) loopSize;
@@ -577,14 +540,6 @@ public:
                 break;
 
 
-            case Excite::Hammer:
-                if (hammerElapsed < hammerTotal)
-                {
-                    excitation = hammerExcitation();
-                    output += hammerThump();
-                }
-                break;
-
             case Excite::External:
                 excitation = juce::jlimit (-2.0f, 2.0f, externalInput) * (0.02f + sustainLevel * 0.3f)
                              * (0.25f + 0.75f * strikeVelocity);
@@ -601,7 +556,6 @@ public:
                 break;
         }
 
-        const auto drive = excitation;
         excitation += bridgeInput;
         bridgeInput = 0.0f;
 
@@ -644,9 +598,6 @@ public:
         buffer[(size_t) writePosition] = loopValue + excitation;
         writePosition = writePosition + 1 < loopSize ? writePosition + 1 : (writePosition + 1) % loopSize;
 
-        if (hammered)
-            output += finishHorizontal (horizontal, drive, noteHeld);
-
         if (slapRemaining > 0)
         {
             const auto envelope = (float) slapRemaining / (float) juce::jmax (1, slapSamples());
@@ -658,19 +609,8 @@ public:
         }
 
         if (stiffness == 0.0f && ! pickupGlide.moving (0.0f) && slapRemaining == 0
-            && buzz == 0.0f && rattle == 0.0f && excite != Excite::Bow
-            && excite != Excite::Hammer && excite != Excite::External)
+            && buzz == 0.0f && rattle == 0.0f && excite != Excite::External)
             return output;
-
-        // Piano strings: a 10 Hz DC blocker on what we hear (outside the
-        // loop; a high-pass inside it rings at a sub-audio rate).
-        if (excite == Excite::Hammer)
-        {
-            const auto blocked = output - outputDcIn + 0.9987f * outputDcOut;
-            outputDcIn = output;
-            outputDcOut = std::isfinite (blocked) ? blocked : 0.0f;
-            output = outputDcOut;
-        }
 
         return std::isfinite (output) ? juce::jlimit (-8.0f, 8.0f, output) : 0.0f;
     }

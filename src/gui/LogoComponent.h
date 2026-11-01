@@ -11,6 +11,12 @@ class LogoComponent : public juce::Component,
 public:
     // The waves in the badge scroll while this says the synth is sounding.
     std::function<bool()> isSounding;
+    // The output level (peak, 1 = 0 dB): while notes sound the wave grows
+    // with it, and a loud hit glows round the badge.
+    std::function<float()> outputLevel;
+    // Room left round the badge for that glow (the component is this much
+    // bigger than the mark on every side but the right).
+    static constexpr float glowMargin = 8.0f;
     // Shown small right after the name.
     juce::String version;
     // The name's centre line, in this component's coordinates (level with
@@ -19,6 +25,7 @@ public:
 
     LogoComponent()
     {
+        setInterceptsMouseClicks (false, false);
         startTimerHz (30);
     }
 
@@ -26,9 +33,20 @@ public:
     {
         // The mockup's mark: a 34 px badge in an accent gradient with the
         // waves in it, the name and, small beneath it, the version.
-        const auto bounds = getLocalBounds().toFloat();
+        const auto bounds = getLocalBounds().toFloat().withTrimmedLeft (glowMargin).withTrimmedTop (glowMargin).withTrimmedBottom (glowMargin);
         const auto badge = bounds.withSizeKeepingCentre (34.0f, 34.0f).withX (bounds.getX());
         const auto radius = 9.0f;
+
+        // A loud hit: a soft accent glow round the badge that dies away.
+        if (halo > 0.01f)
+        {
+            for (int i = 4; i >= 1; --i)
+            {
+                const auto spread = (float) i * 1.8f;
+                g.setColour (IlanaTheme::accent().withAlpha (0.16f * halo / (float) i));
+                g.fillRoundedRectangle (badge.expanded (spread), radius + spread);
+            }
+        }
 
         // (The sheet's 145 degree gradient, #ff8a52 to #ff5530 on the ember accent.)
         const auto accent = IlanaTheme::accent();
@@ -46,7 +64,7 @@ public:
             const auto centreY = badge.getCentreY();
 
             // The mockup's mark: one sine, white, with round ends.
-            const auto amplitude = badge.getHeight() * 0.2f;
+            const auto amplitude = badge.getHeight() * waveHeight;
             const auto inner = badge.reduced (7.0f, 0.0f);
             juce::Path wave;
 
@@ -82,12 +100,39 @@ public:
 private:
     void timerCallback() override
     {
-        if (isSounding != nullptr && isSounding() && IlanaAnim::showing (*this))
-        {
+        if (! IlanaAnim::showing (*this))
+            return;
+
+        const auto sounding = isSounding != nullptr && isSounding();
+        const auto full = IlanaAnim::fullMotion();
+        const auto ticks = frameTicks() * (float) IlanaAnim::motionClockRate(); // (the flair's clock)
+        // The level as the header dots read it, held a little: up at once,
+        // down over about 300 ms, so the wave breathes and doesn't flicker.
+        const auto peak = sounding && full && outputLevel != nullptr ? juce::jlimit (0.0f, 1.0f, outputLevel() * 1.5f) : 0.0f;
+        const auto rise = peak - level; // (how far above the held level: a hit)
+        level = peak > level ? peak : IlanaAnim::approach (level, peak, 0.1f, ticks);
+
+        // Silent, the mark is the mockup's (a fifth of the badge); sounding,
+        // it runs from a quiet 0.12 to a loud 0.27 (taller clips the badge).
+        const auto targetHeight = sounding && full ? 0.12f + 0.15f * level : 0.2f;
+        // The glow marks hits, not loudness: a jump in level lights it, and
+        // it dies away over about half a second even while the note holds.
+        const auto targetHalo = rise > 0.15f ? juce::jlimit (0.0f, 1.0f, peak) : 0.0f;
+        const auto before = std::make_pair (waveHeight, halo);
+        waveHeight = full ? IlanaAnim::approach (waveHeight, targetHeight, 0.35f, ticks) : targetHeight;
+        halo = targetHalo > halo ? targetHalo : IlanaAnim::approach (halo, targetHalo, 0.09f, ticks);
+
+        if (std::abs (waveHeight - targetHeight) < 0.001f)
+            waveHeight = targetHeight;
+        if (halo < 0.005f)
+            halo = 0.0f;
+
+        if (sounding)
             phaseOffset += 0.006f * frameTicks();
+
+        if (sounding || before != std::make_pair (waveHeight, halo))
             repaint();
-        }
     }
 
-    float phaseOffset = 0.0f;
+    float phaseOffset = 0.0f, level = 0.0f, waveHeight = 0.2f, halo = 0.0f;
 };

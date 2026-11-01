@@ -1346,6 +1346,23 @@ int runUiTests()
                     "KEYS hides it again and the window returns to its size");
         }
 
+        // Flair 2026-11-01: the keyboard lights for every note the synth
+        // plays (the host's too), as hard as it was hit, and lets go with it.
+        {
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            const auto epoch = processor.getUiNoteEpoch();
+            midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0);
+            processor.processBlock (buffer, midi);
+            expect (processor.getUiNoteVelocity (64) == 100 && processor.getUiNoteEpoch() != epoch,
+                    "a host note shows on the keyboard with its velocity (" + juce::String (processor.getUiNoteVelocity (64)) + ")");
+            midi.clear();
+            midi.addEvent (juce::MidiMessage::noteOff (1, 64), 0);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            expect (processor.getUiNoteVelocity (64) == 0, "the key goes dark when the host lets the note go");
+        }
+
         expect (compare != nullptr && compare->getWidth() <= 64, "the header's compare is a compact A|B");
 
         if (compare != nullptr)
@@ -8795,6 +8812,184 @@ int runMotion (const juce::File& outDir)
     return 0;
 }
 
+// --flair <dir>: frames of the 2026-11-01 flair at 175 % (Motion: Full),
+// one folder per scene, cropped to what moves: the keyboard lighting up
+// for host notes, the logo breathing, a knob's start tick, a preset name
+// decoding, the scope's afterglow and the clip light's bloom.
+int runFlair (const juce::File& outDir)
+{
+    IlanaAnim::fullMotion() = true;
+    IlanaAnim::motionClockRate() = 0.1; // (as --motion: frames 330 ms apart play at real speed at 30 fps)
+    outDir.createDirectory();
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+#if JUCE_LINUX
+    if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+        setHandler ([] (void*, void*) { return 0; });
+#endif
+    editor->addToDesktop (0);
+    editor->setVisible (true);
+    settle (800);
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+    auto* shell = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+    const auto set = [&processor] (const char* id, float plain)
+    {
+        if (auto* parameter = processor.apvts.getParameter (id))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plain));
+    };
+
+    // Host notes: a chord, harder on the bass; `gain` turns the output up for the clip scene.
+    std::atomic<bool> running { true }, playing { false }, single { false };
+    std::atomic<float> gain { 1.0f };
+    std::thread audio ([&]
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto wasPlaying = false;
+        auto next = juce::Time::getMillisecondCounterHiRes();
+        while (running)
+        {
+            juce::MidiBuffer midi;
+            const auto now = playing.load();
+            if (now != wasPlaying)
+                for (auto [note, velocity] : { std::pair { 36, 1.0f }, { 60, 0.9f }, { 64, 0.6f }, { 67, 0.35f } })
+                    if (! single || note == 60)
+                        midi.addEvent (now ? juce::MidiMessage::noteOn (1, note, velocity) : juce::MidiMessage::noteOff (1, note), 0);
+            wasPlaying = now;
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            if (gain.load() != 1.0f)
+            {
+                buffer.applyGain (gain.load());
+                processor.setOutputPeakForTest (buffer); // (the meter reads what the host would hear)
+            }
+            next += 256.0 / 48.0;
+            const auto wait = next - juce::Time::getMillisecondCounterHiRes();
+            if (wait > 0.0)
+                std::this_thread::sleep_for (std::chrono::microseconds ((int) (wait * 1000.0)));
+        }
+    });
+
+    const auto record = [&] (const juce::String& scene, juce::Rectangle<int> crop, int frames, std::function<void (int)> atFrame)
+    {
+        auto dir = outDir.getChildFile (scene);
+        dir.deleteRecursively();
+        dir.createDirectory();
+        std::vector<juce::Image> images;
+        auto lastFrame = juce::Time::getMillisecondCounterHiRes();
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            atFrame (frame);
+            settle (juce::jmax (1, 330 - (int) (juce::Time::getMillisecondCounterHiRes() - lastFrame)));
+            lastFrame = juce::Time::getMillisecondCounterHiRes();
+            images.push_back (editor->createComponentSnapshot (crop.isEmpty() ? editor->getLocalBounds() : crop, true, 1.75f));
+        }
+        for (size_t frame = 0; frame < images.size(); ++frame)
+        {
+            juce::FileOutputStream stream (dir.getChildFile (juce::String::formatted ("f%03d.png", (int) frame)));
+            if (stream.openedOk())
+            {
+                stream.setPosition (0);
+                stream.truncate();
+                juce::PNGImageFormat().writeImageToStream (images[frame], stream);
+            }
+        }
+        std::cout << scene << ": " << frames << " frames" << std::endl;
+    };
+    const auto boundsOf = [&] (juce::Component* c, int margin) { return c == nullptr ? juce::Rectangle<int>() : editor->getLocalArea (c->getParentComponent(), c->getBounds()).expanded (margin).getIntersection (editor->getLocalBounds()); };
+
+    IlanaTheme::uiScaleRef() = IlanaTheme::uiScaleRef() * 1.75f;
+    IlanaTheme::notifyUiScaleListeners();
+    shell->showPage ("MAIN");
+    settle (600);
+
+    // 1 The keyboard, open, lighting up for the host's chord and fading.
+    if (auto* keys = findButtonWithText (*editor, "KEYBOARD"))
+        keys->triggerClick();
+    settle (800);
+    record ("keyboard", boundsOf (findChild<KeyboardStrip> (*editor), 4), 24, [&] (int f) { if (f == 3) playing = true; if (f == 12) playing = false; });
+
+    // 2 The logo breathing with the same chord.
+    record ("logo", boundsOf (findChild<LogoComponent> (*editor), 6), 30, [&] (int f) { if (f == 3) playing = true; if (f == 20) playing = false; });
+    if (auto* keys = findButtonWithText (*editor, "KEYBOARD"))
+        keys->triggerClick();
+    settle (600);
+
+    // 3 A knob dragged from 30 % to 70 % and let go: the start tick, then its fade.
+    std::vector<KnobControl*> knobs;
+    findAll<KnobControl> (*editor, knobs);
+    KnobControl* cutoff = nullptr;
+    for (auto* knob : knobs)
+        if (knob->getParameterId() == "f1_cutoff" && visibleInTree (knob))
+            cutoff = knob;
+    if (cutoff != nullptr)
+    {
+        auto& slider = cutoff->getSlider();
+        slider.setValue (slider.proportionOfLengthToValue (0.3), juce::sendNotificationSync);
+        settle (300);
+        record ("knob", boundsOf (cutoff, 6), 22, [&] (int f)
+        {
+            if (f == 2)
+            {
+                slider.getProperties().set ("dragGhostPos", 0.3f);
+                slider.getProperties().set ("dragGhostRelease", 0.0);
+            }
+            if (f >= 2 && f <= 8)
+                slider.setValue (slider.proportionOfLengthToValue (0.3 + 0.4 * (f - 2) / 6.0), juce::sendNotificationSync);
+            if (f == 10)
+                slider.getProperties().set ("dragGhostRelease", juce::Time::getMillisecondCounterHiRes());
+            slider.repaint();
+        });
+    }
+
+    // 4 Two preset loads: the name decodes in.
+    juce::Component* presetField = nullptr;
+    {
+        std::vector<PresetDisplay*> displays;
+        findAll<PresetDisplay> (*editor, displays);
+        if (! displays.empty())
+            presetField = displays.front();
+    }
+    record ("decode", boundsOf (presetField, 4), 24, [&] (int f)
+    {
+        if (f == 3 || f == 14)
+            processor.loadFactoryPreset (juce::jmin (f == 3 ? 30 : 60, (int) processor.getFactoryPresetNames().size() - 1));
+    });
+
+    // 5 The scope while the cutoff sweeps: the afterglow trails the change.
+    processor.loadFactoryPreset (0);
+    shell->showPage ("MAIN");
+    settle (400);
+    if (auto* scope = findButtonWithText (*editor, "SCOPE"))
+        scope->triggerClick();
+    settle (600);
+    single = true; // (one note: a chord's wave jitters at the trigger)
+    playing = true;
+    record ("scope", {}, 26, [&] (int f) { set ("f1_cutoff", 300.0f * std::pow (2.0f, (float) (f % 13) * 0.45f)); });
+    playing = false;
+    single = false;
+    if (auto* scope = findButtonWithText (*editor, "SCOPE"))
+        scope->triggerClick();
+    settle (600);
+
+    // 6 The clip light: the output turned up past 0 dB, once.
+    OutputMeter* meter = nullptr;
+    {
+        std::vector<OutputMeter*> meters;
+        findAll<OutputMeter> (*editor, meters);
+        if (! meters.empty())
+            meter = meters.front();
+    }
+    record ("clip", boundsOf (meter, 6), 18, [&] (int f) { if (f == 3) { gain = 8.0f; playing = true; } if (f == 5) { playing = false; gain = 1.0f; } });
+
+    running = false;
+    audio.join();
+    std::cout << "flair frames in " << outDir.getFullPathName() << std::endl;
+    return 0;
+}
+
 // The layout dump's card finder: paints one component on its own and keeps
 // every big, solid, dark filled shape (a card's body) in the component's own
 // coordinates, with its colour.
@@ -8849,6 +9044,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--uitest")
         return runUiTests();
+
+    if (juce::String (argv[1]) == "--flair" && argc > 2)
+        return runFlair (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
     if (juce::String (argv[1]) == "--motion" && argc > 2)
         return runMotion (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));

@@ -458,6 +458,12 @@ public:
 
     // The loudest output sample per channel since the last call (for the meter).
     float takeOutputPeak (int channel) { return outputPeaks[(size_t) juce::jlimit (0, 1, channel)].exchange (0.0f); }
+    // Tools only (ilanaSnapshot --flair): the meters read this buffer's peaks, as if it were the output.
+    void setOutputPeakForTest (const juce::AudioBuffer<float>& buffer)
+    {
+        for (int channel = 0; channel < juce::jmin (2, buffer.getNumChannels()); ++channel)
+            outputPeaks[(size_t) channel].store (juce::jmax (outputPeaks[(size_t) channel].load(), buffer.getMagnitude (channel, 0, buffer.getNumSamples())));
+    }
     // For views that animate with the playing (a Physical oscillator's string): notes
     // started so far, and the last block's peak (not reset by reading).
     unsigned getNoteOnCount() const { return noteOnCount.load(); }
@@ -554,6 +560,12 @@ public:
         return out;
     }
     int getNoteSerial() const { return noteSerial.load(); }
+    // The keys the synth is playing (host, arp, SEQ, spray, the on-screen
+    // keyboard), for the keyboard strip: the note-on velocity (1-127) while
+    // a key is down, 0 once it is let go. Written by the audio thread.
+    int getUiNoteVelocity (int note) const { return juce::isPositiveAndBelow (note, 128) ? (int) uiNoteVelocity[(size_t) note].load (std::memory_order_relaxed) : 0; }
+    // Goes up whenever one of those changes, so the strip can skip idle frames.
+    juce::uint32 getUiNoteEpoch() const { return uiNoteEpoch.load (std::memory_order_relaxed); }
     // The MSEG's place in its cycle (0..1), for its playhead.
     float getMsegPhase() const { return msegPhaseDisplay.load(); }
 
@@ -1522,6 +1534,8 @@ private:
     std::array<std::atomic<float>, 16> envMonitorStageStarts {};
     std::array<std::atomic<float>, 80> envMonitorSeconds {};
     std::atomic<int> noteSerial { 0 };
+    std::array<std::atomic<juce::uint8>, 128> uiNoteVelocity {};
+    std::atomic<juce::uint32> uiNoteEpoch { 0 };
     std::array<std::atomic<int>, 3> revealMasks { newPatchOscRevealMask, defaultRevealMask, defaultRevealMask };
     std::atomic<int> revealVersion { 0 };
     std::array<std::atomic<juce::uint32>, SectionColours::count> sectionColours {};

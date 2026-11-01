@@ -1278,6 +1278,56 @@ public:
     // The packed dial (review 23 mockups): a track arc and the value arc, no cap and
     // no pointer; the value is written inside by the knob. Its arc radius is
     // KnobControl's packedRadius - 1 (see there).
+    // Where a dragged knob started (KnobSlider sets "dragGhostPos" on the
+    // press and "dragGhostRelease" on the release): a white tick on the
+    // track at the starting value and a faint stretch to where it is now,
+    // so the move reads at a glance; it fades out 400 ms after the release.
+    static void paintDragGhost (juce::Graphics& g, juce::Slider& slider, juce::Point<float> centre, float arcRadius, float lineWidth,
+                                float angle, float rotaryStartAngle, float rotaryEndAngle)
+    {
+        auto& properties = slider.getProperties();
+        const auto start = (float) properties.getWithDefault ("dragGhostPos", -1.0f);
+
+        if (start < 0.0f)
+            return;
+
+        const auto released = (double) properties.getWithDefault ("dragGhostRelease", 0.0);
+        auto strength = 1.0f;
+
+        if (released > 0.0)
+        {
+            const auto since = (float) ((juce::Time::getMillisecondCounterHiRes() - released) * IlanaAnim::motionClockRate());
+            strength = IlanaAnim::fullMotion() ? 1.0f - IlanaAnim::easeInOutCubic (since / 400.0f) : 0.0f;
+
+            if (strength <= 0.0f)
+            {
+                properties.remove ("dragGhostPos");
+                properties.remove ("dragGhostRelease");
+                return;
+            }
+
+            slider.repaint(); // (the fade's next frame)
+        }
+
+        const auto startAngle = rotaryStartAngle + start * (rotaryEndAngle - rotaryStartAngle);
+
+        if (std::abs (startAngle - angle) < 0.02f)
+            return; // (not moved yet: nothing to mark)
+
+        juce::Path moved;
+        moved.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, juce::jmin (startAngle, angle), juce::jmax (startAngle, angle), true);
+        g.setColour (juce::Colours::white.withAlpha (0.22f * strength));
+        g.strokePath (moved, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        const auto dir = juce::Point<float> (std::cos (startAngle - juce::MathConstants<float>::halfPi),
+                                             std::sin (startAngle - juce::MathConstants<float>::halfPi));
+        juce::Path tick;
+        tick.startNewSubPath (centre + dir * (arcRadius - lineWidth * 1.7f));
+        tick.lineTo (centre + dir * (arcRadius + lineWidth * 0.5f));
+        g.setColour (juce::Colours::white.withAlpha (0.9f * strength));
+        g.strokePath (tick, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
     void drawPackedDial (juce::Graphics& g, int x, int y, int width, int height, float targetPos,
                          float rotaryStartAngle, float rotaryEndAngle, juce::Slider& slider)
     {
@@ -1333,6 +1383,8 @@ public:
             g.setColour (fill.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, stroke);
         }
+
+        paintDragGhost (g, slider, centre, arcRadius, lineWidth, angle, rotaryStartAngle, rotaryEndAngle);
 
         if (flare > 0.01f || (hover > 0.01f && hover < 0.99f))
             slider.repaint();
@@ -1441,6 +1493,8 @@ public:
             g.setColour (accent.interpolatedWith (juce::Colours::white, 0.2f * flare + 0.18f * hover));
             g.strokePath (valueArc, juce::PathStrokeType (lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
+
+        paintDragGhost (g, slider, centre, arcRadius, lineWidth, angle, rotaryStartAngle, rotaryEndAngle);
 
         // The cap: ink 3 with a hairline rim, a touch lighter on hover.
         const auto bodyRadius = arcRadius - 4.0f;

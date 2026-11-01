@@ -912,6 +912,13 @@ public:
         if (auto* owner = getParentComponent()) // (the grab: the value grows, the name turns white)
             owner->repaint();
         proportion = valueToProportionOfLength (getValue());
+
+        // Where the drag began, for the look-and-feel's ghost tick.
+        if (dragging)
+        {
+            getProperties().set ("dragGhostPos", (float) proportion);
+            getProperties().set ("dragGhostRelease", 0.0);
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
@@ -930,6 +937,12 @@ public:
 
     void mouseUp (const juce::MouseEvent& event) override
     {
+        if (dragging && getProperties().contains ("dragGhostPos"))
+        {
+            getProperties().set ("dragGhostRelease", juce::Time::getMillisecondCounterHiRes());
+            repaint();
+        }
+
         dragging = false;
         juce::Slider::mouseUp (event);
         event.source.enableUnboundedMouseMovement (false);

@@ -261,7 +261,8 @@ public:
 // The preset name as the centrepiece of the header: an inset display with
 // the category above the name. Clicking it opens the browser.
 class PresetDisplay : public juce::Component,
-                      public juce::SettableTooltipClient
+                      public juce::SettableTooltipClient,
+                      private IlanaAnim::FrameTimer
 {
 public:
     PresetDisplay() { setTooltip (tipFor ({})); }
@@ -272,6 +273,14 @@ public:
     {
         if (newName == name && newCategory == category && favourite == isFavourite && modified == isModified)
             return;
+
+        // A new name decodes in: the letters run through glyphs for 200 ms
+        // and settle left to right (not the first name, and not with Motion: Less).
+        if (newName != name && IlanaAnim::fullMotion() && IlanaAnim::showing (*this))
+        {
+            decode.start (200.0f);
+            startTimerHz (60);
+        }
 
         name = newName;
         setTooltip (tipFor (newName)); // a long name is cut in the display, so the tip carries all of it
@@ -314,6 +323,18 @@ public:
     // name, faint.
     static constexpr int arrowWidth = 28;
 
+private:
+    void timerCallback() override
+    {
+        repaint();
+        if (! decode.running())
+            stopTimer();
+    }
+
+    IlanaAnim::Tween decode;
+
+public:
+
     void paint (juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
@@ -353,7 +374,7 @@ public:
 
         g.setColour (IlanaTheme::Ui::text);
         g.setFont (IlanaTheme::font (nameSize, true));
-        const auto nameText = name.isNotEmpty() ? name : juce::String ("Init");
+        const auto nameText = decoding() ? decodedName() : (name.isNotEmpty() ? name : juce::String ("Init"));
         // A favourite keeps 18 px at the right for its star, so the star never
         // sits on the cut end of a long name.
         const auto nameArea = isFavourite ? text.withTrimmedRight (18) : text;
@@ -367,6 +388,44 @@ public:
             g.fillPath (IlanaIcons::make (IlanaIcons::Icon::Star,
                                           juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ starX, (float) text.getCentreY() })));
         }
+    }
+
+    // The name as it shows part way through the decode: settled letters,
+    // then glyphs that change about every 30 ms. Spaces stay put.
+    juce::String decodedName() const
+    {
+        static const juce::String glyphs ("#$%&@/\\*+=<>?!0123456789");
+        const auto full = name.isNotEmpty() ? name : juce::String ("Init");
+        const auto progress = decode.linear();
+        const auto length = full.length();
+        const auto step = (int) (juce::Time::getMillisecondCounterHiRes() * IlanaAnim::motionClockRate() / 30.0);
+        juce::String shown;
+
+        for (int i = 0; i < length; ++i)
+        {
+            const auto c = full[i];
+            // Letter i settles at 30 % + 70 % of the way along by its place.
+            const auto settles = 0.3f + 0.7f * (float) (i + 1) / (float) length;
+
+            if (c == ' ' || progress >= settles)
+                shown << juce::String::charToString (c);
+            else
+                shown << juce::String::charToString (glyphs[(int) (scramble ((juce::uint32) i, (juce::uint32) step) % (juce::uint32) glyphs.length())]);
+        }
+
+        return shown;
+    }
+
+    bool decoding() const { return decode.running(); }
+
+    // A cheap integer hash, so the glyphs jump about instead of counting.
+    static juce::uint32 scramble (juce::uint32 a, juce::uint32 b)
+    {
+        auto h = a * 0x9e3779b1u ^ (b + 0x7f4a7c15u) * 0x85ebca6bu;
+        h ^= h >> 15;
+        h *= 0x2c1b3c6du;
+        h ^= h >> 12;
+        return h;
     }
 
     void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }

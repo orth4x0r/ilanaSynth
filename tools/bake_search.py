@@ -45,7 +45,13 @@ NAMES = {
 DROP_DEST = {"Tine Vowel Keys": {36}}
 # A second Spaces reverb in slot 3 (the same type as slot 1) hid the tine's pitch from the tuning test (Goertzel peak at
 # the +-50 cent edge); with it gone the preset measures 7 cents.
-DROP_FX_SLOT = {"Tine Vowel Keys": (3,)}
+# Bug hunt 2026-11-01: same-type FX slots share one engine, so three AW Modulations (CZ Bitwise Lead) or two AW
+# Stereos next to three AW Modulations (Formant Operator Lead) fed each other and droned on forever after release.
+# One slot out each stops the drone; the held sound keeps its band shape within ~3-4 dB.
+DROP_FX_SLOT = {"Tine Vowel Keys": (3,), "CZ Bitwise Lead": (5,), "Formant Operator Lead": (3,)}
+# dB added to the baked level: Formant Operator Lead's level was measured with the drone in it (it peaked at 0 dBFS);
+# without it the held sound is ~14 dB quieter, +8 dB brings it back toward its old loudness (fingerprint peak -2.3 dBFS; the old one hit 0 dBFS).
+LEVEL_FIX = {"Formant Operator Lead": 8.0}
 MACRO_SOURCE = 12  # Macro 1; macro m is MACRO_SOURCE + m
 
 
@@ -105,6 +111,7 @@ def main():
             gain = params.get("master", defaults["master"]) + params.get("output_trim", defaults.get("output_trim", 0.0))
             gain += min(targets[p["category"]] - float(measured["level_db"]),
                         -20 * math.log10(max(float(measured["peak"]), 1e-6) / 0.89))
+            gain += LEVEL_FIX.get(name, 0.0)
             values.append(f'{{ "master", {pg.cpp_float(round(max(-30.0, min(12.0, gain)), 2))} }}')
             lines += ["    {", f"        FactoryPreset p {{ {pg.cpp_string(name)}, {{}} }};",
                       f"        p.category = {pg.cpp_string(p['category'])};", "        p.values = {"]

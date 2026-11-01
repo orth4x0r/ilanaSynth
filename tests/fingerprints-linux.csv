@@ -679,7 +679,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 677,"Product Supersaw",-26.5212,0.566013,1633.57,0.802912
 678,"Moving Comb Sync",-24.3905,0.380001,653.35,0.239234
 679,"Formant Chorus Lead",-24.2008,0.627977,2979.12,0.60517
-680,"Formant Operator Lead",-21.3044,0.997458,12636,1.04802
+680,"Formant Operator Lead",-27.3449,0.76719,5071.58,0.512682
 681,"Deep Pulse Gate Pad",-21.0565,0.808918,2981.66,0.267543
 682,"CZ Gate Pad",-26.5048,0.643684,598.547,0.845782
 683,"Talking Saw Pluck",-27.7275,0.746558,2110.92,0.746646
@@ -691,7 +691,7 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 689,"Talking Pulse Bass",-18.5382,0.587972,1290.39,0.756314
 690,"Scramble Chorus Keys",-24.9992,0.703508,1989.86,0.76082
 691,"Plain Hall Keys",-21.6298,0.826586,1681.57,0.232945
-692,"CZ Bitwise Lead",-23.0357,0.614704,5561.84,0.5902
+692,"CZ Bitwise Lead",-20.7429,0.613106,1688.21,0.642527
 693,"Pulse Operator Lead",-19.0903,0.997207,2460.98,0.58258
 694,"Logistic Product Lead",-32.586,0.182474,5252.5,0.544712
 695,"Twin Sine Holt Lead",-30.4213,0.509928,3076.47,0.340608

@@ -115,6 +115,11 @@ private:
     int stutterRead = 0;
     bool stutterRecording = false;
     bool stutterWasOn = false;
+    // Waiting for sound to capture (switched on, or the playing stopped);
+    // the loop's fade-out once its input has been silent a whole loop.
+    bool stutterArmed = false;
+    int stutterSilent = 0;
+    float stutterFade = 1.0f;
 
     // The Airwindows module (FX type 30): only the chosen algorithm runs.
     airwindows::Module airwindowsModule;

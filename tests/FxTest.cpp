@@ -488,6 +488,41 @@ int main()
                    + ", noise in " + juce::String (rms (noisyIn, 24000, 48000), 4) + ")");
     }
 
+    // Stutter captures the first sound, not the silence before it, and lets go
+    // once the playing stops (bug hunt 2026-11-01: Reverse Stutter looped its
+    // first note forever after the keys came up).
+    {
+        IlanaSynthAudioProcessor processor;
+        quiet (processor);
+        setParam (processor, "osc1_on", 1.0f);
+        setParam (processor, "amp_release", 0.01f);
+        processor.assignFxSlot (1, 10); // Stutter
+        setParam (processor, "fx_stutter_on", 1.0f);
+        setParam (processor, "fx_stutter_div", 4.0f); // 1/16: 125 ms at 120 bpm
+        setParam (processor, "fx_stutter_reverse", 0.0f);
+        setParam (processor, "fx_stutter_pitch", 0.0f);
+        setParam (processor, "fx_stutter_mix", 1.0f);
+        const auto out = run (processor, [] (int) { return 0.0f; }, 48000 * 4,
+                              [] (int block, juce::MidiBuffer& m)
+                              {
+                                  const auto at = [block] (double seconds) { return block == (int) (seconds * 48000.0 / 256.0); };
+                                  if (at (0.3)) m.addEvent (juce::MidiMessage::noteOn (1, 49, (juce::uint8) 100), 0);
+                                  if (at (1.0)) m.addEvent (juce::MidiMessage::noteOff (1, 49), 0);
+                                  if (at (2.5)) m.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                                  if (at (3.0)) m.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                              });
+        const auto noteA = 138.59, noteB = 261.63;
+        const auto heldA = toneAt (out, 28800, 8192, noteA);
+        const auto gap = rms (out, 67200, 115200);
+        const auto heldB = toneAt (out, 129600, 8192, noteB), heldBOld = toneAt (out, 129600, 8192, noteA);
+        const auto after = rms (out, 168000, 192000);
+        check (heldA > 0.01, "Stutter loops the first note, not the silence before it (" + juce::String (heldA, 4) + ")");
+        check (gap < 1.0e-4 && after < 1.0e-4, "Stutter goes quiet once the playing stops (gap " + juce::String (gap, 6)
+                                                   + ", after " + juce::String (after, 6) + ")");
+        check (heldB > 0.01 && heldB > heldBOld * 4.0, "Stutter catches the next note after a pause (new "
+                                                         + juce::String (heldB, 4) + ", old " + juce::String (heldBOld, 4) + ")");
+    }
+
     // The editor has the INPUT page, and the Live oscillator shows the input.
     {
         IlanaSynthAudioProcessor processor;

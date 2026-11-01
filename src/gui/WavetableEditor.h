@@ -70,9 +70,19 @@ public:
         smoothing.setTooltip ("Smoothing for drawn frames");
         smoothing.onValueChange = [this]
         {
-            auto& recipe = doc.recipes[(size_t) selected];
-            if (recipe.kind == FrameRecipe::Kind::Draw)
-                edit ([this, &recipe] { recipe.smoothing = (float) smoothing.getValue(); doc.renderFrame (selected); }, false);
+            if (doc.recipes[(size_t) selected].kind == FrameRecipe::Kind::Draw)
+                // The frame is looked up inside the change: edit() reads the
+                // table again first when a load or an undo replaced it, which
+                // would leave a reference taken out here pointing at freed memory.
+                edit ([this]
+                {
+                    auto& recipe = doc.recipes[(size_t) selected];
+                    if (recipe.kind == FrameRecipe::Kind::Draw)
+                    {
+                        recipe.smoothing = (float) smoothing.getValue();
+                        doc.renderFrame (selected);
+                    }
+                }, false);
         };
         addAndMakeVisible (smoothing);
         smoothLabel.setText ("SMOOTH", juce::dontSendNotification);
@@ -154,6 +164,9 @@ public:
         commitNow();
     }
 
+    // The drawing area, for the UI test's mouse gestures.
+    juce::Component& getCanvas() { return canvas; }
+
     bool applyFormulaText (const juce::String& text, bool allFrames)
     {
         formulaEditor.setText (text, false);
@@ -205,10 +218,11 @@ public:
         g.drawText ("WAVETABLE EDITOR", titleArea, juce::Justification::centredLeft);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        auto status = "User " + juce::String (slot + 1) + "  |  " + juce::String (doc.getNumFrames())
-                      + (doc.getNumFrames() == 1 ? " frame" : " frames") + "  |  frame " + juce::String (selected + 1);
+        const auto dot = juce::String::fromUTF8 ("  \xc2\xb7  ");
+        auto status = "User " + juce::String (slot + 1) + dot + juce::String (doc.getNumFrames())
+                      + (doc.getNumFrames() == 1 ? " frame" : " frames") + dot + "frame " + juce::String (selected + 1);
         if (doc.getNumFrames() >= WavetableDoc::largeTableFrames)
-            status << "  |  256 frames is about 1 MB in the patch";
+            status << dot << "256 frames is about 1 MB in the patch";
         g.drawText (status, statusArea, juce::Justification::centredLeft);
 
         const auto& recipe = doc.recipes[(size_t) selected];
@@ -255,16 +269,21 @@ public:
         shapesButton.setBounds (modes.removeFromRight (84).reduced (2));
         kindArea = modes;
 
-        auto tools = area.removeFromBottom (32);
-        area.removeFromBottom (4);
+        // SPECTRUM has no tools: its canvas takes the row. The message row
+        // (a formula's result, a library save) is there only while it says
+        // something.
+        auto tools = mode == Mode::Spectrum ? juce::Rectangle<int>() : area.removeFromBottom (32);
+        if (mode != Mode::Spectrum)
+            area.removeFromBottom (4);
+        formulaMessage.setVisible (formulaMessage.getText().isNotEmpty());
+        formulaMessage.setBounds (formulaMessage.isVisible() ? area.removeFromBottom (24) : juce::Rectangle<int>());
         if (mode == Mode::Formula)
         {
             applyAllButton.setBounds (tools.removeFromRight (110).reduced (2));
             applyFrameButton.setBounds (tools.removeFromRight (110).reduced (2));
             formulaEditor.setBounds (tools.reduced (2));
-            formulaMessage.setBounds (area.removeFromBottom (20));
         }
-        else
+        else if (mode == Mode::Draw)
         {
             snap.setBounds (tools.removeFromLeft (110).reduced (2));
             tools.removeFromLeft (10);
@@ -323,8 +342,8 @@ private:
                     g.drawRoundedRectangle (row.reduced (0.5f), 4.0f, 1.2f);
                 }
                 g.setColour (IlanaTheme::Ui::text2);
-                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
-                g.drawText (juce::String (i + 1), row.removeFromLeft (22.0f).toNearestInt(), juce::Justification::centred);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, isSelected));
+                g.drawText (juce::String (i + 1), row.removeFromLeft (26.0f).toNearestInt(), juce::Justification::centred);
                 owner->paintWave (g, frames[(size_t) i], row.reduced (2.0f, 4.0f),
                                   isSelected ? owner->colour : owner->colour.withAlpha (0.7f), 1.2f, 64);
             }
@@ -352,6 +371,7 @@ private:
         void mouseDrag (const juce::MouseEvent& event) override { owner->canvasMouse (event, false); }
         void mouseUp (const juce::MouseEvent&) override
         {
+            owner->spectrumDragScale = 0.0f;
             if (owner->dragging)
             {
                 owner->dragging = false;
@@ -428,13 +448,22 @@ private:
         else
             WavetableDoc::analyse (doc.frames[(size_t) selected], magnitudes, phases, shownHarmonics);
 
-        auto peak = 1.0e-6f;
-        for (auto value : magnitudes)
-            peak = juce::jmax (peak, value);
+        // Full scale is a full-level sine (or the loudest harmonic, if one is
+        // louder); a drag keeps the scale it started with.
+        const auto peak = spectrumDragScale > 0.0f ? spectrumDragScale : spectrumScale (magnitudes);
 
-        auto phaseArea = area.removeFromBottom (area.getHeight() * 0.22f);
-        area.removeFromBottom (6.0f);
+        juce::Rectangle<float> phaseArea, numbers;
+        spectrumLayout (area, phaseArea, numbers);
         const auto width = area.getWidth() / (float) shownHarmonics;
+
+        // dB lines behind the bars (60 dB tall, full scale at the top).
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        for (int db = 12; db < 60; db += 12)
+        {
+            const auto y = area.getY() + area.getHeight() * (float) db / 60.0f;
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawHorizontalLine (juce::roundToInt (y), area.getX(), area.getRight());
+        }
         for (int k = 0; k < shownHarmonics; ++k)
         {
             const auto level = k < (int) magnitudes.size() ? magnitudes[(size_t) k] / peak : 0.0f;
@@ -453,10 +482,28 @@ private:
             g.setColour (colour.withAlpha (level > 1.0e-4f ? 0.7f : 0.2f));
             g.fillRect (phaseBar.withY (phaseBar.getBottom() - phaseBar.getHeight() * wrapped).withHeight (2.0f));
         }
-        g.setColour (IlanaTheme::Ui::text3);
+        // The dB values over the bars' left edge, the harmonic numbers
+        // between bars and phase, and the phase strip's name.
+        g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
-        g.drawText ("Harmonics 1-64: drag the bars for level (dB), the strip below for phase",
-                    area.removeFromTop (16.0f).toNearestInt(), juce::Justification::centredRight);
+        for (int db = 12; db < 60; db += 12)
+        {
+            const auto y = area.getY() + area.getHeight() * (float) db / 60.0f;
+            g.drawText ("-" + juce::String (db) + " dB", juce::Rectangle<float> (area.getRight() - 64.0f, y - 16.0f, 60.0f, 15.0f).toNearestInt(),
+                        juce::Justification::centredRight);
+        }
+        for (const auto harmonic : { 1, 8, 16, 24, 32, 40, 48, 56, 64 })
+        {
+            const auto centre = area.getX() + ((float) harmonic - 0.5f) * width;
+            g.drawText (juce::String (harmonic), juce::Rectangle<float> (centre - 20.0f, numbers.getY(), 40.0f, numbers.getHeight()).toNearestInt(),
+                        juce::Justification::centred);
+        }
+        g.setColour (IlanaTheme::Ui::text3);
+        g.drawText ("Drag the bars for each harmonic's level", area.removeFromTop (18.0f).reduced (4.0f, 0.0f).toNearestInt(),
+                    juce::Justification::centredRight);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawText ("PHASE", phaseArea.withHeight (18.0f).translated (4.0f, 2.0f).toNearestInt(), juce::Justification::centredLeft);
     }
 
     int snapSteps() const
@@ -546,8 +593,8 @@ private:
         if (mode == Mode::Spectrum)
         {
             auto bars = area;
-            auto phaseArea = bars.removeFromBottom (bars.getHeight() * 0.22f);
-            bars.removeFromBottom (6.0f);
+            juce::Rectangle<float> phaseArea, numbers;
+            spectrumLayout (bars, phaseArea, numbers);
             const auto harmonic = juce::jlimit (1, shownHarmonics, 1 + (int) (x * (float) shownHarmonics));
             if (down)
             {
@@ -555,29 +602,58 @@ private:
                 spectrumDragPhase = phaseArea.contains (event.position);
             }
             auto& recipe = asHarmonics();
-            if ((int) recipe.magnitudes.size() < harmonic)
+            if ((int) recipe.magnitudes.size() < shownHarmonics)
             {
-                recipe.magnitudes.resize ((size_t) harmonic, 0.0f);
-                recipe.phases.resize ((size_t) harmonic, 0.0f);
+                recipe.magnitudes.resize ((size_t) shownHarmonics, 0.0f);
+                recipe.phases.resize ((size_t) shownHarmonics, 0.0f);
             }
-            if (spectrumDragPhase)
+            // The scale is taken once at the mouse-down and kept for the whole
+            // drag: measured again on every move, dragging the loudest bar
+            // lowered the scale with it and the bar ran down to silence.
+            if (down)
+                spectrumDragScale = spectrumScale (recipe.magnitudes);
+            const auto t = spectrumDragPhase
+                               ? juce::jlimit (0.0f, 1.0f, (phaseArea.getBottom() - event.position.y) / phaseArea.getHeight())
+                               : juce::jlimit (0.0f, 1.0f, (bars.getBottom() - event.position.y) / bars.getHeight());
+            // A fast sweep sets every bar it passed over, as DRAW fills the
+            // points along its line.
+            const auto from = down ? harmonic : spectrumLastHarmonic;
+            const auto fromT = down ? t : spectrumLastT;
+            const auto steps = std::abs (harmonic - from);
+            for (int i = 0; i <= steps; ++i)
             {
-                const auto t = juce::jlimit (0.0f, 1.0f, (phaseArea.getBottom() - event.position.y) / phaseArea.getHeight());
-                recipe.phases[(size_t) harmonic - 1] = (t - 0.5f) * juce::MathConstants<float>::twoPi;
+                const auto h = from + (harmonic > from ? i : -i);
+                const auto level = steps == 0 ? t : fromT + (t - fromT) * (float) i / (float) steps;
+                if (spectrumDragPhase)
+                    recipe.phases[(size_t) h - 1] = (level - 0.5f) * juce::MathConstants<float>::twoPi;
+                else // dB below full scale, 60 dB tall
+                    recipe.magnitudes[(size_t) h - 1] = level <= 0.01f ? 0.0f
+                                                                       : spectrumDragScale * juce::Decibels::decibelsToGain ((level - 1.0f) * 60.0f);
             }
-            else
-            {
-                // Bars are in dB relative to the loudest harmonic (60 dB tall).
-                auto peak = 1.0e-6f;
-                for (auto value : recipe.magnitudes)
-                    peak = juce::jmax (peak, value);
-                const auto t = juce::jlimit (0.0f, 1.0f, (bars.getBottom() - event.position.y) / bars.getHeight());
-                recipe.magnitudes[(size_t) harmonic - 1] = t <= 0.01f ? 0.0f : peak * juce::Decibels::decibelsToGain ((t - 1.0f) * 60.0f);
-            }
+            spectrumLastHarmonic = harmonic;
+            spectrumLastT = t;
             doc.renderFrame (selected);
             canvas.repaint();
             frameStrip.repaint();
         }
+    }
+
+    // SPECTRUM's parts: the bars (what is left of area), the harmonic
+    // numbers under them, the phase strip at the foot.
+    static void spectrumLayout (juce::Rectangle<float>& area, juce::Rectangle<float>& phaseArea, juce::Rectangle<float>& numbers)
+    {
+        phaseArea = area.removeFromBottom (area.getHeight() * 0.22f);
+        numbers = area.removeFromBottom (22.0f);
+    }
+
+    // The level drawn as a full bar: a full-scale sine, or the loudest
+    // harmonic when one is louder.
+    static float spectrumScale (const std::vector<float>& magnitudes)
+    {
+        auto peak = 1.0f;
+        for (auto value : magnitudes)
+            peak = juce::jmax (peak, value);
+        return peak;
     }
 
     FrameRecipe& asHarmonics()
@@ -601,11 +677,11 @@ private:
         WavetableDoc::renderFormula (text, 0.0, 0, &error);
         if (error.isNotEmpty() || text.isEmpty())
         {
-            formulaMessage.setText (text.isEmpty() ? "Type a formula first" : "Formula: " + error, juce::dontSendNotification);
+            showMessage (text.isEmpty() ? "Type a formula first" : "Formula: " + error);
             return false;
         }
-        formulaMessage.setText (allFrames ? "Applied to every frame (f runs 0..1 through the table)" : "Applied to frame "
-                                                + juce::String (selected + 1), juce::dontSendNotification);
+        showMessage (allFrames ? "Applied to every frame (f runs 0..1 through the table)" : "Applied to frame "
+                                                + juce::String (selected + 1));
         edit ([this, text, allFrames]
         {
             for (int i = allFrames ? 0 : selected; i <= (allFrames ? doc.getNumFrames() - 1 : selected); ++i)
@@ -836,7 +912,7 @@ private:
             {
                 juce::File written;
                 if (safe->doc.saveToLibrary (safe->doc.name, &written))
-                    safe->formulaMessage.setText ("Saved " + written.getFileName(), juce::dontSendNotification);
+                    safe->showMessage ("Saved " + written.getFileName());
                 else
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Library",
                                                             "Could not save to " + WavetableDoc::getLibraryFolder().getFullPathName() + ".");
@@ -851,16 +927,22 @@ private:
         });
     }
 
+    void showMessage (const juce::String& text)
+    {
+        formulaMessage.setText (text, juce::dontSendNotification);
+        resized();
+    }
+
     void setMode (Mode newMode)
     {
         mode = newMode;
+        formulaMessage.setText ({}, juce::dontSendNotification);
         for (auto* button : { &drawButton, &spectrumButton, &formulaButton })
             button->setToggleState (false, juce::dontSendNotification);
         (mode == Mode::Draw ? drawButton : mode == Mode::Spectrum ? spectrumButton : formulaButton)
             .setToggleState (true, juce::dontSendNotification);
         const auto formula = mode == Mode::Formula;
         formulaEditor.setVisible (formula);
-        formulaMessage.setVisible (formula);
         applyFrameButton.setVisible (formula);
         applyAllButton.setVisible (formula);
         snap.setVisible (mode == Mode::Draw);
@@ -956,6 +1038,10 @@ private:
         const auto& recipe = doc.recipes[(size_t) selected];
         if (recipe.kind == FrameRecipe::Kind::Draw)
             smoothing.setValue (recipe.smoothing, juce::dontSendNotification);
+        // SMOOTH shapes drawn frames only; a frame that isn't drawn yet takes
+        // it at the first stroke, so it stays movable but dimmed.
+        smoothing.setAlpha (recipe.kind == FrameRecipe::Kind::Draw ? 1.0f : 0.5f);
+        smoothLabel.setAlpha (recipe.kind == FrameRecipe::Kind::Draw ? 1.0f : 0.5f);
         if (recipe.kind == FrameRecipe::Kind::Formula)
             formulaEditor.setText (recipe.formula, false);
         addButton.setEnabled (doc.getNumFrames() < WavetableDoc::maxFrames);
@@ -1014,6 +1100,9 @@ private:
     int selected = 0;
     Mode mode = Mode::Draw;
     bool spectrumDragPhase = false;
+    float spectrumDragScale = 0.0f; // the bars' scale while a drag is on (0: none)
+    int spectrumLastHarmonic = 1;
+    float spectrumLastT = 0.0f;
     juce::Point<float> lastDraw;
     // What the patch held in the slot when the editor last read or wrote it
     // (by identity), and the patch load it belongs to.

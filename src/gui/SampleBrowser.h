@@ -497,12 +497,19 @@ private:
                     g.fillRoundedRectangle (bounds, 5.0f);
                 }
 
+                // Every place has an icon and every label starts on one left
+                // edge (FAVOURITES used to sit 18 px right of the others).
+                const juce::Point<float> icon { bounds.getX() + 14.0f, bounds.getCentreY() };
                 if (place.kind == View::favourites)
-                    SampleBrowser::drawStar (g, { bounds.getX() + 14.0f, bounds.getCentreY() }, 5.5f, juce::Colour (0xffffd447), true);
+                    SampleBrowser::drawStar (g, icon, 5.5f, juce::Colour (0xffffd447), true);
+                else if (place.kind == View::recent)
+                    SampleBrowser::drawClock (g, icon, 5.5f, current ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
+                else
+                    SampleBrowser::drawFolder (g, icon, 6.0f, current ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
 
                 g.setColour (current ? IlanaTheme::Ui::text : IlanaTheme::Ui::text2);
                 g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body, current));
-                g.drawText (place.label, bounds.toNearestInt().withTrimmedLeft (place.kind == View::favourites ? 30 : 12).withTrimmedRight (8),
+                g.drawText (place.label, bounds.toNearestInt().withTrimmedLeft (30).withTrimmedRight (8),
                             juce::Justification::centredLeft, true);
             }
         }
@@ -557,6 +564,22 @@ private:
         juce::File file;
         bool isFolder = false;
     };
+
+    static void drawClock (juce::Graphics& g, juce::Point<float> centre, float radius, juce::Colour colour)
+    {
+        g.setColour (colour);
+        g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.3f);
+        g.drawLine (centre.x, centre.y, centre.x, centre.y - radius * 0.65f, 1.3f);
+        g.drawLine (centre.x, centre.y, centre.x + radius * 0.5f, centre.y, 1.3f);
+    }
+
+    static void drawFolder (juce::Graphics& g, juce::Point<float> centre, float radius, juce::Colour colour)
+    {
+        const auto body = juce::Rectangle<float> (radius * 2.0f, radius * 1.5f).withCentre (centre.translated (0.0f, radius * 0.1f));
+        g.setColour (colour.withAlpha (0.85f));
+        g.fillRoundedRectangle (body.withTrimmedTop (radius * 0.3f), 1.5f);
+        g.fillRoundedRectangle (body.withWidth (radius * 0.9f).withHeight (radius * 0.6f), 1.0f);
+    }
 
     static void drawStar (juce::Graphics& g, juce::Point<float> centre, float radius, juce::Colour starColour, bool filled)
     {

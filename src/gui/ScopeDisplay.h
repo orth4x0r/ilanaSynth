@@ -498,6 +498,22 @@ private:
             spectrumSmoothed[(size_t) x] = IlanaAnim::approach (spectrumSmoothed[(size_t) x], target, 0.35f, paintTicks);
         }
 
+        // dB lines at -20, -40 and -60 on the plot's own scale (80 dB under
+        // 0, 4 dB over it). The plot follows the loudest partial (auto gain),
+        // so they compare partials with each other, not absolute levels.
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny));
+        for (const auto below : { 20, 40, 60 })
+        {
+            if (area.getHeight() < 90.0f)
+                break; // a small strip keeps its plain picture
+            const auto y = area.getY() + area.getHeight() * (float) (below + 4) / 84.0f; // the top is +4 dB
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRect (area.getX(), y, area.getWidth(), 1.0f);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.drawText ("-" + juce::String (below) + " dB", juce::Rectangle<float> (area.getX() + 4.0f, y - 14.0f, 60.0f, 13.0f).toNearestInt(),
+                        juce::Justification::centredLeft);
+        }
+
         // Idle: the outline of a note's harmonics, dim, until one plays.
         if (idleScope)
         {

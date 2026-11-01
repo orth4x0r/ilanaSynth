@@ -1,5 +1,9 @@
 void runPresetTuningTest()
 {
+    // Seeded voices and arp, as the fingerprint build: free analog drift on a
+    // dense detuned pad moved the estimate run to run (CZ Gate Pad).
+    fixedRandomSeeds() = true;
+    struct Restore { ~Restore() { fixedRandomSeeds() = false; } } restore;
     IlanaSynthAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
 

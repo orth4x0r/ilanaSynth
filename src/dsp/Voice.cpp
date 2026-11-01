@@ -115,10 +115,11 @@ constexpr float bodyAudioShare = 0.3f;
 
 Voice::Voice()
 {
-#if ILANA_FINGERPRINT_BUILD
-    random.setSeed (12345);
-    driftRandom.setSeed (54321);
-#endif
+    if (fixedRandomSeeds().load())
+    {
+        random.setSeed (12345);
+        driftRandom.setSeed (54321);
+    }
 }
 
 void Voice::setCurrentPlaybackSampleRate (double newRate)
@@ -684,10 +685,11 @@ void Voice::resetForNewPatch()
     // As a new instance: no note to glide from, and the seeded generators
     // start their sequences again (the analog ones stay free in the plugin,
     // as the constructor leaves them).
-#if ILANA_FINGERPRINT_BUILD
-    random.setSeed (12345);
-    driftRandom.setSeed (54321);
-#endif
+    if (fixedRandomSeeds().load())
+    {
+        random.setSeed (12345);
+        driftRandom.setSeed (54321);
+    }
     fmNoiseRandom.setSeed (31337);
     lfoPoolRandom.setSeed (27183);
     liveGrainRandom.setSeed (0x1f3a);

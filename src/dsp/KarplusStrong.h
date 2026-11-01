@@ -21,8 +21,10 @@
 
 #if defined (_MSC_VER)
  #define ILANA_NOINLINE __declspec (noinline)
+ #define ILANA_KS_INLINE __forceinline
 #else
  #define ILANA_NOINLINE __attribute__ ((noinline))
+ #define ILANA_KS_INLINE inline __attribute__ ((always_inline))
 #endif
 
 class KarplusStrong
@@ -706,6 +708,16 @@ public:
         {
             return;
         }
+        else if (left.excite == Excite::Bow && right.excite == Excite::Bow && ! left.buffer.empty() && ! right.buffer.empty())
+        {
+            // Two bowed strings: both reads first, then both finishes. Each
+            // side keeps its own state, so the order changes nothing.
+            const auto stepL = left.bowRead();
+            const auto stepR = right.bowRead();
+            outLeft = left.bowFinish (stepL, expression, noteHeld);
+            outRight = right.bowFinish (stepR, expression, noteHeld);
+            return;
+        }
         outLeft = left.process (expression, noteHeld, externalInput);
         outRight = right.process (expression, noteHeld, externalInput);
     }
@@ -1336,6 +1348,18 @@ private:
     // on to larger differences. Both lines share the string's buffer.
     float processBowed (float expression, bool noteHeld)
     {
+        return bowFinish (bowRead(), expression, noteHeld);
+    }
+
+    // The bowed string in two halves (processPair runs two strings' halves
+    // side by side): the waveguides' reads ...
+    struct BowStep
+    {
+        double period;
+        float lpc, bridgeOut, neckOut;
+    };
+    ILANA_KS_INLINE BowStep bowRead() noexcept
+    {
         const auto size = (int) buffer.size();
         const auto half = size / 2;
         const auto period = sampleRate / frequency;
@@ -1370,6 +1394,17 @@ private:
 
         const auto bridgeOut = readLine (0, bowBridgeWrite, bridgeLength);
         const auto neckOut = readLine (half, bowNeckWrite, neckLength);
+        return { period, lpc, bridgeOut, neckOut };
+    }
+
+    // ... and the rest of the sample.
+    ILANA_KS_INLINE float bowFinish (const BowStep& step, float expression, bool noteHeld) noexcept
+    {
+        const auto half = (int) buffer.size() / 2;
+        const auto period = step.period;
+        const auto lpc = step.lpc;
+        const auto bridgeOut = step.bridgeOut;
+        const auto neckOut = step.neckOut;
 
         // Bridge: loss and damping on every reflection (DECAY and DAMP).
         lowpassState += (bridgeOut - lowpassState) * lpc;

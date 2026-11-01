@@ -220,8 +220,46 @@ public:
         }
         alignas (16) float out[4];
         _mm_store_ps (out, x);
-        outLeft = left.leave (noteHeld, out[0], out[1]);
-        outRight = right.leave (noteHeld, out[2], out[3]);
+        if (! (left.quadrature && right.quadrature))
+        {
+            outLeft = left.leave (noteHeld, out[0], out[1]);
+            outRight = right.leave (noteHeld, out[2], out[3]);
+            return true;
+        }
+        // Both sides' quarter-turn chains (two lanes each) in one 4-lane chain.
+        float inL[2], inR[2];
+        auto vl = left.leaveStart (noteHeld, out[0], out[1], inL);
+        auto vr = right.leaveStart (noteHeld, out[2], out[3], inR);
+        juce::ignoreUnused (vl, vr);
+        auto q = _mm_set_ps (inR[1], inR[0], inL[1], inL[0]);
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto at = i * 4;
+            const auto pairOf = [at] (const float* l, const float* r)
+            {
+                return _mm_loadh_pi (_mm_loadl_pi (_mm_setzero_ps(), reinterpret_cast<const __m64*> (l + at)),
+                                     reinterpret_cast<const __m64*> (r + at));
+            };
+            const auto c0 = quarterA[0][i] * quarterA[0][i], c1 = quarterA[1][i] * quarterA[1][i];
+            const auto c = _mm_set_ps (c1, c0, c1, c0);
+            const auto y = _mm_sub_ps (_mm_mul_ps (c, _mm_add_ps (q, pairOf (left.quarterY2, right.quarterY2))),
+                                       pairOf (left.quarterX2, right.quarterX2));
+            const auto x1 = pairOf (left.quarterX1, right.quarterX1);
+            const auto y1 = pairOf (left.quarterY1, right.quarterY1);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.quarterX2 + at), x1);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.quarterX2 + at), x1);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.quarterX1 + at), q);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.quarterX1 + at), q);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.quarterY2 + at), y1);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.quarterY2 + at), y1);
+            _mm_storel_pi (reinterpret_cast<__m64*> (left.quarterY1 + at), y);
+            _mm_storeh_pi (reinterpret_cast<__m64*> (right.quarterY1 + at), y);
+            q = y;
+        }
+        alignas (16) float turned[4];
+        _mm_store_ps (turned, q);
+        outLeft = left.leaveEnd (noteHeld, left.turnOutput (turned[0], turned[1]));
+        outRight = right.leaveEnd (noteHeld, right.turnOutput (turned[2], turned[3]));
         return true;
        #else
         juce::ignoreUnused (left, right, noteHeld, outLeft, outRight);
@@ -377,10 +415,30 @@ private:
         return true;
     }
 
-    // ... and from its outputs on.
+    // ... and from its outputs on: up to the quarter-turn chains' inputs
+    // (both directions sounding), the chains, then the rest.
     ILANA_PIANO_INLINE float leave (bool noteHeld, float wave, float h)
     {
-        const auto bOut = heldBOut;
+        float turnIn[2] {};
+        auto output = leaveStart (noteHeld, wave, h, turnIn);
+        if (quadrature && ! eco)
+        {
+            float turned[4];
+            quarterTurnPair (turnIn[0], turnIn[1], turned);
+            output = turnOutput (turned[0], turned[1]);
+        }
+        return leaveEnd (noteHeld, output);
+    }
+
+    ILANA_PIANO_INLINE float turnOutput (float vertical, float horizontal) const noexcept
+    {
+        auto output = vertical;
+        output += horizontal * horizontalMix;
+        return output;
+    }
+
+    ILANA_PIANO_INLINE float leaveStart (bool noteHeld, float wave, float h, float (&turnIn)[2])
+    {
         const auto push = heldPush;
         if (eco)
         {
@@ -423,14 +481,20 @@ private:
                 horizontalWrite = 0;
             if (quadrature)
             {
-                float turned[4];
-                quarterTurnPair (atBridge, loop, turned);
-                output = turned[0];
-                output += turned[1] * horizontalMix;
+                turnIn[0] = atBridge;
+                turnIn[1] = loop;
             }
             else
                 output += loop * horizontalMix;
+        }
+        return output;
+    }
 
+    ILANA_PIANO_INLINE float leaveEnd (bool noteHeld, float output)
+    {
+        const auto bOut = heldBOut;
+        if (! eco)
+        {
             // Phantom partials: the longitudinal modes, driven by the square
             // of the motion (sum and difference tones of the partials).
             if (longitudinalGain > 0.0f)

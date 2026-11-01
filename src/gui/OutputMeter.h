@@ -45,7 +45,21 @@ public:
 
         if (clipped)
         {
-            const auto light = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ bounds.getRight() - 9.0f, bounds.getCentreY() });
+            const auto centre = juce::Point<float> (bounds.getRight() - 9.0f, bounds.getCentreY());
+
+            // The moment it lights it flares once (a red bloom that settles
+            // into the dot over 400 ms).
+            if (bloom > 0.01f)
+            {
+                const auto reach = 4.0f + 8.0f * bloom;
+                juce::ColourGradient flare (juce::Colour (0xffff4f5e).withAlpha (0.9f * bloom), centre.x, centre.y,
+                                            juce::Colour (0xffff4f5e).withAlpha (0.0f), centre.x + reach, centre.y, true);
+                g.setGradientFill (flare);
+                g.fillEllipse (juce::Rectangle<float> (reach * 2.0f, reach * 2.0f).withCentre (centre));
+            }
+
+            const auto size = 7.0f * (1.0f + 0.3f * bloom);
+            const auto light = juce::Rectangle<float> (size, size).withCentre (centre);
             g.setColour (juce::Colour (0xffff4f5e));
             g.fillEllipse (light);
             g.setColour (juce::Colour (0xffff4f5e).brighter (0.4f));
@@ -97,6 +111,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override
     {
         clipped = false;
+        bloom = 0.0f;
         loudest = 0.0f;
         repaint();
     }
@@ -143,11 +158,18 @@ private:
             if (peak > 1.0f && ! clipped)
             {
                 clipped = true;
+                bloom = IlanaAnim::fullMotion() ? 1.0f : 0.0f;
                 changed = true;
             }
 
             loudest = juce::jmax (loudest, peak);
             changed = changed || std::abs (level - before) > 1.0e-4f || hold > 0.0005f;
+        }
+
+        if (bloom > 0.0f)
+        {
+            bloom = juce::jmax (0.0f, bloom - frameSeconds() * (float) IlanaAnim::motionClockRate() / 0.4f);
+            changed = true;
         }
 
         // (A latched clip light needs no repaint of its own: it was drawn
@@ -159,6 +181,6 @@ private:
     IlanaSynthAudioProcessor& processorRef;
     std::array<float, 2> levels {}, holds {};
     std::array<float, 2> holdTimes {};
-    float loudest = 0.0f;
+    float loudest = 0.0f, bloom = 0.0f;
     bool clipped = false;
 };

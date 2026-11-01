@@ -4,17 +4,23 @@
 
 #include "../PluginProcessor.h"
 #include "IlanaLookAndFeel.h"
+#include "AnimationUtils.h"
 
 #include <array>
 
 class KeyboardStrip : public juce::Component,
-                      public juce::SettableTooltipClient
+                      public juce::SettableTooltipClient,
+                      private IlanaAnim::FrameTimer
 {
 public:
     explicit KeyboardStrip (IlanaSynthAudioProcessor& processor) : processorRef (processor)
     {
         setTooltip (generalTip());
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        // Every note the synth plays lights its key (the host, the arp, SEQ,
+        // spray), not only the ones played here; a key let go fades out over
+        // about 250 ms. While nothing changes this only polls a counter.
+        startPollingHz (30);
     }
 
     // No note is left sounding when the strip goes away.
@@ -35,6 +41,7 @@ public:
 
         sounding[(size_t) note] = true;
         processorRef.triggerPreviewNote (note, true, velocity);
+        shownEpoch = ~0u; // (the lights follow on the next frame)
         repaint();
     }
 
@@ -45,6 +52,7 @@ public:
 
         sounding[(size_t) note] = false;
         processorRef.triggerPreviewNote (note, false);
+        shownEpoch = ~0u; // (the lights follow on the next frame)
         repaint();
     }
 
@@ -61,6 +69,7 @@ public:
             processorRef.triggerPreviewNote (pressedNote, false);
 
         pressedNote = -1;
+        shownEpoch = ~0u; // (the lights follow on the next frame)
         repaint();
     }
 
@@ -69,6 +78,9 @@ public:
         if (! isShowing())
             releaseAll();
     }
+
+    // How lit a key is drawn (0..1), for the tests.
+    float getKeyLight (int note) const { return juce::isPositiveAndBelow (note, 128) ? light[(size_t) note] : 0.0f; }
 
     void paint (juce::Graphics& g) override
     {
@@ -89,14 +101,14 @@ public:
 
                 const auto noteNumber = firstNote + octave * 12 + note;
                 const auto x = area.getX() + (float) whiteIndex * whiteWidth;
-                const auto pressed = isDown (noteNumber);
-                const auto hovered = noteNumber == hoverNote && ! pressed;
+                const auto lit = light[(size_t) noteNumber];
+                const auto pressed = lit > 0.3f;
+                const auto hovered = noteNumber == hoverNote && lit <= 0.0f;
+                const juce::Rectangle<float> key (x + 1.0f, area.getY() + 2.0f, whiteWidth - 2.0f, area.getHeight() - 4.0f);
 
-                g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.45f + 0.5f * pressedVelocity)
-                                     : hovered ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), 0.25f)
-                                     : IlanaTheme::Ui::text);
-                g.fillRect (juce::Rectangle<float> (x + 1.0f, area.getY() + 2.0f,
-                                                    whiteWidth - 2.0f, area.getHeight() - 4.0f));
+                g.setColour (hovered ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), 0.25f) : IlanaTheme::Ui::text);
+                g.fillRect (key);
+                paintLit (g, key, lit);
 
                 // Octaves: each C named at the foot of its key (C3 = MIDI 60,
                 // as on the parameter readouts).
@@ -123,13 +135,13 @@ public:
                 {
                     const auto noteNumber = firstNote + octave * 12 + note;
                     const auto x = area.getX() + (float) whiteIndex * whiteWidth - whiteWidth * 0.3f;
-                    const auto pressed = isDown (noteNumber);
+                    const auto lit = light[(size_t) noteNumber];
+                    const juce::Rectangle<float> key (x, area.getY() + 2.0f, whiteWidth * 0.6f, area.getHeight() * 0.62f);
 
-                    g.setColour (pressed ? IlanaTheme::accent().withAlpha (0.55f + 0.45f * pressedVelocity)
-                                         : noteNumber == hoverNote ? IlanaTheme::Ui::bg.interpolatedWith (IlanaTheme::accent(), 0.3f)
-                                                                   : IlanaTheme::Ui::bg);
-                    g.fillRect (juce::Rectangle<float> (x, area.getY() + 2.0f,
-                                                        whiteWidth * 0.6f, area.getHeight() * 0.62f));
+                    g.setColour (noteNumber == hoverNote && lit <= 0.0f ? IlanaTheme::Ui::bg.interpolatedWith (IlanaTheme::accent(), 0.3f)
+                                                                        : IlanaTheme::Ui::bg);
+                    g.fillRect (key);
+                    paintLit (g, key, lit);
                 }
                 else
                 {
@@ -184,6 +196,7 @@ public:
             processorRef.triggerPreviewNote (pressedNote, false);
 
         pressedNote = -1;
+        shownEpoch = ~0u; // (the lights follow on the next frame)
         repaint();
     }
 
@@ -203,6 +216,81 @@ public:
     }
 
 private:
+    // A lit key: the accent over it as strong as the note was hit, a
+    // brighter top edge, and a soft wash down from it.
+    static void paintLit (juce::Graphics& g, juce::Rectangle<float> key, float lit)
+    {
+        if (lit <= 0.002f)
+            return;
+
+        const auto accent = IlanaTheme::accent();
+        g.setColour (accent.withAlpha (0.92f * lit));
+        g.fillRect (key);
+        g.setGradientFill (juce::ColourGradient (accent.interpolatedWith (juce::Colours::white, 0.45f).withAlpha (0.55f * lit), key.getX(), key.getY(),
+                                                 accent.withAlpha (0.0f), key.getX(), key.getY() + key.getHeight() * 0.6f, false));
+        g.fillRect (key);
+        g.setColour (accent.interpolatedWith (juce::Colours::white, 0.7f).withAlpha (lit));
+        g.fillRect (key.withHeight (2.0f));
+    }
+
+    // A key's own column (white keys hold the black keys beside them in
+    // their repaint, since a black key sits over two whites).
+    juce::Rectangle<int> keyColumn (int note) const
+    {
+        const auto whiteWidth = (float) getWidth() / (float) whiteCount;
+        static const int whiteBefore[] = { 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6 };
+        const auto offset = note - firstNote;
+        const auto index = (offset / 12) * 7 + whiteBefore[offset % 12];
+        const auto x = (float) index * whiteWidth;
+        return juce::Rectangle<float> (x - whiteWidth * 0.5f, 0.0f, whiteWidth * 2.0f, (float) getHeight()).getSmallestIntegerContainer();
+    }
+
+    float targetLight (int note) const
+    {
+        if (isDown (note))
+            return 0.3f + 0.7f * (note == pressedNote ? pressedVelocity : 0.8f);
+
+        const auto velocity = processorRef.getUiNoteVelocity (note);
+        return velocity > 0 ? 0.3f + 0.7f * (float) velocity / 127.0f : 0.0f; // (a soft note faint, a hard one full)
+    }
+
+    void timerCallback() override
+    {
+        if (! IlanaAnim::showing (*this))
+            return;
+
+        const auto epoch = processorRef.getUiNoteEpoch();
+        if (epoch == shownEpoch && ! fading)
+            return;
+
+        shownEpoch = epoch;
+        const auto step = IlanaAnim::fullMotion() ? frameSeconds() * (float) IlanaAnim::motionClockRate() / 0.25f : 1.0f;
+        auto anyFading = false;
+
+        for (int note = firstNote; note < firstNote + numOctaves * 12; ++note)
+        {
+            auto& shown = light[(size_t) note];
+            const auto target = targetLight (note);
+            const auto before = shown;
+
+            // On at once, as hard as it was hit; off in a 250 ms fade.
+            shown = target >= shown ? target : juce::jmax (target, shown - step);
+            anyFading = anyFading || shown > target;
+
+            if (shown != before)
+                repaint (keyColumn (note));
+        }
+
+        if (anyFading != fading)
+        {
+            fading = anyFading;
+            if (fading)
+                startTimerHz (60);
+            else
+                startPollingHz (30);
+        }
+    }
+
     static juce::String generalTip()
     {
         return "Click or drag to audition notes.\n"
@@ -276,6 +364,7 @@ private:
         pressedNote = note;
         pressedVelocity = velocity;
         processorRef.triggerPreviewNote (note, true, velocity);
+        shownEpoch = ~0u; // (the lights follow on the next frame)
         repaint();
     }
 
@@ -289,4 +378,7 @@ private:
     int hoverNote = -1;
     int pressedNote = -1;
     float pressedVelocity = 0.7f;
+    std::array<float, 128> light {};
+    juce::uint32 shownEpoch = ~0u;
+    bool fading = false;
 };

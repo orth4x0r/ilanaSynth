@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <array>
 #include <complex>
 #include <vector>
@@ -438,8 +439,42 @@ private:
 
             const auto colour = channel == 0 ? IlanaTheme::accent() : juce::Colour (0xff5b8cff);
 
+            // Phosphor afterglow: the last few pictures (about 140 ms) stay
+            // behind the live one and fade, like a CRT's, so a wave that is
+            // changing leaves a trail; a steady one draws over itself. FREEZE
+            // and Motion: Less show the live trace alone.
+            auto& trail = afterglow[(size_t) channel];
+            // (Both channels' trails in the live picture's blend, so a mono
+            // sound's two trails don't mix to a muddy brown.)
+            const auto trailColour = IlanaTheme::accent().interpolatedWith (juce::Colour (0xff5b8cff), 0.6f);
+            const auto now = juce::Time::getMillisecondCounterHiRes() * IlanaAnim::motionClockRate(); // (the flair's clock)
+
+            if (hold || ! IlanaAnim::fullMotion() || idleScope || area != afterglowArea)
+                trail.clear();
+
+            for (const auto& old : trail)
+            {
+                const auto age = (float) ((now - old.time) / afterglowMs);
+                if (age < 1.0f)
+                    IlanaTrace::paintTrace (g, old.path, trailColour.withAlpha (0.26f * (1.0f - age) * (1.0f - age)));
+            }
+
+            // (A faint wide stroke under the live trace: its glow.)
+            if (IlanaAnim::fullMotion())
+                IlanaTrace::paintTrace (g, path, colour.withAlpha (0.12f), 5.0f);
+
             IlanaTrace::paintTrace (g, path, colour.withAlpha (channel == 0 ? 0.95f : 0.85f));
+
+            if (! hold && IlanaAnim::fullMotion() && ! idleScope)
+            {
+                trail.erase (std::remove_if (trail.begin(), trail.end(), [now] (const auto& old) { return now - old.time >= afterglowMs; }), trail.end());
+                if (trail.size() >= 4)
+                    trail.erase (trail.begin());
+                trail.push_back ({ path, now });
+            }
         }
+
+        afterglowArea = area;
     }
 
     void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> area)
@@ -706,6 +741,10 @@ private:
     int viewMode = 2; // 0 scope, 1 spectrum, 2 both
     std::array<juce::TextButton, 3> viewButtons;
     bool hold = false;
+    struct GlowPicture { juce::Path path; double time = 0.0; };
+    mutable std::array<std::vector<GlowPicture>, 2> afterglow; // (drawn and kept from the const wave painter)
+    mutable juce::Rectangle<float> afterglowArea;
+    static constexpr double afterglowMs = 140.0;
     bool peakHoldEnabled = true;
     int channelSolo = 0;
 };

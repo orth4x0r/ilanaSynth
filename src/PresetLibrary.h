@@ -600,6 +600,7 @@ namespace Library
 #include "PresetPackGate.h"
 #include "PresetPackIlana.h"
 #include "PresetPackSearch.h"
+#include "PresetPackRecipes.h"
 
 // The owner's blind A/B marked these presets bad in both their old and new
 // form (2026-09-30): rebuilt from scratch (content/analysis/rebuild-8.md).
@@ -2892,6 +2893,11 @@ inline std::vector<FactoryPreset> buildLaterPacks()
              .macro (3, "DAMP", { { param ("osc1_string_damp"), 0.5f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .master (7.0f).fx ({ FxLimiter, FxReverb }).limiter (-0.5f).reverb (Room, 0.55f, 0.16f));
+
+    // ilana's recipe pack: the tricks from her 2026-10-25 presets (chaos LFOs on
+    // frames, envelopes and velocity on timbre, per-note random), baked by
+    // tools/preset_gen.py bake --pack src/PresetPackRecipes.h --only ...
+    addRecipePresets (add);
 
     return list;
 }

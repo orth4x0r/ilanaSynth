@@ -31,6 +31,12 @@ Steps (each writes into build/gen/):
                                               correct each level as a factory load plays it
     then add tag rows for the new presets (tools/tag_presets.py) to src/PresetTags.h
 
+A later pack of only some concepts goes in its own header, so the presets
+already baked keep their values (the 2026-11-01 recipe pack):
+
+    python tools/preset_gen.py draft --only "Lorenz Chord Pad" ...
+    python tools/preset_gen.py bake --pack src/PresetPackRecipes.h --function addRecipePresets --only "Lorenz Chord Pad" ...
+
 `ILANA_DUMP_DEFAULTS=build/gen/defaults.txt ilanaPresetRender x` writes the
 parameter defaults the drafts are measured against (draft and bake need it).
 Only what a factory preset can carry is kept: parameter values, LFO curves and
@@ -461,6 +467,11 @@ def cmd_bake(args):
 
     defaults = read_defaults()
     targets = category_levels(args.factory)
+    # Which pack: ilana's first pack (every pick) or a later one that only
+    # takes some concepts (--only), so the presets already baked keep their
+    # values (old presets must not change).
+    pack = Path(args.pack) if args.pack else PACK
+    function = args.function or "addIlanaPresets"
     # A second pass: the baked presets as the factory list plays them (a
     # factory load leaves the exciter level trims off, for one), moved the
     # rest of the way to their level.
@@ -469,9 +480,15 @@ def cmd_bake(args):
         with open(Path(args.trim) / "report.csv", newline="", encoding="utf-8") as f:
             measured = {r["name"]: r for r in csv.DictReader(f)}
         previous = {m.group(1): float(m.group(2)) for m in re.finditer(
-            r'FactoryPreset p \{ "([^"]+)".*?\{ "master", (-?[0-9.]+)f \}', PACK.read_text(), re.S)}
+            r'FactoryPreset p \{ "([^"]+)".*?\{ "master", (-?[0-9.]+)f \}', pack.read_text(), re.S)}
     concepts = {c["name"]: c for c in CONCEPTS}
     picks = json.loads((GEN / "picks.json").read_text())
+    if args.only:
+        picks = [p for p in picks if p["concept"] in args.only]
+        missing = set(args.only) - {p["concept"] for p in picks}
+        if missing:
+            sys.exit(f"no pick for: {', '.join(sorted(missing))}")
+        picks.sort(key=lambda p: args.only.index(p["concept"]))
     lines = [
         "#pragma once",
         "",
@@ -481,7 +498,7 @@ def cmd_bake(args):
         "// not this file. Appended after every earlier preset (indices never move).",
         "// Included from PresetLibrary.h inside Presets::Library.",
         "",
-        "inline void addIlanaPresets (const std::function<void (const FactoryPreset&)>& add)",
+        f"inline void {function} (const std::function<void (const FactoryPreset&)>& add)",
         "{",
     ]
     for pick in picks:
@@ -526,8 +543,8 @@ def cmd_bake(args):
         lines.append("        add (p);")
         lines.append("    }")
     lines.append("}")
-    PACK.write_text("\n".join(lines) + "\n")
-    print(f"baked {len(picks)} presets into {PACK.relative_to(ROOT)}")
+    pack.write_text("\n".join(lines) + "\n")
+    print(f"baked {len(picks)} presets into {pack.resolve().relative_to(ROOT)}")
 
 
 def main():
@@ -543,6 +560,9 @@ def main():
     pick.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
     bake = sub.add_parser("bake")
     bake.add_argument("--factory", default=str(ROOT / "build" / "critic-now"))
+    bake.add_argument("--only", nargs="*", help="bake only these concepts (by name, in this order)")
+    bake.add_argument("--pack", help="the header to write (default src/PresetPackIlana.h)")
+    bake.add_argument("--function", help="its function's name (default addIlanaPresets)")
     bake.add_argument("--trim", help="a render of the baked pack (ilanaPresetRender from its first index) to correct levels from")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parent))

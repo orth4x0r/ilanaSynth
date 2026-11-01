@@ -219,6 +219,10 @@ FX type 42 runs one voice filter model per channel on the rack, coefficients eve
 For scale: Reverb 0.31 %, EQ 0.20 %, Tilt 0.09 % in the same run. The empty rack and every other effect run the same code as before (FILTER only runs when a slot holds it); 0 of 698 presets changed. In a loop it costs the same per pass, as every effect does (rules A1-A3 above).
 
 
+## Mono string costs (2026-11-01, round 4)
+
+Callgrind, one string at 196 Hz, instructions per sample (after round 4): Modal Piano ~70, Burst pluck ~215, Feedback ~220, External ~230, Tine ~235, KS hammer ~320, bow ~330 (was ~450: per-sample double divisions and integer modulo, now kept per knob change), Piano ~800 (two thirds of it the 16-stage SIMD stiffness chain and its loads and stores; nothing exact left to cut). Timed alone (8 voices interleaved, pinned core): bow 52 -> 42 ns per sample. Bit for bit.
+
 ## Stereo string twin, round 3 (2026-11-01, branch `claude/project-thread-q62hka`)
 
 The bow and the KS hammer get their own paired paths in `KarplusStrong::processPair`, and the Piano twin runs both sides' quarter-turn chains in one 4-lane chain. Bit for bit the same as two `process()` calls (`runStringPairTest`), and mono is unchanged (standalone old-vs-new check, every exciter).

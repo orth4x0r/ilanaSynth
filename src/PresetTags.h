@@ -761,6 +761,13 @@ inline const FactoryTagRow factoryTagRows[] {
     { "Ladder Triangle Bass", "Granular, Warm, Percussive, From Ilana" },
     { "Vocoder Pulse Bass", "Gritty, Evolving, Physical, Bright, Percussive, From Ilana" },
     { "Tine Vowel Keys", "E-Piano, Evolving, Physical, Warm, Sustained, From Ilana" },
+    { "Lorenz Chord Pad", "Detuned, Chord, Evolving, Bright, Slow Attack, From Ilana" },
+    { "Chaos Bell Keys", "Bell, Evolving, Warm, Percussive, Echo, From Ilana" },
+    { "Chaos Saw Pluck", "Supersaw, Gritty, Evolving, Bright, Percussive, From Ilana" },
+    { "Frame Snap Reese", "Gritty, Detuned, Evolving, Sustained, Mono, From Ilana" },
+    { "Vowel Strike Keys", "Physical, Warm, Percussive, Echo, From Ilana" },
+    { "Euclid Vowel Glass", "Resonant, Evolving, Warm, Sustained, Spacious, From Ilana" },
+    { "Feedback Bow Pluck", "Physical, Warm, Percussive, Wide, Spacious, From Ilana" },
 };
 
 // A factory preset's tags ("Bell, FM, Bright"), or "" for any other name.

@@ -39,8 +39,16 @@ public:
           colour (colourIn),
           prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)])
     {
-        for (auto* button : { &closeButton, &auditionButton, &deleteButton, &reverseButton, &addButton })
+        for (auto* button : { &closeButton, &auditionButton, &deleteButton, &reverseButton, &addButton, &fitButton })
             addAndMakeVisible (*button);
+
+        // The map opens on the keys in use (an octave either side); ALL KEYS
+        // shows the whole keyboard. A sliced sample fills the map instead of
+        // a stripe a few keys wide.
+        fitButton.setClickingTogglesState (true);
+        fitButton.setToggleState (true, juce::dontSendNotification);
+        fitButton.setTooltip ("FIT shows the keys the zones use, an octave either side; off shows all 128 keys");
+        fitButton.onClick = [this] { fitView(); repaint(); };
 
         // Step 32: a zone (a slice) played backwards on its own.
         reverseButton.setClickingTogglesState (true);
@@ -189,6 +197,8 @@ public:
 
         auto header = area.removeFromTop (30);
         closeButton.setBounds (header.removeFromRight (70).reduced (2));
+        header.removeFromRight (gap);
+        fitButton.setBounds (header.removeFromRight (70).reduced (2));
         header.removeFromRight (gap);
         titleArea = header.removeFromLeft (juce::jmax (170, header.getWidth() * 2 / 5));
         hintArea = header;
@@ -624,6 +634,8 @@ private:
             selected = (int) zones.size() - 1;
         if (selected < 0 && ! zones.empty() && zones.size() != previousCount)
             selected = 0;
+        if (zones.size() != previousCount)
+            fitView(); // opened, or a zone added or removed (never mid-drag)
 
         const auto* sample = processorRef.getSampleForOsc (osc);
         sampleName = sample != nullptr && sample->name.isNotEmpty() ? sample->name : juce::String ("no sample");
@@ -877,12 +889,40 @@ private:
 
     // ------------------------------------------------------------- geometry
 
-    float keyWidth() const { return juce::jmax (1.0f, mapBounds.getWidth() / 128.0f); }
+    // The keys on show: all 128, or (FIT) the zones' keys an octave either
+    // side, rounded out to whole octaves and at least three octaves wide.
+    void fitView()
+    {
+        viewLo = 0;
+        viewHi = 127;
+        if (! fitButton.getToggleState() || zones.empty())
+            return;
+        auto lo = 127, hi = 0;
+        for (const auto& z : zones)
+        {
+            lo = juce::jmin (lo, z.loKey);
+            hi = juce::jmax (hi, z.hiKey);
+        }
+        lo = juce::jmax (0, (lo - 12) / 12 * 12);
+        hi = juce::jmin (127, (hi + 12) / 12 * 12 + 11);
+        while (hi - lo + 1 < 36 && (lo > 0 || hi < 127))
+        {
+            if (hi < 127) hi = juce::jmin (127, hi + 12);
+            if (hi - lo + 1 < 36 && lo > 0) lo = juce::jmax (0, lo - 12);
+        }
+        viewLo = lo;
+        viewHi = hi;
+    }
+
+    int getViewLow() const { return viewLo; }
+    int getViewHigh() const { return viewHi; }
+
+    float keyWidth() const { return juce::jmax (1.0f, mapBounds.getWidth() / (float) (viewHi - viewLo + 1)); }
     float velocityHeight() const { return juce::jmax (1.0f, mapBounds.getHeight() / 127.0f); }
-    float keyX (int key) const { return mapBounds.getX() + (float) key * keyWidth(); }
+    float keyX (int key) const { return mapBounds.getX() + (float) (key - viewLo) * keyWidth(); }
     float velocityY (int velocity) const { return mapBounds.getBottom() - mapBounds.getHeight() * (float) velocity / 127.0f; }
 
-    int keyAtX (float x) const { return juce::jlimit (0, 127, (int) std::floor ((x - mapBounds.getX()) / keyWidth())); }
+    int keyAtX (float x) const { return juce::jlimit (viewLo, viewHi, viewLo + (int) std::floor ((x - mapBounds.getX()) / keyWidth())); }
 
     juce::Rectangle<float> zoneBox (const SampleZone& z) const
     {
@@ -954,6 +994,9 @@ private:
 
     void paintMap (juce::Graphics& g) const
     {
+        // Zones and keys outside the keys on show are cut at the map's edges.
+        juce::Graphics::ScopedSaveState clipped (g);
+        g.reduceClipRegion (mapBounds.getUnion (stripBounds).getSmallestIntegerContainer());
         const auto map = mapBounds;
         const auto keyW = keyWidth();
 
@@ -1042,7 +1085,7 @@ private:
         const auto keyW = keyWidth();
         const auto strip = stripBounds;
 
-        for (int key = 0; key < 128; ++key)
+        for (int key = viewLo; key <= viewHi; ++key)
         {
             const auto cell = juce::Rectangle<float> (keyX (key), strip.getY(), keyW, strip.getHeight());
             const auto black = isBlackKey (key);
@@ -1114,6 +1157,8 @@ private:
     juce::Rectangle<int> titleArea, hintArea;
     juce::Rectangle<float> wellBounds, mapBounds, stripBounds;
 
+    int viewLo = 0, viewHi = 127;
+    juce::TextButton fitButton { "FIT" };
     juce::TextButton closeButton { "CLOSE" }, auditionButton { "AUDITION" }, deleteButton { "DELETE" }, reverseButton { "REVERSE" },
         addButton { "ADD SAMPLE..." };
     Field keysField, velocityField, rootField, levelField;

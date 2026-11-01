@@ -3145,6 +3145,51 @@ int runUiTests()
                     expect (processor.getUserTableDoc (slot).getNumFrames() == 16
                                 && processor.getWavetable (factoryCount + slot)->getNumFrames() == 16,
                             "MORPH rebuilds the table at 16 frames and the oscillator plays it");
+                    // SPECTRUM keeps its scale through a drag: holding the
+                    // loudest (here the only) bar at -30 dB leaves it at -30 dB,
+                    // where it used to sink further on every mouse move; a fast
+                    // sweep sets every bar it passes.
+                    tableEditor->applyFormulaText ("sin(2*pi*x)", false);
+                    std::vector<juce::TextButton*> modeButtons;
+                    findAll<juce::TextButton> (*tableEditor, modeButtons);
+                    for (auto* button : modeButtons)
+                        if (button->getButtonText() == "SPECTRUM")
+                            button->triggerClick();
+                    settle (50);
+                    {
+                        auto& canvas = tableEditor->getCanvas();
+                        auto bars = canvas.getLocalBounds().toFloat().reduced (10.0f);
+                        bars.removeFromBottom (bars.getHeight() * 0.22f);
+                        bars.removeFromBottom (22.0f);
+                        const auto barAt = [&] (int harmonic, float t)
+                        {
+                            return juce::Point<float> (bars.getX() + ((float) harmonic - 0.5f) * bars.getWidth() / 64.0f,
+                                                       bars.getBottom() - t * bars.getHeight());
+                        };
+                        const auto press = barAt (1, 0.5f);
+                        canvas.mouseDown (OscSlotUi::mouse (canvas, press, true, press));
+                        for (int i = 0; i < 6; ++i)
+                            canvas.mouseDrag (OscSlotUi::mouse (canvas, press, true, press));
+                        canvas.mouseUp (OscSlotUi::mouse (canvas, press, false, press));
+                        tableEditor->commitNow();
+                        auto held = processor.getUserTableDoc (slot).recipes[0];
+                        const auto level = held.magnitudes.empty() ? 0.0f : held.magnitudes[0];
+                        expect (held.kind == FrameRecipe::Kind::Harmonics
+                                    && std::abs (juce::Decibels::gainToDecibels (level) + 30.0f) < 1.5f,
+                                "a SPECTRUM bar held at half height stays at -30 dB through the drag (was "
+                                    + juce::String (juce::Decibels::gainToDecibels (level), 1) + " dB)");
+
+                        const auto from = barAt (2, 0.98f), to = barAt (12, 0.98f);
+                        canvas.mouseDown (OscSlotUi::mouse (canvas, from, true, from));
+                        canvas.mouseDrag (OscSlotUi::mouse (canvas, to, true, from));
+                        canvas.mouseUp (OscSlotUi::mouse (canvas, to, false, from));
+                        tableEditor->commitNow();
+                        held = processor.getUserTableDoc (slot).recipes[0];
+                        auto filled = held.magnitudes.size() >= 12;
+                        for (int k = 1; filled && k < 12; ++k)
+                            filled = held.magnitudes[(size_t) k] > 0.5f;
+                        expect (filled, "a fast SPECTRUM sweep sets every bar between its two ends");
+                    }
                     tableEditor->applyShape (1);
                     save (*tableEditor, juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-wt-editor.png"));
                     host->closeWavetableEditor();
@@ -9283,6 +9328,48 @@ int main (int argc, char** argv)
         settle (400);
         save (*editor, outDir.getChildFile ("sampler-browser.png"));
         pages->closeSampleBrowser();
+        return 0;
+    }
+
+    // ILANA_SNAPSHOT_WTEDITOR: the wavetable editor over OSC 1's table, in
+    // each of its three modes (wteditor-draw.png, -spectrum.png,
+    // -formula.png), then stop.
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_SNAPSHOT_WTEDITOR", "").isNotEmpty())
+    {
+#if JUCE_LINUX
+        if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+            setHandler ([] (void*, void*) { return 0; });
+#endif
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        if (auto* parameter = processor.apvts.getParameter ("osc1_table"))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (3.0f));
+        pages->showPage ("OSC");
+        settle (300);
+        const auto clickButton = [&] (juce::Component& root, const juce::String& prefix)
+        {
+            std::vector<juce::TextButton*> buttons;
+            findAll<juce::TextButton> (root, buttons);
+            for (auto* button : buttons)
+                if (button->getButtonText().startsWith (prefix) && visibleInTree (button))
+                {
+                    button->triggerClick();
+                    return true;
+                }
+            return false;
+        };
+        clickButton (*editor, "EDIT TABLE");
+        settle (400);
+        if (auto* tableEditor = pages->getWavetableEditor())
+        {
+            for (const auto& [button, name] : { std::pair<const char*, const char*> { "DRAW", "draw" },
+                                                { "SPECTRUM", "spectrum" }, { "FORMULA", "formula" } })
+            {
+                clickButton (*tableEditor, button);
+                settle (300);
+                save (*editor, outDir.getChildFile (juce::String ("wteditor-") + name + ".png"));
+            }
+        }
         return 0;
     }
 

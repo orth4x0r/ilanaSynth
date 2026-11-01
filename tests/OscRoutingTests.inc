@@ -263,6 +263,12 @@ void runOscRoutingTests (bool everyPreset)
     // VoiceRouting::fromChain). Off, nothing changes at all (the fingerprint
     // check, tests/fingerprints-linux.csv).
     {
+        // Seeded voices and arp, as the fingerprint build: with a free arp
+        // random, a random-arp preset (Blues Machine, FM Walk) could play the
+        // same notes in the two chain renders by chance, then other notes as
+        // cables, and fail. Seeded, those presets are compared too.
+        fixedRandomSeeds() = true;
+        struct Restore { ~Restore() { fixedRandomSeeds() = false; } } restore;
         IlanaSynthAudioProcessor names;
         const auto presets = names.getFactoryPresetNames();
         const auto stride = everyPreset ? 1 : 6;

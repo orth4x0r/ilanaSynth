@@ -505,14 +505,14 @@ public:
             while (tap >= (double) loopSize)
                 tap -= (double) loopSize;
             const auto tapIndex = (int) tap;
-            const auto tapNext = (tapIndex + 1) % loopSize;
+            const auto tapNext = tapIndex + 1 < loopSize ? tapIndex + 1 : (tapIndex + 1) % loopSize;
             const auto tapFraction = (float) (tap - (double) tapIndex);
             // The full comb (a pickup over a node hears no harmonic that has
             // one there), its depth fading in over the knob's first eighth.
             const auto depth = juce::jmin (1.0f, 16.0f * pickupGlide.value);
             output = (output - depth * (buffer[(size_t) tapIndex]
                                         + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction))
-                     / std::sqrt (1.0f + depth * depth);
+                     / pickupNorm (depth);
         }
 
         if (splitOn)
@@ -763,11 +763,11 @@ private:
                 while (tap >= (double) size)
                     tap -= (double) size;
                 const auto tapIndex = (int) tap;
-                const auto tapNext = (tapIndex + 1) % size;
+                const auto tapNext = tapIndex + 1 < size ? tapIndex + 1 : (tapIndex + 1) % size;
                 const auto tapFraction = (float) (tap - (double) tapIndex);
                 const auto depth = juce::jmin (1.0f, 16.0f * pickup);
                 out = (out - depth * (data[tapIndex] + (data[tapNext] - data[tapIndex]) * tapFraction))
-                      / std::sqrt (1.0f + depth * depth);
+                      / s.pickupNorm (depth);
             }
 
             const auto lowpass = s.lowpassState + (delayed - s.lowpassState) * s.lowpassCoefficient;
@@ -1325,7 +1325,23 @@ private:
     {
         const auto size = (int) buffer.size();
         const auto half = size / 2;
-        const auto period = sampleRate / frequency;
+        // The pitch's period, the bridge's lowpass and the loop's length
+        // change only with the knobs: worked out again only then (the same
+        // sums, so the same values).
+        if (frequency != bowCacheFrequency || lowpassCoefficient != bowCacheLowpass || sampleRate != bowCacheRate)
+        {
+            bowCacheFrequency = frequency;
+            bowCacheLowpass = lowpassCoefficient;
+            bowCacheRate = sampleRate;
+            bowCachePeriod = sampleRate / frequency;
+            // Below A3 the bridge passes less treble, in proportion to the pitch: a
+            // real low string is much duller than a fixed cutoff would leave it,
+            // and its raw sawtooth buzzed.
+            bowCacheLpc = frequency >= 220.0 ? lowpassCoefficient
+                                             : (float) juce::jmax (0.03, (double) lowpassCoefficient * frequency / 220.0);
+            bowCacheBase = juce::jmax (4.0, bowCachePeriod - 1.0 - (1.0 - (double) bowCacheLpc) / (double) bowCacheLpc);
+        }
+        const auto period = bowCachePeriod;
         // The bow's place glides to the knob: a jump moves both waveguides'
         // read points at once, a click every block under modulation.
         const auto target = juce::jlimit (0.06, 0.5, excitationPosition > 0.0f ? (double) excitationPosition : 0.127);
@@ -1334,12 +1350,8 @@ private:
         if (bowPositionGlide.moving (target))
             bowPositionGlide.step (target, (double) glideCoefficient, 1.0e-7);
         const auto position = bowPositionGlide.value;
-        // Below A3 the bridge passes less treble, in proportion to the pitch: a
-        // real low string is much duller than a fixed cutoff would leave it,
-        // and its raw sawtooth buzzed.
-        const auto lpc = frequency >= 220.0 ? lowpassCoefficient
-                                            : (float) juce::jmax (0.03, (double) lowpassCoefficient * frequency / 220.0);
-        const auto base = juce::jmax (4.0, period - 1.0 - (1.0 - (double) lpc) / (double) lpc);
+        const auto lpc = bowCacheLpc;
+        const auto base = bowCacheBase;
         const auto bridgeLength = juce::jlimit (2.0, (double) half - 2.0, base * position);
         const auto neckLength = juce::jlimit (2.0, (double) half - 2.0, base * (1.0 - position));
 
@@ -1351,7 +1363,8 @@ private:
             const auto index = (int) read;
             const auto fraction = (float) (read - (double) index);
             const auto a = buffer[(size_t) (offset + index)];
-            const auto b = buffer[(size_t) (offset + (index + 1) % half)];
+            const auto next = index + 1 < half ? index + 1 : (index + 1) % half;
+            const auto b = buffer[(size_t) (offset + next)];
             return a + (b - a) * fraction;
         };
 
@@ -1402,8 +1415,8 @@ private:
 
         buffer[(size_t) bowBridgeWrite] = juce::jlimit (-4.0f, 4.0f, neckReflection + bowForce);
         buffer[(size_t) (half + bowNeckWrite)] = juce::jlimit (-4.0f, 4.0f, bridgeReflection + bowForce);
-        bowBridgeWrite = (bowBridgeWrite + 1) % half;
-        bowNeckWrite = (bowNeckWrite + 1) % half;
+        bowBridgeWrite = bowBridgeWrite + 1 < half ? bowBridgeWrite + 1 : (bowBridgeWrite + 1) % half;
+        bowNeckWrite = bowNeckWrite + 1 < half ? bowNeckWrite + 1 : (bowNeckWrite + 1) % half;
 
         // The bow's steady push leaves an offset on the bridge: block DC.
         const auto blocked = bridgeOut - bowDcInput + 0.995f * bowDcOutput;
@@ -1478,12 +1491,12 @@ private:
             while (tap >= (double) loopSize)
                 tap -= (double) loopSize;
             const auto tapIndex = (int) tap;
-            const auto tapNext = (tapIndex + 1) % loopSize;
+            const auto tapNext = tapIndex + 1 < loopSize ? tapIndex + 1 : (tapIndex + 1) % loopSize;
             const auto tapFraction = (float) (tap - (double) tapIndex);
             const auto depth = juce::jmin (1.0f, 16.0f * pickupGlide.value);
             output = (output - depth * (buffer[(size_t) tapIndex]
                                         + (buffer[(size_t) tapNext] - buffer[(size_t) tapIndex]) * tapFraction))
-                     / std::sqrt (1.0f + depth * depth);
+                     / pickupNorm (depth);
         }
 
         lowpassState += (delayed - lowpassState) * lowpassCoefficient;
@@ -1681,7 +1694,22 @@ private:
     float bowPressure = 0.0f, bowSpeed = 0.5f, buzz = 0.0f, rattle = 0.0f, strikeVelocity = 0.0f;
     float hammerHardness = 0.5f, damper = 0.0f, bridgeInput = 0.0f;
     float bowRamp = 0.0f, bowRampCoefficient = 0.001f;
+    // The pickup comb's level makeup, sqrt (1 + depth^2), kept for the
+    // depth it was worked out for (the depth only moves while it glides).
+    float pickupNormDepth = -1.0f, pickupNormValue = 1.0f;
+    float pickupNorm (float depth) noexcept
+    {
+        if (depth != pickupNormDepth)
+        {
+            pickupNormDepth = depth;
+            pickupNormValue = std::sqrt (1.0f + depth * depth);
+        }
+        return pickupNormValue;
+    }
+
     int bowNeckWrite = 0, bowBridgeWrite = 0;
+    double bowCacheFrequency = -1.0, bowCacheRate = -1.0, bowCachePeriod = 1.0, bowCacheBase = 4.0;
+    float bowCacheLowpass = -1.0f, bowCacheLpc = 0.5f;
     float bowDcInput = 0.0f, bowDcOutput = 0.0f;
     static constexpr float bowOutputGain = 2.0f;
     float hammerLevel = 0.0f, hammerShape = 1.0f;

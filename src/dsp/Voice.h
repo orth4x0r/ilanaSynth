@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -490,6 +491,21 @@ struct VoiceSharedState
     double masterBendSemitones = 0.0;
     double lastNoteFrequency = 0.0; // 0: none yet
 };
+
+// The voices' "analog" generators (random, drift) and the arpeggiator's
+// random run free in the plugin: every note differs a little. The fingerprint
+// build seeds them so presets render the same every time; tests that compare
+// renders or measure pitch turn the same seeding on here, before they make
+// a processor.
+inline std::atomic<bool>& fixedRandomSeeds()
+{
+#if ILANA_FINGERPRINT_BUILD
+    static std::atomic<bool> fixed { true };
+#else
+    static std::atomic<bool> fixed { false };
+#endif
+    return fixed;
+}
 
 class Voice : public juce::SynthesiserVoice
 {

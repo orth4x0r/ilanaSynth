@@ -895,6 +895,58 @@ void runCpuSleepTests()
     check (sleepSeconds < awakeSeconds, "held sleep is cheaper (" + juce::String (sleepSeconds / awakeSeconds, 2) + "x the time)");
 }
 
+// ilana 2026-10-31 ("fix this"): a held note asleep after its string died
+// wakes when a filter is then pushed into self-oscillation, and screams as
+// it would have awake.
+void runHeldSleepFilterWakeTest()
+{
+    const auto lateLevel = [] (int type, bool sleep, float& screamDb)
+    {
+        Voice::disableHeldSilence = ! sleep;
+        IlanaSynthAudioProcessor processor;
+        processor.setNonRealtime (true);
+        setParam (processor, "sub_on", 0.0f);
+        setParam (processor, "osc1_mode", 1.0f);
+        setParam (processor, "osc1_excite", 0.0f);
+        setParam (processor, "osc1_string_decay", 0.3f);
+        setParam (processor, "f1_type", (float) type);
+        setParam (processor, "f1_cutoff", 800.0f);
+        setParam (processor, "f1_reso", 0.1f);
+        processor.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buffer (2, 256);
+        auto peak = 0.0f;
+        for (int block = 0; block < 1500; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 52, (juce::uint8) 100), 0);
+            if (block == 900)
+                setParam (processor, "f1_reso", 1.0f);
+            buffer.clear();
+            processor.processBlock (buffer, midi);
+            if (block >= 1200)
+                peak = juce::jmax (peak, buffer.getMagnitude (0, 0, 256));
+        }
+        Voice::disableHeldSilence = false;
+        screamDb = juce::Decibels::gainToDecibels (peak, -200.0f);
+    };
+    auto checked = 0;
+    for (int type = 0; type < 40; ++type)
+    {
+        float awake = 0.0f, asleep = 0.0f;
+        lateLevel (type, false, awake);
+        if (awake < -40.0f)
+            continue; // this model does not self-oscillate here
+        lateLevel (type, true, asleep);
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_WAKE_PRINT", "").isNotEmpty())
+            std::cout << "  filter type " << type << ": awake " << awake << " dB, slept " << asleep << " dB" << std::endl;
+        check (asleep > awake - 6.0f, "filter type " + juce::String (type) + " pushed into self-oscillation wakes a sleeping held note ("
+                                          + juce::String (asleep, 1) + " dB against " + juce::String (awake, 1) + " dB awake)");
+        ++checked;
+    }
+    check (checked > 0, "some filter self-oscillates in the wake test (" + juce::String (checked) + " models)");
+}
+
 // ILANA_STEREO_BENCH=1: what a stereo string route costs a whole voice (8 notes of a pluck and of the Piano
 // exciter, with and without a stereo route into DAMP), for docs/ROUTING-CPU.md.
 void runStereoStringBench()

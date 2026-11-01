@@ -1317,7 +1317,7 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     // (or pedal) comes up; then it carries on from where it stopped.
     if (heldAsleep)
     {
-        if (noteHeld && ! monoPending && fadeTotal == 0 && heldSleepAllowed())
+        if (noteHeld && ! monoPending && fadeTotal == 0 && heldSleepAllowed() && ! filterSettingsMoved())
             return;
         heldAsleep = false;
         heldSilentSamples = 0;
@@ -3630,7 +3630,10 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
         heldSilentSamples = releasePeak < releaseSilence ? heldSilentSamples + numSamples : 0;
         releasePeak = 0.0f;
         if (heldSilentSamples >= (int) (sampleRate * 0.09))
+        {
             heldAsleep = true;
+            rememberFilterSettings();
+        }
     }
 
     if (! hasActiveAmpEnvelope())
@@ -3961,7 +3964,57 @@ bool Voice::heldSleepAllowed() const
         if (excite == E::Bow || excite == E::External || excite == E::Feedback || settings.stringSustain > 0.0f)
             return false;
     }
+    // A route into a filter or the WEST gate could push it into
+    // self-oscillation while the note sleeps (its source doesn't run then).
+    static const auto filterDestinations = []
+    {
+        using D = Mod::Destination;
+        std::vector<bool> marks ((size_t) Mod::getNumDestinations(), false);
+        for (const auto d : { D::Filter1Cutoff, D::Filter1Reso, D::Filter2Cutoff, D::Filter2Reso, D::Filter1Drive, D::Filter2Drive,
+                              D::Filter1Env, D::Filter2Env, D::Filter1Fm, D::Filter2Fm, D::Filter1Morph, D::Filter2Morph })
+            marks[(size_t) d] = true;
+        const auto& list = Mod::getParamDestinations();
+        for (int i = 0; i < (int) list.size(); ++i)
+        {
+            const juce::String id (list[(size_t) i].id);
+            const auto d = Mod::paramDestinationFor (i);
+            if (d >= 0 && d < (int) marks.size() && (id.startsWith ("f1_") || id.startsWith ("f2_") || id.startsWith ("west_") || id.startsWith ("filter")))
+                marks[(size_t) d] = true;
+        }
+        return marks;
+    }();
+    for (int slot = 0; slot < params.numModSlots; ++slot)
+    {
+        const auto d = params.modSlots[slot].destination;
+        if (! params.modSlots[slot].bypass && d >= 0 && d < (int) filterDestinations.size() && filterDestinations[(size_t) d])
+            return false;
+    }
     return true;
+}
+
+void Voice::rememberFilterSettings()
+{
+    sleptFilter1 = params.filter1;
+    sleptFilter2 = params.filter2;
+    sleptWest = params.west;
+    sleptFilterFm[0] = params.filter1Fm;
+    sleptFilterFm[1] = params.filter2Fm;
+}
+
+bool Voice::filterSettingsMoved() const
+{
+    const auto filterMoved = [] (const VoiceParams::FilterParams& a, const VoiceParams::FilterParams& b)
+    {
+        return a.type != b.type || a.slope24 != b.slope24 || a.cutoffHz != b.cutoffHz || a.resonance != b.resonance
+               || a.drive != b.drive || a.envAmount != b.envAmount || a.keyTrack != b.keyTrack || a.morph != b.morph;
+    };
+    const auto& w = params.west;
+    const auto& v = sleptWest;
+    return filterMoved (params.filter1, sleptFilter1) || filterMoved (params.filter2, sleptFilter2)
+           || params.filter1Fm != sleptFilterFm[0] || params.filter2Fm != sleptFilterFm[1]
+           || w.on != v.on || w.position != v.position || w.fold != v.fold || w.symmetry != v.symmetry || w.stages != v.stages
+           || w.mode != v.mode || w.decay != v.decay || w.resonance != v.resonance || w.strike != v.strike || w.open != v.open
+           || w.source != v.source;
 }
 
 bool Voice::legacyMaterialBody() const

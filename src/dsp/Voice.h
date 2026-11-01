@@ -1025,6 +1025,15 @@ private:
     bool watchHeldSilence = false, heldAsleep = false;
     int heldSilentSamples = 0;
     bool heldSleepAllowed() const;
+    // A filter (or the WEST gate) can ring on its own from the strings'
+    // last -110 dB residue once pushed into self-oscillation, so a sleeping
+    // note wakes the block any filter or WEST setting moves, and never
+    // sleeps while a route modulates one (ilana 2026-10-31: "fix this").
+    VoiceParams::FilterParams sleptFilter1, sleptFilter2;
+    VoiceParams::WestParams sleptWest;
+    float sleptFilterFm[2] {};
+    void rememberFilterSettings();
+    bool filterSettingsMoved() const;
     // M8.1: simulated shapes, SMOOTH and output B for the per-voice LFOs.
     LfoSim lfoSims[VoiceParams::numLfos];
     LfoSmoother lfoSmoothers[VoiceParams::numLfos];

@@ -219,6 +219,18 @@ FX type 42 runs one voice filter model per channel on the rack, coefficients eve
 For scale: Reverb 0.31 %, EQ 0.20 %, Tilt 0.09 % in the same run. The empty rack and every other effect run the same code as before (FILTER only runs when a slot holds it); 0 of 698 presets changed. In a loop it costs the same per pass, as every effect does (rules A1-A3 above).
 
 
+## Stereo string twin, round 3 (2026-11-01, branch `claude/project-thread-q62hka`)
+
+The bow and the KS hammer get their own paired paths in `KarplusStrong::processPair`, and the Piano twin runs both sides' quarter-turn chains in one 4-lane chain. Bit for bit the same as two `process()` calls (`runStringPairTest`), and mono is unchanged (standalone old-vs-new check, every exciter).
+
+| Measure (ns per voice-sample, 8 voices, pinned core, min of 7) | two calls | one call before | one call now |
+|---|---|---|---|
+| Bow | 101-105 | (two calls) | 84-88 (-15 %) |
+| Piano | 193-201 | 172 | 162-166 (-5 %) |
+| KS hammer | 61-66 | (two calls) | 58-61 (-5 %) |
+
+Whole voice, stereo DAMP route, 8 notes (`ILANA_STEREO_BENCH`, pinned core, min of 3 alternating runs): bow 490 -> 453 ms (-8 %), pluck 411 -> 412 ms (untouched), Piano 624 -> 616 ms (inside the run-to-run swing). The stereo route now adds only 12-25 % to a string voice (twin sleep at rest, #203/#204); what is left is mostly the two strings' own loops, which a stereo route can't share.
+
 ## Stereo string twin in one call (2026-10-30, branch `claude/project-thread-q62hka`)
 
 A stereo route into a string knob plays one string as a left/right twin (PR #196). The twin was a second `process()` call; `KarplusStrong::processPair` now plays both sides in one pass (bit for bit the same, `runStringPairTest`).

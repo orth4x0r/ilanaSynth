@@ -1528,6 +1528,10 @@ void runPhase2StateAndCpuTest()
 // 2026-10-31: ramping Granular Pad's F2 KEY TRACK clicked once, at the crossing).
 void runFilter2CrossingTest()
 {
+    // The voices' free random (drift) changed the worst jump from run to run
+    // (1.7x to 4x on the same build): seeded, as the fingerprint build is.
+    fixedRandomSeeds() = true;
+    struct Restore { ~Restore() { fixedRandomSeeds() = false; } } restore;
     const auto worstClick = [] (bool bypass)
     {
         Voice::disableOpenFilterBypass = ! bypass;

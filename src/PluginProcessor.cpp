@@ -1869,8 +1869,26 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     processClip (midiForSynth, buffer.getNumSamples());
 
     for (const auto metadata : midiForSynth)
-        if (metadata.getMessage().isNoteOn())
+    {
+        const auto message = metadata.getMessage();
+        if (message.isNoteOn())
+        {
             noteSerial.fetch_add (1);
+            uiNoteVelocity[(size_t) message.getNoteNumber()].store ((juce::uint8) juce::jmax (1, (int) message.getVelocity()), std::memory_order_relaxed);
+            uiNoteEpoch.fetch_add (1, std::memory_order_relaxed);
+        }
+        else if (message.isNoteOff())
+        {
+            uiNoteVelocity[(size_t) message.getNoteNumber()].store (0, std::memory_order_relaxed);
+            uiNoteEpoch.fetch_add (1, std::memory_order_relaxed);
+        }
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+        {
+            for (auto& velocity : uiNoteVelocity)
+                velocity.store (0, std::memory_order_relaxed);
+            uiNoteEpoch.fetch_add (1, std::memory_order_relaxed);
+        }
+    }
 
     trackHeldKeys (midiForSynth);
     playResumedKeys (midiForSynth, buffer.getNumSamples());

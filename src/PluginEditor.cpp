@@ -318,6 +318,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     content.addAndMakeVisible (logo);
     logo.isSounding = [this] { return processorRef.getActiveVoiceCount() > 0; };
+    logo.outputLevel = [this] { return processorRef.getOutputPeak(); };
     content.addAndMakeVisible (infoStrip);
 
     // KEYS and ? sit at the right of the tab row, beside SCOPE (the status
@@ -1834,7 +1835,11 @@ void IlanaSynthAudioProcessorEditor::resized()
     // ---- Header (52 px): the mark and name, the preset display with its
     // prev / next segments and the live scope, star, SAVE and the menu; at
     // the right undo, redo, history, A/B and the dice and settings keys.
-    logo.setBounds (14, 9, 160, 34);
+    {
+        // (The component is bigger than the mark by the glow's room, left, top and bottom.)
+        const auto margin = (int) LogoComponent::glowMargin;
+        logo.setBounds (14 - margin, 9 - margin, 160 + margin, 34 + 2 * margin);
+    }
     logo.version = juce::String ("v") + appVersion;
 
     constexpr int key = 30, step = 10, rowY = 11;

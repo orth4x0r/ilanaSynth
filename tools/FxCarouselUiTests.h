@@ -30,11 +30,8 @@ inline void runFxCarouselUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         for (const auto& entry : group.entries)
             expected += entry.twin > 0 ? 2 : 1;
     expect (carousel->numTiles() == expected && expected > 40, "CAROUSEL: one tile for every effect in the library (" + juce::String (carousel->numTiles()) + ")");
-    // (Under the canvas, or, where the fitted graph leaves an empty corner, inside that corner: UI review 28.)
-    const auto inCorner = carousel->getParentComponent() == view->getParentComponent() && view->getBounds().contains (carousel->getBounds());
-    expect (carousel->isVisible() && carousel->getBottom() <= view->getParentComponent()->getHeight()
-                && (carousel->getY() >= view->getBottom() || inCorner),
-            "CAROUSEL: the row sits under the canvas or in its empty corner");
+    expect (carousel->isVisible() && carousel->getBottom() <= view->getParentComponent()->getHeight() && carousel->getY() >= view->getBottom(),
+            "CAROUSEL: the row sits under the canvas");
 
     const auto effectBoxes = [view]
     {
@@ -130,4 +127,110 @@ inline void runFxCarouselUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
             "CAROUSEL: the row stops at its last tile");
     carousel->scrollTo (-50.0f);
     expect (carousel->getScroll() == 0.0f, "CAROUSEL: the row does not scroll before its first tile");
+
+    // ILANA_UITEST_SHOTS=<dir>: pictures of the drop, the picking box and the paste, for review.
+    const auto shotsDir = juce::SystemStats::getEnvironmentVariable ("ILANA_UITEST_SHOTS", "");
+    const auto shot = [&] (const char* name)
+    {
+        if (shotsDir.isNotEmpty())
+        {
+            settle (150);
+            save (editor, juce::File (shotsDir).getChildFile (name));
+        }
+    };
+
+    // A tile dropped on empty canvas lands there on its own, wired to nothing (ilana 2026-11-04).
+    {
+        const auto cablesBefore = processor.getFxPatchGraph().cables().size();
+        const auto countBefore = effectBoxes().size();
+        carousel->scrollTo (0.0f);
+        const auto tile = tileOf (reverb) >= 0 && carousel->viewport().contains (centreOf (tileOf (reverb)).toInt()) ? tileOf (reverb) : 0;
+        const auto from = centreOf (tile);
+        // (The empty space under the boxes, inside the canvas.)
+        // (Straight up from the tile: a sideways sweep scrolls the row instead.)
+        const auto above = view->getLocalPoint (carousel, from);
+        const auto empty = carousel->getLocalPoint (view, juce::Point<float> (above.x, (float) view->getHeight() - 30.0f));
+        carousel->mouseDown (PatchCableUi::mouse (*carousel, from, true));
+        for (int step = 1; step <= 10; ++step)
+            carousel->mouseDrag (PatchCableUi::mouse (*carousel, from + (empty - from) * ((float) step / 10.0f), true, false, from));
+        carousel->mouseUp (PatchCableUi::mouse (*carousel, empty, false, false, from));
+        settle (300);
+        const PatchGraph::Node* dropped = nullptr;
+        for (const auto* node : effectBoxes())
+        {
+            auto wired = false;
+            for (const auto& cable : view->getGraph().cables())
+                wired = wired || cable.from.node == node->id || cable.to.node == node->id;
+            if (! wired)
+                dropped = node;
+        }
+        expect (effectBoxes().size() == countBefore + 1 && dropped != nullptr && processor.getFxPatchGraph().cables().size() == cablesBefore,
+                "CAROUSEL: a tile dropped on empty canvas lands there, wired to nothing (" + juce::String ((int) countBefore) + " -> "
+                    + juce::String ((int) effectBoxes().size()) + " boxes, " + juce::String ((int) cablesBefore) + " -> "
+                    + juce::String ((int) processor.getFxPatchGraph().cables().size()) + " cables, " + (dropped != nullptr ? "one unwired" : "none unwired") + ")");
+        shot ("patch-drop-unwired.png");
+    }
+
+    // Copy and paste: two wired effects picked, Ctrl+C, Ctrl+V. The copies keep the cable between them and nothing
+    // else (no route from the end of one chain into the other), with their settings.
+    {
+        auto boxesNow = effectBoxes();
+        const PatchGraph::Node* first = nullptr;
+        const PatchGraph::Node* second = nullptr;
+        for (const auto& cable : view->getGraph().cables())
+            for (const auto* a : boxesNow)
+                for (const auto* b : boxesNow)
+                    if (first == nullptr && cable.from.node == a->id && cable.to.node == b->id)
+                    {
+                        first = a;
+                        second = b;
+                    }
+        expect (first != nullptr, "PASTE: two wired effects to copy");
+        if (first == nullptr)
+            return;
+        const auto firstKind = first->kind, secondKind = second->kind;
+        const auto oldIds = std::set<PatchGraph::NodeId> { first->id, second->id };
+        const auto cablesBefore = processor.getFxPatchGraph().cables().size();
+        {
+            // (The picking box drawn round the two, pictured mid-drag.)
+            const auto zoom = view->getZoom();
+            const auto box = view->nodeBounds (*first).getUnion (view->nodeBounds (*second));
+            const auto from = (box.getTopLeft() - juce::Point<float> (12.0f, 12.0f)) * zoom;
+            const auto to = (box.getBottomRight() + juce::Point<float> (8.0f, 8.0f)) * zoom;
+            view->mouseDown (PatchCableUi::mouse (*view, from, true));
+            for (int step = 1; step <= 6; ++step)
+                view->mouseDrag (PatchCableUi::mouse (*view, from + (to - from) * ((float) step / 6.0f), true, false, from));
+            shot ("patch-select-box.png");
+            view->mouseUp (PatchCableUi::mouse (*view, to, false, false, from));
+        }
+        view->setSelection ({ first->id, second->id });
+        view->keyPressed (juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0));
+        view->keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0));
+        settle (300);
+        shot ("patch-paste.png");
+        const auto picked = view->getSelection();
+        auto kinds = std::multiset<int>();
+        auto fresh = true;
+        for (const auto id : picked)
+        {
+            fresh = fresh && oldIds.count (id) == 0;
+            if (const auto* node = view->getGraph().find (id))
+                kinds.insert (node->kind);
+        }
+        auto inside = 0, outside = 0;
+        for (const auto& cable : view->getGraph().cables())
+        {
+            const auto a = std::find (picked.begin(), picked.end(), cable.from.node) != picked.end();
+            const auto b = std::find (picked.begin(), picked.end(), cable.to.node) != picked.end();
+            inside += a && b ? 1 : 0;
+            outside += a != b ? 1 : 0;
+        }
+        expect (picked.size() == 2 && fresh && kinds == std::multiset<int> { firstKind, secondKind } && inside == 1 && outside == 0
+                    && processor.getFxPatchGraph().cables().size() == cablesBefore + 1,
+                "PASTE: the copies come in picked, with the cable between them and nothing else wired ("
+                    + juce::String ((int) picked.size()) + " boxes, " + juce::String (inside) + " inside, " + juce::String (outside) + " outside)");
+        processor.getUndoManager().undo();
+        settle (300);
+        expect (processor.getFxPatchGraph().cables().size() == cablesBefore, "PASTE: one undo takes the paste back");
+    }
 }

@@ -3,6 +3,7 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <set>
 
 #include "AnimationUtils.h"
 #include "IlanaLookAndFeel.h"
@@ -94,6 +95,10 @@ public:
     // nodes are rack slots, whose bypass and effect are parameters); unset,
     // the view edits the graph. onOpen: a node double-clicked.
     std::function<void (const PatchGraph::Node&)> onBypass, onRemove, onOpen;
+    // Several boxes picked (a drag over empty space, shift-click, Ctrl+A): Ctrl+C / Ctrl+D hand them to onCopy,
+    // Ctrl+V / Ctrl+D ask onPaste for a copy at a graph position, Delete hands them to onRemoveMany (one undo step).
+    std::function<void (const std::vector<PatchGraph::NodeId>&)> onCopy, onRemoveMany;
+    std::function<void (juce::Point<float>)> onPaste;
     // Optional, for a fixed set of nodes (the oscillator routing, step 16):
     // statusOf names a node's second line (instead of its CPU); acceptGraph
     // vets a cable edit before it happens (false: the cable snaps back and
@@ -286,7 +291,38 @@ public:
         selectedCable = selectedCable >= 0 ? graph.findCable (selectedFrom, selectedTo) : -1;
         if (graph.find (selectedNode) == nullptr)
             selectedNode = 0;
+        for (auto it = selection.begin(); it != selection.end();)
+            it = graph.find (*it) == nullptr ? selection.erase (it) : std::next (it);
         repaint();
+    }
+
+    // The picked boxes (the selected one too), in the graph's order.
+    std::vector<PatchGraph::NodeId> getSelection() const
+    {
+        std::vector<PatchGraph::NodeId> ids;
+        for (const auto& node : graph.nodes())
+            if (isSelected (node.id))
+                ids.push_back (node.id);
+        return ids;
+    }
+
+    void setSelection (const std::vector<PatchGraph::NodeId>& ids)
+    {
+        selection.clear();
+        for (const auto id : ids)
+            if (graph.find (id) != nullptr)
+                selection.insert (id);
+        selectedNode = selection.empty() ? 0 : *selection.begin();
+        selectedCable = -1;
+        repaint();
+    }
+
+    bool isSelected (PatchGraph::NodeId id) const { return id != 0 && (id == selectedNode || selection.count (id) > 0); }
+
+    // The box a drag over empty space draws (graph coordinates, before the origin), while it is drawn.
+    juce::Rectangle<float> getMarquee() const
+    {
+        return drag.kind == DragKind::marquee ? juce::Rectangle<float> (drag.start, drag.mouse) - origin : juce::Rectangle<float>();
     }
 
     //==========================================================================
@@ -434,6 +470,15 @@ public:
             if (isShown (node))
                 paintNode (g, node);
 
+        if (drag.kind == DragKind::marquee && drag.moved)
+        {
+            const auto box = juce::Rectangle<float> (drag.start, drag.mouse);
+            g.setColour (accent().withAlpha (0.08f));
+            g.fillRoundedRectangle (box, 4.0f);
+            g.setColour (accent().withAlpha (0.7f));
+            g.drawRoundedRectangle (box, 4.0f, 1.0f / zoom);
+        }
+
         if (drag.kind == DragKind::cable)
         {
             const auto from = portPosition (drag.from, drag.reverse);
@@ -538,6 +583,27 @@ public:
 
         if (const auto* node = nodeAt (position))
         {
+            // Shift: the box joins (or leaves) the picked ones. A box already picked keeps the others, so they
+            // move together; any other click picks just this one.
+            if (e.mods.isShiftDown())
+            {
+                if (isSelected (node->id))
+                {
+                    selection.erase (node->id);
+                    if (selectedNode == node->id)
+                        selectedNode = selection.empty() ? 0 : *selection.begin();
+                    drag = {};
+                    repaint();
+                    return;
+                }
+                if (selectedNode != 0)
+                    selection.insert (selectedNode);
+                selection.insert (node->id);
+            }
+            else if (! isSelected (node->id))
+            {
+                selection.clear();
+            }
             selectedNode = node->id;
             selectedCable = -1;
             drag = {};
@@ -545,14 +611,34 @@ public:
             drag.node = node->id;
             drag.grabOffset = position - juce::Point<float> (origin.x + node->x, origin.y + node->y);
             drag.start = { node->x, node->y };
+            for (const auto id : getSelection())
+                if (const auto* picked = graph.find (id); picked != nullptr && id != node->id && ! picked->isFixed() && (! movable || movable (*picked)))
+                    drag.group[id] = { picked->x, picked->y };
             repaint();
             return;
         }
 
         selectCable (cableAt (position));
-        selectedNode = 0;
         if (selectedCable < 0)
-            startPan (e.position); // empty space: drag to look around a big patch
+        {
+            // Empty space: drag a box over the boxes to pick them (Shift adds to the ones picked). The view pans
+            // with the wheel, the middle button or Space held.
+            if (! e.mods.isShiftDown())
+            {
+                selection.clear();
+                selectedNode = 0;
+            }
+            drag = {};
+            drag.kind = DragKind::marquee;
+            drag.start = drag.mouse = position;
+            for (const auto id : getSelection())
+                drag.group[id] = {};
+        }
+        else
+        {
+            selection.clear();
+            selectedNode = 0;
+        }
         repaint();
     }
 
@@ -584,8 +670,11 @@ public:
             if (! drag.moved && (e.getDistanceFromDragStart() <= 2 || snapped == drag.start))
                 return;
             graph.moveNode (drag.node, snapped.x, snapped.y);
+            for (const auto& [id, start] : drag.group)
+                graph.moveNode (id, start.x + snapped.x - drag.start.x, start.y + snapped.y - drag.start.y);
             drag.moved = true;
-            if (const auto target = spliceTargetAt (e.position / zoom); target != drag.spliceCable)
+            // (Only a box on its own drops into a cable.)
+            if (const auto target = drag.group.empty() ? spliceTargetAt (e.position / zoom) : -1; target != drag.spliceCable)
             {
                 drag.spliceCable = target;
                 previewSplice();
@@ -596,6 +685,23 @@ public:
         else if (drag.kind == DragKind::map)
         {
             centreOnMapPoint (e.position);
+        }
+        else if (drag.kind == DragKind::marquee)
+        {
+            drag.mouse = e.position / zoom;
+            drag.moved = drag.moved || e.getDistanceFromDragStart() > 2;
+            if (drag.moved)
+            {
+                const auto box = juce::Rectangle<float> (drag.start, drag.mouse);
+                selection.clear();
+                for (const auto& [id, unused] : drag.group)
+                    selection.insert (id); // (the ones picked before, with Shift)
+                for (const auto& node : graph.nodes())
+                    if (isShown (node) && ! node.isFixed() && nodeBounds (node).intersects (box))
+                        selection.insert (node.id);
+                selectedNode = selection.empty() ? 0 : *selection.begin();
+            }
+            repaint();
         }
         else if (drag.kind == DragKind::cable)
         {
@@ -641,7 +747,7 @@ public:
                     onEdited (Edit::layout);
             }
         }
-        if (drag.kind == DragKind::pan || drag.kind == DragKind::map)
+        if (drag.kind == DragKind::pan || drag.kind == DragKind::map || drag.kind == DragKind::marquee)
         {
             drag = {};
             updateCursor (e.position);
@@ -704,7 +810,11 @@ public:
         navigated();
     }
 
-    void mouseMove (const juce::MouseEvent& e) override { updateCursor (e.position); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        lastPointer = e.position / zoom - origin;
+        updateCursor (e.position);
+    }
 
     void mouseExit (const juce::MouseEvent&) override
     {
@@ -758,8 +868,62 @@ public:
             if (key == juce::KeyPress::spaceKey)
                 return true; // (held: pans)
         }
+        if (key.getModifiers().isCommandDown() && ! key.getModifiers().isAltDown())
+        {
+            const auto code = juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) key.getKeyCode());
+            if (code == 'a')
+            {
+                std::vector<PatchGraph::NodeId> all;
+                for (const auto& node : graph.nodes())
+                    if (isShown (node) && ! node.isFixed())
+                        all.push_back (node.id);
+                setSelection (all);
+                return true;
+            }
+            if ((code == 'c' || code == 'd') && onCopy)
+            {
+                const auto picked = getSelection();
+                if (picked.empty())
+                    return code == 'c';
+                onCopy (picked);
+                if (code == 'c')
+                    return true;
+            }
+            if ((code == 'v' || code == 'd') && onPaste)
+            {
+                // At the pointer while it is over the canvas; else beside the boxes copied (onPaste decides).
+                const auto inside = isMouseOver (true) && viewArea().contains (lastPointer + origin);
+                onPaste (code == 'd' || ! inside ? juce::Point<float> (std::numeric_limits<float>::quiet_NaN(), 0.0f) : lastPointer);
+                return true;
+            }
+        }
+        if (key == juce::KeyPress::escapeKey && (! selection.empty() || selectedNode != 0))
+        {
+            setSelection ({});
+            return true;
+        }
         if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
         {
+            if (const auto picked = getSelection(); picked.size() > 1 && selectedCable < 0)
+            {
+                std::vector<PatchGraph::NodeId> gone;
+                for (const auto id : picked)
+                    if (const auto* node = graph.find (id); node != nullptr && canRemove (*node))
+                        gone.push_back (id);
+                if (gone.empty())
+                    return false;
+                selection.clear();
+                selectedNode = 0;
+                if (onRemoveMany)
+                    onRemoveMany (gone);
+                else
+                {
+                    for (const auto id : gone)
+                        graph.removeNode (id);
+                    edited (Edit::nodes);
+                }
+                return true;
+            }
             if (selectedCable >= 0 && selectedCable < (int) graph.cables().size())
             {
                 const auto cable = graph.cables()[(size_t) selectedCable];
@@ -1073,7 +1237,7 @@ private:
     std::map<SwingKey, Swing> swings;
     bool motion = true;
 
-    enum class DragKind { none, node, cable, pan, loopLevel, map };
+    enum class DragKind { none, node, cable, pan, loopLevel, map, marquee };
 
     //==========================================================================
     // Navigation helpers.
@@ -1444,7 +1608,8 @@ private:
         float pickedDelay = 0.0f;
         juce::Point<float> mouse;
         int spliceCable = -1; // a dragged box over a cable it would drop into
-        juce::Point<float> start; // where a dragged box was
+        juce::Point<float> start; // where a dragged box was; where a picking box started
+        std::map<PatchGraph::NodeId, juce::Point<float>> group; // the other picked boxes and where they were
     };
 
     void removeNodeNow (const PatchGraph::Node& node)
@@ -1820,7 +1985,7 @@ private:
         using namespace IlanaTheme;
         const auto bounds = nodeBounds (node);
         const auto colour = colourFor (node);
-        const auto selected = node.id == selectedNode;
+        const auto selected = isSelected (node.id);
         const auto alpha = node.bypassed ? 0.45f : 1.0f;
 
         if (node.isFixed())
@@ -1915,6 +2080,8 @@ private:
     float zoom = 1.0f;
     juce::Point<float> origin { 20.0f, 20.0f };
     PatchGraph::NodeId selectedNode = 0;
+    std::set<PatchGraph::NodeId> selection; // the other picked boxes (selectedNode is the one in front)
+    juce::Point<float> lastPointer; // graph coordinates, for a paste at the pointer
     int selectedCable = -1;
     PatchGraph::Port selectedFrom, selectedTo; // the selected cable's ends (it survives a refresh)
     float loopLatencyMs = 1.3f;

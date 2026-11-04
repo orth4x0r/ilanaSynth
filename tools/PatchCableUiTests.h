@@ -409,6 +409,80 @@ inline void runPatchCableTests (IlanaSynthAudioProcessor& processor)
         dragFromTo (h.view, h.view.nodeBounds (*h.graph.find (drive)).getCentre(), { 760.0f, 290.0f });
         expect (h.graph.cables().size() == cables && h.layoutEdits == 1, "cable view: a box dropped on empty space only moves");
     }
+
+    // Picking several boxes (ilana 2026-11-04): a drag over empty space picks the boxes it touches, Shift-click
+    // adds and takes one away, the picked boxes move together, Ctrl+C / Ctrl+V go to the owner, Delete takes them
+    // all out in one edit and Esc lets them go.
+    {
+        Harness h (demoGraph());
+        std::vector<PatchGraph::NodeId> copied, removed;
+        auto pastes = 0;
+        h.view.onCopy = [&copied] (const std::vector<PatchGraph::NodeId>& ids) { copied = ids; };
+        h.view.onPaste = [&pastes] (juce::Point<float>) { ++pastes; };
+        h.view.onRemoveMany = [&removed] (const std::vector<PatchGraph::NodeId>& ids) { removed = ids; };
+        const auto idOf = [&h] (const char* label)
+        {
+            for (const auto& node : h.graph.nodes())
+                if (node.label == label)
+                    return node.id;
+            return PatchGraph::NodeId (0);
+        };
+        const auto chorus = idOf ("CHORUS"), phaser = idOf ("PHASER"), delay = idOf ("DELAY"), drive = idOf ("DRIVE");
+        // (A box round CHORUS and PHASER, from the empty space above-left of them to the gap before DELAY.)
+        const auto topLeft = h.view.nodeBounds (*h.graph.find (chorus)).getTopLeft() - juce::Point<float> (10.0f, 10.0f);
+        const auto bottomRight = h.view.nodeBounds (*h.graph.find (phaser)).getBottomRight() + juce::Point<float> (6.0f, 6.0f);
+        expect (h.view.nodeAt (topLeft) == nullptr && h.view.cableAt (topLeft) < 0, "picking: the drag starts on empty space");
+        const auto originBefore = h.view.getOrigin();
+        dragFromTo (h.view, topLeft, bottomRight);
+        auto picked = h.view.getSelection();
+        expect (picked.size() == 2 && h.view.isSelected (chorus) && h.view.isSelected (phaser) && h.view.getOrigin() == originBefore,
+                "picking: a drag over empty space picks the boxes it touches and does not pan (" + juce::String ((int) picked.size()) + ")");
+
+        const auto shiftClick = [&h] (PatchGraph::NodeId id)
+        {
+            const auto at = h.view.nodeBounds (*h.graph.find (id)).getCentre();
+            h.view.mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at,
+                                                juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::shiftModifier),
+                                                1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &h.view, &h.view, juce::Time::getCurrentTime(), at,
+                                                juce::Time::getCurrentTime(), 1, false));
+            h.view.mouseUp (mouse (h.view, at, false));
+        };
+        shiftClick (delay);
+        expect (h.view.getSelection().size() == 3 && h.view.isSelected (delay), "picking: Shift-click adds a box");
+        shiftClick (delay);
+        expect (h.view.getSelection().size() == 2 && ! h.view.isSelected (delay), "picking: Shift-click again takes it away");
+
+        const auto chorusAt = juce::Point<float> (h.graph.find (chorus)->x, h.graph.find (chorus)->y);
+        const auto phaserAt = juce::Point<float> (h.graph.find (phaser)->x, h.graph.find (phaser)->y);
+        const auto cables = h.graph.cables().size();
+        const auto grab = h.view.nodeBounds (*h.graph.find (chorus)).getCentre();
+        dragFromTo (h.view, grab, grab + juce::Point<float> (0.0f, 140.0f));
+        const auto chorusBy = juce::Point<float> (h.graph.find (chorus)->x, h.graph.find (chorus)->y) - chorusAt;
+        const auto phaserBy = juce::Point<float> (h.graph.find (phaser)->x, h.graph.find (phaser)->y) - phaserAt;
+        expect (chorusBy.y > 100.0f && chorusBy == phaserBy && h.graph.cables().size() == cables && h.view.getSelection().size() == 2,
+                "picking: the picked boxes move together and keep their cables");
+
+        h.view.keyPressed (juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0));
+        h.view.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0));
+        expect (copied.size() == 2 && pastes == 1, "picking: Ctrl+C hands the picked boxes over, Ctrl+V asks for a paste");
+        h.view.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey));
+        expect (removed.size() == 2 && h.view.getSelection().empty(), "picking: Delete takes every picked box out at once");
+
+        h.view.keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));
+        expect (h.view.getSelection().size() == 4 && ! h.view.isSelected (PatchGraph::inputNodeId), "picking: Ctrl+A picks every box but IN and OUT");
+        h.view.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+        expect (h.view.getSelection().empty(), "picking: Esc lets them go");
+
+        // A click on empty space lets the picked ones go; one on a box picks only it.
+        h.view.setSelection ({ chorus, phaser });
+        const auto driveCentre = h.view.nodeBounds (*h.graph.find (drive)).getCentre();
+        h.view.mouseDown (mouse (h.view, driveCentre, true));
+        h.view.mouseUp (mouse (h.view, driveCentre, false));
+        expect (h.view.getSelection().size() == 1 && h.view.isSelected (drive), "picking: a click on another box picks only it");
+        h.view.mouseDown (mouse (h.view, { 840.0f, 340.0f }, true));
+        h.view.mouseUp (mouse (h.view, { 840.0f, 340.0f }, false));
+        expect (h.view.getSelection().empty(), "picking: a click on empty space lets them go");
+    }
 }
 
 // ILANA_SNAPSHOT_GRAPH: pictures of the cable view, at twice the size:

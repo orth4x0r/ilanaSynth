@@ -469,8 +469,9 @@ public:
         };
         view.onGesture = [this] (bool starting) { loopGesture (starting, "Loop level"); };
         // The user moved the view: it stays where they put it (FIT hands it back).
-        view.onNavigated = [this] { autoFit = false; };
-        view.onFitRequested = [this] { fit (true); };
+        // (The row of effects leaves the canvas's corner then, so it never covers a box the user brings there.)
+        view.onNavigated = [this] { autoFit = false; if (carouselInCanvas) resized(); };
+        view.onFitRequested = [this] { autoFit = true; resized(); };
         // Only effects drop into cables, and only after VOICES (accept() vets the rest).
         view.canSplice = [this] (const PatchGraph::Node& node, const PatchGraph::Cable& cable)
         {
@@ -626,12 +627,30 @@ public:
         area.removeFromTop (10);
         inspector = area.removeFromBottom (inspectorHeight);
         area.removeFromBottom (10);
-        // The row of effects under the canvas.
-        carousel.setBounds (area.removeFromBottom (FxCarousel::stripHeight));
+        // The row of effects: in the fitted canvas's empty corner under ALL NOTES when it fits there (the canvas then
+        // takes the strip's band, UI review 28: about 1085 x 243 px stood empty), else under the canvas.
+        const auto tall = area;
+        const auto band = area.removeFromBottom (FxCarousel::stripHeight);
         area.removeFromBottom (10);
-        view.setBounds (area);
-        if (autoFit)
+        carouselInCanvas = false;
+        if (hasVoice && autoFit)
+        {
+            view.setBounds (tall);
             fit();
+            if (const auto corner = emptyCanvasCorner(); corner.getHeight() >= FxCarousel::stripHeight && corner.getWidth() >= 480)
+            {
+                carousel.setBounds (corner.withTop (corner.getBottom() - FxCarousel::stripHeight));
+                carousel.toFront (false);
+                carouselInCanvas = true;
+            }
+        }
+        if (! carouselInCanvas)
+        {
+            carousel.setBounds (band);
+            view.setBounds (area);
+            if (autoFit)
+                fit();
+        }
         layoutInspector();
         for (auto& window : windows)
             window->setLimits (view.getBounds());
@@ -1908,7 +1927,10 @@ private:
         if (! carouselDrag && (autoFit ? (countChanged || ! view.contentFits()) : (countChanged && ! view.contentFits())))
         {
             autoFit = true;
-            fit();
+            if (stretching)
+                fit();
+            else
+                resized(); // (fits, and puts the row of effects back where there is room)
         }
         shownNodes = (int) shown.nodes().size();
         repaint();
@@ -2418,6 +2440,24 @@ private:
     juce::Rectangle<int> zoomWell, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
     bool carouselDrag = false; // a carousel tile is being dragged onto the canvas: no refit under the pointer
     bool autoFit = true; // false once the user moves the view (FIT gives it back)
+    bool carouselInCanvas = false; // the row of effects sits in the fitted canvas's empty corner
+
+    // Under ALL NOTES, right of EACH NOTE, to the canvas's foot: the part of the fitted canvas no box uses (page
+    // coordinates, 16 px in from the frames and edges).
+    juce::Rectangle<int> emptyCanvasCorner() const
+    {
+        auto bottom = std::numeric_limits<float>::lowest();
+        for (const auto& node : shown.nodes())
+            if (! isVoice (node))
+                bottom = juce::jmax (bottom, node.y + PatchCableView::nodeHeight + 20.0f);
+        if (bottom == std::numeric_limits<float>::lowest() || voiceArea.isEmpty())
+            return {};
+        const auto zoom = view.getZoom();
+        const auto origin = view.getOrigin();
+        const auto top = juce::roundToInt ((origin.y + bottom) * zoom) + view.getY() + 16;
+        const auto left = juce::roundToInt ((origin.x + voiceArea.getRight() + 10.0f) * zoom) + view.getX() + 16;
+        return juce::Rectangle<int>::leftTopRightBottom (left, top, view.getRight() - 16, view.getBottom() - 12);
+    }
 
     int inspectedVoice = -1, inspectedSlot = -1;
     juce::TextButton onButton { "ON" };

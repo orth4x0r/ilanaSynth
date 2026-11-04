@@ -801,7 +801,10 @@ public:
 
     // Which half it draws: the FM chip, the output bar, or (as before) the chip
     // else the bar. The packed cards keep the chip in the header and the bar in MIX.
-    enum class Part { either, chipOnly, barOnly };
+    enum class Part { either, chipOnly, barOnly, meterCell };
+    // meterCell: laid out as a knob beside LEVEL and PAN (the Physical MIX, UI review 28): the level over a short
+    // bar on the dials' middle line, OUT on the knob names' line. Local y of both.
+    void setCellLines (float dialMiddle, float nameTopIn) { cellMiddle = dialMiddle; nameTop = nameTopIn; repaint(); }
     void setPart (Part newPart) { part = newPart; repaint(); }
     // The width of the level text at the bar's end (PLAY keeps its wider one, v26).
     void setValueWidth (float width) { valueWidth = width; repaint(); }
@@ -844,6 +847,24 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto area = getLocalBounds().toFloat();
+
+        if (part == Part::meterCell)
+        {
+            const auto db = level > 0.0005f ? juce::String (juce::roundToInt (juce::Decibels::gainToDecibels (level))) + " dB" : juce::String ("-inf");
+            g.setColour (IlanaTheme::Ui::text2);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, false, true));
+            IlanaTheme::drawFitted (g, db, juce::Rectangle<float> (area.getX(), cellMiddle - 13.0f, area.getWidth(), 11.0f).toNearestInt(),
+                                    juce::Justification::centred, 1);
+            const auto track = juce::Rectangle<float> (area.getX() + 6.0f, cellMiddle + 1.0f, juce::jmax (0.0f, area.getWidth() - 12.0f), 5.0f);
+            g.setColour (IlanaTheme::Ui::track);
+            g.fillRoundedRectangle (track, 2.5f);
+            g.setColour (colour.withAlpha (0.95f));
+            g.fillRoundedRectangle (track.withWidth (juce::jmax (5.0f, track.getWidth() * level)), 2.5f);
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f));
+            IlanaTheme::drawFitted (g, "OUT", area.withTop (nameTop).toNearestInt(), juce::Justification::centredTop, 1);
+            return;
+        }
 
         if (part == Part::barOnly)
         {
@@ -902,6 +923,7 @@ private:
     float level = -1.0f;
     Part part = Part::either;
     float valueWidth = 28.0f;
+    float cellMiddle = 14.0f, nameTop = 30.0f;
 };
 
 // A small quiet action in the packed cards' panels (+ WARP): dashed, in the
@@ -2015,6 +2037,17 @@ public:
     }
 
     static juce::Colour oscColour (int index) { return IlanaTheme::oscColour (index); }
+
+    // Where a scroll may come to rest, in page units: each card's top edge (half a gap above it), so a glide
+    // stops with a whole card header at the top, never through a label (UI review 28).
+    std::vector<float> scrollStops() const
+    {
+        std::vector<float> stops;
+        const auto half = (float) juce::jmax (1, gapNow()) * 0.5f;
+        for (const auto& card : cards)
+            stops.push_back (juce::jmax (0.0f, (float) card.bounds.getY() - half));
+        return stops;
+    }
 
     // The height the page needs: every shown card at its smallest, the add
     // row and the strip.
@@ -3173,9 +3206,16 @@ private:
         placeKnob (osc.fine, pitchPanel.getX() + 80, pitchPanel.getY() + 17, 46, mainDial);
         osc.chord.setBounds (inPanel (pitchPanel, 8, 62, pitchPanel.getWidth() - 16, menuH));
 
-        // MIX: LEVEL and PAN, the FILTER route under them as on the wavetable card (UI review 27).
-        placeKnob (osc.level, mixPanel.getX() + 34, mixPanel.getY() + 15, 48, mainDial);
-        placeKnob (osc.pan, mixPanel.getX() + 82, mixPanel.getY() + 15, 48, mainDial);
+        // MIX: LEVEL, PAN and the OUT meter in one row of three cells, the FILTER route under them as on the wavetable
+        // card (UI reviews 27 and 28).
+        {
+            const auto x0 = mixPanel.getX() + (mixPanel.getWidth() - 3 * 48) / 2, y = mixPanel.getY() + 15;
+            placeKnob (osc.level, x0, y, 48, mainDial);
+            placeKnob (osc.pan, x0 + 48, y, 48, mainDial);
+            pieces.outBar.setBounds ({ x0 + 96, y, 48, mainDial + nameLine + 4 });
+            pieces.outBar.setCellLines ((float) (osc.level.getY() + juce::roundToInt (osc.level.getDialCentre().y) - y),
+                                        (float) (osc.level.getY() + osc.level.getPackedNameArea().getY() - y));
+        }
         {
             const auto labelW = 28, filterY = mixPanel.getY() + physTopH - filterH - 6;
             card.labels.push_back ({ { mixPanel.getX() + 6, filterY, labelW, filterH }, "FILTER" });
@@ -4599,7 +4639,9 @@ private:
             pieces.prevTable.setVisible (wavetableCard);
             pieces.nextTable.setVisible (wavetableCard);
             pieces.routeBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain || kind == Kind::physical);
-            pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain);
+            pieces.outBar.setVisible (wavetableCard || kind == Kind::live || kind == Kind::fm || kind == Kind::sample || kind == Kind::grain
+                                      || (kind == Kind::physical && usesPanels (kind)));
+            pieces.outBar.setPart (kind == Kind::physical ? OscStatusView::Part::meterCell : OscStatusView::Part::barOnly);
             pieces.exciterPills.setVisible (kind == Kind::physical);
             if (kind == Kind::physical)
                 pieces.exciterPills.refresh();
@@ -5215,7 +5257,7 @@ private:
     bool overlayScroll = false;
     juce::uint32 lastWheel = 0;
 
-    static constexpr float wheelPixels = 150.0f, overshootMax = 44.0f;
+    static constexpr float wheelPixels = 150.0f, overshootMax = 44.0f, snapRange = 120.0f;
     float current = 0.0f, target = 0.0f, overshoot = 0.0f;
     bool gliding = false;
 
@@ -5223,6 +5265,31 @@ private:
     {
         const auto* page = getPage();
         return page == nullptr ? 0 : juce::jmax (0, juce::roundToInt ((float) page->getHeight() * chosenScale) - getHeight());
+    }
+
+    // The resting place nearest y: either end, or a card edge (OscPage::scrollStops), so the view never stops
+    // with a row cut through. Stops farther than snapRange away leave y where it is.
+    float nearestStop (float y, float maxY) const
+    {
+        const auto* page = getPage();
+        if (page == nullptr || maxY <= 0.0f)
+            return y;
+        auto best = y;
+        auto bestDistance = snapRange;
+        const auto consider = [&] (float stop)
+        {
+            stop = juce::jlimit (0.0f, maxY, stop);
+            if (std::abs (stop - y) < bestDistance)
+            {
+                best = stop;
+                bestDistance = std::abs (stop - y);
+            }
+        };
+        consider (0.0f);
+        consider (maxY);
+        for (const auto stop : page->scrollStops())
+            consider (stop * chosenScale);
+        return best;
     }
 
     // The part of the glide past an end: the page is drawn that far over, the view itself stays at its end.
@@ -5238,7 +5305,7 @@ private:
         const auto maxY = (float) maxScroll();
         // (Once the wheel rests, a target past an end springs back to it.)
         if (juce::Time::getMillisecondCounter() - lastWheel > 90)
-            target = juce::jlimit (0.0f, maxY, target);
+            target = nearestStop (juce::jlimit (0.0f, maxY, target), maxY);
 
         current += (target - current) * 0.22f;
         if (std::abs (target - current) < 0.5f)

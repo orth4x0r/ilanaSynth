@@ -162,7 +162,10 @@ public:
         else if (excite == 5 || excite == 9 || excite == 11) // hammers
         {
             const auto lift = hammerLift();
-            const auto head = juce::Rectangle<float> (18.0f, 14.0f).withCentre ({ ex, stringY - 12.0f - lift * area.getHeight() * 0.35f });
+            // (Held inside the picture: on PLAY's short STRING strip the raised head went past the top, UI review 28.)
+            const auto headH = juce::jmin (14.0f, area.getHeight() * 0.4f);
+            const auto head = juce::Rectangle<float> (headH * 18.0f / 14.0f, headH)
+                                  .withCentre ({ ex, juce::jmax (area.getY() + headH * 0.5f + 1.0f, stringY - 12.0f - lift * area.getHeight() * 0.35f) });
             g.setColour (juce::Colours::white.withAlpha (0.35f));
             g.drawLine (head.getCentreX(), head.getY(), head.getCentreX() - 30.0f, area.getY(), 2.0f);
             g.setColour (accent);

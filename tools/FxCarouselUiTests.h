@@ -30,8 +30,11 @@ inline void runFxCarouselUiTests (IlanaSynthAudioProcessor& processor, IlanaSynt
         for (const auto& entry : group.entries)
             expected += entry.twin > 0 ? 2 : 1;
     expect (carousel->numTiles() == expected && expected > 40, "CAROUSEL: one tile for every effect in the library (" + juce::String (carousel->numTiles()) + ")");
-    expect (carousel->isVisible() && carousel->getBottom() <= view->getParentComponent()->getHeight() && carousel->getY() >= view->getBottom(),
-            "CAROUSEL: the row sits under the canvas");
+    // (Under the canvas, or, where the fitted graph leaves an empty corner, inside that corner: UI review 28.)
+    const auto inCorner = carousel->getParentComponent() == view->getParentComponent() && view->getBounds().contains (carousel->getBounds());
+    expect (carousel->isVisible() && carousel->getBottom() <= view->getParentComponent()->getHeight()
+                && (carousel->getY() >= view->getBottom() || inCorner),
+            "CAROUSEL: the row sits under the canvas or in its empty corner");
 
     const auto effectBoxes = [view]
     {

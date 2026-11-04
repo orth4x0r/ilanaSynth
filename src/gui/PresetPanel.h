@@ -906,6 +906,53 @@ private:
                 IlanaTheme::drawFitted (g, macros[m], line, juce::Justification::centredLeft, 1);
             }
         }
+
+        // What else the loaded patch runs: its filters and its effects in rack order (UI review 28: the pane stood
+        // half empty under OSCILLATORS on a patch with no named macros).
+        if (names[index] == processorRef.getCurrentPresetName())
+        {
+            const auto text = [this] (const juce::String& id)
+            {
+                auto* parameter = processorRef.apvts.getParameter (id);
+                return parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String();
+            };
+            const auto value = [this] (const juce::String& id)
+            {
+                const auto* raw = processorRef.apvts.getRawParameterValue (id);
+                return raw != nullptr ? raw->load() : 0.0f;
+            };
+            const auto rows = [&] (const juce::String& title, const juce::StringArray& lines)
+            {
+                if (lines.isEmpty() || area.getHeight() < 16 + 10 + 18 + 18)
+                    return;
+                heading (title);
+                g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+                for (const auto& entry : lines)
+                {
+                    if (area.getHeight() < 18 + 18)
+                        break;
+                    auto line = area.removeFromTop (18);
+                    g.setColour (IlanaTheme::Ui::text3);
+                    g.drawText (entry.upToFirstOccurrenceOf ("|", false, false), line.removeFromLeft (46), juce::Justification::centredLeft);
+                    g.setColour (IlanaTheme::Ui::text2);
+                    IlanaTheme::drawFitted (g, entry.fromFirstOccurrenceOf ("|", false, false), line, juce::Justification::centredLeft, 1);
+                }
+            };
+
+            const auto dot = juce::String (juce::CharPointer_UTF8 ("  \xc2\xb7  "));
+            rows ("FILTERS", { "F1|" + text ("f1_type"),
+                               "F2|" + text ("f2_type") + dot + (value ("filters_parallel") > 0.5f ? "Parallel" : "Serial") });
+
+            juce::StringArray effects;
+            for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            {
+                const auto id = "fx_slot" + juce::String (slot);
+                if (juce::roundToInt (value (id)) > 0)
+                    effects.add (juce::String (effects.size() + 1) + "|" + text (id)
+                                 + (value (id + "_bypass") > 0.5f ? dot + "Bypassed" : juce::String()));
+            }
+            rows ("EFFECTS", effects.isEmpty() ? juce::StringArray { "|None" } : effects);
+        }
     }
 
     // PLAY and AUTO-PLAY sit at the foot of the details (S15-1).

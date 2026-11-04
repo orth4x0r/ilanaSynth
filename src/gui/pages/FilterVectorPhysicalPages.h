@@ -553,8 +553,13 @@ public:
         // PLAY's ring knobs (one knob style, UI review 26), PATH's switch level with their middles.
         for (auto* knob : { &x, &y, &rate, &drift, &driftRate })
             knob->placeAsRing (knobs.withX (knob->getX()).withWidth (knob->getWidth()));
+        // (As FM's EXTRAS row: the switch on the rings' middle line, its name at their name size on their line, UI review 28.)
+        const auto middle = x.getY() + juce::roundToInt (x.getDialCentre().y);
+        const auto nameTop = x.getY() + x.getPackedNameArea().getY();
         path.setPackedName (ToggleControl::NamePlace::below);
-        path.setBounds (x.getBounds().withX (path.getBounds().getCentreX() - x.getWidth() / 2).withTop (x.getBottom() - 36)); // (its name on the knob names' line)
+        path.setBelowNameSize (x.packedNameUnits());
+        path.setBounds (x.getBounds().withX (path.getBounds().getCentreX() - x.getWidth() / 2).withTop (middle - 7));
+        path.setNameDrop (juce::jmax (0, nameTop - (middle - 7 + 15 + 1)));
     }
 
 private:

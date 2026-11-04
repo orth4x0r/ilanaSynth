@@ -134,6 +134,9 @@ inline bool isOscIdentityColour (juce::Colour colour)
 // How opaque a control is while it does nothing (its section is off): dimmed,
 // but still readable against the card (about 4:1 for the label text).
 inline constexpr float dimmedAlpha = 166.0f / 255.0f; // about 65 %, exact in a component's 8-bit alpha
+// A whole card switched off (SUB, NOISE, STRINGS, WEST, BODY, BOARD on PLAY): as dim as a switched-off
+// oscillator's card, whose disabled controls paint at half of dimmedAlpha (UI review 28: one look for off).
+inline constexpr float cardOffAlpha = 83.0f / 255.0f;
 
 // Knob sizes by role (UI review 4, V22), the same on every page: the largest
 // dial a knob takes (its cell; the ring drawn inside is 8 px smaller). A

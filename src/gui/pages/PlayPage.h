@@ -996,7 +996,7 @@ public:
                 path.lineTo (point);
         }
         // (The colour carries the dimming: setColour after setOpacity dropped it, so an off SUB stayed lit, UI review 27.)
-        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("subosc_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha));
+        IlanaTrace::paintTrace (g, path, IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("subosc_on") > 0.5f ? 1.0f : IlanaTheme::cardOffAlpha));
     }
 };
 
@@ -1030,7 +1030,7 @@ public:
             else
                 path.lineTo (point);
         }
-        const auto colour = IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("noise_on") > 0.5f ? 1.0f : IlanaTheme::dimmedAlpha);
+        const auto colour = IlanaTheme::subNoiseColour().withMultipliedAlpha (read ("noise_on") > 0.5f ? 1.0f : IlanaTheme::cardOffAlpha);
         IlanaTrace::paintArea (g, path, colour, plot.getBottom(), plot.getX(), plot.getRight());
         IlanaTrace::paintTrace (g, path, colour);
     }
@@ -1622,27 +1622,28 @@ public:
         noiseBand = std::make_unique<NoiseColourDisplay> (p);
         addAndMakeVisible (*noiseBand);
 
-        // What doesn't act dims in place; the cards keep their size.
+        // What doesn't act dims in place; the cards keep their size. A card switched off dims as an off oscillator does.
+        const auto cardOff = [] { return IlanaTheme::cardOffAlpha; };
         for (auto* part : std::initializer_list<juce::Component*> { subShape.get(), subOctave.get(), subLevel.get(), subColourKnob.get() })
-            effectRules.add (*part, [this] { return readInt ("subosc_on") != 0; }, "SUB is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("subosc_on") != 0; }, "SUB is off: switch it on", cardOff);
         for (auto* part : std::initializer_list<juce::Component*> { noiseType.get(), noiseLevel.get(), noiseColour.get() })
-            effectRules.add (*part, [this] { return readInt ("noise_on") != 0; }, "NOISE is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("noise_on") != 0; }, "NOISE is off: switch it on", cardOff);
         for (auto& part : stringsKnobs)
-            effectRules.add (*part, [this] { return readInt ("sym_on") != 0; }, "STRINGS is off: switch it on");
-        effectRules.add (*stringsManual, [this] { return readInt ("sym_on") != 0; }, "STRINGS is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("sym_on") != 0; }, "STRINGS is off: switch it on", cardOff);
+        effectRules.add (*stringsManual, [this] { return readInt ("sym_on") != 0; }, "STRINGS is off: switch it on", cardOff);
         // WEST off: its menus and knobs dim like every other card's (UI review 25).
         for (auto* part : std::initializer_list<juce::Component*> { westMode.get(), westPosition.get(), westSource.get() })
-            effectRules.add (*part, [this] { return readInt ("west_on") != 0; }, "WEST COAST is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("west_on") != 0; }, "WEST COAST is off: switch it on", cardOff);
         for (auto& part : westKnobs)
-            effectRules.add (*part, [this] { return readInt ("west_on") != 0; }, "WEST COAST is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("west_on") != 0; }, "WEST COAST is off: switch it on", cardOff);
         for (auto* part : std::initializer_list<juce::Component*> { boardModel.get(), boardKnobs[0].get(), boardKnobs[1].get(), boardKnobs[2].get() })
-            effectRules.add (*part, [this] { return readInt ("sb_on") != 0; }, "SOUNDBOARD is off: switch it on");
+            effectRules.add (*part, [this] { return readInt ("sb_on") != 0; }, "SOUNDBOARD is off: switch it on", cardOff);
         // (As on the FILTER tab: off, the body's controls dim, but the coupling while it couples the strings, which works without it.)
         const auto stringsCoupling = [this] { return readInt ("body_coupling_mode") == 3; };
         const auto modal = [this] { return readInt ("body_type") > 0; };
-        effectRules.add (*bodyType, [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
-        effectRules.add (*bodyKnobs[0], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
-        effectRules.add (*bodyCoupling, [this, stringsCoupling] { return readInt ("res_on") != 0 || stringsCoupling(); }, "BODY is off: switch it on");
+        effectRules.add (*bodyType, [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on", cardOff);
+        effectRules.add (*bodyKnobs[0], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on", cardOff);
+        effectRules.add (*bodyCoupling, [this, stringsCoupling] { return readInt ("res_on") != 0 || stringsCoupling(); }, "BODY is off: switch it on", cardOff);
         // Knobs: AMOUNT DECAY COUPLE / MATERIAL SIZE OFFSET KEY TRK.
         effectRules.add (*bodyKnobs[2], [this, stringsCoupling, modal]
                          { return stringsCoupling() || (readInt ("body_coupling_mode") != 0 && modal() && readInt ("res_on") != 0); },
@@ -1650,7 +1651,7 @@ public:
         for (const size_t i : std::initializer_list<size_t> { 3, 4 })
             effectRules.add (*bodyKnobs[i], [this, modal] { return readInt ("res_on") != 0 && modal(); }, "BODY is off, or Classic");
         for (const size_t i : std::initializer_list<size_t> { 1, 5, 6 })
-            effectRules.add (*bodyKnobs[i], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on");
+            effectRules.add (*bodyKnobs[i], [this] { return readInt ("res_on") != 0; }, "BODY is off: switch it on", cardOff);
         effectRules.add (*balance, [this] { return readInt ("filters_parallel") != 0; }, "the filters are in SERIAL");
 
         // ENVELOPE and LFO: EDIT (or the title) opens the source's pop-up editor.
@@ -2029,7 +2030,10 @@ private:
 
     void scrollBarMoved (juce::ScrollBar*, double newStart) override
     {
-        oscView.jumpTo (juce::roundToInt (newStart));
+        // (syncOscBar's own update comes back here a moment later: that one is where the view already is, and
+        // jumping to it would stop a wheel glide after its first step, UI review 28.)
+        if (juce::roundToInt (newStart) != oscView.getViewPositionY())
+            oscView.jumpTo (juce::roundToInt (newStart));
     }
 
     int readInt (const juce::String& id) const
@@ -2356,8 +2360,9 @@ private:
         // The picture at the left (ilana, 2026-10-29: no empty space), one grid of five columns at 42 px at the right,
         // two rows; every name inside its menu or under its knob.
         const auto top = card.getY() + headerHeight;
-        // (5 px in from the edge: KEY TRACK is wider than its cell and touched the card's border, UI review 27.)
-        const auto left = card.getRight() - 5 - 4 * bodyPitch - cell;
+        // (9 px in from the edge: KEY TRACK is wider than its cell and touched the card's border, UI reviews 27 and 28;
+        // its name now ends as far from the border as the other cards' last names.)
+        const auto left = card.getRight() - 9 - 4 * bodyPitch - cell;
         const auto pictureBounds = juce::Rectangle<int> (card.getX() + 6, top + 4, left - gapToKnobs - card.getX() - 6, card.getBottom() - 4 - top - 4);
         bodyPicture->setBounds (pictureBounds);
         const auto column = [left] (int i) { return left + i * bodyPitch; };

@@ -111,6 +111,19 @@ public:
             specArea = area;
         }
 
+        // Nothing playing: say what shows here instead of two flat lines (UI review 28).
+        auto loudest = 0.0f;
+        for (int i = 0; i < fftSize; ++i)
+            loudest = juce::jmax (loudest, std::abs (scopeL[(size_t) i]), std::abs (scopeR[(size_t) i]));
+        if (loudest < 1.0e-4f)
+        {
+            g.setColour (IlanaTheme::Ui::text3);
+            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.06f));
+            IlanaTheme::drawFitted (g, "PLAY A NOTE\nthe output's wave and spectrum show here", area.toNearestInt(), juce::Justification::centred, 2);
+            IlanaTheme::paintGlassOverlay (g, bounds.reduced (6.0f), 5.0f);
+            return;
+        }
+
         if (! waveArea.isEmpty())
             drawWave (g, waveArea, colour);
 

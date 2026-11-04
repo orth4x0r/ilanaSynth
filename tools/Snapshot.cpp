@@ -10372,6 +10372,31 @@ int main (int argc, char** argv)
         setPin (true);
         save (*editor, outDir.getChildFile ("play-6osc-pinned.png"));
         setPin (false);
+        // One wheel notch and two: the glide comes to rest on a card edge (UI review 28), pictured and logged.
+        // (The oscillator area: the viewport on PLAY whose page overflows it.)
+        std::vector<juce::Viewport*> viewports;
+        findAll<juce::Viewport> (*editor, viewports);
+        juce::Viewport* oscArea = nullptr;
+        for (auto* candidate : viewports)
+            if (candidate->isVisible() && candidate->getViewedComponent() != nullptr
+                && candidate->getViewedComponent()->getHeight() > candidate->getHeight() + 1)
+                oscArea = candidate;
+        if (auto* view = oscArea)
+            for (const auto notches : { 1, 2 })
+            {
+                view->setViewPosition (0, 0);
+                settle (100);
+                juce::MouseWheelDetails wheel {};
+                wheel.deltaY = -1.0f;
+                for (int i = 0; i < notches; ++i)
+                    view->mouseWheelMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), juce::Point<float> { 40.0f, 40.0f }, juce::ModifierKeys {},
+                                                            1.0f, 0.0f, 0.0f, 0.0f, 0.0f, view, view, juce::Time::getCurrentTime(),
+                                                            juce::Point<float> { 40.0f, 40.0f }, juce::Time::getCurrentTime(), 1, false),
+                                          wheel);
+                settle (900);
+                std::fprintf (stderr, "PLAY osc wheel %d notch(es): rests at %d\n", notches, view->getViewPositionY());
+                save (*editor, outDir.getChildFile ("play-6osc-wheel" + juce::String (notches) + ".png"));
+            }
         return 0;
     }
 

@@ -130,6 +130,13 @@ public:
                     const auto box = feedbackLoop (source, centres, radius);
                     const auto loopCentre = box.getCentre();
                     const auto loopRadius = box.getWidth() * 0.5f;
+                    // Pushed out past a route knob (a tight stack): a thin cable back to its own box.
+                    if (const auto nodeEdge = centres[(size_t) source].x - boxHalfWidth (radius);
+                        loopCentre.x + handleDisc * 0.5f < nodeEdge - 4.0f)
+                    {
+                        g.setColour (colour.withAlpha (0.7f));
+                        g.drawLine ({ loopCentre.translated (handleDisc * 0.5f, 0.0f), { nodeEdge, loopCentre.y } }, 1.6f);
+                    }
                     juce::Path loop;
                     loop.addCentredArc (loopCentre.x, loopCentre.y, loopRadius, loopRadius, 0.0f, 0.6f,
                                         juce::MathConstants<float>::twoPi - 0.3f, true);
@@ -336,7 +343,8 @@ public:
             // One style for every node (V7-13, I7-11): its name, and under
             // it whether it is heard (OUT), modulates (MOD) or is off.
             const auto nameFont = IlanaTheme::font (radius < compactRadius ? IlanaTheme::TextSize::tiny
-                                                    : radius < 26.0f ? IlanaTheme::TextSize::label : IlanaTheme::TextSize::body, true);
+                                                    : radius < 26.0f ? IlanaTheme::TextSize::label
+                                                    : radius < 40.0f ? IlanaTheme::TextSize::body : IlanaTheme::TextSize::large, true);
             auto text = circle.reduced (juce::jmin (10.0f, radius * 0.3f), 2.0f);
             const auto nameRow = text.removeFromTop (text.getHeight() * 0.55f);
             IlanaTheme::paintTag (g, { nameRow.getX() + 3.0f, nameRow.getBottom() - 7.0f }, colour.withMultipliedAlpha (on ? 1.0f : 0.4f));
@@ -345,7 +353,7 @@ public:
             g.drawText ("OSC " + juce::String (osc + 1), nameRow.withTrimmedLeft (11.0f), juce::Justification::bottomLeft, false);
 
             g.setColour (! on ? IlanaTheme::Ui::text3 : out ? colour : IlanaTheme::Ui::text2);
-            g.setFont (IlanaTheme::font (IlanaTheme::TextSize::tiny, true));
+            g.setFont (IlanaTheme::font (radius < 40.0f ? IlanaTheme::TextSize::tiny : IlanaTheme::TextSize::label, true));
             g.drawText (! on ? "OFF" : out ? "OUT" : "MOD", text.withTrimmedLeft (11.0f), juce::Justification::topLeft, false);
 
             // Its tuning and level to its right, so the graph reads without
@@ -527,8 +535,20 @@ public:
         {
             return feedbackLoop (source, centres, radius).getCentre();
         }
+        return cableHandle (source, target, centres, radius);
+    }
+
+    // A route knob's centre: on its cable, or, where a stack's rows sit too
+    // close for the knob between the boxes (a four-deep DX7 stack over the
+    // OP ENV card, UI review 28), beside the cable on its left, clear of both boxes.
+    juce::Point<float> cableHandle (int source, int target, const std::array<juce::Point<float>, OscillatorIds::count>& centres, float radius) const
+    {
         const auto cable = cablePath (source, target, centres, radius, read (routeId (target, source)) > 0.001f);
         const auto length = cable.getLength();
+        const auto from = centres[(size_t) source], to = centres[(size_t) target];
+        const auto boxGap = std::abs (to.y - from.y) - boxHalfHeight (radius) * 2.0f;
+        if (std::abs (to.x - from.x) < boxHalfWidth (radius) && boxGap < handleDisc + 4.0f)
+            return (from + to) * 0.5f - juce::Point<float> (boxHalfWidth (radius) * 0.5f + handleDisc * 0.5f + 6.0f, 0.0f);
         return cable.getPointAlongPath (length * (length > radius * 6.0f ? 0.62f : 0.5f));
     }
 
@@ -578,7 +598,7 @@ private:
     // V8-7: the staircase that climbed sideways read as a snake). Under
     // compactRadius the node's name takes the small font.
     static constexpr int minimumRadius = 16;
-    static constexpr float maximumRadius = 30.0f, singleRowRadius = 44.0f, compactRadius = 20.0f, stackGap = 20.0f;
+    static constexpr float maximumRadius = 36.0f, singleRowRadius = 58.0f, compactRadius = 20.0f, stackGap = 20.0f; // (grown: the canvas was three-quarters empty, UI review 28)
     static constexpr float captionWidth = 58.0f, boxWidthScale = 1.25f, handleDisc = 34.0f;
 
     struct Geometry
@@ -907,7 +927,9 @@ private:
 
     // A node's box (PATCH's): as wide as the old circle, a little lower.
     static float boxHalfHeight (float radius) { return juce::jmax (15.0f, radius * 0.72f); }
-    static float boxHalfWidth (float radius) { return radius * boxWidthScale; }
+    // (At least wide enough for "OSC 6" in the small font: the name keeps its
+    // 100 % size at every zoom while the node shrinks, UI review 28.)
+    static float boxHalfWidth (float radius) { return juce::jmax (radius * boxWidthScale, 29.0f); }
     static juce::Rectangle<float> nodeBox (juce::Point<float> centre, float radius)
     {
         return juce::Rectangle<float> (boxHalfWidth (radius) * 2.0f, boxHalfHeight (radius) * 2.0f).withCentre (centre);
@@ -1111,7 +1133,8 @@ private:
         // Clear of the box by the route knob's disc that sits on the loop, not only the loop.
         const auto knobHalf = juce::jmax (size * 0.5f, handleDisc * 0.5f);
         const auto sideX = boxHalfWidth (radius) + knobHalf + 4.0f, sideY = boxHalfHeight (radius) + knobHalf + 4.0f;
-        const juce::Point<float> offsets[] { { -sideX, 0.0f }, { -sideX, -sideY * 0.6f }, { 0.0f, -sideY }, { -sideX, sideY * 0.6f } };
+        const juce::Point<float> offsets[] { { -sideX, 0.0f }, { -sideX, -sideY * 0.6f }, { 0.0f, -sideY }, { -sideX, sideY * 0.6f },
+                                            { -sideX - handleDisc - 4.0f, 0.0f } }; // (last: past a route knob beside a tight stack)
         const auto shown = shownOscillators();
         for (const auto offset : offsets)
         {
@@ -1121,6 +1144,10 @@ private:
             for (const auto other : shown)
                 clear = clear && ! room.intersects (nodeBox (centres[(size_t) other], radius))
                         && ! room.intersects (getCaptionBounds (other, centres, radius));
+            for (const auto from : shown)
+                for (const auto to : shown)
+                    if (from != to && read (routeId (from, to)) >= 0.001f)
+                        clear = clear && ! room.intersects (juce::Rectangle<float> (handleDisc, handleDisc).withCentre (cableHandle (from, to, centres, radius)));
             if (clear)
                 return box;
         }

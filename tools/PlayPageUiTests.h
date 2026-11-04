@@ -213,4 +213,44 @@ void runPlayPageTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
             processor.setRevealed (IlanaSynthAudioProcessor::Module::Envelope, env, false);
         settle (400);
     }
+
+    // ilana 2026-11-04 ("let user fold down the sub noise filter envelope section"): FOLD's rail folds the whole
+    // module block to one line at the foot, the oscillators take the room, and a click on that line brings every
+    // card back where it was.
+    {
+        std::vector<juce::Button*> buttons;
+        findAll<juce::Button> (editor, buttons);
+        juce::Button* rail = nullptr;
+        for (auto* button : buttons)
+            if (button->getName() == "Fold modules")
+                rail = button;
+        auto* play = rail != nullptr ? rail->getParentComponent() : nullptr;
+        const auto folded = [&play] { return (bool) play->getProperties()["bandsFolded"]; };
+        expect (play != nullptr && visibleInTree (rail) && ! folded(), "PLAY: the module block has a FOLD rail and is open by default");
+        if (play != nullptr)
+        {
+            const auto cards = [play] { return play->getProperties()["playCards"].toString(); };
+            const auto filterTop = [play]
+            {
+                for (const auto& entry : juce::StringArray::fromTokens (play->getProperties()["playCards"].toString(), ";", ""))
+                    if (const auto parts = juce::StringArray::fromTokens (entry, ",", ""); parts.size() == 5 && parts[0] == "FILTER")
+                        return parts[2].getIntValue();
+                return -1;
+            };
+            const auto openCards = cards();
+            const auto openRailTop = rail->getY();
+            rail->triggerClick();
+            settle (60);
+            expect (folded() && rail->getBottom() >= play->getHeight() - 8 && rail->getHeight() >= 18
+                        && filterTop() >= play->getHeight(),
+                    "PLAY: FOLD puts the cards under the page's foot and leaves one line at the bottom (rail "
+                        + juce::String (rail->getY()) + ".." + juce::String (rail->getBottom()) + " of " + juce::String (play->getHeight())
+                        + ", FILTER at " + juce::String (filterTop()) + ")");
+            expect (rail->getY() > openRailTop + 200, "PLAY: folded, the oscillators get the module block's room");
+            rail->triggerClick();
+            settle (60);
+            expect (! folded() && cards() == openCards && rail->getY() == openRailTop,
+                    "PLAY: opening the block again puts every card back where it was");
+        }
+    }
 }

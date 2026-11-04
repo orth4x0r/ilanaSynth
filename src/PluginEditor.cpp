@@ -348,6 +348,12 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     };
 
     auto* playPage = new PlayPage (p);
+    playPage->setBandsFolded (settings->getBoolValue ("playBandsFolded", false));
+    playPage->onBandsFoldChanged = [this] (bool folded)
+    {
+        settings->setValue ("playBandsFolded", folded);
+        settings->saveIfNeeded();
+    };
     auto* envLfoPage = new EnvLfoPage (p, *settings);
 
     // Eight tabs; the ones holding several pages switch them from the tab

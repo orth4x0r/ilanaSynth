@@ -7940,6 +7940,56 @@ juce::String frameStats (const std::vector<double>& times, double windowMs)
          + juce::String (gaps[gaps.size() / 2], 1) + " ms, p95 " + juce::String (p95, 1) + " ms, worst " + juce::String (gaps.back(), 1) + " ms";
 }
 
+// --foldrepro <dir>: PLAY's module block folded and unfolded with motion on, in a real window, then the screen
+// (what the window really shows, `import`) and a fresh paint of the editor saved side by side. A difference is
+// paint the slide left behind (ilana 2026-11-05: stale card frames after unfolding).
+static int runFoldRepro (const juce::File& outDir)
+{
+    outDir.createDirectory();
+    IlanaAnim::fullMotion() = true;
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+#if JUCE_LINUX
+    if (auto* setHandler = (void* (*) (int (*) (void*, void*))) dlsym (RTLD_DEFAULT, "XSetErrorHandler"))
+        setHandler ([] (void*, void*) { return 0; });
+#endif
+    editor->addToDesktop (0);
+    editor->setTopLeftPosition (0, 0);
+    editor->setVisible (true);
+    settle (800);
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+    settle (300);
+    std::vector<juce::Button*> buttons;
+    findAll<juce::Button> (*editor, buttons);
+    juce::Button* tab = nullptr;
+    juce::Button* bar = nullptr;
+    for (auto* button : buttons)
+    {
+        if (button->getName() == "Fold modules")
+            tab = button;
+        if (button->getName() == "Unfold modules")
+            bar = button;
+    }
+    if (tab == nullptr || bar == nullptr)
+        return 1;
+    tab->triggerClick();
+    settle (900);
+    bar->triggerClick();
+    settle (900);
+    std::system (("import -window root " + outDir.getChildFile ("screen.png").getFullPathName().quoted()).toRawUTF8());
+    if (auto stream = outDir.getChildFile ("fresh.png").createOutputStream())
+    {
+        stream->setPosition (0);
+        stream->truncate();
+        juce::PNGImageFormat().writeImageToStream (editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f), *stream);
+    }
+    // (Leave it open: settings remember the open block.)
+    return 0;
+}
+
 int runFps()
 {
     IlanaSynthAudioProcessor processor;
@@ -9525,6 +9575,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--idlecpu")
         return runIdleCpu();
+
+    if (juce::String (argv[1]) == "--foldrepro" && argc > 2)
+        return runFoldRepro (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
     if (juce::String (argv[1]) == "--fps")
         return runFps();

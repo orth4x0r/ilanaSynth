@@ -1527,6 +1527,9 @@ public:
                 foldSlide.stopTimer();
             }
             resized();
+            // (The cards' frames and headers are this page's own painting: moving the controls repaints only them,
+            // so without this the page kept the frames of every step of the slide, ilana 2026-11-05.)
+            repaint();
         };
 
         auto& state = p.apvts;

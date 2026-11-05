@@ -242,6 +242,12 @@ class DenseSoundboard
 public:
     static constexpr int numModes = 48;
     static constexpr int numBands = 10; // octave bands, 31 Hz .. 16 kHz
+    // MIX's reach (2026-11-05, ilana: "it switches on but mix doesnt do
+    // anythin"): the wood alone sat ~18 dB under the strings at 100 %, so the
+    // knob moved the sound by 0.05 dB. x5.6 puts 100 % where the Classic
+    // board's is (the wood ~3 dB under the strings). A patch saved before
+    // loads with MIX divided by this (migrateDenseBoardMix), so it sounds the same.
+    static constexpr float mixRange = 5.6f;
 
     void prepare (double rate)
     {
@@ -270,7 +276,7 @@ public:
     {
         design (tone, size);
         const auto& t = PianoModelTuning::get();
-        const auto wood = juce::jlimit (0.0f, 1.0f, mix) * t.boardMix;
+        const auto wood = juce::jlimit (0.0f, 1.0f, mix) * t.boardMix * mixRange;
 
         for (int i = 0; i < numSamples; ++i)
         {

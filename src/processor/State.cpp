@@ -11,6 +11,7 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
     state.setProperty ("modRangeSchema", 2, nullptr);
     state.setProperty ("destSchema", 2, nullptr);
     state.setProperty ("tableSchema", 4, nullptr);
+    state.setProperty ("boardMixSchema", 2, nullptr);
     state.setProperty ("exciterLevels", exciterLevels.load(), nullptr);
 
     for (int lfo = 0; lfo < numLfos; ++lfo)
@@ -566,6 +567,16 @@ int IlanaSynthAudioProcessor::migrateStringKnobs (const std::function<float (con
     }
 
     return changed;
+}
+
+int IlanaSynthAudioProcessor::migrateDenseBoardMix (const std::function<float (const juce::String&, float)>& get,
+                                                   const std::function<void (const juce::String&, float)>& set)
+{
+    if (juce::roundToInt (get ("sb_model", 0.0f)) != 1)
+        return 0;
+
+    set ("sb_mix", get ("sb_mix", 0.5f) / DenseSoundboard::mixRange);
+    return 1;
 }
 
 int IlanaSynthAudioProcessor::migrateOperatorModes (const std::function<float (const juce::String&, float)>& get,
@@ -1476,6 +1487,31 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
                                          child.setProperty ("value", value, nullptr);
                                  });
         state.setProperty ("redundantKnobsSchema", 2, nullptr);
+    }
+
+    // A patch on the Dense board saved before its MIX reached further keeps its wood.
+    if ((int) state.getProperty ("boardMixSchema", 1) < 2)
+    {
+        const auto find = [&state] (const juce::String& id)
+        {
+            for (int i = 0; i < state.getNumChildren(); ++i)
+                if (state.getChild (i).getProperty ("id").toString() == id)
+                    return state.getChild (i);
+            return juce::ValueTree();
+        };
+        migrateDenseBoardMix ([&find] (const juce::String& id, float fallback)
+                              {
+                                  const auto child = find (id);
+                                  return child.isValid() && child.hasProperty ("value") ? (float) child.getProperty ("value") : fallback;
+                              },
+                              [&find, &state] (const juce::String& id, float value)
+                              {
+                                  if (auto child = find (id); child.isValid())
+                                      child.setProperty ("value", value, nullptr);
+                                  else
+                                      state.appendChild (juce::ValueTree ("PARAM", { { "id", id }, { "value", value } }), nullptr);
+                              });
+        state.setProperty ("boardMixSchema", 2, nullptr);
     }
 
     // A patch saved before 100 % meant the knob's whole range keeps its

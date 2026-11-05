@@ -1530,8 +1530,12 @@ public:
                 foldPicture.setVisible (false);
                 foldPicture.image = {};
                 resized();
+                // (The cards' frames and headers are this page's own painting: moving the controls repaints only
+                // them, so the page repaints too, ilana 2026-11-05.)
+                repaint();
                 return;
             }
+            // (Only the picture, the tab and the bar move: JUCE repaints where they were and are.)
             placeFoldParts();
         };
 

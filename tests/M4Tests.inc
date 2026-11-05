@@ -316,6 +316,57 @@ void runM4Tests()
         const auto silent = renderKeys ([] (auto& p) { setParam (p, "sb_on", 1.0f); }, [] (int, auto&) {}, 20);
         check (bandEnergy (silent, 0, silent.size()) == 0.0, "the soundboard is silent with no input");
 
+        // The Dense board's MIX is heard (2026-11-05: 0 to 100 % moved it by
+        // 0.05 dB): at 100 % the wood it adds is within 8 dB of the board's
+        // output, as the Classic board's is.
+        {
+            const auto woodAdded = [] (float mix)
+            {
+                DenseSoundboard board;
+                board.prepare (48000.0);
+                juce::Random random (1);
+                std::vector<float> dry (48128), wet;
+                for (size_t i = 0; i < dry.size(); ++i)
+                    dry[i] = (i % 4800 < 200) ? random.nextFloat() - 0.5f : 0.0f;
+                std::array<std::vector<float>, 2> out { dry, dry };
+                for (auto& left : out)
+                {
+                    auto right = left;
+                    for (size_t start = 0; start < left.size(); start += 256)
+                        board.process (left.data() + start, right.data() + start, 256, &left == &out[0] ? 0.0f : mix, 0.5f, 0.5f);
+                    board.reset();
+                }
+                auto added = 0.0, total = 0.0;
+                for (size_t i = 0; i < dry.size(); ++i)
+                {
+                    added += std::pow ((double) out[1][i] - out[0][i], 2.0);
+                    total += std::pow ((double) out[1][i], 2.0);
+                }
+                return 10.0 * std::log10 (added / total);
+            };
+            check (woodAdded (1.0f) > -8.0, "the Dense board's MIX at 100 % adds wood you can hear");
+
+            // A patch saved before keeps its wood: MIX loads divided by the new reach.
+            IlanaSynthAudioProcessor source, target;
+            setParam (source, "sb_on", 1.0f);
+            setParam (source, "sb_model", 1.0f);
+            setParam (source, "sb_mix", 0.56f);
+            auto old = source.captureWholePatch();
+            old.removeProperty ("boardMixSchema", nullptr);
+            target.restoreWholePatch (old);
+            check (std::abs (target.apvts.getRawParameterValue ("sb_mix")->load() - 0.1f) < 0.002f,
+                   "a Dense patch saved before the MIX change loads with MIX scaled to sound the same");
+            target.restoreWholePatch (source.captureWholePatch());
+            check (std::abs (target.apvts.getRawParameterValue ("sb_mix")->load() - 0.56f) < 0.002f,
+                   "a Dense patch saved now keeps its MIX");
+            setParam (source, "sb_model", 0.0f);
+            old = source.captureWholePatch();
+            old.removeProperty ("boardMixSchema", nullptr);
+            target.restoreWholePatch (old);
+            check (std::abs (target.apvts.getRawParameterValue ("sb_mix")->load() - 0.56f) < 0.002f,
+                   "a Classic board patch keeps its MIX");
+        }
+
         // Brightness: energy of the first difference (a gentle high-pass)
         // relative to the whole signal.
         const auto darkBright = [&] (float tone)

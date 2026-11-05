@@ -1416,7 +1416,8 @@ private:
 
 // The rail that folds PLAY's module block (SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS, BODY) away so the
 // oscillator cards take the page (ilana 2026-11-04: "let user fold down the sub noise filter envelope section").
-// Open: a thin rule over the block with FOLD and a down chevron in the middle. Folded: one card-like line at the
+// Open: a small FOLD tab in the STRINGS card's header (the block's top right), with no row of its own
+// (ilana 2026-11-05: "put the fold button over the other cards", so no card changes size, her 2026-10-21 rule). Folded: one card-like line at the
 // page's foot naming what is inside, an up chevron at each end; a click anywhere on it opens the block again.
 class BandsFoldRail : public juce::Button
 {
@@ -1436,6 +1437,13 @@ public:
     }
 
     bool isFolded() const { return folded; }
+
+    // The open tab's size: FOLD and its chevron.
+    static int tabWidth()
+    {
+        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f);
+        return juce::GlyphArrangement::getStringWidthInt (font, "FOLD") + 2 + 24;
+    }
 
     static juce::String foldedText()
     {
@@ -1461,20 +1469,15 @@ public:
 
         if (! folded)
         {
-            const auto text = juce::String ("FOLD");
-            const auto textW = (float) juce::GlyphArrangement::getStringWidthInt (font, text) + 2.0f;
-            const auto pillW = textW + 24.0f;
-            const auto pill = juce::Rectangle<float> (pillW, juce::jmin (r.getHeight() - 1.0f, 12.0f)).withCentre (r.getCentre());
-            g.setColour (IlanaTheme::Ui::line2);
-            g.fillRect (juce::Rectangle<float> (r.getX(), r.getCentreY(), pill.getX() - 4.0f - r.getX(), 1.0f));
-            g.fillRect (juce::Rectangle<float> (pill.getRight() + 4.0f, r.getCentreY(), r.getRight() - pill.getRight() - 4.0f, 1.0f));
+            // (Open: a small tab over the cards' edge, no row of its own, so no card loses height.)
+            const auto pill = r.reduced (0.5f);
             g.setColour (hovered || down ? IlanaTheme::Ui::hover : IlanaTheme::Ui::raised);
             g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
             g.setColour (IlanaTheme::Ui::line);
             g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
             g.setColour (ink);
             g.setFont (font);
-            g.drawText (text, pill.withTrimmedRight (12.0f).withTrimmedLeft (4.0f), juce::Justification::centred, false);
+            g.drawText ("FOLD", pill.withTrimmedRight (12.0f).withTrimmedLeft (4.0f), juce::Justification::centred, false);
             chevron ({ pill.getRight() - 10.0f, pill.getCentreY() }, false, ink);
             return;
         }
@@ -1922,8 +1925,8 @@ public:
         // (ilana's layout, 2026-10-29: two rows, one height on every patch. 119 rather than her 108, so two wavetable
         // cards and their add row end right above them, no empty strip; a third card scrolls.)
         const auto bandsHeight = juce::jmin (2 * rowHeight + vGap, juce::jmax (2 * minBand + vGap, area.getHeight() / 2));
-        // (ilana 2026-11-04: the module block folds down to one line at the foot, FOLD's rail sits over it while open.)
-        const auto blockHeight = bandsFolded ? foldedRailHeight : bandsHeight + openRailHeight;
+        // (ilana 2026-11-04: the module block folds down to one line at the foot; open, FOLD is a tab in a card header.)
+        const auto blockHeight = bandsFolded ? foldedRailHeight : bandsHeight;
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
         const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
         const auto blockTop = bandsFolded ? bottom - blockHeight
@@ -1932,11 +1935,22 @@ public:
         oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, oscView.getHeight() - 8));
         syncOscBar();
 
-        foldRail.setBounds (area.getX(), blockTop, area.getWidth(), bandsFolded ? foldedRailHeight : openRailHeight);
         // (Folded, the cards are laid out under the page's foot: clipped, out of reach, but every show / hide rule
         // inside them keeps working, so they come back exactly as they were.)
-        const auto bandsTop = bandsFolded ? getHeight() + 40 : blockTop + openRailHeight;
+        const auto bandsTop = bandsFolded ? getHeight() + 40 : blockTop;
         layoutBands ({ area.getX(), bandsTop, area.getWidth(), bandsHeight });
+        // (Open, the tab sits in the STRINGS card's header, in the free stretch between its pills and its switch:
+        // over a card, never over the oscillators, which scroll under that edge.)
+        if (bandsFolded)
+            foldRail.setBounds (area.getX(), blockTop, area.getWidth(), foldedRailHeight);
+        else
+        {
+            const auto left = stringsTabs.getRight() + 8, right = switchIn (stringsBounds).getX() - 8;
+            foldRail.setBounds (juce::Rectangle<int> (BandsFoldRail::tabWidth(), tabHeight)
+                                    .withCentre ({ (left + right) / 2, stringsBounds.getY() + headerHeight / 2 }));
+        }
+        if (getIndexOfChildComponent (&foldRail) != getNumChildComponents() - 1)
+            foldRail.toFront (false);
         if (tuningPopover.isVisible())
             tuningPopover.setBounds (tuningBounds());
 
@@ -2027,7 +2041,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, hGap = 5, vGap = 5, headerHeight = 20, cell = 35;
-    static constexpr int minBand = 62, rowHeight = 119, openRailHeight = 13, foldedRailHeight = 22;
+    static constexpr int minBand = 62, rowHeight = 119, tabHeight = 14, foldedRailHeight = 22;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }

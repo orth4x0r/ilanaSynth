@@ -491,7 +491,7 @@ private:
         const auto dt = trailMs > 0.0 ? juce::jlimit (0.0, 0.1, (now - trailMs) / 1000.0) : 0.0;
         trailMs = now;
         const auto fade = (float) std::exp (-dt / 0.4);
-        auto alive = false;
+        auto alive = false, fading = false;
 
         for (auto& value : trail)
         {
@@ -499,6 +499,7 @@ private:
             if (value < 0.03f)
                 value = 0.0f;
             alive = alive || value > 0.0f;
+            fading = fading || value > 0.0f;
         }
 
         if (position > 0.0f)
@@ -508,6 +509,12 @@ private:
 
             for (int i = from; i <= bin (position); ++i)
                 trail[(size_t) i] = 1.0f;
+
+            // (Only the dot's own slice is lit and the rest has faded: a note
+            // held still at the sustain draws nothing new.)
+            fading = false;
+            for (int i = 0; i < trailBins && ! fading; ++i)
+                fading = trail[(size_t) i] > 0.0f && i != bin (position);
 
             // A new note rings once from the dot.
             if (trailHead < 0.0f || position < trailHead - 0.05f)
@@ -524,6 +531,7 @@ private:
         }
 
         trailAlive = alive || dotFade > 0.0f || now - pingMs < 450.0;
+        trailMoving = fading || (position <= 0.0f && dotFade > 0.0f) || now - pingMs < 450.0;
     }
 
     void paintTrail (juce::Graphics& g, const Geometry& geo) const
@@ -720,7 +728,9 @@ private:
 
         const auto position = shownPosition();
 
-        if (IlanaAnim::showing (*this) && (appear < 1.0f || trailAlive || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
+        // (A lit trail redraws while it fades or the dot moves; the dot itself
+        // moves the position in the signature.)
+        if (IlanaAnim::showing (*this) && (appear < 1.0f || trailMoving || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)
                                                                 ^ IlanaAnim::phaseSignature (position, 31))))
             repaint();
     }
@@ -730,7 +740,7 @@ private:
     mutable std::array<float, trailBins> trail {};
     mutable float trailHead = -1.0f, dotFade = 0.0f;
     mutable double trailMs = 0.0, pingMs = -1.0e9;
-    mutable bool trailAlive = false;
+    mutable bool trailAlive = false, trailMoving = false;
     mutable juce::Point<float> lastDot;
     IlanaAnim::BlockSmoother levelSmoother; // monitors glided between audio blocks
 

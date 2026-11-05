@@ -8047,6 +8047,269 @@ int runFps()
     return 0;
 }
 
+// What each animation costs per frame, at the window scale ilana's host uses
+// (ILANA_ANIM_SCALE, default 1.75): frames drawn, the paint time of each
+// frame (from a probe under every child to one over them), the message
+// thread's CPU and the share of the window each frame redraws. A smooth
+// animation draws ~60 frames a second with each paint well under 16 ms.
+struct PaintStart : juce::Component
+{
+    PaintStart() { setInterceptsMouseClicks (false, false); }
+    void paint (juce::Graphics&) override { start = juce::Time::getMillisecondCounterHiRes(); }
+    double start = 0.0;
+};
+
+struct PaintEnd : juce::Component
+{
+    explicit PaintEnd (PaintStart& s) : startProbe (s) { setInterceptsMouseClicks (false, false); }
+    void paint (juce::Graphics& g) override
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        times.push_back (now);
+        durations.push_back (now - startProbe.start);
+        int cells = 0, all = 0;
+        for (int y = 0; y < getHeight(); y += 20)
+            for (int x = 0; x < getWidth(); x += 20, ++all)
+                cells += g.clipRegionIntersects ({ x, y, 20, 20 }) ? 1 : 0;
+        area.push_back ((double) cells / (double) juce::jmax (1, all));
+    }
+    void clear() { times.clear(); durations.clear(); area.clear(); }
+    PaintStart& startProbe;
+    std::vector<double> times, durations, area;
+};
+
+// Which components paint, how often and for how long (own paint() only).
+struct PaintWho : juce::ComponentListener
+{
+    void attach (juce::Component& c)
+    {
+        c.addComponentListener (this);
+        for (auto* child : c.getChildren())
+            attach (*child);
+    }
+    void detach (juce::Component& c)
+    {
+        c.removeComponentListener (this);
+        for (auto* child : c.getChildren())
+            detach (*child);
+    }
+    void componentPainted (juce::Component& c, const juce::ComponentPaintDiagnostics& d) override
+    {
+        auto name = juce::String (typeid (c).name());
+       #if ! JUCE_WINDOWS
+        int status = 0;
+        if (auto* plain = abi::__cxa_demangle (typeid (c).name(), nullptr, nullptr, &status))
+        {
+            name = plain;
+            std::free (plain);
+        }
+       #endif
+        auto& entry = stats[name.replace ("(anonymous namespace)::", "")];
+        entry.first++;
+        entry.second += d.paintDuration.get<std::chrono::duration<double, std::milli>>() + d.paintOverChildrenDuration.get<std::chrono::duration<double, std::milli>>();
+    }
+    void print (double wallMs)
+    {
+        std::vector<std::pair<double, juce::String>> sorted;
+        for (auto& [name, e] : stats)
+            sorted.push_back ({ e.second, name });
+        std::sort (sorted.rbegin(), sorted.rend());
+        for (size_t i = 0; i < std::min<size_t> (12, sorted.size()); ++i)
+            std::cout << "      " << juce::String (sorted[i].first * 1000.0 / wallMs, 1) << " ms/s in " << stats[sorted[i].second].first << " paints: " << sorted[i].second << std::endl;
+        stats.clear();
+    }
+    std::map<juce::String, std::pair<int, double>> stats;
+};
+
+int runAnimCost()
+{
+    const auto scale = (float) juce::jmax (1.0, juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_SCALE", "1.75").getDoubleValue());
+    juce::Desktop::getInstance().setGlobalScaleFactor (scale);
+    IlanaAnim::fullMotion() = true;
+    IlanaSynthAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 256);
+    if (const auto preset = juce::SystemStats::getEnvironmentVariable ("ILANA_FPS_PRESET", ""); preset.isNotEmpty())
+        processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (preset));
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1060, 720);
+    HostWindow window (*editor);
+    // (Background work at start, the wavetable builds, done first.)
+    settle (juce::jmax (1000, juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_SETTLE", "8000").getIntValue()));
+    if (auto* tutorial = findChild<TutorialOverlay> (*editor))
+        tutorial->setVisible (false);
+    if (auto* peer = window.getPeer())
+        std::cout << "window " << peer->getBounds().toString() << " at scale " << scale << std::endl;
+
+    PaintStart startProbe;
+    PaintEnd endProbe (startProbe);
+    editor->addAndMakeVisible (startProbe, 0);
+    editor->addAndMakeVisible (endProbe);
+    startProbe.setBounds (editor->getLocalBounds());
+    endProbe.setBounds (editor->getLocalBounds());
+
+    auto* pages = dynamic_cast<IlanaSynthAudioProcessorEditor*> (editor.get());
+    // (Windows draws with Direct2D, not OpenGL: on Linux the software renderer is the nearer stand-in.)
+    pages->setGpuRendering (juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_GPU", "").isNotEmpty());
+    settle (300);
+    const auto only = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_ONLY", ""), ",", "");
+
+    const auto measure = [&] (const juce::String& name, int milliseconds, std::function<void()> start)
+    {
+        if (! only.isEmpty() && ! only.contains (name))
+            return;
+        settle (300);
+        if (juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_NOALPHA", "").isNotEmpty())
+        {
+            std::function<void (juce::Component&)> opaque = [&] (juce::Component& c) { for (auto* child : c.getChildren()) { if (child != &endProbe && child->getAlpha() < 1.0f) child->setAlpha (1.0f); opaque (*child); } };
+            opaque (*editor);
+        }
+        endProbe.toFront (false);
+        endProbe.clear();
+        const auto cpuStart = cpuSeconds();
+        const auto wallStart = juce::Time::getMillisecondCounterHiRes();
+        IlanaAnim::paintStats().clear();
+        IlanaAnim::paintStatsOn() = true;
+        static PaintWho who; // (outlives the components it may still be attached to)
+        const auto listWho = juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_WHO", "").isNotEmpty();
+        if (listWho)
+            who.attach (*editor);
+        start();
+        settle (milliseconds);
+        const auto wall = juce::Time::getMillisecondCounterHiRes() - wallStart;
+        const auto cpu = 100.0 * (cpuSeconds() - cpuStart) / (wall * 0.001);
+        auto d = endProbe.durations;
+        std::sort (d.begin(), d.end());
+        const auto at = [&d] (double q) { return d.empty() ? 0.0 : d[(size_t) ((double) (d.size() - 1) * q)]; };
+        double meanArea = 0.0;
+        for (auto a : endProbe.area)
+            meanArea += a;
+        meanArea /= (double) juce::jmax ((size_t) 1, endProbe.area.size());
+        std::cout << name << ": " << frameStats (endProbe.times, wall) << "\n    paint median " << juce::String (at (0.5), 1) << " ms, p95 "
+                  << juce::String (at (0.95), 1) << " ms, max " << juce::String (at (1.0), 1) << " ms; redraws " << juce::String (100.0 * meanArea, 0)
+                  << "% of the window; " << juce::String (cpu, 0) << "% cpu" << std::endl;
+        IlanaAnim::paintStatsOn() = false;
+        for (const auto& entry : IlanaAnim::paintStats())
+            std::cout << "    paints/s " << entry.first << ": " << juce::String ((double) entry.second * 1000.0 / wall, 0) << std::endl;
+        if (listWho)
+        {
+            who.detach (*editor);
+            who.print (wall);
+        }
+    };
+
+    std::vector<juce::Button*> buttons;
+    const auto button = [&] (const juce::String& name) -> juce::Button*
+    {
+        buttons.clear();
+        findAll<juce::Button> (*editor, buttons);
+        for (auto* b : buttons)
+            if (b->getName() == name && b->isShowing())
+                return b;
+        return nullptr;
+    };
+
+    // Components drawn through a transparency layer (alpha under 1): each paint
+    // draws them into an image first, then blends it in.
+    const auto listLayers = [&] (const juce::String& where)
+    {
+        std::function<void (juce::Component&)> walk = [&] (juce::Component& c)
+        {
+            for (auto* child : c.getChildren())
+            {
+                if (! child->isVisible())
+                    continue;
+                if (child->getAlpha() < 1.0f && child->getWidth() * child->getHeight() > 400)
+                    std::cout << "  layer on " << where << ": " << typeid (*child).name() << " alpha " << child->getAlpha() << " " << child->getBounds().toString() << std::endl;
+                walk (*child);
+            }
+        };
+        walk (*editor);
+    };
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_LAYERS", "").isNotEmpty())
+        for (const auto& id : pages->getPageIds())
+        {
+            pages->showPage (id);
+            settle (500);
+            listLayers (id);
+        }
+
+    // ILANA_ANIM_SHOTS=<dir>: pictures of the fold partway (every 60 ms), to check the slide by eye.
+    if (const auto shots = juce::SystemStats::getEnvironmentVariable ("ILANA_ANIM_SHOTS", ""); shots.isNotEmpty())
+    {
+        const auto dir = juce::File::getCurrentWorkingDirectory().getChildFile (shots);
+        dir.createDirectory();
+        pages->showPage ("PLAY");
+        settle (800);
+        IlanaAnim::motionClockRate() = 0.1; // (ten times slower, so the pictures land partway)
+        for (const auto* name : { "Fold modules", "Unfold modules" })
+        {
+            if (auto* b = button (name))
+                b->triggerClick();
+            for (int i = 0; i < 7; ++i)
+            {
+                settle (i == 0 ? 300 : 500);
+                const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream out (dir.getChildFile (juce::String (name).replace (" ", "-") + "-" + juce::String (i) + ".png"));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (image, out);
+            }
+            settle (3500);
+        }
+        IlanaAnim::motionClockRate() = 1.0;
+    }
+
+    pages->showPage ("PLAY");
+    settle (600);
+    measure ("idle PLAY", 1000, [] {});
+    for (int round = 0; round < 2; ++round)
+    {
+        measure ("fold", 600, [&] { if (auto* b = button ("Fold modules")) b->triggerClick(); else std::cout << "(no fold tab)" << std::endl; });
+        measure ("unfold", 600, [&] { if (auto* b = button ("Unfold modules")) b->triggerClick(); else std::cout << "(no unfold bar)" << std::endl; });
+    }
+
+    // A wheel flick over the oscillator cards (they glide to a stop).
+    const auto wheel = [&] (float deltaY)
+    {
+        std::vector<juce::Viewport*> views;
+        findAll<juce::Viewport> (*editor, views);
+        for (auto* view : views)
+        {
+            if (! view->isShowing() || view->getViewedComponent() == nullptr || view->getViewedComponent()->getHeight() <= view->getHeight())
+                continue;
+            juce::MouseWheelDetails details {};
+            details.deltaY = deltaY;
+            const auto centre = view->getLocalBounds().getCentre().toFloat();
+            const juce::MouseEvent e (juce::Desktop::getInstance().getMainMouseSource(), centre, {}, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                      view, view, juce::Time::getCurrentTime(), centre, juce::Time::getCurrentTime(), 1, false);
+            view->mouseWheelMove (e, details);
+            return;
+        }
+        std::cout << "(nothing scrolls here)" << std::endl;
+    };
+    measure ("scroll PLAY oscillators", 700, [&] { wheel (-0.5f); });
+    measure ("scroll back", 700, [&] { wheel (0.5f); });
+
+    for (const auto& id : pages->getPageIds())
+        measure ("switch to " + id, 400, [&] { pages->showPage (id); });
+
+    for (const auto& id : pages->getPageIds())
+    {
+        if (! only.isEmpty() && ! only.contains ("idle " + id))
+            continue;
+        pages->showPage (id);
+        settle (1500);
+        measure ("idle " + id, 2000, [] {});
+    }
+
+    pages->showPage ("OSC");
+    settle (500);
+    measure ("scroll OSC", 700, [&] { wheel (-0.5f); });
+
+    window.removeChildComponent (editor.get());
+    return 0;
+}
+
 // Times what a host does when it opens a saved project: construct, prepare,
 // restore the state, open the editor, and restore again with it open.
 static int runLoadTime()
@@ -9528,6 +9791,9 @@ int main (int argc, char** argv)
 
     if (juce::String (argv[1]) == "--fps")
         return runFps();
+
+    if (juce::String (argv[1]) == "--animcost")
+        return runAnimCost();
 
     // Still pictures are taken with Motion: Less, so a pop-up or a card is
     // drawn where it ends, not partway through growing or sliding in

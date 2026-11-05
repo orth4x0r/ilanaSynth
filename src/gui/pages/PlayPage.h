@@ -1517,16 +1517,22 @@ public:
         addChildComponent (foldBar);
         foldTab.onClick = [this] { setBandsFolded (true, true); };
         foldBar.onClick = [this] { setBandsFolded (false, true); };
+        addChildComponent (foldPicture);
         foldSlide.tick = [this]
         {
+            // (0.3 s end to end, by the clock, so a slow frame never slows the slide down.)
             const auto target = bandsFolded ? 1.0f : 0.0f;
-            foldShown += (target > foldShown ? 1.0f : -1.0f) / (0.30f * 60.0f);
-            if ((target - foldShown) * (bandsFolded ? 1.0f : -1.0f) <= 0.0f)
+            const auto step = foldSlide.frameSeconds() * (float) IlanaAnim::motionClockRate() / 0.30f;
+            foldShown = target > foldShown ? juce::jmin (target, foldShown + step) : juce::jmax (target, foldShown - step);
+            if (foldShown == target)
             {
-                foldShown = target;
                 foldSlide.stopTimer();
+                foldPicture.setVisible (false);
+                foldPicture.image = {};
+                resized();
+                return;
             }
-            resized();
+            placeFoldParts();
         };
 
         auto& state = p.apvts;
@@ -1939,25 +1945,20 @@ public:
         const auto foldedTop = bottom - foldedRailHeight;
         const auto slide = IlanaAnim::easeInOutCubic (foldShown);
         const auto lerp = [slide] (int from, int to) { return juce::roundToInt ((float) from + (float) (to - from) * slide); };
-        oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, lerp (openTop, foldedTop - vGap))));
+        foldOpenTop = openTop;
+        foldFoldedTop = foldedTop;
+        // (While the block slides, a picture of it moves over the oscillators, which already have their folded room,
+        // and the cards wait folded: each frame draws one image and lays nothing out.)
+        const auto sliding = foldPicture.isVisible();
+        oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, sliding ? foldedTop - vGap : lerp (openTop, foldedTop - vGap))));
         oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, oscView.getHeight() - 8));
         syncOscBar();
 
         // (Folded, the cards are laid out under the page's foot: clipped, out of reach, but every show / hide rule
         // inside them keeps working, so they come back exactly as they were.)
-        const auto bandsTop = foldShown >= 1.0f ? getHeight() + 40 : lerp (openTop, getHeight() + 8);
+        const auto bandsTop = sliding || foldShown >= 1.0f ? getHeight() + 40 : lerp (openTop, getHeight() + 8);
         layoutBands ({ area.getX(), bandsTop, area.getWidth(), bandsHeight });
-        // (The tab rides the block's top edge, in the middle, a few px low: half over the oscillators, half over the
-        // block, ilana's mock C2 2026-11-05.)
-        foldTab.setBounds (juce::Rectangle<int> (BandsFoldRail::tabWidth, BandsFoldRail::tabHeight).withCentre ({ area.getCentreX(), bandsTop + tabDrop }));
-        foldTab.setVisible (foldShown < 1.0f);
-        foldTab.setAlpha (1.0f - slide);
-        foldBar.setBounds (area.getX(), foldedTop, area.getWidth(), foldedRailHeight);
-        foldBar.setVisible (foldShown > 0.0f);
-        foldBar.setAlpha (slide);
-        for (auto* control : { static_cast<juce::Component*> (&foldBar), static_cast<juce::Component*> (&foldTab) })
-            if (control->isVisible() && getIndexOfChildComponent (control) != getNumChildComponents() - 1)
-                control->toFront (false);
+        placeFoldParts();
         if (tuningPopover.isVisible())
             tuningPopover.setBounds (tuningBounds());
 
@@ -2019,6 +2020,44 @@ public:
 
     bool isTuningShown() const { return tuningPopover.isVisible(); }
 
+    // The fold's moving parts at the slide's place: the tab on the block's top edge, the folded line, and while
+    // sliding the block's picture.
+    void placeFoldParts()
+    {
+        const auto area = getLocalBounds().reduced (sideMargin, 0);
+        const auto slide = IlanaAnim::easeInOutCubic (foldShown);
+        const auto blockTop = juce::roundToInt ((float) foldOpenTop + (float) (getHeight() + 8 - foldOpenTop) * slide);
+        // (The tab rides the block's top edge, in the middle, a few px low: half over the oscillators, half over the
+        // block, ilana's mock C2 2026-11-05.)
+        foldTab.setBounds (juce::Rectangle<int> (BandsFoldRail::tabWidth, BandsFoldRail::tabHeight).withCentre ({ area.getCentreX(), blockTop + tabDrop }));
+        foldTab.setVisible (foldShown < 1.0f);
+        foldTab.setAlpha (1.0f - slide);
+        foldBar.setBounds (area.getX(), foldFoldedTop, area.getWidth(), foldedRailHeight);
+        foldBar.setVisible (foldShown > 0.0f);
+        foldBar.setAlpha (slide);
+        if (foldPicture.isVisible())
+            foldPicture.setBounds (0, blockTop, getWidth(), foldPicture.height);
+        for (auto* control : { static_cast<juce::Component*> (&foldPicture), static_cast<juce::Component*> (&foldBar), static_cast<juce::Component*> (&foldTab) })
+            if (control->isVisible())
+                control->toFront (false);
+    }
+
+    // The block as it stands open, pictured once when a slide starts (its live views wait the 0.3 s out).
+    void pictureFoldBlock()
+    {
+        const auto was = foldShown;
+        foldShown = 0.0f;
+        foldPicture.setVisible (false);
+        resized();
+        foldTab.setVisible (false);
+        const juce::Rectangle<int> block (0, foldOpenTop, getWidth(), juce::jmax (1, getHeight() - foldOpenTop));
+        foldPicture.image = createComponentSnapshot (block, true, juce::Component::getApproximateScaleFactorForComponent (this));
+        foldPicture.height = block.getHeight();
+        foldShown = was;
+        foldPicture.setVisible (foldPicture.image.isValid());
+        resized();
+    }
+
     // The module block folded down to one line (the editor keeps the choice in its settings file).
     bool areBandsFolded() const { return bandsFolded; }
     void setBandsFolded (bool shouldFold, bool notify = false)
@@ -2029,9 +2068,16 @@ public:
         if (bandsFolded)
             showTuning (false);
         if (IlanaAnim::fullMotion() && isShowing())
+        {
+            if (! foldSlide.isTimerRunning())
+                pictureFoldBlock();
             foldSlide.startTimerHz (60);
+        }
         else
         {
+            foldSlide.stopTimer();
+            foldPicture.setVisible (false);
+            foldPicture.image = {};
             foldShown = bandsFolded ? 1.0f : 0.0f;
             resized();
         }
@@ -2662,11 +2708,19 @@ private:
     ViewPills boardTab { { "BOARD" }, bodyColour(), "Show the SOUNDBOARD's controls (its switch is beside it)" };
     BandsFoldRail foldTab { false }, foldBar { true };
     float foldShown = 0.0f; // 0 open, 1 folded: where the slide is
-    struct FoldSlide : juce::Timer
+    int foldOpenTop = 0, foldFoldedTop = 0;
+    struct FoldSlide : IlanaAnim::FrameTimer // (in step with the display's frames)
     {
         std::function<void()> tick;
         void timerCallback() override { tick(); }
     } foldSlide;
+    struct FoldPicture : juce::Component
+    {
+        FoldPicture() { setOpaque (true); setInterceptsMouseClicks (false, false); }
+        void paint (juce::Graphics& g) override { g.drawImage (image, getLocalBounds().toFloat()); }
+        juce::Image image;
+        int height = 0;
+    } foldPicture;
     bool bandsFolded = false;
     std::unique_ptr<ToggleControl> westOn, bodyOn, boardOn, subOn, noiseOn;
     std::unique_ptr<WestDisplay> westDisplay;

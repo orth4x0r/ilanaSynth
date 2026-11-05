@@ -378,11 +378,12 @@ public:
 private:
     // The flow card grows from the strip to its place over the response and
     // shrinks back; the response stays under it.
-    struct Animator : private juce::Timer
+    struct Animator : private IlanaAnim::FrameTimer // (in step with the display's frames)
     {
         std::function<void()> step;
         void start() { if (! isTimerRunning()) startTimerHz (60); }
-        void stopTimer() { juce::Timer::stopTimer(); }
+        void stopTimer() { IlanaAnim::FrameTimer::stopTimer(); }
+        float ticks() const { return frameTicks(); } // (60 Hz steps this frame stands for)
         void timerCallback() override { if (step != nullptr) step(); }
     };
 
@@ -421,13 +422,14 @@ private:
         if (std::abs (openAmount - target) > 0.001f)
         {
             // (A short leave delay: the pointer crossing a gap does not flicker it.)
-            leaveTicks = want ? 0 : leaveTicks + 1;
-            if (want || leaveTicks > 6)
-                openAmount = want ? juce::jmin (1.0f, openAmount + 0.14f) : juce::jmax (0.0f, openAmount - 0.12f);
+            const auto ticks = animator.ticks();
+            leaveTicks = want ? 0.0f : leaveTicks + ticks;
+            if (want || leaveTicks > 6.0f)
+                openAmount = want ? juce::jmin (1.0f, openAmount + 0.14f * ticks) : juce::jmax (0.0f, openAmount - 0.12f * ticks);
             applyOpenAmount();
         }
         else if (! want)
-            leaveTicks = 0;
+            leaveTicks = 0.0f;
     }
 
     // Balance only acts in parallel (disabled in serial, so it can't be
@@ -508,7 +510,7 @@ private:
     Animator animator;
     juce::Rectangle<int> closedBounds, openBounds;
     float openAmount = 0.0f;
-    int leaveTicks = 0;
+    float leaveTicks = 0.0f;
     bool pinned = false;
     bool wasParallel = false, wasReplaced = false;
     ToggleControl resOn;

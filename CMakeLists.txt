@@ -18,6 +18,7 @@ FetchContent_Declare(JUCE
     GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(JUCE)
+include(cmake/JuceLayerClip.cmake) # greyed-out controls draw through small layers (animation frame rate)
 
 # Step 40 follow-up: the TIME menu's high-quality stretchers, rendered in the
 # background (src/dsp/stretch). Pinned sources, only downloaded: Signalsmith

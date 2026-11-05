@@ -5140,7 +5140,7 @@ private:
 
 // The OSC page scrolls only when the card's rows cannot fit at their
 // smallest.
-class OscPageViewport : public juce::Viewport, private juce::Timer
+class OscPageViewport : public juce::Viewport, private IlanaAnim::FrameTimer // (glides in step with the display's frames)
 {
 public:
     explicit OscPageViewport (IlanaSynthAudioProcessor& processor)
@@ -5307,7 +5307,7 @@ private:
         if (juce::Time::getMillisecondCounter() - lastWheel > 90)
             target = nearestStop (juce::jlimit (0.0f, maxY, target), maxY);
 
-        current += (target - current) * 0.22f;
+        current = IlanaAnim::approach (current, target, 0.22f, frameTicks()); // (0.22 a 60 Hz tick, at any frame rate)
         if (std::abs (target - current) < 0.5f)
         {
             current = target;

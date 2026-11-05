@@ -1414,36 +1414,30 @@ private:
     GlyphButton closeButton { juce::String::fromUTF8 ("\xc3\x97") };
 };
 
-// The rail that folds PLAY's module block (SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS, BODY) away so the
-// oscillator cards take the page (ilana 2026-11-04: "let user fold down the sub noise filter envelope section").
-// Open: a small FOLD tab in the STRINGS card's header (the block's top right), with no row of its own
-// (ilana 2026-11-05: "put the fold button over the other cards", so no card changes size, her 2026-10-21 rule). Folded: one card-like line at the
-// page's foot naming what is inside, an up chevron at each end; a click anywhere on it opens the block again.
+// The fold control of PLAY's module block (SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS, BODY). Open: a small chevron
+// tab in the middle of the edge between the oscillators and the block, half over each, a few px low (ilana
+// 2026-11-05, mock C2), with no row of its own, so no oscillator card changes size (her 2026-10-21 rule). Folded:
+// one card-like line at the page's foot naming what is inside; a click opens the block again. The block slides.
 class BandsFoldRail : public juce::Button
 {
 public:
-    BandsFoldRail() : juce::Button ("Fold modules")
+    explicit BandsFoldRail (bool isBar) : juce::Button (isBar ? "Unfold modules" : "Fold modules")
     {
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
-        setFolded (false);
+        setFolded (isBar);
     }
 
     void setFolded (bool shouldBeFolded)
     {
         folded = shouldBeFolded;
-        setTooltip (folded ? "Open SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS and BODY again"
-                           : "Fold SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS and BODY down, so the oscillators get the page");
+        setTooltip (folded ? "Unfold SUB, NOISE, FILTER, ENVELOPE, LFO, STRINGS and BODY"
+                           : "Fold this section down to see the whole oscillator section");
         repaint();
     }
 
     bool isFolded() const { return folded; }
 
-    // The open tab's size: FOLD and its chevron.
-    static int tabWidth()
-    {
-        const auto font = IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.09f);
-        return juce::GlyphArrangement::getStringWidthInt (font, "FOLD") + 2 + 24;
-    }
+    static constexpr int tabWidth = 30, tabHeight = 14;
 
     static juce::String foldedText()
     {
@@ -1477,8 +1471,7 @@ public:
             g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
             g.setColour (ink);
             g.setFont (font);
-            g.drawText ("FOLD", pill.withTrimmedRight (12.0f).withTrimmedLeft (4.0f), juce::Justification::centred, false);
-            chevron ({ pill.getRight() - 10.0f, pill.getCentreY() }, false, ink);
+            chevron (pill.getCentre().translated (0.0f, 0.5f), false, ink);
             return;
         }
 
@@ -1520,8 +1513,21 @@ public:
         oscBar.setAutoHide (false);
         oscBar.addListener (this);
         addChildComponent (oscBar);
-        addAndMakeVisible (foldRail);
-        foldRail.onClick = [this] { setBandsFolded (! bandsFolded, true); };
+        addAndMakeVisible (foldTab);
+        addChildComponent (foldBar);
+        foldTab.onClick = [this] { setBandsFolded (true, true); };
+        foldBar.onClick = [this] { setBandsFolded (false, true); };
+        foldSlide.tick = [this]
+        {
+            const auto target = bandsFolded ? 1.0f : 0.0f;
+            foldShown += (target > foldShown ? 1.0f : -1.0f) / (0.30f * 60.0f);
+            if ((target - foldShown) * (bandsFolded ? 1.0f : -1.0f) <= 0.0f)
+            {
+                foldShown = target;
+                foldSlide.stopTimer();
+            }
+            resized();
+        };
 
         auto& state = p.apvts;
         const auto knob = [&] (const juce::String& id, const juce::String& label, juce::Colour colour)
@@ -1925,32 +1931,33 @@ public:
         // (ilana's layout, 2026-10-29: two rows, one height on every patch. 119 rather than her 108, so two wavetable
         // cards and their add row end right above them, no empty strip; a third card scrolls.)
         const auto bandsHeight = juce::jmin (2 * rowHeight + vGap, juce::jmax (2 * minBand + vGap, area.getHeight() / 2));
-        // (ilana 2026-11-04: the module block folds down to one line at the foot; open, FOLD is a tab in a card header.)
-        const auto blockHeight = bandsFolded ? foldedRailHeight : bandsHeight;
+        // (ilana 2026-11-04/05: the module block folds down to one line at the foot and slides there; open, the
+        // chevron tab sits on its top edge.)
         // (Three full oscillator cards: the bands sit right under them, the little slack goes to the foot.)
         const auto oscMin = oscView.getPage() != nullptr ? oscView.getPage()->getReferenceHeight() : 0;
-        const auto blockTop = bandsFolded ? bottom - blockHeight
-                                          : oscMin > bottom - blockHeight - 14 ? juce::jmin (bottom - blockHeight, oscMin) : bottom - blockHeight;
-        oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, blockTop - (bandsFolded ? vGap : 0))));
+        const auto openTop = oscMin > bottom - bandsHeight - 14 ? juce::jmin (bottom - bandsHeight, oscMin) : bottom - bandsHeight;
+        const auto foldedTop = bottom - foldedRailHeight;
+        const auto slide = IlanaAnim::easeInOutCubic (foldShown);
+        const auto lerp = [slide] (int from, int to) { return juce::roundToInt ((float) from + (float) (to - from) * slide); };
+        oscView.setBounds (getLocalBounds().withHeight (juce::jmax (0, lerp (openTop, foldedTop - vGap))));
         oscBar.setBounds (getWidth() - sideMargin + 1, 4, sideMargin - 2, juce::jmax (0, oscView.getHeight() - 8));
         syncOscBar();
 
         // (Folded, the cards are laid out under the page's foot: clipped, out of reach, but every show / hide rule
         // inside them keeps working, so they come back exactly as they were.)
-        const auto bandsTop = bandsFolded ? getHeight() + 40 : blockTop;
+        const auto bandsTop = foldShown >= 1.0f ? getHeight() + 40 : lerp (openTop, getHeight() + 8);
         layoutBands ({ area.getX(), bandsTop, area.getWidth(), bandsHeight });
-        // (Open, the tab sits in the STRINGS card's header, in the free stretch between its pills and its switch:
-        // over a card, never over the oscillators, which scroll under that edge.)
-        if (bandsFolded)
-            foldRail.setBounds (area.getX(), blockTop, area.getWidth(), foldedRailHeight);
-        else
-        {
-            const auto left = stringsTabs.getRight() + 8, right = switchIn (stringsBounds).getX() - 8;
-            foldRail.setBounds (juce::Rectangle<int> (BandsFoldRail::tabWidth(), tabHeight)
-                                    .withCentre ({ (left + right) / 2, stringsBounds.getY() + headerHeight / 2 }));
-        }
-        if (getIndexOfChildComponent (&foldRail) != getNumChildComponents() - 1)
-            foldRail.toFront (false);
+        // (The tab rides the block's top edge, in the middle, a few px low: half over the oscillators, half over the
+        // block, ilana's mock C2 2026-11-05.)
+        foldTab.setBounds (juce::Rectangle<int> (BandsFoldRail::tabWidth, BandsFoldRail::tabHeight).withCentre ({ area.getCentreX(), bandsTop + tabDrop }));
+        foldTab.setVisible (foldShown < 1.0f);
+        foldTab.setAlpha (1.0f - slide);
+        foldBar.setBounds (area.getX(), foldedTop, area.getWidth(), foldedRailHeight);
+        foldBar.setVisible (foldShown > 0.0f);
+        foldBar.setAlpha (slide);
+        for (auto* control : { static_cast<juce::Component*> (&foldBar), static_cast<juce::Component*> (&foldTab) })
+            if (control->isVisible() && getIndexOfChildComponent (control) != getNumChildComponents() - 1)
+                control->toFront (false);
         if (tuningPopover.isVisible())
             tuningPopover.setBounds (tuningBounds());
 
@@ -2021,8 +2028,13 @@ public:
         bandsFolded = shouldFold;
         if (bandsFolded)
             showTuning (false);
-        foldRail.setFolded (bandsFolded);
-        resized();
+        if (IlanaAnim::fullMotion() && isShowing())
+            foldSlide.startTimerHz (60);
+        else
+        {
+            foldShown = bandsFolded ? 1.0f : 0.0f;
+            resized();
+        }
         repaint();
         if (notify && onBandsFoldChanged)
             onBandsFoldChanged (bandsFolded);
@@ -2041,7 +2053,7 @@ private:
     };
 
     static constexpr int sideMargin = 7, bottomMargin = 4, hGap = 5, vGap = 5, headerHeight = 20, cell = 35;
-    static constexpr int minBand = 62, rowHeight = 119, tabHeight = 14, foldedRailHeight = 22;
+    static constexpr int minBand = 62, rowHeight = 119, foldedRailHeight = 22, tabDrop = 4;
     static constexpr float dialSize = 28.0f;
 
     static juce::Colour filterColour (int index) { return IlanaTheme::envIdentityColour (index == 0 ? 1 : 2); }
@@ -2648,7 +2660,13 @@ private:
     juce::Rectangle<int> filterBounds, stringsBounds, westBounds, bodyBounds, subBounds, noiseBounds, tuningGroup, noiseGroup;
     ViewPills bodyTab { { "BODY" }, bodyColour(), "Show BODY's controls (its switch is beside it)" };
     ViewPills boardTab { { "BOARD" }, bodyColour(), "Show the SOUNDBOARD's controls (its switch is beside it)" };
-    BandsFoldRail foldRail;
+    BandsFoldRail foldTab { false }, foldBar { true };
+    float foldShown = 0.0f; // 0 open, 1 folded: where the slide is
+    struct FoldSlide : juce::Timer
+    {
+        std::function<void()> tick;
+        void timerCallback() override { tick(); }
+    } foldSlide;
     bool bandsFolded = false;
     std::unique_ptr<ToggleControl> westOn, bodyOn, boardOn, subOn, noiseOn;
     std::unique_ptr<WestDisplay> westDisplay;

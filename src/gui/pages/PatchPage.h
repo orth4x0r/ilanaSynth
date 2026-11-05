@@ -460,6 +460,9 @@ public:
             removeEffect (slotOf (&node));
         };
         view.onOpen = [this] (const PatchGraph::Node& node) { open (node); };
+        view.onCopy = [this] (const std::vector<PatchGraph::NodeId>& ids) { copyEffects (ids); };
+        view.onPaste = [this] (juce::Point<float> at) { pasteEffects (at); };
+        view.onRemoveMany = [this] (const std::vector<PatchGraph::NodeId>& ids) { removeMany (ids); };
         view.nodeMenu = [this] (juce::PopupMenu& menu, const PatchGraph::Node& node) { addNodeItems (menu, node); };
         view.addMenu = [this] (juce::PopupMenu& menu, juce::Point<float> at) { addEffectItems (menu, at); };
         view.paintBackdrop = [this] (juce::Graphics& g) { paintVoiceBand (g); };
@@ -469,9 +472,8 @@ public:
         };
         view.onGesture = [this] (bool starting) { loopGesture (starting, "Loop level"); };
         // The user moved the view: it stays where they put it (FIT hands it back).
-        // (The row of effects leaves the canvas's corner then, so it never covers a box the user brings there.)
-        view.onNavigated = [this] { autoFit = false; if (carouselInCanvas) resized(); };
-        view.onFitRequested = [this] { autoFit = true; resized(); };
+        view.onNavigated = [this] { autoFit = false; };
+        view.onFitRequested = [this] { fit (true); };
         // Only effects drop into cables, and only after VOICES (accept() vets the rest).
         view.canSplice = [this] (const PatchGraph::Node& node, const PatchGraph::Cable& cable)
         {
@@ -627,30 +629,12 @@ public:
         area.removeFromTop (10);
         inspector = area.removeFromBottom (inspectorHeight);
         area.removeFromBottom (10);
-        // The row of effects: in the fitted canvas's empty corner under ALL NOTES when it fits there (the canvas then
-        // takes the strip's band, UI review 28: about 1085 x 243 px stood empty), else under the canvas.
-        const auto tall = area;
-        const auto band = area.removeFromBottom (FxCarousel::stripHeight);
+        // The row of effects under the canvas.
+        carousel.setBounds (area.removeFromBottom (FxCarousel::stripHeight));
         area.removeFromBottom (10);
-        carouselInCanvas = false;
-        if (hasVoice && autoFit)
-        {
-            view.setBounds (tall);
+        view.setBounds (area);
+        if (autoFit)
             fit();
-            if (const auto corner = emptyCanvasCorner(); corner.getHeight() >= FxCarousel::stripHeight && corner.getWidth() >= 480)
-            {
-                carousel.setBounds (corner.withTop (corner.getBottom() - FxCarousel::stripHeight));
-                carousel.toFront (false);
-                carouselInCanvas = true;
-            }
-        }
-        if (! carouselInCanvas)
-        {
-            carousel.setBounds (band);
-            view.setBounds (area);
-            if (autoFit)
-                fit();
-        }
         layoutInspector();
         for (auto& window : windows)
             window->setLimits (view.getBounds());
@@ -828,7 +812,7 @@ private:
         const auto loops = processorRef.getFxLoopLatencyMs();
         if (loops > 0.0f)
             return "Drag output to input. Drag a loop's tag for its level.";
-        return "Drag output to input. Drop an effect on a cable to move it there.";
+        return "Drag output to input. Drag over empty space to pick boxes; Ctrl+C, Ctrl+V copy them.";
     }
 
     // "WEST > FILTER 1 > FILTER 2", the voice's stages in the order they run.
@@ -1570,6 +1554,175 @@ private:
         refresh (true);
     }
 
+    //==========================================================================
+    // Copy and paste (ilana 2026-11-04): the picked effects with their settings and the cables between them; the
+    // copies come in on their own, not wired to anything else (no route from the end of one chain into the next).
+    struct Clip
+    {
+        struct Box { int slot = -1, type = 0; juce::Point<float> at; };
+        struct Wire { int from = 0, fromPort = 0, to = 0, toPort = 0; float gain = 1.0f, delayMs = 0.0f; };
+        std::vector<Box> boxes;
+        std::vector<Wire> wires; // between the boxes (indices into boxes)
+    };
+    Clip clip;
+
+    void copyEffects (const std::vector<PatchGraph::NodeId>& ids)
+    {
+        Clip copied;
+        std::map<PatchGraph::NodeId, int> index;
+        for (const auto id : ids)
+            if (const auto* node = shown.find (id); node != nullptr && slotOf (node) >= 0 && ! isLfo (*node))
+            {
+                index[id] = (int) copied.boxes.size();
+                copied.boxes.push_back ({ slotOf (node), node->kind, { node->x, node->y } });
+            }
+        if (copied.boxes.empty())
+            return;
+        for (const auto& cable : shown.cables())
+            if (index.count (cable.from.node) > 0 && index.count (cable.to.node) > 0)
+                copied.wires.push_back ({ index[cable.from.node], cable.from.port, index[cable.to.node], cable.to.port, cable.gain, cable.delayMs });
+        clip = std::move (copied);
+    }
+
+    int freeSlots() const
+    {
+        auto free = 0;
+        for (int slot = 0; slot < IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            free += read ("fx_slot" + juce::String (slot + 1)) < 0.5f ? 1 : 0;
+        return free;
+    }
+
+    // at: a merged-graph position for the copies' top-left box, or NaN for beside the originals.
+    void pasteEffects (juce::Point<float> at)
+    {
+        if (clip.boxes.empty())
+            return;
+        if (freeSlots() < (int) clip.boxes.size())
+        {
+            refusal = "Not enough free slots for " + juce::String ((int) clip.boxes.size()) + " effects.";
+            refusedUntil = juce::Time::getMillisecondCounter() + 3000;
+            repaint (hint);
+            return;
+        }
+        auto topLeft = clip.boxes.front().at;
+        auto bottom = topLeft.y;
+        for (const auto& box : clip.boxes)
+        {
+            topLeft = { juce::jmin (topLeft.x, box.at.x), juce::jmin (topLeft.y, box.at.y) };
+            bottom = juce::jmax (bottom, box.at.y);
+        }
+        auto offset = std::isnan (at.x) ? juce::Point<float> (0.0f, bottom - topLeft.y + 70.0f) : at - topLeft;
+        // (Never on top of a box already there: a row further down until the copies land in free space.)
+        const auto overlaps = [this] (juce::Point<float> by)
+        {
+            for (const auto& box : clip.boxes)
+            {
+                const juce::Rectangle<float> area (box.at.x + by.x - 10.0f, box.at.y + by.y - 10.0f, PatchCableView::nodeWidth + 20.0f, PatchCableView::nodeHeight + 20.0f);
+                for (const auto& node : shown.nodes())
+                    if (area.intersects (juce::Rectangle<float> { node.x, node.y, node.isFixed() ? PatchCableView::fixedWidth : PatchCableView::nodeWidth, PatchCableView::nodeHeight }))
+                        return true;
+                if (voiceArea.intersects (area))
+                    return true;
+            }
+            return false;
+        };
+        for (int tries = 0; tries < 24 && overlaps (offset); ++tries)
+            offset.y += 70.0f;
+
+        std::vector<int> added;
+        processorRef.performEdit (clip.boxes.size() == 1 ? "Paste effect" : "Paste effects", [this, offset, &added]
+        {
+            playRackAsCables();
+            const auto before = processorRef.getFxPatchGraph();
+            for (const auto& box : clip.boxes)
+            {
+                // (The copy takes the original's settings when it is still there: its card in front first.)
+                if (read ("fx_slot" + juce::String (box.slot + 1)) == (float) box.type && ! processorRef.isFxSlotInFront (box.slot))
+                    processorRef.focusFxInstance (box.slot);
+                added.push_back (processorRef.addFxEffect (box.type));
+            }
+            // The cables as they were, and the copies' own between them: nothing else is wired.
+            auto graph = processorRef.getFxPatchGraph();
+            for (const auto& cable : std::vector<PatchGraph::Cable> (graph.cables()))
+                graph.disconnect (cable.from, cable.to);
+            for (const auto& cable : before.cables())
+            {
+                graph.connect (cable.from, cable.to, cable.gain);
+                graph.setCableDelay (graph.findCable (cable.from, cable.to), cable.delayMs);
+            }
+            std::vector<PatchGraph::NodeId> ids (added.size(), 0);
+            for (size_t i = 0; i < added.size(); ++i)
+                for (const auto& node : graph.nodes())
+                    if (added[i] >= 0 && node.ref == added[i] + 1 && ! node.isFixed())
+                    {
+                        ids[i] = node.id;
+                        const auto to = clip.boxes[i].at + offset - fxShift;
+                        graph.moveNode (node.id, std::round (to.x / 10.0f) * 10.0f, std::round (to.y / 10.0f) * 10.0f);
+                    }
+            for (const auto& wire : clip.wires)
+                if (ids[(size_t) wire.from] != 0 && ids[(size_t) wire.to] != 0)
+                {
+                    const PatchGraph::Port from { ids[(size_t) wire.from], wire.fromPort }, to { ids[(size_t) wire.to], wire.toPort };
+                    graph.connect (from, to, wire.gain);
+                    graph.setCableDelay (graph.findCable (from, to), wire.delayMs);
+                }
+            processorRef.setFxPatchGraph (graph);
+        });
+        refresh (true);
+        std::vector<PatchGraph::NodeId> pasted;
+        for (const auto& node : shown.nodes())
+            for (const auto slot : added)
+                if (slot >= 0 && slotOf (&node) == slot)
+                    pasted.push_back (node.id);
+        view.setSelection (pasted);
+    }
+
+    // Delete with several boxes picked: one undo step.
+    void removeMany (const std::vector<PatchGraph::NodeId>& ids)
+    {
+        std::vector<int> slots, lfos;
+        for (const auto id : ids)
+            if (const auto* node = shown.find (id))
+            {
+                if (isLfo (*node))
+                    lfos.push_back (lfoOf (*node));
+                else if (const auto slot = slotOf (node); slot >= 0)
+                    slots.push_back (slot);
+            }
+        if (slots.empty() && lfos.empty())
+            return;
+        std::sort (slots.rbegin(), slots.rend());
+        processorRef.performEdit ("Remove effects", [this, slots, lfos]
+        {
+            for (const auto slot : slots)
+                processorRef.removeFxEffect (slot);
+            for (const auto lfo : lfos)
+                processorRef.removeFxLfo (lfo);
+        });
+        for (const auto lfo : lfos)
+            for (auto& window : lfoWindows)
+                if (window->id == lfo)
+                {
+                    closeLfoWindow (window.get());
+                    break;
+                }
+        refresh (true);
+    }
+
+    // The patcher's cables back to what they were (an effect just added comes in on its own, unwired).
+    void restoreCables (const PatchGraph::Graph& before)
+    {
+        auto graph = processorRef.getFxPatchGraph();
+        for (const auto& cable : std::vector<PatchGraph::Cable> (graph.cables()))
+            graph.disconnect (cable.from, cable.to);
+        for (const auto& cable : before.cables())
+        {
+            graph.connect (cable.from, cable.to, cable.gain);
+            graph.setCableDelay (graph.findCable (cable.from, cable.to), cable.delayMs);
+        }
+        processorRef.setFxPatchGraph (graph);
+    }
+
     void open (const PatchGraph::Node& node)
     {
         if (isLfo (node))
@@ -1812,9 +1965,15 @@ private:
         processorRef.performEdit ("Add " + tile.name, [this, &tile, at, &added]
         {
             playRackAsCables();
+            const auto before = processorRef.getFxPatchGraph();
             added = processorRef.addFxEffect (tile.type);
+            // (Dragged out: it lands where it is dropped, wired to nothing, or into the cable it is dropped on;
+            // ilana 2026-11-04. A click still wires it in before OUT.)
             if (added >= 0 && at.has_value())
+            {
+                restoreCables (before);
                 placeNodeNow (added, *at);
+            }
         });
         if (added < 0)
             return false;
@@ -1927,10 +2086,7 @@ private:
         if (! carouselDrag && (autoFit ? (countChanged || ! view.contentFits()) : (countChanged && ! view.contentFits())))
         {
             autoFit = true;
-            if (stretching)
-                fit();
-            else
-                resized(); // (fits, and puts the row of effects back where there is room)
+            fit();
         }
         shownNodes = (int) shown.nodes().size();
         repaint();
@@ -2440,24 +2596,6 @@ private:
     juce::Rectangle<int> zoomWell, hint, inspector, inspectorText, onArea, powerArea, soloArea, bandArea;
     bool carouselDrag = false; // a carousel tile is being dragged onto the canvas: no refit under the pointer
     bool autoFit = true; // false once the user moves the view (FIT gives it back)
-    bool carouselInCanvas = false; // the row of effects sits in the fitted canvas's empty corner
-
-    // Under ALL NOTES, right of EACH NOTE, to the canvas's foot: the part of the fitted canvas no box uses (page
-    // coordinates, 16 px in from the frames and edges).
-    juce::Rectangle<int> emptyCanvasCorner() const
-    {
-        auto bottom = std::numeric_limits<float>::lowest();
-        for (const auto& node : shown.nodes())
-            if (! isVoice (node))
-                bottom = juce::jmax (bottom, node.y + PatchCableView::nodeHeight + 20.0f);
-        if (bottom == std::numeric_limits<float>::lowest() || voiceArea.isEmpty())
-            return {};
-        const auto zoom = view.getZoom();
-        const auto origin = view.getOrigin();
-        const auto top = juce::roundToInt ((origin.y + bottom) * zoom) + view.getY() + 16;
-        const auto left = juce::roundToInt ((origin.x + voiceArea.getRight() + 10.0f) * zoom) + view.getX() + 16;
-        return juce::Rectangle<int>::leftTopRightBottom (left, top, view.getRight() - 16, view.getBottom() - 12);
-    }
 
     int inspectedVoice = -1, inspectedSlot = -1;
     juce::TextButton onButton { "ON" };

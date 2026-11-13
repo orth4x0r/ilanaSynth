@@ -600,6 +600,29 @@ void runModalBench()
                             std::memcpy (&u, &x, 4);
                             hash = (hash ^ u) * 1099511628211ull;
                         }
+            {
+                // One string's prepare, by part, x 960 (40 voices x 3 oscillators x 8 unison).
+                const auto timeIt = [] (const char* what, auto&& f)
+                {
+                    const auto a = juce::Time::getMillisecondCounterHiRes();
+                    for (int i = 0; i < 960; ++i)
+                        f();
+                    std::cout << "load: x960 " << what << " " << juce::String (juce::Time::getMillisecondCounterHiRes() - a, 1) << " ms" << std::endl;
+                };
+                std::vector<float> storage (8192);
+                auto electric = std::make_unique<ElectricPiano>();
+                auto pianoString = std::make_unique<PianoString>();
+                auto modal = std::make_unique<ModalPiano>();
+                auto bowed = std::make_unique<ModalBowed>();
+                auto feedback = std::make_unique<FeedbackLoop>();
+                auto string = std::make_unique<KarplusStrong>();
+                timeIt ("ElectricPiano", [&] { electric->prepare (rate); });
+                timeIt ("PianoString", [&] { pianoString->prepare (rate, storage.data(), (int) storage.size()); });
+                timeIt ("ModalPiano", [&] { modal->prepare (rate); });
+                timeIt ("ModalBowed", [&] { bowed->prepare (rate); });
+                timeIt ("FeedbackLoop", [&] { feedback->prepare (rate); });
+                timeIt ("KarplusStrong", [&] { string->prepare (rate); });
+            }
             std::cout << "load: piano table " << juce::String (t1 - t0, 1) << " ms, guitar table " << juce::String (t2 - t1, 1)
                       << " ms, attack hash " << juce::String::toHexString ((juce::int64) hash) << std::endl;
         }

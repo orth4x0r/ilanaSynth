@@ -541,3 +541,146 @@ void runNullCheck()
 
     std::cout << "NULL CHECK worst " << worstName << ": " << juce::String (worst, 1) << " dB" << std::endl;
 }
+
+// ILANA_MODAL_BENCH=1: the modal engines' cost (CPU pass 2026-11-13). Each
+// case loads a factory preset, applies overrides (real values; "routeN" adds
+// a per-note route), holds or restrikes notes at 48 kHz in 256-sample
+// blocks and prints % of one core (median of ILANA_MODAL_BENCH_RUNS, 3) and
+// the slowest block. Also times a processor's construction + prepare and
+// each modal preset's load. ILANA_MODAL_BENCH_ONLY=<substring> picks cases.
+void runModalBench()
+{
+    struct Case { const char* name; const char* preset; std::vector<std::pair<juce::String, float>> set; int notes; int restrike; };
+    const auto sizeDst = (float) Mod::destinationForParamId ("osc1_modal_size");
+    const std::vector<Case> cases {
+        { "init saw x8 (reference)", "Init", {}, 8, 0 },
+        { "piano 4 held", "Modal Grand", {}, 4, 0 },
+        { "piano 8 restrike 0.25s", "Modal Grand", {}, 8, 47 },
+        { "piano 4 SIZE 0.6", "Modal Grand", { { "osc1_modal_size", 0.6f } }, 4, 0 },
+        { "piano 4 SIZE 2.5 (giant)", "Modal Grand", { { "osc1_modal_size", 2.5f } }, 4, 0 },
+        { "piano 4 SIZE 4 (giant)", "Modal Grand", { { "osc1_modal_size", 4.0f } }, 4, 0 },
+        { "guitar 4 held", "Modal Grand", { { "osc1_excite", 12.0f } }, 4, 0 },
+        { "guitar 8 restrike 0.25s", "Modal Grand", { { "osc1_excite", 12.0f } }, 8, 47 },
+        { "guitar 4 SIZE 0.6", "Modal Grand", { { "osc1_excite", 12.0f }, { "osc1_modal_size", 0.6f } }, 4, 0 },
+        { "guitar 4 SIZE 4 (giant)", "Modal Grand", { { "osc1_excite", 12.0f }, { "osc1_modal_size", 4.0f } }, 4, 0 },
+        { "violin 4 held", "Modal Violin", {}, 4, 0 },
+        { "violin 8 held", "Modal Violin", {}, 8, 0 },
+        { "cello 4 held", "Modal Cello", {}, 4, 0 },
+        { "violin 4 WOLF", "Modal Violin", { { "osc1_bridge_buzz", 0.6f } }, 4, 0 },
+        { "violin 4 SIZE 4", "Modal Violin", { { "osc1_modal_size", 4.0f } }, 4, 0 },
+        { "piano 4 RANDOM->SIZE per voice", "Modal Grand", { { "mod60_src", 8.0f }, { "mod60_dst", sizeDst }, { "mod60_amt", 0.3f } }, 4, 0 },
+        { "piano 4 AMP ENV->SIZE per voice", "Modal Grand", { { "mod60_src", 5.0f }, { "mod60_dst", sizeDst }, { "mod60_amt", 0.3f } }, 4, 0 },
+        { "guitar 4 LFO1->SIZE per voice", "Modal Grand", { { "osc1_excite", 12.0f }, { "lfo1_retrig", 1.0f }, { "mod60_src", 1.0f }, { "mod60_dst", sizeDst }, { "mod60_amt", 0.3f } }, 4, 0 },
+        { "violin 4 AMP ENV->SIZE per voice", "Modal Violin", { { "mod60_src", 5.0f }, { "mod60_dst", sizeDst }, { "mod60_amt", 0.3f } }, 4, 0 },
+        { "violin 4 RANDOM->SIZE per voice", "Modal Violin", { { "mod60_src", 8.0f }, { "mod60_dst", sizeDst }, { "mod60_amt", 0.3f } }, 4, 0 },
+    };
+    const auto only = juce::SystemStats::getEnvironmentVariable ("ILANA_MODAL_BENCH_ONLY", "");
+    const auto runs = juce::SystemStats::getEnvironmentVariable ("ILANA_MODAL_BENCH_RUNS", "3").getIntValue();
+    const auto seconds = juce::SystemStats::getEnvironmentVariable ("ILANA_PROFILE_SECONDS", "4").getIntValue();
+    constexpr int blockSize = 256;
+    constexpr double rate = 48000.0;
+
+    if (only.isEmpty() || only == "load")
+    {
+        {
+            // The modal tables' fitted attack terms, hashed (a load-time
+            // change must leave them bit for bit).
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            const auto& piano = ModalPianoTable::get();
+            const auto t1 = juce::Time::getMillisecondCounterHiRes();
+            const auto& guitar = ModalPianoTable::guitar();
+            const auto t2 = juce::Time::getMillisecondCounterHiRes();
+            std::uint64_t hash = 1469598103934665603ull;
+            for (const auto* table : { &piano, &guitar })
+                for (const auto& e : table->entries)
+                    for (const auto* v : { &e.attackSin, &e.attackCos })
+                        for (auto x : *v)
+                        {
+                            std::uint32_t u;
+                            std::memcpy (&u, &x, 4);
+                            hash = (hash ^ u) * 1099511628211ull;
+                        }
+            std::cout << "load: piano table " << juce::String (t1 - t0, 1) << " ms, guitar table " << juce::String (t2 - t1, 1)
+                      << " ms, attack hash " << juce::String::toHexString ((juce::int64) hash) << std::endl;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            IlanaSynthAudioProcessor processor;
+            const auto t1 = juce::Time::getMillisecondCounterHiRes();
+            processor.prepareToPlay (rate, blockSize);
+            const auto t2 = juce::Time::getMillisecondCounterHiRes();
+            std::cout << "load: construct " << juce::String (t1 - t0, 1) << " ms, prepare " << juce::String (t2 - t1, 1) << " ms" << std::endl;
+            if (i == 0)
+                for (const auto* name : { "Modal Grand", "Hushed Grand", "Modal Violin", "Modal Cello", "Init" })
+                {
+                    const auto t3 = juce::Time::getMillisecondCounterHiRes();
+                    processor.loadFactoryPreset (processor.getFactoryPresetNames().indexOf (name));
+                    std::cout << "load: preset " << name << " " << juce::String (juce::Time::getMillisecondCounterHiRes() - t3, 1) << " ms" << std::endl;
+                }
+        }
+    }
+
+    for (const auto& c : cases)
+    {
+        if (only.isNotEmpty() && ! juce::String (c.name).containsIgnoreCase (only))
+            continue;
+        std::vector<double> percents;
+        auto slowest = 0.0, onsetWorst = 0.0;
+        auto slowestAt = -1;
+        std::vector<double> times;
+        auto voices = 0;
+        for (int run = 0; run < runs; ++run)
+        {
+            IlanaSynthAudioProcessor processor;
+            processor.setNonRealtime (true);
+            processor.prepareToPlay (rate, blockSize);
+            const auto index = processor.getFactoryPresetNames().indexOf (c.preset);
+            if (index >= 0)
+                processor.loadFactoryPreset (index);
+            for (const auto& [id, value] : c.set)
+                setParam (processor, id, value);
+            processor.panic();
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            juce::MidiBuffer noteOns;
+            for (int note = 0; note < c.notes; ++note)
+                noteOns.addEvent (juce::MidiMessage::noteOn (1, 45 + note * 5, (juce::uint8) 100), 0);
+            buffer.clear();
+            const auto onsetStart = juce::Time::getMillisecondCounterHiRes();
+            processor.processBlock (buffer, noteOns);
+            onsetWorst = juce::jmax (onsetWorst, juce::Time::getMillisecondCounterHiRes() - onsetStart);
+            const auto blocks = (int) (rate * seconds / blockSize);
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            for (int block = 0; block < blocks; ++block)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (c.restrike > 0 && block % c.restrike == c.restrike - 1)
+                {
+                    for (int note = 0; note < c.notes; ++note)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, 45 + note * 5), 0);
+                    for (int note = 0; note < c.notes; ++note)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 45 + note * 5, (juce::uint8) 100), 1);
+                }
+                const auto blockStart = juce::Time::getMillisecondCounterHiRes();
+                processor.processBlock (buffer, midi);
+                const auto took = juce::Time::getMillisecondCounterHiRes() - blockStart;
+                times.push_back (took);
+                if (took > slowest)
+                {
+                    slowest = took;
+                    slowestAt = block;
+                }
+            }
+            const auto elapsed = (juce::Time::getMillisecondCounterHiRes() - start) / 1000.0;
+            percents.push_back (100.0 * elapsed / (blocks * blockSize / rate));
+            voices = processor.getRenderingVoiceCount();
+        }
+        std::sort (percents.begin(), percents.end());
+        std::sort (times.begin(), times.end());
+        const auto budget = [&] (double ms) { return juce::String (100.0 * ms / 1000.0 / (blockSize / rate), 0); };
+        std::cout << "modal bench | " << c.name << " | " << juce::String (percents[percents.size() / 2], 2) << " % | note-on block "
+                  << budget (onsetWorst) << " % | p99 block " << budget (times[times.size() * 99 / 100]) << " % | slowest block "
+                  << budget (slowest) << " % at " << slowestAt << " | voices " << voices << std::endl;
+    }
+}

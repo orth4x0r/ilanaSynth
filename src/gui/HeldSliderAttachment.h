@@ -3,6 +3,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <map>
+#include <optional>
+
 // A slider tied to a parameter, as juce's SliderAttachment ties it, except
 // that while the user is moving the slider (and for a moment after) the
 // parameter does not move the slider back.
@@ -67,12 +70,34 @@ public:
         attachment.sendInitialUpdate();
         slider.valueChanged();
         slider.addListener (this);
+        registry().emplace (&parameter, this);
     }
 
     ~HeldSliderAttachment() override
     {
         stopTimer();
         slider.removeListener (this);
+        auto& all = registry();
+        for (auto it = all.begin(); it != all.end(); ++it)
+            if (it->second == this)
+            {
+                all.erase (it);
+                break;
+            }
+    }
+
+    // The value a knob the user is moving shows (plain units), or nothing when
+    // no knob of this parameter is held. A display drawn from the parameter
+    // (the filter graph) reads this first, as Vital's graph reads its
+    // sliders: the host's late echo moves the parameter back a frame, never
+    // the knob, so the picture follows the hand. Message thread only.
+    static std::optional<float> heldValue (const juce::AudioProcessorParameter& param)
+    {
+        const auto range = registry().equal_range (&param);
+        for (auto it = range.first; it != range.second; ++it)
+            if (it->second->isHeld())
+                return (float) it->second->slider.getValue();
+        return std::nullopt;
     }
 
     // True while the user holds the slider or moved it within holdMs.
@@ -124,6 +149,12 @@ private:
 
     void sliderDragStarted (juce::Slider*) override { attachment.beginGesture(); }
     void sliderDragEnded (juce::Slider*) override { attachment.endGesture(); }
+
+    static std::multimap<const juce::AudioProcessorParameter*, HeldSliderAttachment*>& registry()
+    {
+        static std::multimap<const juce::AudioProcessorParameter*, HeldSliderAttachment*> all;
+        return all;
+    }
 
     juce::Slider& slider;
     juce::RangedAudioParameter& parameter;

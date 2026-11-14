@@ -4,6 +4,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <cstring>
 #include <complex>
 #include <optional>
 #include <vector>
@@ -11,6 +12,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/FilterUnit.h"
 #include "../dsp/WestCoastTuning.h"
+#include "HeldSliderAttachment.h"
 #include "IlanaLookAndFeel.h"
 #include "AnimationUtils.h"
 #include "DisplayStyle.h"
@@ -552,8 +554,23 @@ private:
                            : juce::jlimit (0.0, 1.0, (24.0 - db) / 72.0);
     }
 
+    // A parameter as the hand has it: while this graph drags a filter, the
+    // values it set; while a knob of it is held, the knob's value; else the
+    // parameter. (A VST3 host - Live - echoes each edit back a block late and
+    // the parameter steps back a frame for a moment; drawn from it, the curve
+    // stuttered while the knob moved smoothly. Vital's graph reads its
+    // sliders the same way.)
     float readParam (const char* id) const
     {
+        if (isMouseButtonDown() || juce::Time::getMillisecondCounterHiRes() - dragReleasedMs < HeldSliderAttachment::holdMs)
+            for (const auto& [dragId, value] : dragValues)
+                if (std::strcmp (dragId, id) == 0)
+                    return value;
+
+        if (auto* parameter = processorRef.apvts.getParameter (id))
+            if (const auto held = HeldSliderAttachment::heldValue (*parameter))
+                return *held;
+
         if (const auto* value = processorRef.apvts.getRawParameterValue (id))
             return value->load();
 
@@ -878,6 +895,7 @@ private:
     void mouseDown (const juce::MouseEvent& event) override
     {
         endGestures();
+        dragValues.clear();
         draggingFilter = filterAt (event.position);
         dragOffset = {};
         dragStartY = event.position.y;
@@ -905,6 +923,7 @@ private:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        dragReleasedMs = juce::Time::getMillisecondCounterHiRes();
         endGestures();
         processorRef.endEdit();
     }
@@ -944,8 +963,24 @@ private:
     void setParameter (const char* id, float plainValue)
     {
         if (auto* parameter = processorRef.apvts.getParameter (id))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
+        {
+            const auto normalised = parameter->convertTo0to1 (plainValue);
+            parameter->setValueNotifyingHost (normalised);
+            // (What the drag set, as the curve draws it: the parameter's own snapping.)
+            const auto shown = parameter->convertFrom0to1 (normalised);
+            for (auto& [dragId, value] : dragValues)
+                if (std::strcmp (dragId, id) == 0)
+                {
+                    value = shown;
+                    return;
+                }
+            dragValues.push_back ({ id, shown });
+        }
     }
+
+    // The values this graph's drag has set ({id, plain}), drawn instead of the parameters while it drags.
+    std::vector<std::pair<const char*, float>> dragValues;
+    double dragReleasedMs = -1.0e9;
 
     std::vector<juce::RangedAudioParameter*> openGestures;
 

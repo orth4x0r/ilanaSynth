@@ -1006,11 +1006,18 @@ public:
         g.setColour (colour);
         g.strokePath (path, juce::PathStrokeType (1.6f));
 
-        if (active)
+        // Where it is now: a dot on the cycle, as the pool LFOs' graphs show theirs (it was a tick at
+        // the right edge, which read as a stray dash). Its height is the LFO's output, so it sits
+        // nearer the centre while DELAY fades it in. Only while a note plays it.
+        const auto enginePhase = processorRef.getOpLfoPhase();
+        if (active && enginePhase >= 0.0f)
         {
             const auto now = juce::jlimit (-1.0f, 1.0f, processorRef.getSourceDisplayValue ((int) Mod::Source::OpLfo));
+            const auto dotX = plot.getX() + plot.getWidth() * (float) shownPhase (wave, enginePhase);
+            g.setColour (colour.withAlpha (0.25f));
+            g.fillEllipse (juce::Rectangle<float> (15.0f, 15.0f).withCentre ({ dotX, centreY - now * half }));
             g.setColour (colour);
-            g.fillRect (juce::Rectangle<float> (8.0f, 2.0f).withPosition (plot.getRight() + 2.0f, centreY - now * half - 1.0f));
+            g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ dotX, centreY - now * half }));
         }
 
         g.setColour (IlanaTheme::Ui::text3);
@@ -1020,11 +1027,20 @@ public:
                     bounds.reduced (12.0f, 2.0f).removeFromBottom (13.0f), juce::Justification::centredLeft);
     }
 
+    // The engine's phase (Dx7::Lfo) on the drawn cycle: the DX7's saws start at their centre,
+    // half a cycle from where the picture starts them; the other shapes line up.
+    static double shownPhase (int wave, float enginePhase)
+    {
+        const auto phase = (double) enginePhase + (wave == 1 || wave == 2 ? 0.5 : 0.0);
+        return phase - std::floor (phase);
+    }
+
 private:
     void timerCallback() override
     {
         if (IlanaAnim::showing (*this) && changeGate.check (processorRef.getUiEpoch()
-                                             ^ IlanaAnim::phaseSignature (processorRef.getSourceDisplayValue ((int) Mod::Source::OpLfo), 41)))
+                                             ^ IlanaAnim::phaseSignature (processorRef.getSourceDisplayValue ((int) Mod::Source::OpLfo), 41)
+                                             ^ IlanaAnim::phaseSignature (processorRef.getOpLfoPhase(), 43)))
             repaint();
     }
 
@@ -1082,6 +1098,28 @@ public:
     static constexpr float compactDial = 28.0f;
     static constexpr int compactPitch = 61, compactRow = 39, compactGap = 10, compactLine = 16, compactLineGap = 4;
     static constexpr int compactColumn = 3 * compactPitch, compactHeight = compactLine + compactLineGap + 2 * compactRow;
+    // (SHAPE in the pop-up's title row: the editor is just the graph and the two knob rows.)
+    static constexpr int compactHeightInTitle = 2 * compactRow;
+
+    // The pop-up (as the pool LFOs' pop-up, LfoSection::setCompactTitleRow): SHAPE sits in its title row.
+    // The editor's bounds then start `skip` px higher; SHAPE goes in the first `row` px of them, ending
+    // `rightInset` px short of the right edge (clear of the close button). It used to ignore the title
+    // row, so the graph covered the pop-up's title and SHAPE its close button.
+    void setCompactTitleRow (int skip, int row, int rightInset)
+    {
+        titleSkip = skip;
+        titleRow = row;
+        titleRightInset = rightInset;
+        resized();
+    }
+
+    // Over the title row only SHAPE is the editor's, so the drag strip and the close button stay the pop-up's.
+    bool hitTest (int x, int y) override
+    {
+        if (! compact || titleSkip <= 0 || y >= titleSkip)
+            return true;
+        return shape.isVisible() && shape.getBounds().contains (x, y);
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -1114,11 +1152,18 @@ public:
         {
             panel = operatorHeading = hintArea = {};
             auto area = getLocalBounds();
+            const auto inTitle = titleSkip > 0;
+            const auto title = area.removeFromTop (juce::jmax (0, titleSkip)).withHeight (titleRow);
             auto column = area.removeFromRight (compactColumn);
             area.removeFromRight (compactGap);
             view.setBounds (area);
-            shape.setBounds (column.getX(), column.getY(), column.getWidth(), compactLine);
-            const auto top = column.getY() + compactLine + compactLineGap;
+            if (inTitle)
+                shape.setBounds (title.getRight() - titleRightInset - compactColumn, title.getCentreY() - compactLine / 2, compactColumn, compactLine);
+            else
+                shape.setBounds (column.getX(), column.getY(), column.getWidth(), compactLine);
+            // (In the title row, the two knob rows centred beside the graph.)
+            const auto top = inTitle ? column.getY() + juce::jmax (0, (column.getHeight() - 2 * compactRow) / 2)
+                                     : column.getY() + compactLine + compactLineGap;
             const auto cell = [&] (int slot, int row)
             {
                 return juce::Rectangle<int> (column.getX() + slot * compactPitch, top + row * compactRow + (compactRow - (int) compactDial - 10) / 2,
@@ -1175,4 +1220,5 @@ private:
     IlanaAnim::ChangeGate changeGate;
     juce::Rectangle<int> panel, operatorHeading, hintArea;
     bool compact = false;
+    int titleSkip = 0, titleRow = 0, titleRightInset = 0;
 };

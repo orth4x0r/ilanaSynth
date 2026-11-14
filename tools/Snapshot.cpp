@@ -1666,6 +1666,66 @@ void runReview31MatrixTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudi
             }
     }
 
+    // OP LFO's pop-up (ilana 2026-11-14: "op lfo looks wrong"): its editor ignored the pop-up's title row, so the
+    // graph covered the title and SHAPE sat over the close button. SHAPE now sits in the title row as the pool
+    // LFOs' does, clear of the close button, the graph and knobs under the title, and the close button still clicks.
+    {
+        if (auto* envChoice = processor.apvts.getParameter ("osc1_amp_env"))
+            envChoice->setValueNotifyingHost (envChoice->convertTo0to1 ((float) OperatorEg::envelopeChoice));
+        settle (400);
+        std::vector<ModSourceChip*> chips;
+        findAll<ModSourceChip> (editor, chips);
+        auto checked = false;
+        for (auto* chip : chips)
+            if (chip->getSourceIndex() == (int) Mod::Source::OpLfo && visibleInTree (chip))
+            {
+                editor.toggleSourcePopover (chip->getSourceIndex(), *chip);
+                settle (400);
+                auto* popover = editor.getSourcePopover();
+                std::vector<OperatorLfoEditor*> lfoEditors;
+                if (popover != nullptr)
+                    findAll<OperatorLfoEditor> (*popover, lfoEditors);
+                juce::Button* close = nullptr;
+                std::vector<juce::TextButton*> buttons;
+                if (popover != nullptr)
+                    findAll<juce::TextButton> (*popover, buttons);
+                for (auto* button : buttons)
+                    if (button->getButtonText() == juce::String (juce::CharPointer_UTF8 ("\xc3\x97")) && button->getName() != "removeRoute" && visibleInTree (button))
+                        close = button;
+                OperatorLfoEditor* lfoEditor = nullptr;
+                for (auto* candidate : lfoEditors)
+                    if (visibleInTree (candidate))
+                        lfoEditor = candidate;
+                checked = true;
+                if (lfoEditor == nullptr || close == nullptr)
+                {
+                    expect (false, "the OP LFO pop-up shows its editor and a close button");
+                    break;
+                }
+                const auto inPopover = [popover] (juce::Component& c) { return popover->getLocalArea (c.getParentComponent(), c.getBounds()); };
+                const auto shapeBox = inPopover (lfoEditor->getShape());
+                const auto closeBox = inPopover (*close);
+                juce::Rectangle<int> graph;
+                for (auto* child : lfoEditor->getChildren())
+                    if (dynamic_cast<OperatorLfoView*> (child) != nullptr)
+                        graph = inPopover (*child);
+                const auto titleBottom = closeBox.getCentreY() + 13; // (the pop-up's 26 px title row, centred on the close button)
+                expect (shapeBox.getBottom() <= titleBottom && shapeBox.getRight() < closeBox.getX() && ! shapeBox.intersects (closeBox),
+                        "OP LFO's SHAPE sits in the pop-up's title row, clear of the close button (" + shapeBox.toString() + " / " + closeBox.toString() + ")");
+                expect (! graph.isEmpty() && graph.getY() >= titleBottom,
+                        "OP LFO's graph starts under the pop-up's title (" + graph.toString() + ", title to " + juce::String (titleBottom) + ")");
+                expect (popover->getComponentAt (closeBox.getCentre()) == close,
+                        "the OP LFO pop-up's close button takes clicks");
+                editor.toggleSourcePopover (chip->getSourceIndex(), *chip);
+                settle (300);
+                break;
+            }
+        expect (checked, "an OP LFO chip shows while an oscillator plays the Operator Env");
+        if (auto* envChoice = processor.apvts.getParameter ("osc1_amp_env"))
+            envChoice->setValueNotifyingHost (0.0f);
+        settle (300);
+    }
+
     processor.loadFactoryPreset (names.indexOf ("Neuro Wobble"));
     editor.showPage ("MAIN");
     settle (300);

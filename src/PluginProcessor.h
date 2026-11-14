@@ -212,6 +212,9 @@ public:
     Mod::Slot readModSlot (int slotIndex) const;
     int getNumUsedModSlots() const;
 
+    // The OP LFO's place in its cycle on the shown voice, 0..1, or -1 when no voice plays it.
+    float getOpLfoPhase() const { return monitorOpLfoPhase.load(); }
+
     float getLfoPhase (int index) const
     {
         return lfoPhaseDisplays[(size_t) juce::jlimit (0, numLfos - 1, index)].load();
@@ -1656,6 +1659,7 @@ private:
     std::atomic<float> envMonitorEnv4 { 0.0f };
     // The loudest voice's Operator Env LFO and pitch envelope (review 6).
     std::atomic<float> monitorOpLfo { 0.0f }, monitorOpPitch { 0.0f };
+    std::atomic<float> monitorOpLfoPhase { -1.0f }; // (the shown voice's OP LFO, 0..1; -1 with none playing)
     std::atomic<float> monitorOpEnvSeconds { -1.0f }, monitorOpEnvRelease { -1.0f };
     std::array<std::atomic<float>, 11> envMonitorExtra {};
     std::array<std::atomic<float>, 16> envMonitorPositions {};

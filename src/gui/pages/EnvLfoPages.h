@@ -1523,7 +1523,7 @@ public:
     int compactHeight() const
     {
         if (selected == opLfoId)
-            return OperatorLfoEditor::compactHeight;
+            return titleSkip > 0 ? OperatorLfoEditor::compactHeightInTitle : OperatorLfoEditor::compactHeight;
         if (selected == msegId)
             return compactRowsTop (2) + compactRow;
         if (selected == clockId)
@@ -1557,6 +1557,7 @@ public:
         titleSkip = skip;
         titleRow = row;
         titleRightInset = rightInset;
+        opLfoEditor.setCompactTitleRow (skip, row, rightInset);
         resized();
     }
 
@@ -1568,8 +1569,9 @@ public:
     {
         if (titleSkip <= 0 || y >= titleSkip)
             return true;
+        // (A child's own hit test counts: OP LFO's editor reaches up over the row too, with only its SHAPE there.)
         for (auto* child : getChildren())
-            if (child->isVisible() && child->getBounds().contains (x, y))
+            if (child->isVisible() && child->getBounds().contains (x, y) && child->hitTest (x - child->getX(), y - child->getY()))
                 return true;
         return false;
     }

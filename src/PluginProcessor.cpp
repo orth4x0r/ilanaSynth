@@ -2239,6 +2239,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                     monitorKeyTrack.store (voice->getKeyTrack());
                     monitorRandom.store (voice->getRandomValue());
                     monitorOpLfo.store (voice->getOpLfoValue());
+                    monitorOpLfoPhase.store (voice->getOpLfoPhase());
                     monitorOpPitch.store (voice->getOpPitchValue());
                     monitorOpEnvSeconds.store (voice->getOpEnvSeconds());
                     monitorOpEnvRelease.store (voice->getOpEnvReleaseSeconds());
@@ -2252,6 +2253,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         if (activeVoices == 0)
         {
             monitorOpLfo.store (0.0f);
+            monitorOpLfoPhase.store (-1.0f);
             monitorOpPitch.store (0.0f);
             monitorOpEnvSeconds.store (-1.0f);
             monitorOpEnvRelease.store (-1.0f);

@@ -474,12 +474,17 @@ private:
 
         const auto falling = decaying() && juce::Time::getMillisecondCounterHiRes() - lastLiveMs < 4000.0;
 
-        if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
+        const auto live = processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f;
+
+        if (live)
             lastLiveMs = juce::Time::getMillisecondCounterHiRes();
 
         const auto sweeping = IlanaAnim::showing (*this) && updateSweepBands();
 
-        if (IlanaAnim::showing (*this) && (appear < 1.0f || falling || sweeping || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
+        // While sound plays, every frame: the spectrum under the curve
+        // slides between audio blocks (copyScopeDataSmooth) instead of
+        // stepping at the host's block rate (ilana, 2026-11-14).
+        if (IlanaAnim::showing (*this) && ((live && blocksArriving.check (processorRef.getUiEpoch())) || appear < 1.0f || falling || sweeping || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this))))
             repaint();
     }
 
@@ -1000,6 +1005,7 @@ private:
         return level > 0.002f;
     }
     IlanaAnim::ChangeGate changeGate;
+    IlanaAnim::BlocksArriving blocksArriving;
     float appear = 1.0f;
     double sweepLo[2] { 0.0, 0.0 }, sweepHi[2] { 0.0, 0.0 };
     bool sweepSeen[2] { false, false };

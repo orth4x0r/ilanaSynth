@@ -818,10 +818,11 @@ private:
 // the next MIDI message takes over again.
 class SourceValueBar : public juce::Component,
                        public juce::SettableTooltipClient,
-                       private juce::Timer
+                       private IlanaAnim::FrameTimer
 {
 public:
-    explicit SourceValueBar (IlanaSynthAudioProcessor& p) : processorRef (p) { startTimerHz (30); }
+    // Every frame: an LFO's or envelope's value moves at the display's refresh (it was 30 a second).
+    explicit SourceValueBar (IlanaSynthAudioProcessor& p) : processorRef (p) { startTimerHz (60); }
 
     static constexpr int height = 22;
 
@@ -829,6 +830,7 @@ public:
     {
         source = newSource;
         colour = newColour;
+        liveSmoother = {};
         const auto movable = isMovable();
         setMouseCursor (movable ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
         setTooltip (movable ? "Drag to move " + ModNames::sourceUpper (source, &processorRef) + " with the mouse (as the hardware would); "
@@ -886,7 +888,8 @@ private:
         if (! IlanaAnim::showing (*this))
             return;
         // (While held, the value the mouse sent, until the synth reports it.)
-        const auto live = juce::jlimit (0.0f, 1.0f, std::abs (processorRef.getSourceDisplayValue (source)));
+        // (Glided between audio blocks, so it moves at the display's refresh.)
+        const auto live = juce::jlimit (0.0f, 1.0f, liveSmoother.get (std::abs (processorRef.getSourceDisplayValue (source))));
         const auto value = juce::Time::getMillisecondCounterHiRes() < heldUntil || isMouseButtonDown() ? held : live;
         if (std::abs (value - shown) > 0.002f)
         {
@@ -899,6 +902,7 @@ private:
     int source = 0;
     juce::Colour colour { IlanaTheme::accent() };
     float shown = 0.0f, held = 0.0f;
+    IlanaAnim::BlockSmoother liveSmoother;
     double heldUntil = 0.0;
 };
 

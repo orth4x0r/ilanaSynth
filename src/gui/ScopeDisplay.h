@@ -331,8 +331,20 @@ private:
         if (! IlanaAnim::showing (*this))
             return;
 
-        if (processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f)
+        const auto live = processorRef.getActiveVoiceCount() > 0 || processorRef.getOutputPeak() > 1.0e-5f;
+
+        if (live)
             lastChangeMs = juce::Time::getMillisecondCounterHiRes();
+
+        // While sound plays, every frame: the trace slides between audio
+        // blocks (copyScopeDataSmooth), as the FM page's OUTPUT view does.
+        // Repainting only when a block arrived drew at the host's block
+        // rate, unevenly against the display's refresh (ilana, 2026-11-14).
+        if (live && ! hold && blocksArriving.check (processorRef.getUiEpoch()))
+        {
+            repaint();
+            return;
+        }
 
         if (changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this)))
         {
@@ -733,6 +745,7 @@ private:
         return level > 0.002f;
     }
     IlanaAnim::ChangeGate changeGate;
+    IlanaAnim::BlocksArriving blocksArriving;
     float spectrumGain = 1.0f;
     float peakHoldL = 0.0f;
     float peakHoldR = 0.0f;

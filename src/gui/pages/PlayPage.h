@@ -779,7 +779,7 @@ private:
 // computed as WestCoast.h's Wavefolder does it, so FOLD, BIAS and STAGES redraw it.
 class WestDisplay : public juce::Component,
                     public juce::SettableTooltipClient,
-                    private juce::Timer
+                    private IlanaAnim::FrameTimer
 {
 public:
     IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
@@ -788,7 +788,7 @@ public:
     {
         setInterceptsMouseClicks (false, false);
         setTooltip ("The wavefolder's curve: input level across, output level up. FOLD bends it, BIAS tilts it, STAGES fold it again.");
-        startTimerHz (10);
+        startPollingHz (60); // (each frame: a FOLD drag or its modulation redraws at the display's refresh, not 10 a second)
     }
 
     void paint (juce::Graphics& g) override
@@ -863,7 +863,7 @@ private:
 // repaints when one of them moves, in the same well and trace as the other pictures.
 class ParamPicture : public juce::Component,
                      public juce::SettableTooltipClient,
-                     private juce::Timer
+                     private IlanaAnim::FrameTimer
 {
 public:
     IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
@@ -873,7 +873,7 @@ public:
     {
         setInterceptsMouseClicks (false, false);
         setTooltip (tip);
-        startTimerHz (10);
+        startPollingHz (60); // (each frame, as WestDisplay)
     }
 
     // (UI review 31, 29) The picture is a control too, as the filter, envelope and LFO graphs beside it: drag across
@@ -981,6 +981,8 @@ private:
 
     void timerCallback() override
     {
+        if (! IlanaAnim::showing (*this))
+            return;
         auto signature = 0.0;
         auto weight = 1.0;
         for (const auto& id : ids)

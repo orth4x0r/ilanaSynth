@@ -33,7 +33,10 @@ public:
     explicit FxDisplay (IlanaSynthAudioProcessor& p) : processorRef (p)
     {
         setInterceptsMouseClicks (false, false);
-        startPollingHz (30);
+        // Every frame (the live dots, meters and bars glide at the display's
+        // refresh; they were held to 30 fps); the settings are re-read 30
+        // times a second. Smoothing constants are per tick of 30 Hz.
+        startTimerHz (30);
     }
 
     // Where the effect's settings are read: an instance's own (its card's
@@ -202,6 +205,7 @@ private:
     Kind kind = Kind::none;
     juce::Colour colour { IlanaTheme::accent() };
     juce::uint64 lastSignature = 0;
+    float smoothTicks = 1.0f, signatureWait = 1.0f; // this frame in 30 Hz ticks; ticks since the settings were read
     juce::AudioProcessorValueTreeState* valueSource = nullptr;
     std::array<float, 3> meterGr {}; // smoothed gain reduction (dB, <= 0), or OTT band gains
     bool metersMoving = false;
@@ -499,7 +503,7 @@ private:
     {
         const auto slot = slotIndexOfType();
         const auto target = slot >= 0 ? juce::jlimit (0.0f, 1.0f, processorRef.getFxSlotInLevel (slot) * juce::MathConstants<float>::sqrt2) : 0.0f;
-        const auto next = smooth ? inputLevel + (target - inputLevel) * 0.4f : target;
+        const auto next = smooth ? IlanaAnim::approach (inputLevel, target, 0.4f, smoothTicks) : target;
         const auto moved = std::abs (next - inputLevel) > 0.002f;
         inputLevel = next < 0.002f && target < 0.002f ? 0.0f : next;
         return moved;
@@ -756,7 +760,7 @@ private:
         metersMoving = false;
         for (size_t i = 0; i < 3; ++i)
         {
-            const auto next = smooth ? meterGr[i] + (target[i] - meterGr[i]) * 0.35f : target[i];
+            const auto next = smooth ? IlanaAnim::approach (meterGr[i], target[i], 0.35f, smoothTicks) : target[i];
             metersMoving = metersMoving || std::abs (next - meterGr[i]) > 0.05f;
             meterGr[i] = std::abs (next) < 0.05f && std::abs (target[i]) < 0.05f ? 0.0f : next;
         }
@@ -2138,7 +2142,12 @@ private:
             return false;
 
         auto dirty = false;
-        if (const auto now = signature(); now != lastSignature)
+        // (The settings 30 times a second; a direct call always reads them.)
+        signatureWait += smooth ? smoothTicks : 1.0f;
+        const auto readSettings = signatureWait >= 1.0f || lastSignature == 0;
+        if (readSettings)
+            signatureWait = 0.0f;
+        if (const auto now = readSettings ? signature() : lastSignature; now != lastSignature)
         {
             lastSignature = now;
             allInOneKind();
@@ -2160,7 +2169,7 @@ private:
             for (size_t b = 0; b < bandLevels.size(); ++b)
             {
                 const auto target = live ? processorRef.getVocoderBandLevel ((int) b) : 0.0f;
-                const auto next = smooth ? bandLevels[b] + (target - bandLevels[b]) * 0.4f : target;
+                const auto next = smooth ? IlanaAnim::approach (bandLevels[b], target, 0.4f, smoothTicks) : target;
                 moving = moving || std::abs (next - bandLevels[b]) > 1.0e-4f;
                 bandLevels[b] = std::abs (next) < 1.0e-5f ? 0.0f : next;
             }
@@ -2178,7 +2187,7 @@ private:
             {
                 // 0 to 1 over 80 dB below the full-scale magnitude of a window of this size.
                 const auto target = now[b] > 1.0e-6f ? juce::jlimit (0.0f, 1.0f, 1.0f + 20.0f * std::log10 (now[b] / 512.0f) / 80.0f) : 0.0f;
-                const auto next = smooth ? freezeBands[b] + (target - freezeBands[b]) * 0.5f : target;
+                const auto next = smooth ? IlanaAnim::approach (freezeBands[b], target, 0.5f, smoothTicks) : target;
                 moving = moving || std::abs (next - freezeBands[b]) > 2.0e-3f;
                 freezeBands[b] = next;
             }
@@ -2200,6 +2209,8 @@ private:
 
     void timerCallback() override
     {
+        smoothTicks = frameTicks();
+
         if (IlanaAnim::showing (*this) && refresh (true))
             repaint();
     }

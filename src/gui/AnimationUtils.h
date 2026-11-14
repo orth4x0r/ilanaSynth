@@ -135,6 +135,32 @@ private:
     double lastPass = 0.0;
 };
 
+// True while audio blocks keep arriving: the signature (getUiEpoch(), which
+// moves every block while sound plays) changed within the last 200 ms. A
+// view that redraws every frame while sound plays checks this too, so a
+// host that stops processing with notes held doesn't leave it redrawing a
+// still picture.
+class BlocksArriving
+{
+public:
+    bool check (juce::uint64 signature)
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+
+        if (signature != last)
+        {
+            last = signature;
+            changedMs = now;
+        }
+
+        return now - changedMs < 200.0;
+    }
+
+private:
+    juce::uint64 last = ~(juce::uint64) 0;
+    double changedMs = 0.0;
+};
+
 // The mouse as far as a view can draw it (hover, drags): changes when the
 // pointer moves over the view, a button goes down or up, or it leaves; 0
 // while it's elsewhere. Mixed into a ChangeGate signature, a resting

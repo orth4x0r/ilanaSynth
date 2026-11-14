@@ -622,6 +622,94 @@ void runModalBench()
                 timeIt ("ModalBowed", [&] { bowed->prepare (rate); });
                 timeIt ("FeedbackLoop", [&] { feedback->prepare (rate); });
                 timeIt ("KarplusStrong", [&] { string->prepare (rate); });
+                {
+                    std::vector<std::unique_ptr<KarplusStrong>> fresh;
+                    for (int i = 0; i < 96; ++i)
+                        fresh.push_back (std::make_unique<KarplusStrong>());
+                    const auto a = juce::Time::getMillisecondCounterHiRes();
+                    for (auto& f : fresh)
+                        f->prepare (rate);
+                    std::cout << "load: x96 fresh KarplusStrong " << juce::String (juce::Time::getMillisecondCounterHiRes() - a, 1) << " ms" << std::endl;
+                    std::vector<std::unique_ptr<ModalPiano>> pianos;
+                    for (int i = 0; i < 96; ++i)
+                        pianos.push_back (std::make_unique<ModalPiano>());
+                    const auto c = juce::Time::getMillisecondCounterHiRes();
+                    for (auto& f : pianos)
+                        f->prepare (rate);
+                    std::cout << "load: x96 fresh ModalPiano " << juce::String (juce::Time::getMillisecondCounterHiRes() - c, 1) << " ms" << std::endl;
+                }
+                {
+                    std::vector<std::unique_ptr<Voice>> voices;
+                    for (int i = 0; i < 4; ++i)
+                        voices.push_back (std::make_unique<Voice>());
+                    for (int pass = 0; pass < 2; ++pass)
+                    {
+                        const auto a = juce::Time::getMillisecondCounterHiRes();
+                        for (auto& v : voices)
+                            v->setCurrentPlaybackSampleRate (rate);
+                        std::cout << "load: x4 Voice prepare pass " << pass << " " << juce::String (juce::Time::getMillisecondCounterHiRes() - a, 1) << " ms" << std::endl;
+                    }
+                    const auto timeFresh = [&] (const char* what, auto make)
+                    {
+                        auto objects = make();
+                        const auto a = juce::Time::getMillisecondCounterHiRes();
+                        for (auto& o : objects)
+                            o->prepare (rate);
+                        std::cout << "load: x96 fresh " << what << " " << juce::String (juce::Time::getMillisecondCounterHiRes() - a, 1) << " ms" << std::endl;
+                    };
+                    const auto many = [] (auto* tag) { using T = std::remove_pointer_t<decltype (tag)>; return [] { std::vector<std::unique_ptr<T>> v; for (int i = 0; i < 96; ++i) v.push_back (std::make_unique<T>()); return v; }; };
+                    timeFresh ("SamplePlayer", many ((SamplePlayer*) nullptr));
+                    timeFresh ("GranularOsc", many ((GranularOsc*) nullptr));
+                    timeFresh ("ResonatorBank", many ((ResonatorBank*) nullptr));
+                    timeFresh ("MaterialBody", many ((MaterialBody*) nullptr));
+                    timeFresh ("LowPassGate", many ((LowPassGate*) nullptr));
+                    timeFresh ("FilterUnit", many ((FilterUnit*) nullptr));
+                    timeFresh ("Mseg", many ((Mseg*) nullptr));
+                }
+                auto sample = std::make_unique<SamplePlayer>();
+                auto grain = std::make_unique<GranularOsc>();
+                auto unison = std::make_unique<UnisonBank>();
+                auto resonator = std::make_unique<ResonatorBank>();
+                auto material = std::make_unique<MaterialBody>();
+                auto gate = std::make_unique<LowPassGate>();
+                auto filter = std::make_unique<FilterUnit>();
+                timeIt ("SamplePlayer", [&] { sample->prepare (rate); });
+                timeIt ("GranularOsc", [&] { grain->prepare (rate); });
+                timeIt ("UnisonBank", [&] { unison->setSampleRate (rate); });
+                timeIt ("ResonatorBank", [&] { resonator->prepare (rate); });
+                timeIt ("MaterialBody", [&] { material->prepare (rate); });
+                timeIt ("LowPassGate", [&] { gate->prepare (rate); });
+                timeIt ("FilterUnit", [&] { filter->prepare (rate); });
+            }
+            {
+                // The bowed residual loops at a rate nobody asked for yet:
+                // how long the background build takes, and its hash (the
+                // same fold as /tmp lb.cpp: loops then rms, row by row).
+                const auto a = juce::Time::getMillisecondCounterHiRes();
+                const auto* bank = ModalBowedLayers::bankFor (rate);
+                ModalBowedLayers::waitUntilBuilt();
+                const auto b = juce::Time::getMillisecondCounterHiRes();
+                std::uint64_t hash = 1469598103934665603ull;
+                for (int i = 0; bank != nullptr && i < bank->count; ++i)
+                {
+                    const auto& note = bank->notes[(size_t) i];
+                    for (auto& layer : note.loop)
+                        for (auto& loop : layer)
+                            for (auto x : loop)
+                            {
+                                std::uint32_t u;
+                                std::memcpy (&u, &x, 4);
+                                hash = (hash ^ u) * 1099511628211ull;
+                            }
+                    for (auto r : note.rms)
+                    {
+                        std::uint32_t u;
+                        std::memcpy (&u, &r, 4);
+                        hash = (hash ^ u) * 1099511628211ull;
+                    }
+                }
+                std::cout << "load: bowed loops at " << rate << " " << juce::String (b - a, 1) << " ms, hash "
+                          << juce::String::toHexString ((juce::int64) hash) << std::endl;
             }
             std::cout << "load: piano table " << juce::String (t1 - t0, 1) << " ms, guitar table " << juce::String (t2 - t1, 1)
                       << " ms, attack hash " << juce::String::toHexString ((juce::int64) hash) << std::endl;

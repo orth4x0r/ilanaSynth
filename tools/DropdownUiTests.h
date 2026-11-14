@@ -149,6 +149,33 @@ void runDropdownTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
         settle (300);
     }
 
+#if ILANA_VULKAN
+    // Menus that closed as they opened only while Vulkan drew the editor
+    // (2026-11-14, ilana: "vulkan off works fine"): game-overlay and capture
+    // layers (Steam overlay, OBS) are kept out of the editor's instance, and
+    // the host's environment is put back after.
+    {
+        const auto unset = juce::String ("<unset>");
+        const auto read = [&unset] (const juce::String& name) { return juce::SystemStats::getEnvironmentVariable (name, unset); };
+        juce::StringArray before, inside;
+
+        for (const auto& [name, value] : ilana::vulkan::ScopedOverlayLayersOff::variables())
+            before.add (read (name));
+        {
+            ilana::vulkan::ScopedOverlayLayersOff off;
+            for (const auto& [name, value] : ilana::vulkan::ScopedOverlayLayersOff::variables())
+                inside.add (read (name));
+        }
+        juce::StringArray after;
+        for (const auto& [name, value] : ilana::vulkan::ScopedOverlayLayersOff::variables())
+            after.add (read (name));
+
+        expect (inside.joinIntoString ("|").contains ("steam_overlay") && inside.contains ("1"),
+                "vulkan: overlay layers are switched off while the instance is made (" + inside.joinIntoString ("|") + ")");
+        expect (before == after, "vulkan: the host's environment is put back (" + after.joinIntoString ("|") + ")");
+    }
+#endif
+
     expect (tried > 6, "dropdowns: found the selects with their own list (" + juce::String (tried) + ")");
     expect (stuck.isEmpty(), "dropdowns: every select opens its list on every click (" + juce::String (stuck.size()) + " failed: " + stuck.joinIntoString ("; ") + ")");
 }

@@ -5,9 +5,79 @@
 #include "VulkanShaders.h"
 
 #include <mutex>
+#include <cstdlib>
 
 namespace ilana::vulkan
 {
+
+//==============================================================================
+namespace
+{
+std::optional<juce::String> readVariable (const juce::String& name)
+{
+    // (A sentinel no real value has: tells "unset" from "set to empty".)
+    static const juce::String unset ("\x01ilana-unset\x01");
+    const auto value = juce::SystemStats::getEnvironmentVariable (name, unset);
+    if (value == unset)
+        return std::nullopt;
+    return value;
+}
+
+void writeVariable (const juce::String& name, const std::optional<juce::String>& value)
+{
+   #if defined (_WIN32)
+    // The CRT passes it on to the process's Win32 environment, which the
+    // loader reads (GetEnvironmentVariable); an empty value removes it.
+    _wputenv_s (name.toWideCharPointer(), value.has_value() ? value->toWideCharPointer() : L"");
+   #else
+    if (value.has_value())
+        setenv (name.toRawUTF8(), value->toRawUTF8(), 1);
+    else
+        unsetenv (name.toRawUTF8());
+   #endif
+}
+} // namespace
+
+const std::vector<std::pair<juce::String, juce::String>>& ScopedOverlayLayersOff::variables()
+{
+    static const std::vector<std::pair<juce::String, juce::String>> list {
+        // Loader 1.3.234 and later: globs over layer names. Only overlays and
+        // capture hooks; driver layers (AMD switchable graphics, NVIDIA
+        // Optimus) stay, as they pick the GPU.
+        { "VK_LOADER_LAYERS_DISABLE",
+          "*steam_overlay*,*steam_fossilize*,*OBS_HOOK*,*obs_hook*,*discord*,*Discord*,*RTSS*,*rtss*,"
+          "*OW_OVERLAY*,*OW_OBS_HOOK*,*overwolf*,*reshade*,*ReShade*,*bandicam*,*MANGOHUD*,*mangohud*,*fraps*,*FRAPS*" },
+        // Older loaders: each layer's own off switch (its manifest's disable_environment).
+        { "DISABLE_VK_LAYER_VALVE_steam_overlay_1", "1" },
+        { "DISABLE_VK_LAYER_VALVE_steam_fossilize_1", "1" },
+        { "DISABLE_VULKAN_OBS_CAPTURE", "1" },
+        { "DISABLE_RTSS_LAYER", "1" },
+    };
+    return list;
+}
+
+ScopedOverlayLayersOff::ScopedOverlayLayersOff()
+{
+    for (const auto& [name, value] : variables())
+    {
+        auto previous = readVariable (name);
+        // (One the person set themselves is kept, with ours added.)
+        if (previous.has_value() && name == "VK_LOADER_LAYERS_DISABLE")
+        {
+            saved.emplace_back (name, previous);
+            writeVariable (name, *previous + "," + value);
+            continue;
+        }
+        saved.emplace_back (name, std::move (previous));
+        writeVariable (name, value);
+    }
+}
+
+ScopedOverlayLayersOff::~ScopedOverlayLayersOff()
+{
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it)
+        writeVariable (it->first, it->second);
+}
 namespace
 {
 juce::String& errorText()
@@ -250,6 +320,10 @@ bool createDevice (Device& d)
     if (volkInitialize() != VK_SUCCESS)
         return fail ("no Vulkan loader on this machine");
 
+    // (Until the instance exists: the loader picks its layers then.)
+    std::optional<ScopedOverlayLayersOff> overlaysOff;
+    overlaysOff.emplace();
+
     uint32_t count = 0;
     vkEnumerateInstanceExtensionProperties (nullptr, &count, nullptr);
     std::vector<VkExtensionProperties> instanceExtensions (count);
@@ -276,6 +350,7 @@ bool createDevice (Device& d)
     instanceInfo.enabledExtensionCount = (uint32_t) enabled.size();
     instanceInfo.ppEnabledExtensionNames = enabled.data();
     ILANA_VK_CHECK (vkCreateInstance (&instanceInfo, nullptr, &d.instance));
+    overlaysOff.reset();
     volkLoadInstanceOnly (d.instance);
 
     count = 0;

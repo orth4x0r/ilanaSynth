@@ -12,6 +12,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 struct SampleData;
@@ -288,10 +289,27 @@ public:
     void prepare (double newSampleRate)
     {
         grainLength = juce::jmax (64, 2 * juce::roundToInt (0.023 * newSampleRate));
-        window.resize ((size_t) grainLength);
-        // A periodic Hann: two grains half a length apart sum to exactly one.
-        for (int i = 0; i < grainLength; ++i)
-            window[(size_t) i] = (float) (0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * i / grainLength));
+        windowTable = windowFor (grainLength);
+        window = windowTable->data();
+    }
+
+    // A periodic Hann: two grains half a length apart sum to exactly one.
+    // (CPU pass 2026-11-14: made once per length and shared; each of the
+    // 1,920 players a synth holds made its own at every prepare, 4 million
+    // cosines a load. The same values.)
+    static std::shared_ptr<const std::vector<float>> windowFor (int length)
+    {
+        static std::mutex lock;
+        static std::vector<std::shared_ptr<const std::vector<float>>> made;
+        const std::lock_guard<std::mutex> hold (lock);
+        for (const auto& w : made)
+            if ((int) w->size() == length)
+                return w;
+        auto w = std::make_shared<std::vector<float>> ((size_t) length);
+        for (int i = 0; i < length; ++i)
+            (*w)[(size_t) i] = (float) (0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * i / length));
+        made.push_back (w);
+        return w;
     }
 
     void reset()
@@ -844,7 +862,8 @@ private:
     Params params;
     int lastLength = 0; // params.sample's length, kept so the old sample is never dereferenced
     Tail tail;
-    std::vector<float> window;
+    std::shared_ptr<const std::vector<float>> windowTable; // (windowFor: shared by every player at this length)
+    const float* window = nullptr;
     std::array<Grain, 2> grains {};
     int grainLength = 0, nextGrain = 0, hopCountdown = 0;
     double pitch = 1.0;

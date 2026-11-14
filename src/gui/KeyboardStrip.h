@@ -19,8 +19,10 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         // Every note the synth plays lights its key (the host, the arp, SEQ,
         // spray), not only the ones played here; a key let go fades out over
-        // about 250 ms. While nothing changes this only polls a counter.
-        startPollingHz (30);
+        // about 250 ms. While nothing changes this only polls a counter, so
+        // it does every frame: a key lights, and the mod wheel follows MIDI,
+        // at the display's refresh (it was 30 a second).
+        startTimerHz (60);
     }
 
     // No note is left sounding when the strip goes away.
@@ -391,14 +393,7 @@ private:
                 repaint (keyColumn (note));
         }
 
-        if (anyFading != fading)
-        {
-            fading = anyFading;
-            if (fading)
-                startTimerHz (60);
-            else
-                startPollingHz (30);
-        }
+        fading = anyFading;
     }
 
     static juce::String generalTip()

@@ -672,7 +672,7 @@ public:
                     "DAMP: fades the upper ones (more damp, fewer bars on the right).\n"
                     "STIFF: pushes them sharp and uneven.\n"
                     "POSITION: where the string is struck, which mutes the partials that have a node there.");
-        startPollingHz (30);
+        startTimerHz (60); // every frame, so the bars glide at the display's refresh (it reads three values)
     }
 
     void setColour (juce::Colour newColour)

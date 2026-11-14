@@ -13,6 +13,9 @@
 // entry point returns "unavailable" and the editor keeps its old renderer.
 
 #include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
 #include <volk.h>
 #include <juce_graphics/juce_graphics.h>
 
@@ -50,6 +53,29 @@ struct Device
     ~Device();
 
     uint32_t findMemoryType (uint32_t typeBits, VkMemoryPropertyFlags wanted) const;
+};
+
+// While alive, keeps game overlays' and screen-capture tools' implicit
+// layers (Steam overlay, OBS, Discord, RTSS, ReShade...) out of any Vulkan
+// instance this process creates. Installed system-wide, they load into every
+// Vulkan app, the editor included, and hook the window it presents to: on
+// ilana's PC (Steam overlay + OBS + Steam Fossilize layers) menus and
+// call-outs closed as they opened only while Vulkan drew the editor. The
+// loader reads these variables when the instance is made, so they are set
+// around that and then put back (the host's process shares them).
+class ScopedOverlayLayersOff
+{
+public:
+    ScopedOverlayLayersOff();
+    ~ScopedOverlayLayersOff();
+
+    // The variables it sets and what it sets them to (the UI test reads them).
+    static const std::vector<std::pair<juce::String, juce::String>>& variables();
+
+private:
+    std::vector<std::pair<juce::String, std::optional<juce::String>>> saved;
+
+    JUCE_DECLARE_NON_COPYABLE (ScopedOverlayLayersOff)
 };
 
 // The shared device, or nullptr when Vulkan can't be used here (no loader,

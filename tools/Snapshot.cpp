@@ -9110,6 +9110,34 @@ int runUiTests()
         parameter->setValueNotifyingHost (original);
         settle ((int) ParameterEchoGuard::holdMs + 50);
     }
+    // The filter graph still stuttered (2026-11-14, ilana: "still happening but
+    // only in the illustration", playing or stopped): it drew the parameter,
+    // which an echo can still step back. It now draws a held knob's value (as
+    // Vital's graph reads its sliders), and its own drag's values.
+    {
+        settle ((int) HeldSliderAttachment::holdMs + 50);
+        auto* parameter = processor.apvts.getParameter ("f1_cutoff");
+        const auto original = parameter->getValue();
+        const auto plain = [parameter] (float normalised) { return (double) parameter->convertFrom0to1 (normalised); };
+        FilterDisplay graph (processor);
+        graph.setSize (500, 200);
+        {
+            juce::Slider slider;
+            HeldSliderAttachment attachment (processor.apvts, "f1_cutoff", slider);
+            slider.setValue (plain (0.60f), juce::sendNotificationSync);
+            const auto stepOneX = graph.getMarkerCentres()[0].x;
+            slider.setValue (plain (0.65f), juce::sendNotificationSync);
+            const auto stepTwoX = graph.getMarkerCentres()[0].x;
+            parameter->setValueNotifyingHost (0.60f); // a late echo the guard lets through (message thread)
+            expect (std::abs (graph.getMarkerCentres()[0].x - stepTwoX) < 0.01f && stepTwoX > stepOneX + 1.0f,
+                    "graph echo: while the knob is held the graph draws the knob, not an echo on the parameter");
+            settle ((int) HeldSliderAttachment::holdMs + 100);
+            expect (std::abs (graph.getMarkerCentres()[0].x - stepOneX) < 0.01f,
+                    "graph echo: once the knob is let go the graph draws the parameter again");
+        }
+        parameter->setValueNotifyingHost (original);
+        settle (30);
+    }
     // The modal SIZE / SCALE knobs snap to real instruments (2026-11-12, ilana: "snap to the real instrument
     // sizes ... holding alt while draggin"): a drag that comes within a few pixels of a ring mark lands on its
     // exact value; Alt held passes it.

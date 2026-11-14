@@ -718,6 +718,7 @@ public:
     // The Operator Env's LFO and pitch envelope (sources Op LFO and Op Pitch
     // Env), 0 while the note doesn't play the Operator Env.
     float getOpLfoValue() const { return dx7Playing ? dx7Note.getLfoOutput() : 0.0f; }
+    float getOpLfoPhase() const { return dx7Playing ? dx7Note.getLfoPhase() : -1.0f; }
     float getOpPitchValue() const { return dx7Playing ? dx7Note.getPitchShape() : 0.0f; }
     // Seconds since the note began and since its key was let go (-1: held;
     // both -1 while the note doesn't play the Operator Env).

@@ -481,6 +481,9 @@ public:
 
     void setWaveform (int wave) { waveform = wave; }
 
+    // Where in its cycle the LFO is, 0..1 (for the OP LFO graph's dot).
+    float getPhase() const { return (float) ((double) phase / 4294967296.0); }
+
     void keyDown()
     {
         if (sync)
@@ -681,6 +684,7 @@ public:
     // The two sources other modules can use: the LFO (after its delay) and
     // the pitch envelope's shape, both -1..1.
     float getLfoOutput() const { return lfoOutput; }
+    float getLfoPhase() const { return lfo.getPhase(); }
     // How long the note has played, and since its key was let go (-1 while
     // held), in seconds: the editor's playhead.
     float getSecondsPlayed() const { return (float) (playedBlocks * block / sampleRateUsed); }

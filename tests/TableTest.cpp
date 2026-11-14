@@ -131,6 +131,12 @@ int main()
         return 0;
     }
 
+    if (juce::SystemStats::getEnvironmentVariable ("ILANA_MODAL_BENCH", "").isNotEmpty())
+    {
+        runModalBench();
+        return 0;
+    }
+
     if (juce::SystemStats::getEnvironmentVariable ("ILANA_LIBRARY_BENCH", "").isNotEmpty())
     {
         runLibraryBench();

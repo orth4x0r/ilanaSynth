@@ -321,6 +321,13 @@ namespace
             const auto f0 = 440.0 * std::exp2 ((e.note - 69) / 12.0);
             e.attackSin.assign ((size_t) e.partials, 0.0f);
             e.attackCos.assign ((size_t) e.partials, 0.0f);
+            // (The window once per entry, not once per partial: the same
+            // values, so the sums are bit for bit what they were; parse at
+            // the first plugin load ran 34 million cosines for it.)
+            const auto span = (double) (hi - lo);
+            std::vector<double> hannAt (hi - lo);
+            for (size_t i = lo; i < hi; ++i)
+                hannAt[i - lo] = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (double) (i - lo) / span);
             for (int k = 0; k < e.partials; ++k)
             {
                 const auto w = juce::MathConstants<double>::twoPi * e.ratios[(size_t) k] * f0 / table.rate;
@@ -330,10 +337,9 @@ namespace
                 auto c = std::cos (w * (double) lo), s = std::sin (w * (double) lo);
                 const auto dc = std::cos (w), ds = std::sin (w);
                 auto sumSin = 0.0, sumCos = 0.0;
-                const auto span = (double) (hi - lo);
                 for (size_t i = lo; i < hi; ++i)
                 {
-                    const auto hann = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (double) (i - lo) / span);
+                    const auto hann = hannAt[i - lo];
                     sumSin += hann * e.attack[i] * s;
                     sumCos += hann * e.attack[i] * c;
                     const auto nc = c * dc - s * ds;

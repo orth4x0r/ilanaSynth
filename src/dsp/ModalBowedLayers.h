@@ -265,18 +265,35 @@ private:
             const auto amplitude = std::sqrt (std::pow (10.0, (double) bandDb[band] / 10.0) * 0.5 / Notes::residualScale[which][band]) * perHz;
             spectrum[(size_t) j] = std::polar (amplitude, phase);
         }
-        std::vector<std::complex<double>> turn ((size_t) length);
-        for (int k = 0; k < length; ++k)
-            turn[(size_t) k] = std::polar (1.0, 2.0 * 3.14159265358979323846 * (double) k / (double) length);
-        transform (spectrum.data(), result.data(), length, 1, turn.data(), 1, length);
+        transform (spectrum.data(), result.data(), length, 1, turnFor (which).data(), 1, length);
         out.resize ((size_t) length);
         for (int n = 0; n < length; ++n)
             out[(size_t) n] = (float) (2.0 / (double) length * result[(size_t) n].real());
     }
 
+    // turn[k] = e^{2 pi i k / length} for loop `which`'s length: made once
+    // per process (it was made again for each of the 366 loops).
+    static const std::vector<std::complex<double>>& turnFor (int which)
+    {
+        const auto make = [] (int length)
+        {
+            std::vector<std::complex<double>> turn ((size_t) length);
+            for (int k = 0; k < length; ++k)
+                turn[(size_t) k] = std::polar (1.0, 2.0 * 3.14159265358979323846 * (double) k / (double) length);
+            return turn;
+        };
+        static const std::vector<std::complex<double>> first = make (Notes::residualLengths[0]);
+        static const std::vector<std::complex<double>> second = make (Notes::residualLengths[1]);
+        return which == 0 ? first : second;
+    }
+
     // The unnormalised inverse DFT (e^{+i}) of n points read at stride, into
     // out (contiguous): decimation in time by n's smallest prime factor.
     // turn[k] = e^{2 pi i k / total}; for n points, w_n^k is turn[k * step].
+    // (CPU pass 2026-11-13: the same products and sums in the same order as
+    // before, so bit for bit the same loops; only the twiddles' indices are
+    // found without a 64-bit modulo per product: q k step < n step = total,
+    // and q s m step wraps to ((q s) mod radix) m step.)
     static void transform (const std::complex<double>* in, std::complex<double>* out, int n, int stride,
                            const std::complex<double>* turn, int step, int total)
     {
@@ -293,15 +310,19 @@ private:
             transform (in + q * stride, out + q * m, m, stride * radix, turn, step * radix, total);
         std::complex<double> part[16];
         std::complex<double> sum[16];
+        // root[(q s) mod radix] = turn[q s m step mod total]
+        std::complex<double> root[16];
+        for (int j = 0; j < radix; ++j)
+            root[j] = turn[(size_t) (j * m * step)];
         for (int k = 0; k < m; ++k)
         {
             for (int q = 0; q < radix; ++q)
-                part[q] = out[q * m + k] * turn[(size_t) (((long long) q * k * step) % total)];
+                part[q] = out[q * m + k] * turn[(size_t) (q * k * step)];
             for (int s = 0; s < radix; ++s)
             {
                 auto value = part[0];
-                for (int q = 1; q < radix; ++q)
-                    value += part[q] * turn[(size_t) (((long long) q * s * m * step) % total)];
+                for (int q = 1, j = s; q < radix; ++q, j = j + s >= radix ? j + s - radix : j + s)
+                    value += part[q] * root[j];
                 sum[s] = value;
             }
             for (int s = 0; s < radix; ++s)

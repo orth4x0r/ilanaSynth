@@ -724,7 +724,7 @@ void FxPage::resized ()
     // stack's foot margin is wider than the gap: a rack that fits reaches
     // 4 px into the add row's band, so the row sits one gap under its last
     // card; one that scrolls ends a gap above it.)
-    const auto outRow = area.removeFromBottom (addTileHeight);
+    auto outRow = area.removeFromBottom (addTileHeight);
     const auto stackArea = area.withBottom (outRow.getY() + stackFootMargin - rowGap);
     const auto scrollArea = area.withBottom (outRow.getY() - rowGap);
     outColumn = outRow.withWidth (railWidth);
@@ -742,10 +742,7 @@ void FxPage::resized ()
         library->setBounds (box.withHeight (juce::jmin (box.getHeight(), FxLibraryView::preferredHeight() + 170)));
     }
 
-    // The rows take their own height and share out what is left, so the
-    // rack reaches the add row; a long rack compresses its rows (to 64)
-    // and then scrolls.
-    growRows = ! empty;
+    // The rows take their own height (one size whatever the rack holds); a long rack scrolls.
     availableStackHeight = stackArea.getHeight();
     stackView.setBounds (stackArea);
     layoutStack();
@@ -757,6 +754,14 @@ void FxPage::resized ()
         availableStackHeight = fits ? stackArea.getHeight() : scrollArea.getHeight();
         stackView.setBounds (fits ? stackArea.withHeight (stackNaturalHeight) : scrollArea);
         layoutStack();
+        // Every card keeps one size whatever the rack holds (ilana 2026-11-17: a lone card grown
+        // to the page looked odd), so a short rack ends above the foot: OUT and the add row
+        // follow its last card, one gap under it, as they do under a full rack.
+        if (fits)
+        {
+            outRow.setY (juce::jmin (outRow.getY(), stackView.getBottom() - stackFootMargin + rowGap));
+            outColumn = outRow.withWidth (railWidth);
+        }
     }
 
     // The add row: + ADD EFFECT, then the suggested next effects as chips
@@ -1713,15 +1718,6 @@ int FxPage::naturalHeight (const StackPanel& panel) const
     return (rows == 1 ? rowHeightStandard : 2 * rowPad + rows * dialGrid().rowHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
 }
 
-int FxPage::minimumHeight (const StackPanel& panel) const
-{
-    if (panel.duplicate)
-        return duplicateHeight;
-
-    const auto rows = packedPlanFor (panel).knobRows;
-    return (rows == 1 ? rowHeightCompact : 2 * rowPad + rows * dialGrid().rowHeight) + (hasTapGrid (panel) ? tapGridHeight : 0);
-}
-
 void FxPage::layoutStack ()
 {
     stackPanels.clear();
@@ -1779,88 +1775,17 @@ void FxPage::layoutStack ()
         i = end;
     }
 
-    // Heights: every row at its natural height; a short rack stretches its
-    // single-line rows (to 88 at most), a long one compresses them (to 64)
-    // before the stack scrolls.
     const auto viewHeight = availableStackHeight;
     auto overhead = stackTopMargin + stackTailMargin + juce::jmax (0, (int) cards.size() - 1) * rowGap;
     for (const auto& run : runs)
         overhead += run.kind != 0 ? splitHeaderHeight + splitInsetRight : 0;
 
+    // Every card keeps the size it has in a rack of five (ilana 2026-11-17: "have them all be
+    // one size", the size at four or five effects): the compact dials at the card's natural
+    // height, never grown into a short rack's spare height nor compressed in a long one (that scrolls).
     std::vector<int> heights;
-    auto naturalTotal = overhead;
-    auto stretchy = 0;
-    const auto measure = [&]
-    {
-        heights.clear();
-        naturalTotal = overhead;
-        stretchy = 0;
-        for (const auto& card : cards)
-        {
-            heights.push_back (naturalHeight (card));
-            naturalTotal += heights.back();
-            stretchy += isStretchy (card) ? 1 : 0;
-        }
-    };
-    // A short rack (one to three effects, every card grown) has the big
-    // dials, if its cards still fit at their natural height with them;
-    // a long one the compact dials (UI review 31, suggestion 12).
-    bigDials = growRows && cards.size() <= 3;
-    loneCard = cards.size() == 1;
-    measure();
-    if (bigDials && naturalTotal > viewHeight)
-    {
-        bigDials = false;
-        measure();
-    }
-
-    if (naturalTotal < viewHeight && (stretchy > 0 || growRows))
-    {
-        // Spare height goes to the cards: every card's picture and knob
-        // grid grow into it (growRows), so the rack reaches the add row
-        // pinned at the page's foot with no band left empty (UI review 31);
-        // without growRows a single-line row stretches to 88.
-        const auto natural = heights;
-        auto extra = viewHeight - naturalTotal;
-        for (auto pass = 0; pass < 6 && extra > 0; ++pass)
-        {
-            std::vector<size_t> growable;
-            for (size_t i = 0; i < cards.size(); ++i)
-            {
-                const auto cap = growRows ? (cards[i].duplicate ? natural[i] : viewHeight)
-                                          : (isStretchy (cards[i]) ? rowHeightMost : natural[i]);
-                if (! cards[i].duplicate && heights[i] < cap)
-                    growable.push_back (i);
-            }
-            if (growable.empty())
-                break;
-            // (An even share: rows of one kind stay the same height; the odd pixel stays unspent.)
-            const auto share = extra / (int) growable.size();
-            if (share < 1)
-                break;
-            for (const auto i : growable)
-            {
-                const auto cap = growRows ? viewHeight : (isStretchy (cards[i]) ? rowHeightMost : natural[i]);
-                const auto add = juce::jmin (share, cap - heights[i], extra);
-                heights[i] += add;
-                extra -= add;
-            }
-        }
-    }
-    else if (naturalTotal > viewHeight)
-    {
-        auto deficit = naturalTotal - viewHeight;
-        for (auto pass = 0; pass < 3 && deficit > 0; ++pass)
-            for (size_t i = 0; i < cards.size() && deficit > 0; ++i)
-            {
-                const auto room = heights[i] - minimumHeight (cards[i]);
-                if (room <= 0 || ! isStretchy (cards[i]))
-                    continue;
-                const auto take = juce::jmin (room, juce::jmax (1, (deficit + stretchy - 1) / juce::jmax (1, stretchy)));
-                heights[i] -= take;
-                deficit -= take;
-            }
-    }
+    for (const auto& card : cards)
+        heights.push_back (naturalHeight (card));
 
     auto contentHeight = overhead;
     for (auto height : heights)
@@ -2123,19 +2048,8 @@ void FxPage::placeCard (StackPanel panel, juce::Rectangle<int> bounds)
     // Side columns: their items from the top of the knob rows' band, one under the other.
     // (On a tall card the rows stand apart, up to twice the grid, so the
     // knobs share the card's height rather than sitting in a band of air.)
-    // A tall card's dials grow with the room they have (up to 56), and the rows keep an even, modest pitch.
     const auto roomPerRow = knobsArea.getHeight() / juce::jmax (1, plan.knobRows);
-    const auto dialSize = loneCard ? juce::jlimit (grid.dial, juce::jmax (grid.dial, 56.0f), grid.dial + (float) (roomPerRow - grid.rowHeight) * 0.5f) : grid.dial;
-    const auto growth = dialSize / grid.dial;
-    const auto scaledRow = juce::roundToInt ((float) grid.rowHeight * growth);
-    const auto rowPitch = juce::jlimit (scaledRow, juce::roundToInt ((float) scaledRow * 1.3f), roomPerRow);
-    if (growth > 1.01f)
-        for (auto* knob : knobs)
-            if (auto* k = dynamic_cast<KnobControl*> (knob))
-            {
-                k->setPackedDial (dialSize);
-                k->setPackedValueSize (grid.value * growth);
-            }
+    const auto rowPitch = juce::jlimit (grid.rowHeight, juce::roundToInt ((float) grid.rowHeight * 1.3f), roomPerRow);
     const auto band = knobsArea.withSizeKeepingCentre (knobsArea.getWidth(), plan.knobRows * rowPitch);
     auto sideArea = band.withWidth (plan.sideColumns * (sideWidth + sideColumnGap));
     const auto sideHeight = juce::jmin ((int) sides.size(), plan.sidePerColumn) * (sideRow + sideGap) - sideGap;
@@ -2166,7 +2080,7 @@ void FxPage::placeCard (StackPanel panel, juce::Rectangle<int> bounds)
         const auto column = (int) i % juce::jmax (1, plan.knobColumns), row = (int) i / juce::jmax (1, plan.knobColumns);
         // (Each row's dial and name centred on the row, as the menus beside them are.)
         const auto rowCentre = band.getY() + rowPitch / 2 + row * rowPitch;
-        const auto cell = juce::Rectangle<int> (knobsX + column * grid.pitch, rowCentre - ((int) dialSize + 10) / 2, grid.pitch, (int) dialSize + 10 + 13);
+        const auto cell = juce::Rectangle<int> (knobsX + column * grid.pitch, rowCentre - ((int) grid.dial + 10) / 2, grid.pitch, (int) grid.dial + 10 + 13);
         knobs[i]->setBounds (KnobControl::packedBoundsFor (cell));
     }
 

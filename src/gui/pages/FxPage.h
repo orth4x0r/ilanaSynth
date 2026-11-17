@@ -214,15 +214,13 @@ private:
     };
 
     // Row geometry (px of the 1060 x 720 design): the rail is 56 wide, a row
-    // is 80 high (64 when the rack is long; a short rack's rows share out the
-    // page's height), its left block 156 wide. A rack of one to three effects
-    // has the SEQ page's 38 px dials on a 68 px grid, laid out in as many rows
-    // as the card's height holds; a longer one 32 px dials on 56 (UI review 31).
+    // is 80 high whatever the rack holds (ilana 2026-11-17: one size, a rack of
+    // five's), its left block 156 wide; 32 px dials on a 56 px grid.
     // The parallel ladder's buses, x in the rail (inside the IN / OUT pills).
     static constexpr int parallelInBusX = 13, parallelOutBusX = 43;
     static constexpr int leftMetersHeight = 36, tallCardHeight = 280;
     static constexpr int railWidth = 56, railGap = 10, rowGap = 10, rowPad = 8, leftWidth = 156;
-    static constexpr int rowHeightStandard = 80, rowHeightCompact = 64, rowHeightMost = 88, duplicateHeight = 56;
+    static constexpr int rowHeightStandard = 80, duplicateHeight = 56;
     // The add row pinned at the page's foot: + ADD EFFECT and the suggested
     // next effects as chips beside it (UI review 31: one way to add, and the
     // rack takes the height the tiles and the OUTPUT strip had).
@@ -238,9 +236,8 @@ private:
 
     // PLAY's packed style (review 23): ring knobs with the value inside and the
     // name under, menus with their name inside the box, switches named at the right.
-    // Two dial sizes (UI review 31): a long rack's 32 (PLAY's 28 dial's number in a
-    // ring 4 px wider, so a 3 or 4 character value keeps 3 px from it), and a short
-    // rack's 38, the SEQ page's, its number 13.3 so it keeps the same room.
+    // One dial size: 32 (PLAY's 28 dial's number in a ring 4 px wider, so a 3 or 4
+    // character value keeps 3 px from it); a short rack's 38 went with its grown cards.
     struct DialGrid
     {
         float dial, value;
@@ -249,12 +246,11 @@ private:
         int drawnHeight() const { return (int) dial + 10; }
     };
     static constexpr DialGrid compactGrid { 32.0f, 28.0f * KnobControl::kPackedValueScale, 56, 60 };
-    static constexpr DialGrid grownGrid { 38.0f, 13.3f, 68, 68 };
     static constexpr int knobPitch = 56, sideWidth = 104, sideRow = 18, sideGap = 5, sideColumnGap = 8;
     // (One grid on every long-rack card, counted from the right: a side column is two knob columns, so menus,
     // knobs and the pictures' right edges land on the same 56 px lines from card to card.)
     static_assert (sideWidth + sideColumnGap == 2 * knobPitch && compactGrid.pitch == knobPitch);
-    const DialGrid& dialGrid() const { return bigDials ? grownGrid : compactGrid; }
+    const DialGrid& dialGrid() const { return compactGrid; }
 
     static void packControl (juce::Component* item, const DialGrid& grid = compactGrid);
 
@@ -334,14 +330,8 @@ private:
     // 44 per line), plus the delay's tap grid while TAPS is on.
     int naturalHeight (const StackPanel& panel) const;
 
-    // The least a row compresses to when the rack is long: a single line of
-    // knobs drops to 64; taller grids keep their lines at 40.
-    int minimumHeight (const StackPanel& panel) const;
-
     // The delay's tap grid edits the type's parameters: on the card in front.
     bool hasTapGrid (const StackPanel& panel) const { return panel.type == 9 && ! panel.instance && tapsEnabled(); }
-
-    bool isStretchy (const StackPanel& panel) const { return ! panel.duplicate && packedPlanFor (panel).knobRows == 1; }
 
     void layoutStack();
 
@@ -530,7 +520,6 @@ private:
     DashedAddButton addTile { "+ ADD EFFECT", "+ ADD EFFECT" };
     std::vector<std::unique_ptr<FxSuggestTile>> suggestTiles;
     juce::Rectangle<int> suggestCaption;
-    bool growRows = false, bigDials = false, loneCard = false;
     std::array<bool, 64> ownMix {};
     int stackNaturalHeight = 0, stackRows = 0, rowsPlaced = 0, availableStackHeight = 0;
     std::unique_ptr<juce::FileChooser> fileChooser;

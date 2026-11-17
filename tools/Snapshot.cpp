@@ -3175,14 +3175,14 @@ void uiGroup_FX_CARDS (UiCtx& ctx)
             auto titles = typeButtons();
             auto* viewport = stackViewport();
             // The design's rack: one row per effect, one under the other (10 px
-            // apart); a short rack's rows grow from 80 (up to 120) and a dashed
-            // + ADD EFFECT row takes the rest, so no band is left empty.
+            // apart), each at its one size, 80 (ilana 2026-11-17: no card grows
+            // on a short rack), and the dashed + ADD EFFECT row right under them.
             {
                 const auto step1 = titles.size() == 3 ? titles[1]->getY() - titles[0]->getY() : 0;
                 const auto step2 = titles.size() == 3 ? titles[2]->getY() - titles[1]->getY() : 0;
                 expect (titles.size() == 3 && viewport != nullptr && titles[0]->getX() == titles[1]->getX() && step1 == step2
-                            && step1 > 90 && step1 <= 260,
-                        "Vowel, Drive and OTT are equal rows one under the other, taller than 80 px on a short rack ("
+                            && step1 == 90,
+                        "Vowel, Drive and OTT are equal 80 px rows one under the other, 10 apart, on a short rack too ("
                             + juce::String (step1) + ", " + juce::String (step2) + ")");
                 std::vector<DashedAddButton*> tiles;
                 findAll<DashedAddButton> (*editor, tiles);
@@ -3296,13 +3296,40 @@ void uiGroup_FX_CARDS (UiCtx& ctx)
                     return nullptr;
                 };
                 const auto dialOf = [&] (const juce::String& id) { auto* knob = knobOf (id); return knob != nullptr ? knob->getPackedDial() : 0.0f; };
+                // (ilana 2026-11-17: every card one size, a rack of five's, whatever the rack holds.)
                 loadFx ({ 7, 13 });
-                expect (juce::approximatelyEqual (dialOf ("fx_chorus_rate"), 38.0f) && juce::approximatelyEqual (dialOf ("fx_reverb_size"), 38.0f),
-                        "a short rack's cards have the SEQ page's 38 px dials (" + juce::String (dialOf ("fx_chorus_rate")) + ")");
-                if (auto* rate = knobOf ("fx_chorus_rate"); rate != nullptr)
-                    expect (rate->packedNumberDevicePx() > rate->packedDialDevicePx() * 0.33f, "a grown card's value is bigger than a 28 px dial's");
+                expect (juce::approximatelyEqual (dialOf ("fx_chorus_rate"), 32.0f) && juce::approximatelyEqual (dialOf ("fx_reverb_size"), 32.0f),
+                        "a short rack's cards have the long rack's 32 px dials (" + juce::String (dialOf ("fx_chorus_rate")) + ")");
+                const auto cardHeights = [&]
+                {
+                    juce::Array<int> tops;
+                    std::vector<FxTypeButton*> found;
+                    findAll<FxTypeButton> (*editor, found);
+                    for (auto* button : found)
+                        if (visibleInTree (button))
+                            tops.addUsingDefaultSort (editor->getLocalPoint (button, juce::Point<int>()).y);
+                    return tops;
+                };
+                loadFx ({ 7 });
+                const auto loneTop = cardHeights();
                 loadFx ({ 7, 13, 2, 4, 20 });
                 expect (juce::approximatelyEqual (dialOf ("fx_chorus_rate"), 32.0f), "a long rack's cards have 32 px dials (" + juce::String (dialOf ("fx_chorus_rate")) + ")");
+                const auto fiveTops = cardHeights();
+                loadFx ({ 7, 13 });
+                const auto twoTops = cardHeights();
+                expect (loneTop.size() == 1 && fiveTops.size() == 5 && twoTops.size() == 2 && loneTop[0] == fiveTops[0]
+                            && twoTops[1] - twoTops[0] == fiveTops[1] - fiveTops[0],
+                        "a card is the same size alone, in two and in five (" + juce::String (loneTop[0]) + " / " + juce::String (fiveTops[0])
+                            + ", " + juce::String (twoTops[1] - twoTops[0]) + " / " + juce::String (fiveTops[1] - fiveTops[0]) + ")");
+                if (auto* page = stackViewport() != nullptr ? stackViewport()->getParentComponent() : nullptr)
+                {
+                    std::vector<DashedAddButton*> adds;
+                    findAll<DashedAddButton> (*page, adds);
+                    const auto* view = stackViewport();
+                    expect (adds.size() == 1 && adds.front()->getY() <= view->getBottom() + 10 && adds.front()->getY() < page->getHeight() - 200,
+                            "a short rack's add row follows its last card, not the page's foot");
+                }
+                loadFx ({ 7, 13, 2, 4, 20 });
 
                 auto* view = stackViewport();
                 auto* page = view != nullptr ? view->getParentComponent() : nullptr;
@@ -9738,6 +9765,33 @@ static int runFoldRepro (const juce::File& outDir)
     return 0;
 }
 
+// --fxsizes DIR: the FX rack with one to six effects (pictures fx-N.png),
+// and each card's top printed, to check every card keeps one size.
+static int runFxSizes (const juce::File& outDir)
+{
+    outDir.createDirectory();
+    UiCtx ctx;
+    ctx.pages->showPage ("FX");
+    settle (600);
+    const int rack[] { 7, 13, 2, 4, 20, 27, 5 };
+    for (int count = 1; count <= 7; ++count)
+    {
+        for (int slot = 1; slot <= IlanaSynthAudioProcessor::numFxSlots; ++slot)
+            ctx.processor.assignFxSlot (slot, slot <= count ? rack[slot - 1] : 0);
+        settle (900);
+        std::vector<FxTypeButton*> found;
+        findAll<FxTypeButton> (*ctx.editor, found);
+        juce::String tops;
+        for (auto* button : found)
+            if (visibleInTree (button))
+                tops << juce::String (ctx.editor->getLocalPoint (button, juce::Point<int>()).y) << " ";
+        std::cout << "FXSIZES " << count << ": " << tops << std::endl;
+        save (*ctx.editor, outDir.getChildFile ("fx-" + juce::String (count) + ".png"));
+    }
+    ctx.closeEditor();
+    return 0;
+}
+
 int runFps()
 {
     IlanaSynthAudioProcessor processor;
@@ -11911,6 +11965,8 @@ int main (int argc, char** argv)
     if (juce::String (argv[1]) == "--foldrepro" && argc > 2)
         return runFoldRepro (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
+    if (juce::String (argv[1]) == "--fxsizes" && argc > 2)
+        return runFxSizes (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
     if (juce::String (argv[1]) == "--fps")
         return runFps();
 

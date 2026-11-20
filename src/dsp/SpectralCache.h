@@ -210,19 +210,6 @@ public:
         return false;
     }
 
-    // Message thread: the warped copy for display, if one matches the
-    // oscillator's current table and mode.
-    std::shared_ptr<const Wavetable> getForDisplay (int osc, int tableChoice, int mode) const
-    {
-        const auto& slot = slots[(size_t) osc];
-        const juce::SpinLock::ScopedLockType lock (slot.lock);
-
-        if (mode > SpectralWarp::Off && slot.builtTable == tableChoice && slot.builtMode == mode)
-            return slot.warped;
-
-        return {};
-    }
-
     // Tests: whether the requested warp for an oscillator has been built.
     bool isReady (int osc) const
     {
@@ -338,7 +325,6 @@ private:
         mutable juce::SpinLock lock;  // guards built
         juce::CriticalSection buildLock; // one builder at a time
         std::shared_ptr<Wavetable> built;  // what plays: the warped table, spectrally blended when asked
-        std::shared_ptr<Wavetable> warped; // the warped table on its own frames, for display (null when only blended)
         const Wavetable* lastServed = nullptr; // audio thread only
         int lastServedTable = -1;              // audio thread only
         // Audio thread only: whether the amount is moving.
@@ -382,13 +368,9 @@ private:
 
             if (slot.built != nullptr)
                 retired.push_back ({ slot.built, now });
-
-            if (slot.warped != nullptr && slot.warped != slot.built)
-                retired.push_back ({ slot.warped, now });
         }
 
         slot.built = played;
-        slot.warped = warped;
         slot.builtTable = table;
         slot.builtMode = mode;
         slot.builtStep = step;

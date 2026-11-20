@@ -65,6 +65,10 @@ public:
     // frames' phases disagree. Position 0..1 still lands on the same source
     // frames. nullptr for a table of fewer than two frames.
     static std::unique_ptr<Wavetable> makeSpectralBlend (const Wavetable& source);
+    // One in-between frame of that blend, t (0..1) of the way from frame row a
+    // to frame row b (rows as getFrameData gives them), as frameSize samples;
+    // for the wave display, which shows FRAME between two frames.
+    static std::vector<float> spectralBlendFrame (const float* a, const float* b, float t);
 
     int getNumFrames() const noexcept { return numFrames; }
 

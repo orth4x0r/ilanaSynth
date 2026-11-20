@@ -5819,6 +5819,210 @@ void uiGroup_WARP2 (UiCtx& ctx)
     }
 }
 
+// The wave display draws every knob that changes the cycle's shape, live (2026-11-20, ilana: "spectral warps in
+// oscillator are not animated in the illustration. if theres other knobs with modifications to the shape that are
+// not visible in the illustration. fix"): the spectral warp at its amount (before, the display showed whatever
+// the audio thread's cache had built, so it froze or lagged a step), OSC 4-6's own spectral warp (they showed
+// OSC 3's), FRAME between two frames under FRAME BLEND Crossfade / Spectral (it jumped to the nearest frame) and
+// SYNC 2 TO 1 on OSC 2. Pictures with ILANA_UITEST_SHOTS.
+void uiGroup_SHAPE_DISPLAY (UiCtx& ctx)
+{
+    UI_GROUP_PRELUDE
+    const auto shotsDir = juce::SystemStats::getEnvironmentVariable ("ILANA_UITEST_SHOTS", "");
+    const auto findWave = [&editor] (int osc)
+    {
+        std::vector<WaveDisplay*> waves;
+        findAll<WaveDisplay> (*editor, waves);
+        WaveDisplay* wave = nullptr;
+        for (auto* candidate : waves)
+            if (candidate->getOscIndex() == osc && (wave == nullptr || (visibleInTree (candidate) && ! candidate->isCompact())))
+                wave = candidate;
+        return wave;
+    };
+    const auto picture = [&] (WaveDisplay& wave, const juce::String& name)
+    {
+        settle (250);
+        auto image = wave.createComponentSnapshot (wave.getLocalBounds());
+        if (shotsDir.isNotEmpty())
+            save (wave, juce::File (shotsDir).getChildFile (name));
+        return image;
+    };
+    const auto differs = [] (const juce::Image& x, const juce::Image& y)
+    {
+        auto count = 0;
+        for (int j = 0; j < juce::jmin (x.getHeight(), y.getHeight()); ++j)
+            for (int i = 0; i < juce::jmin (x.getWidth(), y.getWidth()); ++i)
+                count += x.getPixelAt (i, j) != y.getPixelAt (i, j) ? 1 : 0;
+        return count;
+    };
+
+    // A table of many frames whose neighbours differ, for the FRAME BLEND pictures.
+    auto tableChoice = -1;
+    auto numFrames = 0;
+    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter ("osc1_table")))
+        for (int index = 0; index < choice->choices.size() && tableChoice < 0; ++index)
+            if (const auto* table = processor.getWavetable (index); table != nullptr && table->getNumFrames() >= 4 && table->getNumFrames() <= 64)
+            {
+                const auto middle = table->getNumFrames() / 2;
+                const auto* a = table->getFrameData (0, middle);
+                const auto* b = table->getFrameData (0, middle + 1);
+                auto gap = 0.0f;
+                for (int i = 1; i <= Wavetable::frameSize; ++i)
+                    gap = juce::jmax (gap, std::abs (a[i] - b[i]));
+                if (gap > 0.5f)
+                {
+                    tableChoice = index;
+                    numFrames = table->getNumFrames();
+                }
+            }
+    expect (tableChoice >= 0, "a table with neighbouring frames that differ, for the FRAME BLEND pictures");
+
+    // (Every parameter this group sets goes back as it was.)
+    std::vector<std::pair<juce::String, float>> before;
+    for (const auto* id : { "osc1_on", "osc1_mode", "osc1_warp", "osc1_warp_amt", "osc1_warp2", "osc1_warp2_amt", "osc1_unison", "osc1_table",
+                            "osc1_frame", "osc1_spectral", "osc1_spectral_amt", "osc1_frame_blend", "osc4_on", "osc4_mode", "sub_spectral",
+                            "osc4_spectral", "osc4_spectral_amt", "osc4_table", "osc2_on", "osc2_mode", "osc2_table", "osc2_semi", "hard_sync" })
+        before.emplace_back (id, readParam (id));
+
+    setParam ("osc1_on", 1.0f);
+    setParam ("osc1_mode", 0.0f);
+    setParam ("osc1_warp", 0.0f);
+    setParam ("osc1_warp_amt", 0.0f);
+    setParam ("osc1_warp2", 0.0f);
+    setParam ("osc1_warp2_amt", 0.0f);
+    setParam ("osc1_unison", 1.0f);
+    if (tableChoice >= 0)
+        setParam ("osc1_table", (float) tableChoice);
+    setParam ("osc1_frame", 0.0f);
+    selectOscTab (0);
+    settle (150);
+
+    if (auto* wave = findWave (0))
+    {
+        // Spectral warp: the picture follows the amount without the audio thread building anything.
+        setParam ("osc1_spectral", 0.0f);
+        const auto plain = picture (*wave, "spectral-off.png");
+        setParam ("osc1_spectral", 1.0f); // Stretch
+        setParam ("osc1_spectral_amt", 0.15f);
+        const auto low = picture (*wave, "spectral-stretch-15.png");
+        setParam ("osc1_spectral_amt", 0.9f);
+        const auto high = picture (*wave, "spectral-stretch-90.png");
+        expect (differs (plain, low) > 100, "the wave display draws the spectral warp (Stretch 15 %)");
+        expect (differs (low, high) > 100, "the wave display follows the SPEC AMT knob (Stretch 15 % -> 90 %)");
+
+        for (const auto& [mode, file] : { std::pair<int, const char*> { 5, "spectral-smear-90.png" }, { 3, "spectral-odd-even-90.png" },
+                                          { 11, "spectral-skew-90.png" } })
+        {
+            setParam ("osc1_spectral", (float) mode);
+            expect (differs (plain, picture (*wave, file)) > 100, juce::String ("the wave display draws spectral warp ") + file);
+        }
+
+        // The warped frame matches the table the oscillator plays (same samples up to the table's normalising).
+        if (tableChoice >= 0)
+            if (const auto* table = processor.getWavetable (tableChoice))
+            {
+                juce::dsp::FFT fft (11);
+                for (const auto mode : { 1, 5, 10 })
+                {
+                    const auto whole = SpectralWarp::warpTable (*table, mode, 0.6f);
+                    const auto frame = numFrames / 2;
+                    const auto one = SpectralWarp::warpOneFrame (*table, frame, mode, 0.6f, fft);
+                    const auto* played = whole->getFrameData (0, frame);
+                    auto peakOne = 0.0f, peakPlayed = 0.0f;
+                    for (int i = 0; i < Wavetable::frameSize; ++i)
+                    {
+                        peakOne = juce::jmax (peakOne, std::abs (one[(size_t) i]));
+                        peakPlayed = juce::jmax (peakPlayed, std::abs (played[i + 1]));
+                    }
+                    auto error = 0.0f;
+                    for (int i = 0; i < Wavetable::frameSize; ++i)
+                        error = juce::jmax (error, std::abs (one[(size_t) i] / juce::jmax (1.0e-6f, peakOne) - played[i + 1] / juce::jmax (1.0e-6f, peakPlayed)));
+                    expect (error < 0.02f, "the display's warped frame is the played table's frame (mode " + juce::String (mode)
+                                               + ", error " + juce::String (error, 4) + ")");
+                }
+            }
+
+        setParam ("osc1_spectral", 0.0f);
+        setParam ("osc1_spectral_amt", 0.5f);
+
+        // FRAME between two frames: Crossfade and Spectral draw the in-between cycle, Stepped the nearest frame.
+        if (numFrames >= 2)
+        {
+            const auto between = ((float) (numFrames / 2) + 0.5f) / (float) (numFrames - 1);
+            setParam ("osc1_frame_blend", 2.0f); // Stepped
+            setParam ("osc1_frame", between);
+            const auto stepped = picture (*wave, "blend-stepped.png");
+            setParam ("osc1_frame_blend", 0.0f); // Crossfade
+            const auto crossfade = picture (*wave, "blend-crossfade.png");
+            setParam ("osc1_frame_blend", 1.0f); // Spectral
+            const auto spectral = picture (*wave, "blend-spectral.png");
+            expect (differs (stepped, crossfade) > 100, "FRAME between two frames draws the crossfaded cycle");
+            expect (differs (crossfade, spectral) > 100, "FRAME BLEND Spectral draws its own in-between cycle");
+            setParam ("osc1_frame_blend", 0.0f);
+        }
+
+        setParam ("osc1_frame", 0.0f);
+    }
+    else
+    {
+        expect (false, "OSC 1's wave display is shown for the shape pictures");
+    }
+
+    // OSC 4 draws its own spectral warp (it used to show OSC 3's).
+    setParam ("osc4_on", 1.0f);
+    setParam ("osc4_mode", 0.0f);
+    setParam ("sub_spectral", 0.0f);
+    setParam ("osc4_spectral", 0.0f);
+    if (tableChoice >= 0)
+        setParam ("osc4_table", (float) tableChoice);
+    selectOscTab (3);
+    settle (150);
+
+    if (auto* wave = findWave (3))
+    {
+        const auto plain = picture (*wave, "osc4-spectral-off.png");
+        setParam ("osc4_spectral", 1.0f);
+        setParam ("osc4_spectral_amt", 0.9f);
+        expect (differs (plain, picture (*wave, "osc4-spectral-stretch-90.png")) > 100, "OSC 4's wave display draws its own spectral warp");
+        setParam ("osc4_spectral", 0.0f);
+    }
+    else
+    {
+        expect (false, "OSC 4's wave display is shown");
+    }
+    setParam ("osc4_on", 0.0f);
+
+    // SYNC 2 TO 1: OSC 2's picture is one OSC 1 cycle with OSC 2 restarting at its end.
+    setParam ("osc2_on", 1.0f);
+    setParam ("osc2_mode", 0.0f);
+    if (tableChoice >= 0)
+        setParam ("osc2_table", (float) tableChoice);
+    setParam ("osc2_semi", 7.0f);
+    setParam ("hard_sync", 0.0f);
+    selectOscTab (1);
+    settle (150);
+
+    if (auto* wave = findWave (1))
+    {
+        const auto free = picture (*wave, "sync-off.png");
+        setParam ("hard_sync", 1.0f);
+        const auto synced = picture (*wave, "sync-on-semi7.png");
+        setParam ("osc2_semi", 19.0f);
+        const auto higher = picture (*wave, "sync-on-semi19.png");
+        expect (differs (free, synced) > 100, "SYNC 2 TO 1 shows on OSC 2's wave display");
+        expect (differs (synced, higher) > 100, "the synced picture follows OSC 2's pitch");
+    }
+    else
+    {
+        expect (false, "OSC 2's wave display is shown");
+    }
+
+    for (const auto& [id, value] : before)
+        setParam (id, value);
+    selectOscTab (0);
+    settle (150);
+}
+
 void uiGroup_SAMPLE_ZOOM (UiCtx& ctx)
 {
     UI_GROUP_PRELUDE
@@ -9389,6 +9593,7 @@ const UiGroup uiGroups[] = {
     { "VECTOR_PAGE", uiGroup_VECTOR_PAGE },
     { "BOUNCE", uiGroup_BOUNCE },
     { "WARP2", uiGroup_WARP2 },
+    { "SHAPE_DISPLAY", uiGroup_SHAPE_DISPLAY },
     { "SAMPLE_ZOOM", uiGroup_SAMPLE_ZOOM },
     { "PHYSICAL", uiGroup_PHYSICAL },
     { "FILTER_PICKERS", uiGroup_FILTER_PICKERS },

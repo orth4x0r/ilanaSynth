@@ -251,6 +251,21 @@ inline std::vector<float> warpFrame (const float* source, int mode, float amount
     return out;
 }
 
+// One frame of warpTable (source, mode, amount) on its own, for the wave
+// display: the same samples as that frame of the warped table before the table
+// build (band limit, normalise). Smear draws 1023 random phases per frame in
+// order, so the generator is moved on past the frames before this one.
+inline std::vector<float> warpOneFrame (const Wavetable& source, int frame, int mode, float amount, juce::dsp::FFT& fft)
+{
+    juce::Random random (1234);
+
+    if (mode == Smear)
+        for (int skip = 0; skip < frame * (Wavetable::frameSize / 2 - 1); ++skip)
+            random.nextFloat();
+
+    return warpFrame (source.getFrameData (0, frame), mode, amount, fft, random);
+}
+
 // A warped copy of a whole table.
 inline std::unique_ptr<Wavetable> warpTable (const Wavetable& source, int mode, float amount)
 {

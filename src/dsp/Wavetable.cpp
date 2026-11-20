@@ -406,6 +406,79 @@ void Wavetable::buildFromFrames (const std::vector<std::vector<float>>& frames, 
     buildLevels (frames, normalise);
 }
 
+// FRAME BLEND Spectral: the spectrum of the in-between frame at t from two
+// frames' spectra (bins 0..frameSize / 2): each harmonic's level moves in a
+// straight line, its phase turns the short way round.
+static void fillBlendSpectrum (const std::vector<std::complex<float>>& a, const std::vector<std::complex<float>>& b, float t,
+                               std::vector<std::complex<float>>& spectrum)
+{
+    using Complex = std::complex<float>;
+    constexpr auto frameSize = Wavetable::frameSize;
+    constexpr auto bins = frameSize / 2;
+
+    std::fill (spectrum.begin(), spectrum.end(), Complex());
+
+    for (int bin = 1; bin < bins; ++bin)
+    {
+        const auto za = a[(size_t) bin], zb = b[(size_t) bin];
+        const auto magA = std::abs (za), magB = std::abs (zb);
+        const auto magnitude = magA + (magB - magA) * t;
+
+        if (magnitude <= 0.0f)
+            continue;
+
+        // A harmonic only one frame has keeps that frame's phase.
+        auto phase = 0.0;
+
+        if (magA <= 1.0e-9f)
+            phase = std::arg (zb);
+        else if (magB <= 1.0e-9f)
+            phase = std::arg (za);
+        else
+        {
+            const auto phaseA = (double) std::arg (za);
+            auto turn = (double) std::arg (zb) - phaseA;
+            turn -= juce::MathConstants<double>::twoPi * std::floor ((turn + juce::MathConstants<double>::pi) / juce::MathConstants<double>::twoPi);
+            phase = phaseA + turn * (double) t;
+        }
+
+        const auto z = std::polar (magnitude, (float) phase);
+        spectrum[(size_t) bin] = z;
+        spectrum[(size_t) (frameSize - bin)] = std::conj (z);
+    }
+
+    spectrum[(size_t) bins] = Complex (a[(size_t) bins].real() + (b[(size_t) bins].real() - a[(size_t) bins].real()) * t, 0.0f);
+}
+
+std::vector<float> Wavetable::spectralBlendFrame (const float* a, const float* b, float t)
+{
+    using Complex = std::complex<float>;
+    constexpr auto bins = frameSize / 2;
+    const TableFFT fft ((int) std::log2 ((double) frameSize));
+    std::vector<Complex> time ((size_t) frameSize), spectrum ((size_t) frameSize);
+    std::vector<Complex> spectrumA, spectrumB;
+
+    for (auto* side : { &spectrumA, &spectrumB })
+    {
+        const auto* data = side == &spectrumA ? a : b;
+
+        for (int i = 0; i < frameSize; ++i)
+            time[(size_t) i] = Complex (data[i + 1], 0.0f);
+
+        fft.perform (time.data(), spectrum.data(), false);
+        side->assign (spectrum.begin(), spectrum.begin() + bins + 1);
+    }
+
+    fillBlendSpectrum (spectrumA, spectrumB, t, spectrum);
+    fft.perform (spectrum.data(), time.data(), true);
+
+    std::vector<float> samples ((size_t) frameSize);
+    for (int i = 0; i < frameSize; ++i)
+        samples[(size_t) i] = time[(size_t) i].real();
+
+    return samples;
+}
+
 std::unique_ptr<Wavetable> Wavetable::makeSpectralBlend (const Wavetable& source)
 {
     using Complex = std::complex<float>;
@@ -444,38 +517,7 @@ std::unique_ptr<Wavetable> Wavetable::makeSpectralBlend (const Wavetable& source
 
     const auto addFrame = [&] (const std::vector<Complex>& a, const std::vector<Complex>& b, float t)
     {
-        std::fill (spectrum.begin(), spectrum.end(), Complex());
-
-        for (int bin = 1; bin < bins; ++bin)
-        {
-            const auto za = a[(size_t) bin], zb = b[(size_t) bin];
-            const auto magA = std::abs (za), magB = std::abs (zb);
-            const auto magnitude = magA + (magB - magA) * t;
-
-            if (magnitude <= 0.0f)
-                continue;
-
-            // A harmonic only one frame has keeps that frame's phase.
-            auto phase = 0.0;
-
-            if (magA <= 1.0e-9f)
-                phase = std::arg (zb);
-            else if (magB <= 1.0e-9f)
-                phase = std::arg (za);
-            else
-            {
-                const auto phaseA = (double) std::arg (za);
-                auto turn = (double) std::arg (zb) - phaseA;
-                turn -= juce::MathConstants<double>::twoPi * std::floor ((turn + juce::MathConstants<double>::pi) / juce::MathConstants<double>::twoPi);
-                phase = phaseA + turn * (double) t;
-            }
-
-            const auto z = std::polar (magnitude, (float) phase);
-            spectrum[(size_t) bin] = z;
-            spectrum[(size_t) (frameSize - bin)] = std::conj (z);
-        }
-
-        spectrum[(size_t) bins] = Complex (a[(size_t) bins].real() + (b[(size_t) bins].real() - a[(size_t) bins].real()) * t, 0.0f);
+        fillBlendSpectrum (a, b, t, spectrum);
 
         fft.perform (spectrum.data(), time.data(), true);
 

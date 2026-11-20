@@ -202,15 +202,6 @@ public:
     float getVocoderBandLevel (int band) const;
     float getLfoLiveValueB (int lfo) const { return lfoLastValuesB[(size_t) juce::jlimit (0, numLfos - 1, lfo)].load(); }
 
-    // The spectrally warped table an oscillator is playing, for display
-    // (null when its warp is off or still building).
-    std::shared_ptr<const Wavetable> getSpectralDisplayTable (int osc, int tableChoice) const
-    {
-        static const char* ids[] { "osc1_spectral", "osc2_spectral", "sub_spectral" };
-        const auto* mode = apvts.getRawParameterValue (ids[juce::jlimit (0, 2, osc)]);
-        return spectralCache->getForDisplay (juce::jlimit (0, 2, osc), tableChoice, mode != nullptr ? (int) mode->load() : 0);
-    }
-
     // Synth-wide modulation of a destination this block (loudest voice for
     // per-voice sources), for knob rings and the effects.
     float getModDisplay (int destination) const

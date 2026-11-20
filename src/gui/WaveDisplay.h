@@ -274,8 +274,10 @@ public:
 
         const auto tableIndex = resolveTableIndex();
         const auto frame = displayedFrame;
-        const auto warped = processorRef.getSpectralDisplayTable (oscIndex, tableIndex);
-        const auto* table = warped != nullptr ? warped.get() : processorRef.getWavetable (tableIndex);
+        // The table behind the choice; the spectral warp and FRAME BLEND are
+        // applied to the shown frames here (shownCycle), at the warp's live
+        // amount, so the picture follows the knob and its modulation at once.
+        const auto* table = processorRef.getWavetable (tableIndex);
 
         if (table == nullptr || table->getNumFrames() == 0)
         {
@@ -305,31 +307,28 @@ public:
         }
         else if (shownViewMode() == 2)
         {
-            const auto frameCount = table->getNumFrames();
-            const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (frame * (float) (frameCount - 1)));
-            drawSpectrum (g, table, frameIndex, plot);
+            drawSpectrum (g, shownCycle (table, frame), plot);
         }
         else
         {
             const auto centreY = plot.getCentreY();
             const auto halfHeight = plot.getHeight() * 0.44f;
 
-            drawFrame (g, table, 0, plot, centreY, halfHeight, juce::Colours::white.withAlpha (0.12f), 1.0f);
+            drawFrame (g, frameRow (table, 0), plot, centreY, halfHeight, juce::Colours::white.withAlpha (0.12f), 1.0f);
 
             const auto frameCount = table->getNumFrames();
-            const auto framePosition = frame * (float) (frameCount - 1);
-            const auto frameIndex = juce::jlimit (0, frameCount - 1, (int) std::round (framePosition));
+            const auto* cycle = shownCycle (table, frame);
 
             // With a warp (or the PD chain) on, the trace is the warped cycle
             // at the knob settings, over a faint copy of the plain frame.
             if (hasWarp())
             {
-                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour.withAlpha (0.25f), 1.0f);
-                drawWarpedFrame (g, table, frameIndex, plot, centreY, halfHeight);
+                drawFrame (g, cycle, plot, centreY, halfHeight, traceColour.withAlpha (0.25f), 1.0f);
+                drawWarpedFrame (g, cycle, plot, centreY, halfHeight);
             }
             else
             {
-                drawFrame (g, table, frameIndex, plot, centreY, halfHeight, traceColour, 2.0f); // (the sheet's 2 px trace)
+                drawFrame (g, cycle, plot, centreY, halfHeight, traceColour, 2.0f); // (the sheet's 2 px trace)
             }
 
             // The x axis is the phase of one cycle, so the frame isn't marked
@@ -2558,17 +2557,216 @@ private:
                          ^ IlanaAnim::phaseSignature (stages.fmAmount, 14) ^ IlanaAnim::phaseSignature (stages.noiseAmount, 15)
                          ^ IlanaAnim::phaseSignature (stages.ringAmount1, 16) ^ IlanaAnim::phaseSignature (stages.ringAmount2, 17);
 
-        // A modulated spectral amount rebuilds the warped table in 64 steps;
-        // redraw when the step moves, not on every tiny change.
-        const juce::String prefix (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]);
+        // The spectral warp redraws when its (modulated) amount moves a step
+        // of the grid the oscillator builds a moving amount on.
+        if (const auto spectral = readSpectral(); spectral.mode > 0)
+            signature ^= IlanaAnim::phaseSignature ((float) spectral.step / (float) SpectralCache::fineSteps, 13)
+                         ^ (juce::uint64) spectral.mode * 0x9e3779b97f4a7c15ull;
 
-        if (readChoice (prefix + "_spectral") > 0)
+        // SYNC 2 TO 1 draws OSC 2 against OSC 1's cycle at their pitch ratio.
+        signature ^= IlanaAnim::phaseSignature (stages.syncRatio * 0.125f, 18);
+        return signature;
+    }
+
+    // ----- The shown cycle -----------------------------------------------
+    // ilana 2026-11-20: "spectral warps in oscillator are not animated in the
+    // illustration". The picture used to show the warped table the audio
+    // thread's cache had last finished (built in the background from the knob
+    // without its modulation, OSC 4-6 read OSC 3's), so a sweep froze, lagged
+    // a step behind the knob or never showed an LFO. Now the display warps the
+    // frames it shows itself, at the live amount, and caches them: one or two
+    // frames (two FFTs each) when the amount moves, nothing while it holds.
+
+    struct SpectralShown
+    {
+        int mode = 0, step = 0; // step on SpectralCache's 256-step grid
+        bool operator== (const SpectralShown& other) const { return mode == other.mode && step == other.step; }
+    };
+
+    // The spectral warp the oscillator plays, with its modulation (mode 0: none).
+    SpectralShown readSpectral() const
+    {
+        if (subTableMapping || (modeId.isNotEmpty() && ! OscMode::playsWavetable (readChoice (modeId))))
+            return {};
+
+        const auto prefix = oscPrefix();
+        const auto mode = readChoice (prefix + "_spectral");
+
+        if (mode <= SpectralWarp::Off || mode >= SpectralWarp::Count)
+            return {};
+
+        return { mode, juce::roundToInt (juce::jlimit (0.0f, 1.0f, readModulated (prefix + "_spectral_amt")) * (float) SpectralCache::fineSteps) };
+    }
+
+    juce::String oscPrefix() const
+    {
+        return OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)];
+    }
+
+    // A cycle of frameSize samples as a frame row (the cycle at [1..frameSize], wrapped guards around it).
+    static void toRow (const float* cycle, std::vector<float>& row)
+    {
+        constexpr auto size = Wavetable::frameSize;
+        row.resize ((size_t) size + 3);
+        std::copy (cycle, cycle + size, row.begin() + 1);
+        row[0] = row[(size_t) size];
+        row[(size_t) size + 1] = row[1];
+        row[(size_t) size + 2] = row[2];
+    }
+
+    juce::dsp::FFT& displayFft() const
+    {
+        if (fft == nullptr)
+            fft = std::make_unique<juce::dsp::FFT> (11);
+
+        return *fft;
+    }
+
+    // One frame of the table as the oscillator plays it (through the spectral
+    // warp when one is on), as a frame row. Warped rows are owned copies, so
+    // nothing here points into a table that may be replaced.
+    const float* frameRow (const Wavetable* table, int frame) const
+    {
+        const auto numFrames = table->getNumFrames();
+        frame = juce::jlimit (0, numFrames - 1, frame);
+        const auto spectral = readSpectral();
+
+        if (spectral.mode == 0)
+            return table->getFrameData (0, frame);
+
+        ++rowClock;
+        WarpedRow* oldest = &warpedRows[0];
+
+        for (auto& entry : warpedRows)
         {
-            const auto step = juce::roundToInt (juce::jlimit (0.0f, 1.0f, readModulated (prefix + "_spectral_amt")) * (float) SpectralCache::amountSteps);
-            signature ^= IlanaAnim::phaseSignature ((float) step / (float) SpectralCache::amountSteps, 13);
+            if (entry.table == table && entry.numFrames == numFrames && entry.frame == frame && entry.spectral == spectral)
+            {
+                entry.used = rowClock;
+                return entry.row.data();
+            }
+
+            if (entry.used < oldest->used)
+                oldest = &entry;
         }
 
-        return signature;
+        const auto cycle = SpectralWarp::warpOneFrame (*table, frame, spectral.mode,
+                                                       (float) spectral.step / (float) SpectralCache::fineSteps, displayFft());
+        toRow (cycle.data(), oldest->row);
+        oldest->table = table;
+        oldest->numFrames = numFrames;
+        oldest->frame = frame;
+        oldest->spectral = spectral;
+        oldest->used = rowClock;
+        return oldest->row.data();
+    }
+
+    // The cycle at a FRAME position as the oscillator reads it: FRAME BLEND
+    // between the two frames around it (Crossfade mixes them, Spectral glides
+    // their harmonics, Stepped holds the nearest), each through the spectral warp.
+    const float* shownCycle (const Wavetable* table, float position) const
+    {
+        const auto numFrames = table->getNumFrames();
+        const auto scaled = juce::jlimit (0.0f, 1.0f, position) * (float) (numFrames - 1);
+        const auto blend = subTableMapping ? FrameBlend::stepped
+                                           : juce::jlimit (0, FrameBlend::count - 1, readChoice (oscPrefix() + "_frame_blend"));
+
+        if (blend == FrameBlend::stepped || numFrames < 2)
+            return frameRow (table, juce::jmin ((int) (scaled + 0.5f), numFrames - 1));
+
+        const auto frame0 = juce::jmin ((int) scaled, numFrames - 1);
+        const auto frame1 = juce::jmin (frame0 + 1, numFrames - 1);
+        // (Steps of 1/256 of a gap: finer than a pixel of the trace.)
+        const auto frac = (float) juce::roundToInt ((scaled - (float) frame0) * 256.0f) / 256.0f;
+
+        if (frame0 == frame1 || frac <= 0.0f)
+            return frameRow (table, frame0);
+
+        if (frac >= 1.0f)
+            return frameRow (table, frame1);
+
+        const auto spectral = readSpectral();
+
+        if (blendedRow.table == table && blendedRow.numFrames == numFrames && blendedRow.frame == frame0 && blendedRow.frac == frac
+            && blendedRow.blend == blend && blendedRow.spectral == spectral)
+            return blendedRow.row.data();
+
+        const auto* a = frameRow (table, frame0);
+        const auto* b = frameRow (table, frame1);
+
+        if (blend == FrameBlend::spectral)
+        {
+            const auto cycle = Wavetable::spectralBlendFrame (a, b, frac);
+            toRow (cycle.data(), blendedRow.row);
+        }
+        else
+        {
+            blendedRow.row.resize ((size_t) Wavetable::frameSize + 3);
+
+            for (size_t i = 0; i < blendedRow.row.size(); ++i)
+                blendedRow.row[i] = a[i] + (b[i] - a[i]) * frac;
+        }
+
+        blendedRow.table = table;
+        blendedRow.numFrames = numFrames;
+        blendedRow.frame = frame0;
+        blendedRow.frac = frac;
+        blendedRow.blend = blend;
+        blendedRow.spectral = spectral;
+        return blendedRow.row.data();
+    }
+
+    // Every frame for the 3D stack. Under a spectral warp the stack is warped
+    // as a whole (one warpTable's worth of FFTs), so while the amount moves it
+    // catches up at most every 150 ms; the front frame is always live
+    // (frameRow), and the timer redraws once more when the stack is behind.
+    std::vector<const float*> waterfallRows (const Wavetable* table) const
+    {
+        const auto numFrames = table->getNumFrames();
+        const auto spectral = readSpectral();
+        std::vector<const float*> rows ((size_t) numFrames);
+
+        if (spectral.mode == 0)
+        {
+            waterfall.table = nullptr;
+
+            for (int frame = 0; frame < numFrames; ++frame)
+                rows[(size_t) frame] = table->getFrameData (0, frame);
+
+            return rows;
+        }
+
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto stale = waterfall.table != table || waterfall.numFrames != numFrames || waterfall.spectral.mode != spectral.mode;
+
+        if (stale || (! (waterfall.spectral == spectral) && now - waterfall.builtAt >= 150.0))
+        {
+            // As SpectralWarp::warpTable: one random sequence through the frames in order.
+            juce::Random random (1234);
+            waterfall.rows.resize ((size_t) numFrames);
+
+            for (int frame = 0; frame < numFrames; ++frame)
+            {
+                const auto cycle = SpectralWarp::warpFrame (table->getFrameData (0, frame), spectral.mode,
+                                                            (float) spectral.step / (float) SpectralCache::fineSteps, displayFft(), random);
+                toRow (cycle.data(), waterfall.rows[(size_t) frame]);
+            }
+
+            waterfall.table = table;
+            waterfall.numFrames = numFrames;
+            waterfall.spectral = spectral;
+            waterfall.builtAt = now;
+        }
+
+        for (int frame = 0; frame < numFrames; ++frame)
+            rows[(size_t) frame] = waterfall.rows[(size_t) frame].data();
+
+        return rows;
+    }
+
+    // The 3D stack is drawn from an older amount than the knob's now.
+    bool waterfallBehind() const
+    {
+        return waterfall.table != nullptr && shownViewMode() == 1 && ! (waterfall.spectral == readSpectral());
     }
 
     float readPlain (const juce::String& id) const
@@ -2666,7 +2864,8 @@ private:
         if (! IlanaAnim::showing (*this))
             return;
 
-        if (gliding || loadFlash > 0.01f || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ warpSignature()))
+        if (gliding || loadFlash > 0.01f || waterfallBehind()
+            || changeGate.check (processorRef.getUiEpoch() ^ IlanaAnim::mouseSignature (*this) ^ warpSignature()))
             repaint();
     }
 
@@ -2701,6 +2900,7 @@ private:
 
         const auto warped = hasWarp();
         const auto stages = readWarp();
+        const auto rows = waterfallRows (table);
 
         for (int f = numFrames - 1; f >= 0; --f)
         {
@@ -2710,8 +2910,9 @@ private:
             // plot a fixed 6 px margin let them run under the frame readout).
             const auto baseline = plot.getBottom() - juce::jmax (6.0f, plot.getHeight() * 0.2f) - depth * plot.getHeight() * 0.66f;
             const auto amplitude = plot.getHeight() * 0.19f * (1.0f - depth * 0.35f);
-            const auto* data = table->getFrameData (0, f);
             const auto highlight = f == currentFrame;
+            // (The front frame at the live amount; the stack behind it catches up a few times a second.)
+            const auto* data = highlight ? frameRow (table, f) : rows[(size_t) f];
 
             const auto width = juce::jmax (2, (int) (plot.getWidth() - inset * 2.0f));
             const auto step = juce::jmax (1, Wavetable::frameSize / width);
@@ -2756,15 +2957,14 @@ private:
         return 0.0f;
     }
 
-    void drawFrame (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot,
+    // data: a frame row as Wavetable::getFrameData gives it (the cycle at [1..frameSize]).
+    void drawFrame (juce::Graphics& g, const float* data, juce::Rectangle<float> plot,
                     float centreY, float halfHeight, juce::Colour colour, float thickness) const
     {
         const auto width = (int) plot.getWidth();
 
         if (width < 2)
             return;
-
-        const auto* data = table->getFrameData (0, frameIndex);
 
         juce::Path path;
 
@@ -2816,11 +3016,14 @@ private:
         float amount1 = 0.0f, amount2 = 0.0f;
         float fmAmount = 0.0f, noiseAmount = 0.0f, ringAmount1 = 0.0f, ringAmount2 = 0.0f;
         const float* source = nullptr; // the source oscillator's frame (null: a sine)
+        // SYNC 2 TO 1 on OSC 2's picture: OSC 2 cycles per OSC 1 cycle (0: no sync). The x axis is then
+        // one OSC 1 cycle, and OSC 2 restarts at its end.
+        float syncRatio = 0.0f;
 
         bool any() const
         {
             return amount1 > 0.0f || amount2 > 0.0f || fmAmount > 0.0f || noiseAmount > 0.0f
-                   || ringAmount1 > 0.0f || ringAmount2 > 0.0f;
+                   || ringAmount1 > 0.0f || ringAmount2 > 0.0f || syncRatio > 0.0f;
         }
     };
 
@@ -2861,7 +3064,47 @@ private:
                 }
         }
 
+        stages.syncRatio = readSyncRatio();
         return stages;
+    }
+
+    // OSC 2's cycles per OSC 1 cycle while SYNC 2 TO 1 (FM page) resets it,
+    // from both oscillators' tuning with its pitch modulation; 0 when sync
+    // doesn't apply (another display, sync off, OSC 1 off, a string or sample
+    // on either side, or a Fixed Hz oscillator whose ratio depends on the note).
+    float readSyncRatio() const
+    {
+        if (oscIndex != 1 || subTableMapping || readValue ("hard_sync") < 0.5f || readValue ("osc1_on") < 0.5f)
+            return 0.0f;
+
+        const auto semitones = [this] (const char* prefix, Mod::Destination pitch, bool& known)
+        {
+            const juce::String id (prefix);
+
+            if (! OscMode::playsWavetable (readChoice (id + "_mode")))
+                known = false;
+
+            const auto tune = readChoice (id + "_tune");
+
+            if (tune == OscTuning::Fixed)
+                known = false;
+
+            auto total = (double) readPlain (id + "_semi") + (double) readPlain (id + "_fine") / 100.0
+                         + (double) processorRef.getModDisplay (pitch) * 48.0;
+
+            if (tune == OscTuning::Ratio)
+                total += 12.0 * std::log2 (juce::jmax (1.0e-3, (double) readPlain (id + "_ratio")));
+
+            return total;
+        };
+
+        auto known = true;
+        const auto difference = semitones ("osc2", Mod::Destination::Osc2Pitch, known) - semitones ("osc1", Mod::Destination::Osc1Pitch, known);
+
+        if (! known)
+            return 0.0f;
+
+        return (float) juce::jlimit (1.0 / 16.0, 16.0, std::exp2 (difference / 12.0));
     }
 
     bool hasWarp() const
@@ -2897,6 +3140,14 @@ private:
 
         auto silent = false;
         auto gain = 1.0f, gain2 = 1.0f;
+
+        // Hard sync: OSC 2 runs syncRatio cycles from the start of OSC 1's cycle, then restarts.
+        if (stages.syncRatio > 0.0f)
+        {
+            position = juce::jlimit (0.0, 0.999999, position) * (double) stages.syncRatio;
+            position -= std::floor (position);
+        }
+
         auto phase = juce::jlimit (0.0, 0.999999, position);
 
         // FM and FM Noise move the phase before the warps, as in the voice.
@@ -2924,7 +3175,7 @@ private:
         return value;
     }
 
-    void drawWarpedFrame (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot,
+    void drawWarpedFrame (juce::Graphics& g, const float* data, juce::Rectangle<float> plot,
                           float centreY, float halfHeight) const
     {
         const auto width = (int) plot.getWidth();
@@ -2933,7 +3184,6 @@ private:
             return;
 
         const auto stages = readWarp();
-        const auto* data = table->getFrameData (0, frameIndex);
         juce::Path path;
 
         for (int x = 0; x < width; ++x)
@@ -3241,10 +3491,9 @@ private:
     }
 
     // One cycle as the oscillator plays it: the frame through the warps.
-    void fillCycle (const Wavetable* table, int frameIndex, std::vector<float>& out) const
+    void fillCycle (const float* data, std::vector<float>& out) const
     {
         const auto size = (int) out.size();
-        const auto* data = table->getFrameData (0, frameIndex);
         const auto warped = hasWarp();
         const auto stages = readWarp();
 
@@ -3259,13 +3508,13 @@ private:
     // The cycle's harmonics as bars (level in dB against the loudest, 60 dB
     // shown), the fundamental at the left, the way Vital's spectrum view
     // reads. Warps are included, so a warp sweep shows its new partials.
-    void drawSpectrum (juce::Graphics& g, const Wavetable* table, int frameIndex, juce::Rectangle<float> plot) const
+    void drawSpectrum (juce::Graphics& g, const float* cycle, juce::Rectangle<float> plot) const
     {
         constexpr int order = 11;
         constexpr int size = 1 << order;
         static_assert (size == Wavetable::frameSize, "one cycle per FFT");
         cycleBuffer.assign ((size_t) size, 0.0f);
-        fillCycle (table, frameIndex, cycleBuffer);
+        fillCycle (cycle, cycleBuffer);
 
         spectrumBuffer.assign ((size_t) size * 2, 0.0f);
         std::copy (cycleBuffer.begin(), cycleBuffer.end(), spectrumBuffer.begin());
@@ -3351,6 +3600,38 @@ private:
     mutable std::vector<float> cycleBuffer;
     mutable std::vector<float> spectrumBuffer;
     mutable std::unique_ptr<juce::dsp::FFT> fft;
+
+    // The shown cycle's caches (frameRow, shownCycle, waterfallRows).
+    struct WarpedRow
+    {
+        const Wavetable* table = nullptr;
+        int numFrames = 0, frame = -1;
+        SpectralShown spectral;
+        juce::uint64 used = 0;
+        std::vector<float> row;
+    };
+    mutable std::array<WarpedRow, 4> warpedRows;
+    mutable juce::uint64 rowClock = 0;
+
+    struct BlendedRow
+    {
+        const Wavetable* table = nullptr;
+        int numFrames = 0, frame = -1, blend = -1;
+        float frac = -1.0f;
+        SpectralShown spectral;
+        std::vector<float> row;
+    };
+    mutable BlendedRow blendedRow;
+
+    struct WaterfallRows
+    {
+        const Wavetable* table = nullptr;
+        int numFrames = 0;
+        SpectralShown spectral;
+        double builtAt = 0.0;
+        std::vector<std::vector<float>> rows;
+    };
+    mutable WaterfallRows waterfall;
 
     static constexpr const char* tableTooltip =
         "Drag across to scrub the frame.\n"

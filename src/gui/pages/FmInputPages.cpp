@@ -239,6 +239,9 @@ void FmPage::visibilityChanged ()
 
 void FmPage::timerCallback ()
 {
+    if (! isVisible())
+        return;
+
     const auto tuneChanged = [this]
     {
         auto changed = false;
@@ -814,12 +817,15 @@ juce::TextButton& FmPage::removeButtonFor (const Route& route)
 void FmPage::showAddRouteMenu ()
 {
     juce::PopupMenu menu;
-    const auto addInto = [this] (int source, int target)
+    juce::Component::SafePointer<FmPage> safeThis (this);
+    const auto addInto = [safeThis] (int source, int target)
     {
+        if (safeThis == nullptr)
+            return;
         const auto id = source < 0 ? "fm_noise" + juce::String (target + 1) : FmDiagram::routeId (source, target);
-        if (auto* parameter = processorRef.apvts.getParameter (id))
+        if (auto* parameter = safeThis->processorRef.apvts.getParameter (id))
         {
-            processorRef.getUndoManager().beginNewTransaction ("Add FM route");
+            safeThis->processorRef.getUndoManager().beginNewTransaction ("Add FM route");
             parameter->beginChangeGesture();
             parameter->setValueNotifyingHost (0.5f);
             parameter->endChangeGesture();
@@ -1122,6 +1128,9 @@ void InputPage::resized ()
 
 void InputPage::timerCallback ()
 {
+    if (! isVisible())
+        return;
+
     const auto level = processorRef.getInputLevel();
     const auto envelope = processorRef.getInputEnvelope();
     if (std::abs (level - shownLevel) > 1.0e-4f || std::abs (envelope - shownEnvelope) > 1.0e-4f)

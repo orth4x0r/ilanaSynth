@@ -184,11 +184,12 @@ public:
             g.setColour (juce::Colour (0xffffb020));
             g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
             const auto warning = juce::String (idleTargets) + " OFF";
+            const auto warningWidth = juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning));
+            markBounds = text.withWidth (juce::jmin (text.getWidth(), warningWidth + 2))
+                             .expanded (3).getIntersection (getLocalBounds());
             IlanaTheme::drawFitted (g, warning, text, juce::Justification::topLeft, 1);
             if (hover && markBounds.contains (getMouseXYRelative()))
-                g.fillRect (text.getX(), text.getY() + 12, juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning)), 1);
-            markBounds = text.withWidth (juce::jmin (text.getWidth(), juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true)), warning) + 2))
-                             .expanded (3).getIntersection (getLocalBounds());
+                g.fillRect (text.getX(), text.getY() + 12, warningWidth, 1);
             return;
         }
 
@@ -286,6 +287,9 @@ public:
     // + ASSIGN: arm this macro (the next knob clicked gets its route).
     void mouseUp (const juce::MouseEvent& event) override
     {
+        if (event.mods.isPopupMenu())
+            return;
+
         if (macroIndex >= 0 && ! assignBounds.isEmpty() && ! event.mouseWasDraggedSinceMouseDown()
             && assignBounds.contains (event.getPosition()) && onAssign != nullptr)
             onAssign (macroIndex);
@@ -313,7 +317,20 @@ public:
             nameEditor.showEditor();
 
             if (auto* editor = nameEditor.getCurrentTextEditor())
-                editor->onFocusLost = [this] { nameEditor.hideEditor (false); nameEditor.setVisible (false); };
+            {
+                juce::Component::SafePointer<StripKnob> safeThis (this);
+                editor->onFocusLost = [safeThis]
+                {
+                    juce::MessageManager::callAsync ([safeThis]
+                    {
+                        if (safeThis != nullptr)
+                        {
+                            safeThis->nameEditor.hideEditor (false);
+                            safeThis->nameEditor.setVisible (false);
+                        }
+                    });
+                };
+            }
         }
     }
 
@@ -455,6 +472,9 @@ private:
 
     void timerCallback() override
     {
+        if (! isVisible())
+            return;
+
         if (nameEditor.isVisible() && ! nameEditor.isBeingEdited())
             nameEditor.setVisible (false);
 
@@ -654,8 +674,9 @@ public:
     }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
     {
-        if (onPick != nullptr && std::abs (wheel.deltaY) > 0.0f)
-            onPick (wheel.deltaY < 0.0f ? 1 : 0);
+        const auto delta = wheel.isReversed ? -wheel.deltaY : wheel.deltaY;
+        if (onPick != nullptr && std::abs (delta) > 0.0f)
+            onPick (delta < 0.0f ? 1 : 0);
     }
 
 private:

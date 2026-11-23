@@ -488,8 +488,10 @@ void TuningPopover::resized ()
     for (auto* child : getChildren())
     {
         if (auto* knob = dynamic_cast<KnobControl*> (child))
+        {
             knob->setBounds (KnobControl::packedBoundsFor ({ x + (cell - 40) / 2, headerH + 6 + 6, 40, dial + 10 }));
-        x += cell;
+            x += cell;
+        }
     }
 }
 
@@ -1191,8 +1193,13 @@ void OscPage::identityColoursChanged ()
     repaint();
 }
 
-void OscPage::parameterChanged (const juce::String&, float)
+void OscPage::parameterChanged (const juce::String& parameterID, float)
 {
+    if (embedded)
+        for (const auto* id : listenedIds)
+            if (parameterID == id)
+                return;
+
     // Parameter changes can arrive on the audio thread (host automation),
     // so defer the GUI work to the message thread.
     triggerAsyncUpdate();
@@ -1211,6 +1218,9 @@ void OscPage::timerCallback ()
 {
     if (bouncingOsc >= 0)
         updateBounce();
+
+    if (! isVisible())
+        return;
 
     if (const auto version = processorRef.getRevealVersion(); version != lastRevealVersion)
     {
@@ -4125,12 +4135,9 @@ void OscPage::updateBounce ()
         selected = bouncingOsc; // the bounced oscillator stays shown
     bouncingOsc = -1;
     bounceButtonWide = -1;
-    updateModeVisibility();
     const auto message = processorRef.getBounceMessage();
     if (state == IlanaSynthAudioProcessor::BounceState::Failed)
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message);
-    else
-        button.setTooltip (message);
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message, juce::String(), this);
     updateModeVisibility();
     updateEnabled();
 }

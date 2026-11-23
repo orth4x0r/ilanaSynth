@@ -398,8 +398,9 @@ private:
         auto x = _mm256_setzero_ps();
         for (int t = 0; t < tapsPerPhase; ++t)
         {
-            const auto pair = _mm_castpd_ps (_mm_load1_pd (reinterpret_cast<const double*> (newestUp - 2 * t)));
-            const auto sample = _mm256_insertf128_ps (_mm256_castps128_ps256 (pair), pair, 1);
+            const auto ul = newestUp[-2 * t];
+            const auto ur = newestUp[-2 * t + 1];
+            const auto sample = _mm256_set_ps (ur, ul, ur, ul, ur, ul, ur, ul);
             x = _mm256_add_ps (x, _mm256_mul_ps (_mm256_load_ps (lanes.up[t]), sample));
         }
         x = _mm256_add_ps (_mm256_mul_ps (x, _mm256_set1_ps ((float) ((double) factor * gain))), _mm256_set1_ps ((float) bias));
@@ -413,9 +414,13 @@ private:
             x = _mm256_max_ps (_mm256_min_ps (x, limit), _mm256_sub_ps (_mm256_setzero_ps(), limit));
             const auto xd = _mm256_castps_pd (x);
             // [previous, phase 0, phase 1, phase 2] as LR pairs.
-            const auto low = _mm256_permute2f128_pd (xd, _mm256_castpd128_pd256 (_mm_castps_pd (_mm_loadl_pi (_mm_setzero_ps(), reinterpret_cast<const __m64*> (previousFloat[stage])))), 0x02);
+            const auto prevVec = _mm256_castpd128_pd256 (_mm_castps_pd (_mm_set_ps (0.0f, 0.0f, previousFloat[stage][1], previousFloat[stage][0])));
+            const auto low = _mm256_permute2f128_pd (xd, prevVec, 0x02);
             const auto last = _mm256_castpd_ps (_mm256_shuffle_pd (low, xd, 0x4));
-            _mm_storeh_pi (reinterpret_cast<__m64*> (previousFloat[stage]), _mm256_extractf128_ps (x, 1));
+            alignas (16) float hi[4];
+            _mm_store_ps (hi, _mm256_extractf128_ps (x, 1));
+            previousFloat[stage][0] = hi[2];
+            previousFloat[stage][1] = hi[3];
 
             const auto mid = _mm256_mul_ps (_mm256_add_ps (x, last), _mm256_set1_ps (0.5f));
             const auto half = _mm256_mul_ps (_mm256_sub_ps (x, last), _mm256_set1_ps (0.5f));

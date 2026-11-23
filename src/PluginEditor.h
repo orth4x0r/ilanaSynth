@@ -367,6 +367,7 @@ private:
         juce::PropertiesFile* tableSettings = nullptr;
     } ownHooks;
     static IlanaSynthAudioProcessorEditor*& hookOwner() { static IlanaSynthAudioProcessorEditor* owner = nullptr; return owner; }
+    static std::vector<IlanaSynthAudioProcessorEditor*>& liveEditors() { static std::vector<IlanaSynthAudioProcessorEditor*> list; return list; }
     void keepOwnHooks();
     void claimGlobalHooks();
     struct HookClaimer final : juce::MouseListener

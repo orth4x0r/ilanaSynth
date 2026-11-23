@@ -117,7 +117,13 @@ public:
         levelField.getEditText = [this] { return selectedValid() ? juce::String (juce::Decibels::gainToDecibels (zones[(size_t) selected].gain, -100.0f), 1) : juce::String(); };
         levelField.onTextEntered = [this] (const juce::String& text)
         {
-            const auto db = juce::jlimit (-48.0f, 12.0f, text.retainCharacters ("-+.0123456789").getFloatValue());
+            const auto cleaned = text.replaceCharacter (',', '.').retainCharacters ("-+.0123456789");
+            if (! cleaned.containsAnyOf ("0123456789"))
+            {
+                refreshFields();
+                return;
+            }
+            const auto db = juce::jlimit (-48.0f, 12.0f, cleaned.getFloatValue());
             editSelected ([&] (SampleZone& z) { z.gain = juce::Decibels::decibelsToGain (db); });
             commit ("Change zone level");
         };
@@ -348,7 +354,8 @@ public:
 
     void mouseUp (const juce::MouseEvent&) override
     {
-        stopPreview();
+        if (! timedAudition)
+            stopPreview();
         if (dragMoved)
             commit ("Edit zone");
         dragMoved = false;
@@ -369,6 +376,25 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
+        const auto modifiers = key.getModifiers();
+        if (modifiers.isCommandDown() || modifiers.isCtrlDown())
+        {
+            const auto code = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode());
+            if (code == 'Z' || code == 'Y')
+            {
+                if (code == 'Y' || modifiers.isShiftDown())
+                    processorRef.getUndoManager().redo();
+                else
+                    processorRef.getUndoManager().undo();
+                reload (true);
+                return true;
+            }
+        }
+        if (key == juce::KeyPress::spaceKey && selectedValid())
+        {
+            auditionFor (selected, 700);
+            return true;
+        }
         if (key == juce::KeyPress::escapeKey)
         {
             close();
@@ -445,6 +471,7 @@ public:
         dropKey = -1;
 
         int added = 0;
+        processorRef.beginEdit ("Add sample zones");
         for (const auto& path : files)
         {
             const juce::File file (path);
@@ -455,6 +482,7 @@ public:
                 break;
             ++added;
         }
+        processorRef.endEdit();
         reload (false);
         if (added > 0)
             selectZone ((int) zones.size() - 1);
@@ -710,6 +738,7 @@ private:
         stopPreview();
         if (zoneIndex < 0 || zoneIndex >= (int) zones.size())
             return;
+        timedAudition = false;
         const auto& z = zones[(size_t) zoneIndex];
         previewNote = juce::jlimit (0, 127, juce::roundToInt ((float) z.rootNote));
         processorRef.triggerPreviewNote (previewNote, true, (float) (z.loVel + z.hiVel) * 0.5f / 127.0f);
@@ -717,22 +746,26 @@ private:
 
     void stopPreview()
     {
+        timedAudition = false;
+        ++auditionGen;
         if (previewNote >= 0)
             processorRef.triggerPreviewNote (previewNote, false);
         previewNote = -1;
     }
 
-    // A note held for a moment (double-click).
+    // A note held for a moment (double-click or Space).
     void auditionFor (int zoneIndex, int milliseconds)
     {
         if (zoneIndex < 0 || zoneIndex >= (int) zones.size())
             return;
         startPreview (zoneIndex);
+        timedAudition = true;
         const auto held = previewNote;
+        const auto gen = ++auditionGen;
         juce::Component::SafePointer<ZoneMapEditor> safe (this);
-        juce::Timer::callAfterDelay (milliseconds, [safe, held]
+        juce::Timer::callAfterDelay (milliseconds, [safe, held, gen]
         {
-            if (safe != nullptr && safe->previewNote == held)
+            if (safe != nullptr && safe->previewNote == held && safe->auditionGen == gen)
                 safe->stopPreview();
         });
     }
@@ -1135,6 +1168,8 @@ private:
     juce::Point<float> dragStart, lastClick { -100.0f, -100.0f };
     SampleZone dragOrigin;
     int previewNote = -1;
+    bool timedAudition = false;
+    int auditionGen = 0;
     int dropKey = -1;
 
     std::unique_ptr<juce::FileChooser> chooser;

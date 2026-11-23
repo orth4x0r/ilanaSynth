@@ -71,6 +71,8 @@ public:
             slot.wantedMode = SpectralWarp::Off;
             slot.wantedBlend = false;
             slot.heardAmount = -1.0f;
+            slot.lastServed = nullptr;
+            slot.lastServedTable = -1;
             return base;
         }
 
@@ -110,18 +112,25 @@ public:
 
         const juce::SpinLock::ScopedTryLockType lock (slot.lock);
 
-        if (lock.isLocked() && slot.built != nullptr && slot.builtTable == tableChoice && slot.builtMode == mode
-            && slot.builtBlend == blend && slot.builtSource == base)
+        if (lock.isLocked())
         {
-            slot.lastServed = slot.built.get();
-            slot.lastServedTable = tableChoice;
-            return slot.lastServed;
+            if (slot.built != nullptr && slot.builtTable == tableChoice && slot.builtMode == mode
+                && slot.builtBlend == blend && slot.builtSource == base)
+            {
+                slot.lastServed = slot.built.get();
+                slot.lastServedTable = tableChoice;
+                return slot.lastServed;
+            }
+
+            // Nothing built for this table/mode/blend: drop any stale cached pointer
+            // so a retired copy can never be read.
+            slot.lastServed = nullptr;
+            slot.lastServedTable = -1;
+            return base;
         }
 
-        // Mid-rebuild of a different table or mode: keep what was playing if
-        // it's still this table, else the plain table. (A blended copy and the
-        // plain one have different frame counts, but the oscillator maps its
-        // frame position over whichever it gets, so either is safe to play.)
+        // Worker is mid-swap for microseconds: the previous built copy stays in
+        // `retired` for 3 seconds, so lastServed for this table is still valid.
         return slot.lastServed != nullptr && slot.lastServedTable == tableChoice ? slot.lastServed : base;
     }
 

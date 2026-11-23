@@ -29,24 +29,34 @@ Step "Build"
 if (-not (Test-Path build\CMakeCache.txt)) {
     cmake -B build -G "Visual Studio 17 2022" -A x64; Check "configure"
 }
-cmake --build build --config Release --parallel $Jobs; Check "build"
+cmake --build build --config Release --parallel $Jobs --target ilanaSynth_VST3 ilanaSynthFX_VST3 ilanaTableTest ilanaFxTest ilanaSnapshot ilanaFingerprint; Check "build"
+
+$python = Get-Command python -ErrorAction SilentlyContinue
+if ($python) {
+    Step "Doc paths"
+    python tools\check_doc_paths.py; Check "doc paths"
+
+    Step "Layout literal ratchet"
+    python tools\layout_literal_ratchet.py; Check "layout literal ratchet"
+}
 
 Step "Unit tests"
 & ($release -f "ilanaTableTest") | Tee-Object -FilePath build\table-test.txt | Select-String -Pattern "^FAIL|TESTS"
 if (-not (Select-String -Path build\table-test.txt -Pattern "ALL TESTS PASSED" -Quiet)) { throw "unit tests failed (build\table-test.txt)" }
 
 Step "FX plugin tests"
-& ($release -f "ilanaFxTest") | Select-Object -Last 1; Check "FX plugin tests"
+& ($release -f "ilanaFxTest") | Tee-Object -FilePath build\fx-test.txt | Select-Object -Last 1
+if ($LASTEXITCODE -ne 0) { Get-Content build\fx-test.txt -Tail 25; throw "FX plugin tests failed (exit $LASTEXITCODE)" }
 
 Step "UI tests"
-& ($release -f "ilanaSnapshot") --uitest | Select-Object -Last 1; Check "UI tests"
+& ($release -f "ilanaSnapshot") --uitest | Tee-Object -FilePath build\ui-test.txt | Select-Object -Last 1
+if ($LASTEXITCODE -ne 0) { Get-Content build\ui-test.txt -Tail 25; throw "UI tests failed (exit $LASTEXITCODE)" }
 
 Step "Preset fingerprints"
 & ($release -f "ilanaFingerprint") build\fingerprints.csv | Out-Null; Check "fingerprints"
 # Fingerprints differ in the last bits between platforms: compare against a
 # Windows baseline when one is committed (copy build\fingerprints.csv to
 # tests\fingerprints-windows.csv to make one).
-$python = Get-Command python -ErrorAction SilentlyContinue
 if ((Test-Path tests\fingerprints-windows.csv) -and $python) {
     python tools\compare_fingerprints.py tests\fingerprints-windows.csv build\fingerprints.csv --fail | Select-Object -Last 3
     Check "fingerprint comparison"

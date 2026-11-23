@@ -766,11 +766,17 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        if (laneAt (event.position) < 0)
+            return;
+
         if (const auto step = stepAt (event.position.x); step >= 0)
         {
-            GenerativeWidgets::write (processorRef, idFor (chance, step), 1.0f);
-            GenerativeWidgets::write (processorRef, idFor (range, step), 0.0f);
-            GenerativeWidgets::write (processorRef, idFor (ratchet, step), 1.0f);
+            processorRef.performEdit ("Reset prob step", [this, step]
+            {
+                GenerativeWidgets::write (processorRef, idFor (chance, step), 1.0f);
+                GenerativeWidgets::write (processorRef, idFor (range, step), 0.0f);
+                GenerativeWidgets::write (processorRef, idFor (ratchet, step), 1.0f);
+            });
         }
     }
 
@@ -1296,6 +1302,15 @@ public:
         lineMode = false;
         dragLane = dragStep = -1;
         repaint();
+    }
+
+    ~ArpLanesEditor() override
+    {
+        if (editOpen)
+        {
+            processorRef.endEdit();
+            editOpen = false;
+        }
     }
 
     void mouseDoubleClick (const juce::MouseEvent& event) override

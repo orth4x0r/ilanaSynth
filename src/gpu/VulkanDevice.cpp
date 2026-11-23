@@ -208,7 +208,11 @@ bool createPipelines (Device& d)
     auto frag = makeShader (d.device, ilanaUiFrag, sizeof (ilanaUiFrag));
 
     if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE)
+    {
+        if (vert != VK_NULL_HANDLE) vkDestroyShaderModule (d.device, vert, nullptr);
+        if (frag != VK_NULL_HANDLE) vkDestroyShaderModule (d.device, frag, nullptr);
         return fail ("shader module creation failed");
+    }
 
     VkPipelineShaderStageCreateInfo stages[2] {};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

@@ -12,6 +12,11 @@
 class IlanaSynth : public juce::Synthesiser
 {
 public:
+    IlanaSynth()
+    {
+        heldNotes.ensureStorageAllocated (128);
+    }
+
     enum class Mode
     {
         Poly = 0,

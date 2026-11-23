@@ -528,10 +528,12 @@ void SeqPage::layoutNotes (juce::Rectangle<int> right)
         auto cell = clipZoom.getBounds().translated (column, 0).withTrimmedTop (13).withHeight (24);
         clipDraw.setBounds (cell);
         clipQuantise.setBounds (cell.translated (column, 0));
-        // (An 8 px gap between the buttons, as the toolbar's others have: S13-8.)
-        clipImport.setBounds (cell.withX (filesRow.getX()).withWidth (column - 4));
-        clipExport.setBounds (clipImport.getBounds().translated (column + 4, 0));
-        clipPrint.setBounds (clipExport.getBounds().translated (column + 4, 0));
+        // (An 8 px gap between the buttons, as the toolbar's others have: S13-8, flush with filesRow.)
+        const auto fileGap = Space::s8;
+        const auto fileW = (filesRow.getWidth() - fileGap * 2) / 3;
+        clipImport.setBounds (cell.withX (filesRow.getX()).withWidth (fileW));
+        clipExport.setBounds (clipImport.getBounds().translated (fileW + fileGap, 0));
+        clipPrint.setBounds (clipExport.getBounds().translated (fileW + fileGap, 0));
         clipDivider = juce::Rectangle<int> (editRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
         clipDivider2 = juce::Rectangle<int> (filesRow.getX() - groupGap / 2, playsRow.getY() + 8, 1, playsRow.getHeight() - 8);
     }
@@ -838,6 +840,9 @@ void SeqPage::updateUseButtons ()
 
 void SeqPage::timerCallback ()
 {
+    if (! isVisible())
+        return;
+
     // The step-row pickers list the patch's LFOs (and whatever either row
     // shows), the same list in both rows.
     auto pickersChanged = false;
@@ -897,8 +902,11 @@ void SeqPage::timerCallback ()
         }
     }
 
-    repaint (stepTitle1); // their notes follow the LFOs' shapes
-    repaint (stepTitle2);
+    if (part == Part::modulators)
+    {
+        repaint (stepTitle1); // their notes follow the LFOs' shapes
+        repaint (stepTitle2);
+    }
 }
 
 float SeqPage::readValue (const char* id) const
@@ -1004,7 +1012,7 @@ bool SeqPage::importMidi (const juce::File& file)
 
     if (! ClipState::importMidi (file, imported, error))
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error);
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error, juce::String(), this);
         return false;
     }
 
@@ -1091,7 +1099,7 @@ void SeqPage::exportMidiFile ()
 
     if (clip.notes.empty())
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Export MIDI", "This clip has no notes yet.");
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Export MIDI", "This clip has no notes yet.", juce::String(), this);
         return;
     }
 
@@ -1118,6 +1126,6 @@ void SeqPage::exportMidiFile ()
                                   juce::String error;
 
                                   if (! ClipState::exportMidi (clip, file, error))
-                                      juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export MIDI", error);
+                                      juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export MIDI", error, juce::String(), safeThis.getComponent());
                               });
 }

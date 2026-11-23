@@ -1273,7 +1273,8 @@ void MatrixPage::updateRows (bool force)
     // would switch on routes that are off on purpose).
     if (soloSlot >= 0)
     {
-        auto intact = ! processorRef.readModSlot (soloSlot).bypass;
+        const auto solo = processorRef.readModSlot (soloSlot);
+        auto intact = solo.source != Mod::Source::None && solo.destination != 0 && ! solo.bypass;
         for (const auto muted : soloMuted)
             intact = intact && processorRef.readModSlot (muted).bypass;
         if (! intact)

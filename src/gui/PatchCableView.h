@@ -177,6 +177,7 @@ public:
         if (node == nullptr || node->isFixed() || (movable && ! movable (*node)))
             return false;
         finishGlide();
+        selection.clear();
         selectedNode = id;
         selectedCable = -1;
         drag = {};
@@ -782,6 +783,8 @@ public:
             navigated();
             return;
         }
+        if (drag.kind != DragKind::none)
+            return;
         selectCable (tag);
         const auto step = (wheel.deltaY != 0.0f ? wheel.deltaY : wheel.deltaX) > 0.0f ? 0.01f : -0.01f;
         const auto level = juce::jlimit (0.0f, maxLoopLevel, std::round ((graph.cables()[(size_t) tag].gain + step) * 100.0f) / 100.0f);
@@ -889,6 +892,14 @@ public:
                 onPaste (code == 'd' || ! inside ? juce::Point<float> (std::numeric_limits<float>::quiet_NaN(), 0.0f) : lastPointer);
                 return true;
             }
+        }
+        if (key == juce::KeyPress::escapeKey && drag.kind != DragKind::none)
+        {
+            if (drag.kind == DragKind::node && drag.moved)
+                graph.moveNode (drag.node, drag.start.x, drag.start.y);
+            drag = {};
+            repaint();
+            return true;
         }
         if (key == juce::KeyPress::escapeKey && (! selection.empty() || selectedNode != 0))
         {
@@ -1727,6 +1738,8 @@ private:
         if (const auto* node = nodeAt (position))
         {
             const auto id = node->id;
+            if (std::find (selection.begin(), selection.end(), id) == selection.end())
+                selection.clear();
             selectedNode = id;
             selectedCable = -1;
             repaint();
@@ -1749,21 +1762,24 @@ private:
             }
             if (menu.getNumItems() == 0)
                 return;
-            openMenu (menu, [this, id] (int result)
+            juce::Component::SafePointer<PatchCableView> safeThis (this);
+            openMenu (menu, [safeThis, id] (int result)
             {
-                const auto* target = graph.find (id);
+                if (safeThis == nullptr)
+                    return;
+                const auto* target = safeThis->graph.find (id);
                 if (target == nullptr)
                     return;
                 if (result == bypassNode)
                 {
-                    if (onBypass)
-                        return onBypass (*target);
-                    graph.setBypassed (id, ! target->bypassed);
-                    edited (Edit::nodes);
+                    if (safeThis->onBypass)
+                        return safeThis->onBypass (*target);
+                    safeThis->graph.setBypassed (id, ! target->bypassed);
+                    safeThis->edited (Edit::nodes);
                 }
                 else if (result == removeNode)
                 {
-                    removeNodeNow (*target);
+                    safeThis->removeNodeNow (*target);
                 }
             });
             return;
@@ -1787,21 +1803,24 @@ private:
                 menu.addSeparator();
             }
             menu.addItem (removeCable, "Remove cable");
-            openMenu (menu, [this, cable, levels] (int result)
+            juce::Component::SafePointer<PatchCableView> safeThis (this);
+            openMenu (menu, [safeThis, cable, levels] (int result)
             {
-                const auto index = graph.findCable (cable.from, cable.to);
+                if (safeThis == nullptr)
+                    return;
+                const auto index = safeThis->graph.findCable (cable.from, cable.to);
                 if (index < 0)
                     return;
                 if (result == removeCable)
                 {
-                    graph.disconnect (cable.from, cable.to);
-                    selectedCable = -1;
-                    edited (Edit::cables);
+                    safeThis->graph.disconnect (cable.from, cable.to);
+                    safeThis->selectedCable = -1;
+                    safeThis->edited (Edit::cables);
                 }
                 else if (result >= gainBase && result < gainBase + 4)
                 {
-                    graph.setCableGain (index, levels[result - gainBase]);
-                    edited (Edit::cables);
+                    safeThis->graph.setCableGain (index, levels[result - gainBase]);
+                    safeThis->edited (Edit::cables);
                 }
             });
             return;

@@ -44,6 +44,9 @@ bool LfoRateControl::isSynced () const
 
 void LfoRateControl::refresh ()
 {
+    if (! shown && ! rate.isVisible() && ! division.isVisible())
+        return;
+
     const auto synced = isSynced();
 
     if (rate.isVisible() != (shown && ! synced))
@@ -1001,23 +1004,36 @@ void LfoSection::shapePicked (int lfo)
     if (! LfoSimShapes::isSim (shape))
         return;
     const auto& info = LfoSimInfo::get (shape);
-    for (int param = 0; param < LfoSimInfo::numParams; ++param)
-        if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_p" + juce::String (param + 1)))
-            parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+    processorRef.performEdit ("LFO shape defaults", [this, lfo, &info]
+    {
+        for (int param = 0; param < LfoSimInfo::numParams; ++param)
+            if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_p" + juce::String (param + 1)))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (info.params[(size_t) param].defaultValue);
+                parameter->endChangeGesture();
+            }
+    });
 }
 
 void LfoSection::fire (int lfo)
 {
     if (auto* parameter = processorRef.apvts.getParameter ("lfo" + juce::String (lfo + 1) + "_fire"))
     {
+        parameter->beginChangeGesture();
         parameter->setValueNotifyingHost (1.0f);
+        parameter->endChangeGesture();
         // Through a SafePointer: closing the plugin within the 60 ms would
         // otherwise leave this writing to a deleted parameter.
         juce::Component::SafePointer<juce::Component> safeThis (this);
         juce::Timer::callAfterDelay (60, [safeThis, parameter]
         {
             if (safeThis != nullptr)
+            {
+                parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost (0.0f);
+                parameter->endChangeGesture();
+            }
         });
     }
     displays[(size_t) lfo]->triggerPreview();

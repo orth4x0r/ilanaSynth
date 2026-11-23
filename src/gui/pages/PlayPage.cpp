@@ -84,11 +84,21 @@ void ViewPills::paint (juce::Graphics& g)
     }
 }
 
-void ViewPills::mouseDown (const juce::MouseEvent& event)
+int ViewPills::optionAt (juce::Point<int> point) const
 {
     for (int option = 0; option < labels.size(); ++option)
-        if (cellBounds (option).contains (event.getPosition()))
-            setSelected (option, true);
+        if (cellBounds (option).contains (point))
+            return option;
+    return -1;
+}
+
+void ViewPills::mouseDown (const juce::MouseEvent& event)
+{
+    if (event.mods.isPopupMenu())
+        return;
+
+    if (const auto option = optionAt (event.getPosition()); option >= 0)
+        setSelected (option, true);
 }
 
 juce::Rectangle<int> ViewPills::cellBounds (int option) const
@@ -697,8 +707,10 @@ void ParamPicture::setDragParameters (const juce::String& acrossId, const juce::
     repaint();
 }
 
-void ParamPicture::mouseDown (const juce::MouseEvent&)
+void ParamPicture::mouseDown (const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+        return;
     beginDrag();
     dragStart = { acrossParameter != nullptr ? acrossParameter->getValue() : 0.0f, upParameter != nullptr ? upParameter->getValue() : 0.0f };
 }
@@ -714,8 +726,11 @@ void ParamPicture::mouseDrag (const juce::MouseEvent& e)
     set (upParameter, dragStart.y - fine * offset.y / juce::jmax (140.0f, (float) getHeight()));
 }
 
-void ParamPicture::mouseDoubleClick (const juce::MouseEvent&)
+void ParamPicture::mouseDoubleClick (const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+        return;
+    endDrag();
     beginDrag();
     for (auto* parameter : { acrossParameter, upParameter })
         set (parameter, parameter != nullptr ? parameter->getDefaultValue() : 0.0f);
@@ -1172,6 +1187,9 @@ void BalanceSlider::paint (juce::Graphics& g)
 
 void BalanceSlider::mouseDown (const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+        return;
+    dragging = true;
     attachment.beginGesture();
     dragTo (event.position.x);
 }
@@ -1715,7 +1733,11 @@ void PlayPage::showFilterMenuFor (const juce::MouseEvent& event)
     auto filter = filterTabs.getSelected();
 
     if (event.eventComponent == &filterTabs)
-        filter = juce::jlimit (0, 2, event.x * 3 / juce::jmax (1, filterTabs.getWidth()));
+    {
+        filter = filterTabs.optionAt (event.getPosition());
+        if (filter < 0)
+            return;
+    }
     else if (event.eventComponent != this || ! filterBounds.withHeight (headerHeight).contains (event.getPosition()))
         return;
 
@@ -1939,6 +1961,9 @@ void PlayPage::setBandsFolded (bool shouldFold, bool notify)
 
 void PlayPage::timerCallback ()
 {
+    if (! isVisible())
+        return;
+
     wakeDots();
     operatorFilterOff = operatorVoiceFilterOff (processorRef);
     filterDisplay.setVoiceOff (operatorFilterOff);

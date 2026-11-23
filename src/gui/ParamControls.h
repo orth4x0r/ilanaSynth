@@ -497,6 +497,13 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        if (dragIndex >= 0)
+        {
+            if (onDragEnd != nullptr)
+                onDragEnd();
+            dragIndex = -1;
+        }
+
         const auto index = indexAt (event.position);
 
         if (index >= 0 && ! event.mods.isPopupMenu() && onZero != nullptr)
@@ -800,6 +807,7 @@ public:
 
         const auto direction = up ? 1.0 : -1.0;
 
+        startedDragging();
         if (getInterval() > 0.0)
         {
             setValue (getValue() + direction * getInterval() * (page ? 10.0 : 1.0), juce::sendNotificationSync);
@@ -810,6 +818,7 @@ public:
             setValue (proportionOfLengthToValue (juce::jlimit (0.0, 1.0, valueToProportionOfLength (getValue()) + direction * step)),
                       juce::sendNotificationSync);
         }
+        stoppedDragging();
 
         return true;
     }
@@ -1192,8 +1201,9 @@ public:
     }
 
     // Click to assign: the armed source goes to this knob, as a drop would
-    // put it (one route per source and knob). True when the click was taken.
-    bool takeArmedClick()
+    // put it (one route per source and knob). Hold Shift to stay armed and
+    // wire multiple targets in a row. True when the click was taken.
+    bool takeArmedClick (bool keepArmed = false)
     {
         const auto source = armedModSource();
         if (source == 0 || processorRef == nullptr)
@@ -1206,7 +1216,8 @@ public:
             return true; // (still armed: pick a knob that takes it)
         }
 
-        setArmedModSource (0);
+        if (! keepArmed)
+            setArmedModSource (0);
         if (! showExistingRouting (source))
         {
             processorRef->performEdit ("Add modulation", [this, source] { processorRef->assignModSlot (source, ringConfig.destination, 0.35f); });
@@ -1224,7 +1235,7 @@ public:
         if (event.mods.isPopupMenu())
             return false;
         if (armedModSource() != 0)
-            return takeArmedClick();
+            return takeArmedClick (event.mods.isShiftDown());
 
         const auto pinned = pinnedModSource();
         if (! event.mods.isAltDown() || pinned == 0 || processorRef == nullptr || ! isModulatable())
@@ -1636,7 +1647,7 @@ public:
         if (valueEditor == nullptr)
             return;
 
-        const auto typed = valueEditor->getText().trim();
+        const auto typed = valueEditor->getText().trim().replaceCharacter (',', '.');
         const auto name = label.getText().isNotEmpty() ? label.getText().toUpperCase() : getName().toUpperCase();
         const auto low = slider.getTextFromValue (slider.getMinimum()), high = slider.getTextFromValue (slider.getMaximum());
         const auto value = slider.getValueFromText (typed);
@@ -2561,9 +2572,17 @@ private:
 
         void mouseDoubleClick (const juce::MouseEvent& event) override
         {
+            if (owner.draggedRing >= 0)
+            {
+                if (owner.dotStrip.onDragEnd != nullptr)
+                    owner.dotStrip.onDragEnd();
+                owner.draggedRing = -1;
+                owner.updateNameInk();
+            }
+
             const auto ring = ringUnder (event);
 
-            if (juce::isPositiveAndBelow (ring, (int) owner.modRouting.routings.size()) && owner.dotStrip.onZero != nullptr)
+            if (juce::isPositiveAndBelow (ring, (int) owner.modRouting.routings.size()) && ! event.mods.isPopupMenu() && owner.dotStrip.onZero != nullptr)
                 owner.dotStrip.onZero (owner.modRouting.routings[(size_t) ring].slot);
         }
 
@@ -2862,6 +2881,40 @@ private:
                                     return;
                                 }
 
+                                if (result == 3500)
+                                {
+                                    safeThis->showTypedValueBox();
+                                    return;
+                                }
+
+                                if (result == 3000)
+                                {
+                                    knobClipboard() = juce::String (safeThis->slider.getValue(), 6);
+                                    return;
+                                }
+
+                                // Non-front FX instance windows bind to a ShadowProcessor (no
+                                // main processorRef): allow Reset and Paste without crashing.
+                                if (safeThis->processorRef == nullptr)
+                                {
+                                    if (result == 2000 && safeThis->parameter != nullptr)
+                                    {
+                                        safeThis->parameter->beginChangeGesture();
+                                        safeThis->parameter->setValueNotifyingHost (safeThis->parameter->getDefaultValue());
+                                        safeThis->parameter->endChangeGesture();
+                                    }
+                                    else if (result == 3001)
+                                    {
+                                        const auto value = knobClipboard().getDoubleValue();
+                                        if (safeThis->parameter != nullptr)
+                                            safeThis->parameter->beginChangeGesture();
+                                        safeThis->slider.setValue (value, juce::sendNotificationSync);
+                                        if (safeThis->parameter != nullptr)
+                                            safeThis->parameter->endChangeGesture();
+                                    }
+                                    return;
+                                }
+
                                 auto& processor = *safeThis->processorRef;
 
                                 // Each edit here is one named undo step.
@@ -2870,28 +2923,27 @@ private:
                                 if (handleMidiLearnResult (result, processor, safeThis->parameterId))
                                     return;
 
-                                if (result == 3500)
-                                {
-                                    safeThis->showTypedValueBox();
-                                    return;
-                                }
-
                                 // "Modulate with" a source that already drives
                                 // the knob edits that routing instead.
                                 if (result > 0 && result < 1000 && safeThis->showExistingRouting (result - 1))
                                     return;
 
-                                if (result != 3000 && result != 4000)
-                                    processor.beginEdit (name);
+                                if (result == 4000)
+                                {
+                                    processor.startMacroLearn (safeThis->parameterId.getTrailingIntValue() - 1);
+                                    return;
+                                }
+
+                                processor.beginEdit (name);
 
                                 if (result == 2000)
                                 {
                                     if (safeThis->parameter != nullptr)
+                                    {
+                                        safeThis->parameter->beginChangeGesture();
                                         safeThis->parameter->setValueNotifyingHost (safeThis->parameter->getDefaultValue());
-                                }
-                                else if (result == 3000)
-                                {
-                                    knobClipboard() = juce::String (safeThis->slider.getValue(), 6);
+                                        safeThis->parameter->endChangeGesture();
+                                    }
                                 }
                                 else if (result == 3001)
                                 {
@@ -2901,10 +2953,6 @@ private:
                                     safeThis->slider.setValue (value, juce::sendNotificationSync);
                                     if (safeThis->parameter != nullptr)
                                         safeThis->parameter->endChangeGesture();
-                                }
-                                else if (result == 4000)
-                                {
-                                    processor.startMacroLearn (safeThis->parameterId.getTrailingIntValue() - 1);
                                 }
                                 else
                                 {

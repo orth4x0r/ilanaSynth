@@ -454,7 +454,7 @@ public:
             if (replacingSlot >= 0 && slot == replacingSlot)
                 tip = name + " is this slot's effect.";
             else if (slot >= 0)
-                tip = name + ": already in chain, slot " + juce::String (slot + 1) + ". Click to show its card (the rack takes each effect once).";
+                tip = name + ": already in slot " + juce::String (slot + 1) + ". Click to add another independent copy.";
             else if (replacingSlot >= 0)
                 tip = "Put " + name + " in slot " + juce::String (replacingSlot + 1)
                       + (replacedType > 0 ? " in place of " + fxTypeName (replacedType) : juce::String()) + ".";
@@ -943,6 +943,9 @@ private:
 
     void timerCallback() override
     {
+        if (! isVisible())
+            return;
+
         const auto now = std::make_pair (frequencyOf (false), frequencyOf (true));
         if (now != shown)
         {

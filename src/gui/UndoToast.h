@@ -41,7 +41,7 @@ public:
     // something away. (A knob turn, an added route or a move is not.)
     static bool isDestructive (const juce::String& step)
     {
-        for (const auto* prefix : { "Remove", "Random", "Dice", "Init ", "Load ", "Clear", "Shake" })
+        for (const auto* prefix : { "Remove", "Delete", "Random", "Dice", "Init ", "Load ", "Clear", "Shake" })
             if (step.startsWith (prefix))
                 return true;
 

@@ -30,6 +30,16 @@ public:
     static bool& keepRackOnPresetLoad() { static bool on = false; return on; }
 
     explicit FxPage (IlanaSynthAudioProcessor& p);
+    ~FxPage() override
+    {
+        if (openLibraryBox != nullptr)
+        {
+            openLibraryBox->setLookAndFeel (nullptr);
+            openLibraryBox->dismiss();
+        }
+        if (auto* parent = pickerDimmer.getParentComponent())
+            parent->removeChildComponent (&pickerDimmer);
+    }
 
     void paint (juce::Graphics& g) override;
 
@@ -452,6 +462,7 @@ private:
     std::unique_ptr<FxLibraryView> library;
     FxPickerLook pickerLook;
     FxPickerDimmer pickerDimmer;
+    juce::Component::SafePointer<juce::CallOutBox> openLibraryBox;
     // (At most five split groups: each needs a plain card or the end after it.)
     std::array<std::unique_ptr<CrossoverStrip>, 5> crossoverStrips;
 
@@ -472,14 +483,14 @@ private:
         std::unique_ptr<juce::ComboBoxParameterAttachment> bandAttachment;
         std::unique_ptr<juce::SliderParameterAttachment> blendAttachment;
     };
-    std::array<CardHeader, IlanaSynthAudioProcessor::numFxSlots> cardHeaders;
-    std::array<std::unique_ptr<FxDisplay>, IlanaSynthAudioProcessor::numFxSlots> displays;
-
-    // An instance whose card isn't in front gets controls of its own, the
-    // same classes as the type's, on a shadow of its settings
-    // (FxInstanceControls.h), so its card looks and works like any other.
+    // Declared BEFORE displays so C++ destroys displays (which may hold raw
+    // ShadowParameter* gestures during a Filter FX drag) before instanceCards
+    // frees each card's Shadow.
     using InstanceCard = FxInstance::Card;
     std::array<InstanceCard, IlanaSynthAudioProcessor::numFxSlots> instanceCards;
+
+    std::array<CardHeader, IlanaSynthAudioProcessor::numFxSlots> cardHeaders;
+    std::array<std::unique_ptr<FxDisplay>, IlanaSynthAudioProcessor::numFxSlots> displays;
 
     // Takes a slot's instance card down: its picture stops reading the shadow, then the card goes (controls first).
     void dropInstanceCard (int slot);

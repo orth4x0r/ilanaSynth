@@ -1845,7 +1845,12 @@ private:
         if (! juce::isPositiveAndBelow (row, filtered.size()))
             return {};
 
-        for (const auto& [box, tag] : rowTagBoxes (filtered[row], list.getVisibleRowWidth(), list.getRowHeight()))
+        const auto presetIndex = filtered[row];
+        const auto isCurrent = names[presetIndex] == processorRef.getCurrentPresetName();
+        if (! (list.isRowSelected (row) || isCurrent || row == hoveredRow || ! selectedTags.isEmpty()))
+            return {};
+
+        for (const auto& [box, tag] : rowTagBoxes (presetIndex, list.getVisibleRowWidth(), list.getRowHeight()))
             if (box.getX() <= (float) x && (float) x < box.getRight())
                 return tag;
 
@@ -1992,6 +1997,16 @@ private:
         const juce::ScopedValueSetter<bool> quiet (suppressLoad, true);
         list.selectRow (row);
         loadRow (row, false);
+
+        if (autoPlayButton.getToggleState())
+        {
+            const auto name = names[filtered[row]];
+            juce::Timer::callAfterDelay (80, [safeThis = juce::Component::SafePointer<PresetPanel> (this), name]
+            {
+                if (safeThis != nullptr && safeThis->processorRef.getCurrentPresetName() == name)
+                    safeThis->startAudition();
+            });
+        }
     }
 
     // Selects and scrolls to the loaded preset, without reloading it.

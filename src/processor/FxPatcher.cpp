@@ -645,7 +645,7 @@ float IlanaSynthAudioProcessor::getFxLoopLatencyMs() const
     const auto loops = patch.graph.feedbackCables();
     if (std::find (loops.begin(), loops.end(), true) == loops.end())
         return 0.0f;
-    return (float) (1000.0 * (double) PatchGraph::CompileOptions().feedbackChunk / juce::jmax (1.0, currentSampleRate));
+    return (float) (1000.0 * (double) PatchGraph::CompileOptions().feedbackChunk / juce::jmax (1.0, displaySampleRate.load (std::memory_order_relaxed)));
 }
 
 float IlanaSynthAudioProcessor::getFxLoopGuard (std::uint32_t fromNode, int fromPort, std::uint32_t toNode, int toPort) const
@@ -876,8 +876,9 @@ void IlanaSynthAudioProcessor::swapFxSlots (int a, int b)
     const auto renderingHere = fxRackThread.load (std::memory_order_relaxed) == juce::Thread::getCurrentThreadId()
                                || juce::Time::getMillisecondCounter() - fxLastRackMs.load (std::memory_order_relaxed) > 100;
     if (! renderingHere)
-        for (auto deadline = juce::Time::getMillisecondCounter() + 250;
-             fxSwapApplied.load (std::memory_order_acquire) != number && juce::Time::getMillisecondCounter() < deadline;)
+        for (const auto waitStart = juce::Time::getMillisecondCounter();
+             fxSwapApplied.load (std::memory_order_acquire) != number
+             && (juce::int32) (juce::Time::getMillisecondCounter() - waitStart) < 250;)
         {
             fxPatchRunner->collectGarbage(); // (a program waiting to be taken up)
             juce::Thread::sleep (1);
@@ -1139,4 +1140,28 @@ void IlanaSynthAudioProcessor::setFxInstanceValue (int slotIndex, const juce::St
             publishFxPatch (std::move (patch));
             return;
         }
+}
+
+std::vector<std::pair<juce::String, float>> IlanaSynthAudioProcessor::snapshotFxSlot (int slotIndex) const
+{
+    if (! juce::isPositiveAndBelow (slotIndex, numSlots))
+        return {};
+    const auto patch = getFxPatch();
+    if (patch.slots[(size_t) slotIndex].hasValues)
+        return patch.slots[(size_t) slotIndex].values;
+    const auto type = (int) getRawParam (fxSlotIds[(size_t) slotIndex].type);
+    return snapshotFxParams (type);
+}
+
+void IlanaSynthAudioProcessor::applyFxSlotValues (int slotIndex, const std::vector<std::pair<juce::String, float>>& values)
+{
+    if (! juce::isPositiveAndBelow (slotIndex, numSlots) || values.empty())
+        return;
+    if (isFxSlotInFront (slotIndex))
+    {
+        writeFxParams (values);
+        return;
+    }
+    for (const auto& [id, value] : values)
+        setFxInstanceValue (slotIndex, id, value);
 }

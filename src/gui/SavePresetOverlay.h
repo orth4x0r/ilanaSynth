@@ -628,9 +628,12 @@ private:
 
     void setAsking (bool shouldAsk)
     {
+        if (shouldAsk && ! asking)
+            tagsWasOpen = tagsField.isVisible();
         asking = shouldAsk;
-        for (auto* component : std::initializer_list<juce::Component*> { &nameField, &tagsField, &categoryBox, &authorField, &commentField })
+        for (auto* component : std::initializer_list<juce::Component*> { &nameField, &categoryBox, &authorField, &commentField })
             component->setVisible (! asking);
+        tagsField.setVisible (! asking && tagsWasOpen);
         saveButton.setButtonText (asking ? "OVERWRITE" : "SAVE");
         cancelButton.setButtonText ("CANCEL");
         saveButton.setColour (juce::TextButton::buttonColourId, IlanaTheme::accent());
@@ -639,8 +642,11 @@ private:
         if (asking)
             grabKeyboardFocus();
 
+        resized();
         repaint();
     }
+
+    bool tagsWasOpen = false;
 
     void setNote (const juce::String& text, bool warning)
     {

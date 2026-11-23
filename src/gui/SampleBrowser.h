@@ -288,7 +288,9 @@ public:
 
         const auto position = event.getEventRelativeTo (&list).getPosition();
         const auto row = list.getRowContainingPosition (position.x, position.y);
-        if (row != hoveredRow || position.x != hoveredX)
+        const auto starNow = position.x < 30;
+        const auto starWas = hoveredX < 30;
+        if (row != hoveredRow || starNow != starWas)
         {
             hoveredRow = row;
             hoveredX = position.x;
@@ -334,7 +336,7 @@ public:
 
         const auto& entry = rows[(size_t) row];
         const auto rowBounds = juce::Rectangle<float> (3.0f, 1.0f, (float) width - 6.0f, (float) height - 2.0f);
-        const auto missing = ! entry.file.exists();
+        const auto missing = entry.missing;
 
         if (selected)
         {
@@ -419,7 +421,7 @@ public:
     }
 
     void returnKeyPressed (int row) override { activate (row); }
-    void deleteKeyPressed (int) override { goUp(); }
+    void deleteKeyPressed (int) override {}
     void selectedRowsChanged (int) override { schedulePreview(); }
 
     juce::String getTooltipForRow (int row) override
@@ -552,6 +554,7 @@ private:
     {
         juce::File file;
         bool isFolder = false;
+        bool missing = false;
     };
 
     static void drawClock (juce::Graphics& g, juce::Point<float> centre, float radius, juce::Colour colour)
@@ -740,7 +743,7 @@ private:
         if (view == View::folder)
         {
             for (const auto& entry : SampleBrowserModel::listFolder (folder, search.getText()))
-                rows.push_back ({ entry.file, entry.isFolder });
+                rows.push_back ({ entry.file, entry.isFolder, false });
         }
         else
         {
@@ -759,7 +762,7 @@ private:
                     matches = matches && name.contains (word);
 
                 if (matches)
-                    rows.push_back ({ file, false });
+                    rows.push_back ({ file, false, ! file.exists() });
             }
 
             if (view == View::favourites)
@@ -983,6 +986,13 @@ private:
         if (key == juce::KeyPress::returnKey)
         {
             activate (juce::jmax (0, list.getSelectedRow()));
+            return true;
+        }
+
+        if (key == juce::KeyPress::spaceKey && ! search.hasKeyboardFocus (false))
+        {
+            if (previewOn)
+                previewSelected();
             return true;
         }
 

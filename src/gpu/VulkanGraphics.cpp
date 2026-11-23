@@ -74,6 +74,7 @@ struct ImageCache final : public juce::ImagePixelData::Listener
 
     ~ImageCache() override
     {
+        const std::scoped_lock sl (lock);
         for (auto& [pixels, entry] : entries)
         {
             pixels->listeners.remove (this);
@@ -221,8 +222,9 @@ struct FrameResources
         bytes = juce::jmax ((VkDeviceSize) 256, bytes);
         if (b.size >= bytes)
             return true;
+        const auto grown = juce::jmax (bytes, b.size * 2);
         b.destroy (device);
-        return b.create (device, juce::jmax (bytes, b.size * 2), usage, true);
+        return b.create (device, grown, usage, true);
     }
 
     // A render target at least this big, kept for later frames.

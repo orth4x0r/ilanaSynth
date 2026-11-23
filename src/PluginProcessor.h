@@ -84,7 +84,7 @@ public:
     // M8.1: each LFO's output B follows, from channel numLfos + 2.
     static constexpr int lfoChannelB (int lfo) { return numLfos + 2 + lfo; }
     static constexpr int numLfoChannels = 2 * numLfos + 2;
-    static constexpr int maxDestinations = 1024;
+    static constexpr int maxDestinations = 2048;
 
     float getFxMod (Mod::Destination destination, float depth) const
     {
@@ -964,6 +964,8 @@ public:
     // the RACK shows it on the instance's own card). False: no such value.
     bool getFxInstanceValue (int slotIndex, const juce::String& id, float& value) const;
     void setFxInstanceValue (int slotIndex, const juce::String& id, float value);
+    std::vector<std::pair<juce::String, float>> snapshotFxSlot (int slotIndex) const;
+    void applyFxSlotValues (int slotIndex, const std::vector<std::pair<juce::String, float>>& values);
     // The graph the patcher shows (a copy) and a change to it from the view.
     PatchGraph::Graph getFxPatchGraph() const;
     void setFxPatchGraph (const PatchGraph::Graph& graph);
@@ -1470,8 +1472,7 @@ private:
     void mixSamplePreview (juce::AudioBuffer<float>& buffer) noexcept;
     mutable juce::SpinLock previewLock;
     std::shared_ptr<PreviewClip> previewPending;
-    std::array<std::shared_ptr<PreviewClip>, 4> previewRetired;
-    int previewRetiredIndex = 0;
+    std::vector<std::shared_ptr<PreviewClip>> previewRetired;
     std::atomic<int> previewSerial { 0 };
     std::atomic<bool> previewPlaying { false };
     std::atomic<float> previewGain { 1.0f };

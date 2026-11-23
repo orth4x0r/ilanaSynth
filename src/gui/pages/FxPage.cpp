@@ -1109,6 +1109,7 @@ void FxPage::showLibrary (juce::Component& target, juce::Rectangle<int> area, in
     const auto pointAt = host->getLocalArea (&target, area);
     auto& box = juce::CallOutBox::launchAsynchronously (std::move (view), pointAt, host);
     box.setLookAndFeel (&pickerLook);
+    openLibraryBox = &box; // (~FxPage takes pickerLook off it if the page goes first)
     box.setArrowSize (12.0f);
     box.updatePosition (pointAt, host->getLocalBounds()); // (with the picker's border)
 }

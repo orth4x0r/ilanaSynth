@@ -1193,13 +1193,8 @@ void OscPage::identityColoursChanged ()
     repaint();
 }
 
-void OscPage::parameterChanged (const juce::String& parameterID, float)
+void OscPage::parameterChanged (const juce::String&, float)
 {
-    if (embedded)
-        for (const auto* id : listenedIds)
-            if (parameterID == id)
-                return;
-
     // Parameter changes can arrive on the audio thread (host automation),
     // so defer the GUI work to the message thread.
     triggerAsyncUpdate();
@@ -4138,6 +4133,8 @@ void OscPage::updateBounce ()
     const auto message = processorRef.getBounceMessage();
     if (state == IlanaSynthAudioProcessor::BounceState::Failed)
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message, juce::String(), this);
+    else
+        button.setTooltip (message);
     updateModeVisibility();
     updateEnabled();
 }

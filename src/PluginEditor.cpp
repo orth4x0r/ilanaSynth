@@ -1195,6 +1195,7 @@ void IlanaSynthAudioProcessorEditor::openZoneEditor (int oscIndex, juce::Colour 
     closeZoneEditor();
     closeWavetableEditor();
     zoneEditor = std::make_unique<ZoneMapEditor> (processorRef, oscIndex, colour);
+    zoneEditor->onUndoRedo = [this] (bool redo) { undoOrRedo (redo); };
     zoneEditor->onClose = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
     {
         if (safe != nullptr)

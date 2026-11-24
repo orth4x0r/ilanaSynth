@@ -160,6 +160,7 @@ public:
     }
 
     std::function<void()> onClose;
+    std::function<void (bool redo)> onUndoRedo; // (the editor's undoOrRedo)
 
     int getOscIndex() const { return osc; }
 
@@ -382,7 +383,13 @@ public:
             const auto code = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode());
             if (code == 'Z' || code == 'Y')
             {
-                if (code == 'Y' || modifiers.isShiftDown())
+                // Through the editor's undo path (it closes an open gesture
+                // and shows the undo toast); the manager directly only when
+                // the map stands alone (Fable U7).
+                const auto redo = code == 'Y' || modifiers.isShiftDown();
+                if (onUndoRedo != nullptr)
+                    onUndoRedo (redo);
+                else if (redo)
                     processorRef.getUndoManager().redo();
                 else
                     processorRef.getUndoManager().undo();

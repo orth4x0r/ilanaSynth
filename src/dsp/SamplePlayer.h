@@ -503,6 +503,14 @@ public:
                     return;
                 }
             }
+            else if (! std::isfinite (position) || std::abs (position - regionStart) > 64.0 * regionLength)
+            {
+                // A huge step against a tiny region: one fmod instead of
+                // millions of loop turns (normal playback never gets here).
+                position = std::isfinite (position)
+                             ? regionStart + std::fmod (std::fmod (position - regionStart, regionLength) + regionLength, regionLength)
+                             : regionStart;
+            }
             else if (params.reverse)
             {
                 while (position < regionStart)

@@ -233,8 +233,11 @@ private:
     void applyUiZoom (float newZoom);
     void updateKeysTooltip();
     float fitZoom() const;
-    float displayScale() const;
     float hostScaleFactor() const;
+    bool hostIsStretching() const;
+    juce::String scaleReadout() const;
+    void showStretchNotice();
+    void dropAudioAnywhere (const juce::StringArray& files, juce::Point<int> at);
 
     // The hover line's own strip, between the pages and the source chips.
     static constexpr int designWidth = 1060;
@@ -528,7 +531,7 @@ private:
     double transitionStart = 0.0;
     float presetLoadFlash = 0.0f;
     bool displayScaleApplied = false;
-    void* previousDpiContext = nullptr;
+    bool stretchNoticeShown = false;
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;
     int shownTableNoticeVersion = 0;

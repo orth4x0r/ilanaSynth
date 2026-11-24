@@ -422,7 +422,7 @@ public:
         }
         juce::Component::SafePointer<FilterCategoryTabs> safeThis (this);
         const auto cell = pillBounds (page).toNearestInt();
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (cell)),
+        menu.showMenuAsync (IlanaTheme::menuOptions (this).withTargetScreenArea (localAreaToGlobal (cell)),
                             [safeThis] (int result)
                             {
                                 if (safeThis != nullptr && result > 0 && result - 1 != safeThis->current)

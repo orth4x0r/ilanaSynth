@@ -1214,8 +1214,46 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // and standalone wrappers already hold it here (it is re-entrant); a
     // wrapper that does not (CLAP) gets one silent block instead of a crash.
     const juce::ScopedTryLock callbackLock (getCallbackLock());
-    if (! callbackLock.isLocked())
+    // A patch is being loaded on another thread (Fable B1): this block is the
+    // old output easing to silence, its note-ons are dropped and its
+    // note-offs and pedal kept, as for a block the lock refused.
+    if (callbackLock.isLocked())
+        retireQueue.audioBlockStarted(); // (before any shared table or sample is read)
+    const auto loading = patchLoading.load (std::memory_order_acquire) > 0;
+    if (! callbackLock.isLocked() || loading)
     {
+        if (loading && callbackLock.isLocked())
+        {
+            const auto decay = std::exp (-1.0f / (0.002f * (float) juce::jmax (1.0, baseSampleRate)));
+            for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            {
+                auto* data = buffer.getWritePointer (channel);
+                auto value = channel < 2 ? lastOutput[channel] : 0.0f;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    data[i] = value;
+                    value *= decay;
+                }
+                if (channel < 2)
+                {
+                    lastOutput[channel] = std::abs (value) < 1.0e-6f ? 0.0f : value;
+                    declick[channel] = 0.0f;
+                }
+            }
+            for (const auto metadata : midiMessages)
+            {
+                const auto message = metadata.getMessage();
+                if ((message.isNoteOff() || message.isAllNotesOff() || message.isAllSoundOff()
+                     || (message.isController() && message.getControllerNumber() == 64))
+                    && pendingMidi.getNumEvents() < 1024)
+                {
+                    pendingMidi.addEvent (message, 0);
+                    hasPendingMidi = true;
+                }
+            }
+            midiMessages.clear();
+            return;
+        }
         // Silence for this block, but its note-offs, all-notes-off and
         // sustain messages are kept for the next one (a lost note-off left
         // the key stuck). Notes-on are dropped with the block.
@@ -2647,6 +2685,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     // denormal is flushed (one pass; finite audio is unchanged bit for bit). If
     // one got this far, the effects' memory may hold it too, so it starts empty.
     {
+        constexpr auto outputCeiling = 8.0f;
         auto bad = false;
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         {
@@ -2662,6 +2701,15 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
                 else if (value != 0.0f && std::abs (value) < std::numeric_limits<float>::min())
                 {
                     data[i] = 0.0f;
+                }
+                else if (std::abs (value) > outputCeiling)
+                {
+                    // Always-on ceiling (+18 dBFS), for when Soft Clip is off:
+                    // a runaway feedback patch or self-oscillating filter must
+                    // not reach Live and the monitors tens of dB over full scale.
+                    // Far past it (+36 dBFS) the memories are runaway: start them empty.
+                    bad = bad || std::abs (value) > outputCeiling * 8.0f;
+                    data[i] = std::copysign (outputCeiling, value);
                 }
             }
         }
@@ -3401,6 +3449,7 @@ void IlanaSynthAudioProcessor::setUserSample (int oscIndex, std::shared_ptr<Samp
         index = (index + 1) % (int) retired.size();
         sampleSlots[(size_t) oscIndex] = std::move (data);
     }
+    retireQueue.retire (std::move (dropped)); // (freed once the audio thread moved past it: B3)
 
     const juce::SpinLock::ScopedLockType lock (stateLock);
     samplePaths[(size_t) oscIndex] = path;
@@ -3436,16 +3485,22 @@ bool IlanaSynthAudioProcessor::loadUserWavetable (int slot, const juce::File& fi
 void IlanaSynthAudioProcessor::swapUserTable (int slot, std::shared_ptr<Wavetable> table)
 {
     ++dataEpoch; // what the editor draws changes
-    // The table retired three swaps ago is freed after the lock is let go:
-    // the audio thread waits on this lock (getTableForChoice).
+    // The table retired three swaps ago leaves the ring after the lock is let
+    // go (the audio thread waits on this lock in getTableForChoice). Four swaps
+    // inside one audio block (a table drawn mid-drag at a big buffer) would
+    // free a table that block still reads, so it goes to the retire queue,
+    // which frees it only once the audio thread has finished that block (B3).
     std::shared_ptr<Wavetable> dropped;
-    const juce::SpinLock::ScopedLockType lock (tableLock);
-    auto& index = retiredTableIndex[(size_t) slot];
-    auto& retired = retiredTables[(size_t) (slot * 3 + index)];
-    dropped = std::move (retired);
-    retired = std::move (userTables[(size_t) slot]);
-    index = (index + 1) % 3;
-    userTables[(size_t) slot] = std::move (table);
+    {
+        const juce::SpinLock::ScopedLockType lock (tableLock);
+        auto& index = retiredTableIndex[(size_t) slot];
+        auto& retired = retiredTables[(size_t) (slot * 3 + index)];
+        dropped = std::move (retired);
+        retired = std::move (userTables[(size_t) slot]);
+        index = (index + 1) % 3;
+        userTables[(size_t) slot] = std::move (table);
+    }
+    retireQueue.retire (std::move (dropped));
 }
 
 bool IlanaSynthAudioProcessor::setUserTable (int slot, const WavetableDoc& doc)

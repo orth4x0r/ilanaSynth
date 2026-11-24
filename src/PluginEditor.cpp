@@ -113,43 +113,6 @@ float queryMonitorScale (void* nativeHandle)
     return juce::jlimit (1.0f, 3.0f, (float) dpiX / 96.0f);
 }
 
-void* setThreadDpiContext (void* context)
-{
-    using SetThreadDpiAwarenessContextFn = void* (*) (void*);
-
-    static auto fn = (SetThreadDpiAwarenessContextFn) (void*)
-        GetProcAddress (GetModuleHandleW (L"user32.dll"), "SetThreadDpiAwarenessContext");
-
-    return fn != nullptr ? fn (context) : nullptr;
-}
-
-void* perMonitorAwareV2Context() { return (void*) (juce::pointer_sized_int) -4; }
-
-int processDpiAwareness()
-{
-    using GetProcessDpiAwarenessFn = long (*) (void*, int*);
-
-    static auto* shcore = LoadLibraryW (L"shcore.dll");
-    static auto getProcessAwareness = shcore != nullptr
-                                          ? (GetProcessDpiAwarenessFn) (void*) GetProcAddress (shcore, "GetProcessDpiAwareness")
-                                          : nullptr;
-
-    if (getProcessAwareness == nullptr)
-        return -1;
-
-    auto* process = OpenProcess (0x1000 /*PROCESS_QUERY_LIMITED_INFORMATION*/, 0, GetCurrentProcessId());
-    int awareness = -1;
-
-    if (process != nullptr)
-    {
-        if (getProcessAwareness (process, &awareness) != 0)
-            awareness = -1;
-
-        CloseHandle (process);
-    }
-
-    return awareness;
-}
 #endif
 } // namespace
 
@@ -363,19 +326,13 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
       slotB (p.abSlotB),
       showingA (p.abShowingA)
 {
-    // Call-outs open inside the editor (IlanaTheme::calloutParent): the
-    // Vulkan child window covers anything outside its tree.
-    getProperties().set ("ilanaCalloutHost", true);
-   #if defined (_WIN32)
-    // Some hosts create plugin windows on a thread that has been switched to
-    // DPI-unaware, which makes Windows virtualise (bitmap-stretch) the editor
-    // on scaled displays.  If the process itself is DPI aware we can safely
-    // switch this thread back for the window creation so the window matches
-    // the host's awareness; if the whole process is unaware there is nothing
-    // a plug-in can do about the stretch, so we leave it alone.
-    if (processDpiAwareness() > 0)
-        previousDpiContext = setThreadDpiContext (perMonitorAwareV2Context());
-   #endif
+    // Call-outs open inside the zoomed content (IlanaTheme::calloutParent):
+    // the Vulkan child window covers anything outside the editor's tree, and
+    // inside `content` they take the Interface size like the pages do.
+    // (The DPI thread-context switch that used to sit here is gone: JUCE 8
+    // scales the peer itself, and flipping Live's thread made mixed-awareness
+    // windows when Live's Auto-Scale was on. Fable S7, 2026-11-24.)
+    content.getProperties().set ("ilanaCalloutHost", true);
 
     setLookAndFeel (&lookAndFeel);
     tooltipWindow.setOpaque (false);
@@ -1045,7 +1002,9 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     if (presetDocked && settings->getBoolValue ("presetBrowserDockOpen", false))
         setPresetDockShown (true);
-    displayScaleApplied = settings->containsKey ("uiZoom") && ! juce::approximatelyEqual (uiZoom, 1.0f);
+    // JUCE 8 scales the window for the monitor itself, so a saved size is
+    // always the size shown: 100% stays 100% (Fable S2).
+    displayScaleApplied = true;
 
     // Back on the page the window was left on (only the tabs in the row; the pages behind it are for tests).
     if (processorRef.lastViewPage.isNotEmpty())
@@ -1386,29 +1345,59 @@ void IlanaSynthAudioProcessorEditor::startTabTransition (juce::Component* pageTo
     }
 }
 
-float IlanaSynthAudioProcessorEditor::displayScale() const
-{
-    auto scale = 1.0f;
-
-    if (auto* peer = getPeer())
-    {
-        scale = juce::jmax (scale, (float) peer->getPlatformScaleFactor());
-
-       #if defined (_WIN32)
-        scale = juce::jmax (scale, queryMonitorScale (peer->getNativeHandle()));
-       #endif
-    }
-
-    if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-        scale = juce::jmax (scale, (float) display->scale);
-
-    return juce::jlimit (1.0f, 3.0f, scale);
-}
-
+// Device pixels per editor unit outside the Interface size: the peer's
+// platform scale (JUCE 8's VST3 wrapper puts the host / monitor scale there,
+// never on the editor as a transform) times any transform a host applied.
+// 1.0 before the window exists. (Fable S1: the old version read only the
+// transform, so it was always 1.0 under JUCE 8 and fonts snapped for 100%.)
 float IlanaSynthAudioProcessorEditor::hostScaleFactor() const
 {
     const auto& transform = getTransform();
-    return (float) juce::jmax (std::abs (transform.mat00), std::abs (transform.mat11));
+    auto scale = (float) juce::jmax (std::abs (transform.mat00), std::abs (transform.mat11));
+    if (auto* peer = getPeer())
+        scale *= (float) peer->getPlatformScaleFactor();
+    scale *= juce::Desktop::getInstance().getGlobalScaleFactor();
+    return std::isfinite (scale) && scale > 0.0f ? juce::jlimit (0.5f, 4.0f, scale) : 1.0f;
+}
+
+// True when the host stretches a 96-DPI window on a scaled monitor (Live's
+// "Auto-Scale Plug-In Window" on): the window is soft and pop-up menus, which
+// are sharp windows of their own, come out smaller than the page.
+bool IlanaSynthAudioProcessorEditor::hostIsStretching() const
+{
+   #if defined (_WIN32)
+    if (auto* peer = getPeer())
+        return peer->getPlatformScaleFactor() < 1.01 && queryMonitorScale (peer->getNativeHandle()) > 1.01f;
+   #endif
+    return false;
+}
+
+void IlanaSynthAudioProcessorEditor::showStretchNotice()
+{
+    undoToast.showSticky ("Live is stretching this window (soft text, small menus): right-click its title bar, untick Auto-Scale Plug-In Window",
+                          "OK", [this] { undoToast.hide(); });
+    layoutUndoToast();
+}
+
+juce::String IlanaSynthAudioProcessorEditor::scaleReadout() const
+{
+    auto monitor = 1.0f;
+    auto peerScale = 1.0;
+   #if defined (_WIN32)
+    if (auto* peer = getPeer())
+        monitor = queryMonitorScale (peer->getNativeHandle());
+   #endif
+    if (auto* peer = getPeer())
+        peerScale = peer->getPlatformScaleFactor();
+    const auto zoom = (float) getHeight() / (float) totalDesignHeight();
+    auto text = "Scale: monitor " + juce::String (juce::roundToInt (monitor * 100.0f)) + "%, window "
+                + juce::String (juce::roundToInt (peerScale * 100.0)) + "%, interface "
+                + juce::String (juce::roundToInt (zoom * 100.0f)) + "% (saved " + juce::String (juce::roundToInt (uiZoom * 100.0f))
+                + "%, fits " + juce::String (juce::roundToInt (fitZoom() * 100.0f)) + "%), text "
+                + juce::String (IlanaTheme::uiScaleRef(), 2) + "x";
+    if (hostIsStretching())
+        text << " - host is stretching";
+    return text;
 }
 
 void IlanaSynthAudioProcessorEditor::applyUiZoom (float newZoom)
@@ -1466,49 +1455,27 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
     displayScaleApplied = true;
     return;
    #else
-    // The thread context was switched to per-monitor aware for the window
-    // creation; put it back now that the peer exists.
-    if (previousDpiContext != nullptr && getPeer() != nullptr)
-    {
-        setThreadDpiContext (previousDpiContext);
-        previousDpiContext = nullptr;
-    }
-
-    if (displayScaleApplied || getPeer() == nullptr)
-        return;
-
-    // If JUCE applied a host-window scale to this editor, it is already
-    // handling the DPI and resizing ourselves would double up.
-    if (hostScaleFactor() > 1.01f)
-    {
-        displayScaleApplied = true;
-        return;
-    }
-
-    const auto scale = displayScale();
-
-    if (scale <= 1.01f)
+    if (getPeer() == nullptr)
         return;
 
     displayScaleApplied = true;
 
-    // The host is not scaling for us (our window is at design size), so size
-    // ourselves for the real display DPI: the host then creates a matching
-    // window and the UI renders at native resolution instead of being
-    // bitmap-stretched.
-    if (getHeight() > totalDesignHeight() + 20)
-        return;
+    // No resize here any more: JUCE 8's peer already renders at the monitor's
+    // scale when the host window is DPI aware, and when the host stretches an
+    // unaware window nothing a plugin does can undo that. The old resize
+    // multiplied the design by the monitor scale on top of the peer's, so a
+    // 100% window opened at 175% x 175% (Fable S2). When the host stretches,
+    // say how to turn it off instead.
+    if (hostIsStretching() && ! stretchNoticeShown)
+    {
+        stretchNoticeShown = true;
+        showStretchNotice();
+    }
 
-    setResizeLimits (juce::roundToInt ((float) currentDesignWidth() * 0.75f * scale),
-                     juce::roundToInt ((float) totalDesignHeight() * 0.75f * scale),
-                     juce::roundToInt ((float) currentDesignWidth() * 2.0f * scale),
-                     juce::roundToInt ((float) totalDesignHeight() * 2.0f * scale));
-
-    if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio ((double) currentDesignWidth() / (double) totalDesignHeight());
-
-    setSize (juce::roundToInt ((float) currentDesignWidth() * scale),
-             juce::roundToInt ((float) totalDesignHeight() * scale));
+    // The device scale may differ from the one resized() saw (the peer did
+    // not exist yet): snap the fonts again.
+    if (! juce::approximatelyEqual (IlanaTheme::uiScaleRef(), (float) getHeight() / (float) totalDesignHeight() * hostScaleFactor()))
+        resized();
    #endif
 }
 
@@ -4038,6 +4005,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
     menu.addItem (400, "Show welcome tour");
     menu.addSeparator();
     menu.addItem (990, "Build " + juce::String (ilana::buildLabel()), false); // (information only)
+    menu.addItem (991, scaleReadout(), false); // (information only: what the window is scaled by, Fable S plan step 1)
 
     // The header's tuning indicator opens just the tuning items.
     if (tuningOnly)
@@ -4400,17 +4368,79 @@ void IlanaSynthAudioProcessorEditor::importSyxFile (const juce::File& file)
                         });
 }
 
+namespace
+{
+bool isAudioDrop (const juce::String& path)
+{
+    for (const auto* extension : { ".wav", ".aif", ".aiff", ".flac", ".ogg", ".mp3", ".m4a", ".sf2", ".sfz" })
+        if (path.endsWithIgnoreCase (extension))
+            return true;
+    return false;
+}
+} // namespace
+
 bool IlanaSynthAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& path : files)
-        if (path.endsWithIgnoreCase (".syx") || path.endsWithIgnoreCase (".ilanapreset"))
+        if (path.endsWithIgnoreCase (".syx") || path.endsWithIgnoreCase (".ilanapreset") || isAudioDrop (path))
             return true;
 
     return false;
 }
 
-void IlanaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+// Audio that no card took (dropped on the header, a filter card, the PLAY
+// background, or several files at once) used to do nothing and say nothing
+// (Fable U5): one file becomes a new oscillator, as on the OSC page's + tile;
+// anything refused says where it can go.
+void IlanaSynthAudioProcessorEditor::dropAudioAnywhere (const juce::StringArray& files, juce::Point<int> at)
 {
+    juce::StringArray audio;
+    for (const auto& path : files)
+        if (isAudioDrop (path))
+            audio.add (path);
+    if (audio.isEmpty())
+        return;
+
+    auto* anchor = getComponentAt (at);
+    if (anchor == nullptr || anchor == this)
+        anchor = &presetDisplay; // (a note needs a control inside the zoomed content to sit over)
+
+    if (audio.size() > 1)
+    {
+        FloatingNote::show (*anchor, "One file per oscillator: drop them one at a time (several samples: a sample oscillator's MAP)");
+        return;
+    }
+
+    std::function<OscPage* (juce::Component&)> findOsc = [&] (juce::Component& parent) -> OscPage*
+    {
+        for (auto* child : parent.getChildren())
+        {
+            if (auto* osc = dynamic_cast<OscPage*> (child))
+                return osc;
+            if (auto* found = findOsc (*child))
+                return found;
+        }
+        return nullptr;
+    };
+    auto* osc = findOsc (content);
+    if (osc == nullptr || ! osc->hasFreeSlot())
+    {
+        FloatingNote::show (*anchor, "Every oscillator is in use: drop the file on an oscillator's picture to replace its source");
+        return;
+    }
+    osc->addOscillatorFromFile (juce::File (audio[0]));
+    showPage ("OSC");
+}
+
+void IlanaSynthAudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    if (std::none_of (files.begin(), files.end(), [] (const juce::String& path)
+                      { return path.endsWithIgnoreCase (".syx") || path.endsWithIgnoreCase (".ilanapreset"); }))
+    {
+        dropAudioAnywhere (files, { x, y });
+        return;
+    }
+
     for (const auto& path : files)
         if (path.endsWithIgnoreCase (".syx"))
         {

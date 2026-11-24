@@ -1260,7 +1260,9 @@ public:
 
     juce::Font getPopupMenuFont() override
     {
-        return juce::Font (IlanaTheme::font (selectText)); // (the sheet's menu text: 11.5 px)
+        // The body size, like the values and buttons it sits over (was the sheet's 15.7-unit select text,
+        // which read about 25 % bigger than the page once Live stopped shrinking menus: Fable, 2026-11-24).
+        return juce::Font (IlanaTheme::font (IlanaTheme::TextSize::body));
     }
 
     juce::Font getLabelFont (juce::Label& label) override

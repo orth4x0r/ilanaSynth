@@ -2160,7 +2160,11 @@ void IlanaSynthAudioProcessorEditor::adoptUiScale()
 
 void IlanaSynthAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    adoptUiScale(); // (the editor paints before its children; another window may have set the shared scale)
+    // The editor paints before its children; with another window open it may
+    // have set the shared scale. (With one window the shared value is ours, and
+    // the snapshot tools set it for the pixel scale they draw at.)
+    if (liveEditors().size() > 1)
+        adoptUiScale();
     IlanaTheme::paintPageBackground (g, getLocalBounds());
 }
 

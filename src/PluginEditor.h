@@ -534,6 +534,16 @@ private:
     // window in the process; adoptUiScale puts ours back before we paint or lay out.
     float ownUiScale = 1.0f, ownTooltipZoom = 1.0f;
     void adoptUiScale();
+public:
+    // Tests: draw this window's text as if at another device scale (a pixel
+    // scale times the zoom); resized() puts the real one back.
+    void setUiScaleForTest (float scale)
+    {
+        ownUiScale = scale;
+        adoptUiScale();
+        IlanaTheme::notifyUiScaleListeners (this);
+    }
+private:
     void* sharpHostingContext = nullptr; // (Windows: the thread's DPI context while the experimental sharp hosting is on)
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;

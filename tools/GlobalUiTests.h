@@ -136,8 +136,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     const auto zoomScale = IlanaTheme::uiScaleRef();
                     const auto snapAt = [&] (float pixelScale)
                     {
-                        IlanaTheme::uiScaleRef() = zoomScale * pixelScale;
-                        IlanaTheme::notifyUiScaleListeners();
+                        editor.setUiScaleForTest (zoomScale * pixelScale);
                         editor.createComponentSnapshot (editor.getLocalBounds(), true, pixelScale);
                     };
                     snapAt (1.0f);
@@ -146,8 +145,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     snapAt (1.5f);
                     // And at ilana's own 175 % (Impeccable audit: never tested there).
                     snapAt (1.75f);
-                    IlanaTheme::uiScaleRef() = zoomScale;
-                    IlanaTheme::notifyUiScaleListeners();
+                    editor.setUiScaleForTest (zoomScale);
                     probe.armed = false;
                     ++painted;
                     shrunkCount += probe.shrunk.size();

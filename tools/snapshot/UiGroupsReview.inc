@@ -1954,9 +1954,11 @@ void uiGroup_REVIEW1 (UiCtx& ctx)
                 const auto syxFile = tempDir.getChildFile ("TESTBANK.syx");
                 syxFile.replaceWithData (syx.getData(), syx.getDataSize());
 
+                // Audio is taken too since Fable U5 (a drop the sample zones didn't take
+                // becomes a new oscillator); the zones are inside, so they still get theirs first.
                 expect (pages->isInterestedInFileDrag ({ syxFile.getFullPathName() })
-                            && ! pages->isInterestedInFileDrag ({ tempDir.getChildFile ("x.wav").getFullPathName() }),
-                        "the window takes .syx drops (and leaves other files to the sample zones)");
+                            && ! pages->isInterestedInFileDrag ({ tempDir.getChildFile ("x.txt").getFullPathName() }),
+                        "the window takes .syx drops (and refuses files it can't use)");
                 pages->filesDropped ({ syxFile.getFullPathName() }, 10, 10);
                 settle (200);
                 expect (confirm->isAsking() && confirm->getTitle() == "Imported TESTBANK",

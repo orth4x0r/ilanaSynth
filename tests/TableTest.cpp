@@ -19,6 +19,7 @@
 #include "dsp/FmAlgorithms.h"
 #include "dsp/Formula.h"
 #include "SafeXml.h"
+#include "processor/PatchExtras.h"
 #include "ClipState.h"
 #include "dsp/Tuning.h"
 #include "dsp/MultiSample.h"
@@ -110,6 +111,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "HostIntegrationTests.inc"
 #include "HostHardeningTests.inc"
 #include "HardeningTests.inc"
+#include "PatchExtrasTests.inc"
 #include "SweepTests.inc"
 #include "ParamManifestTests.inc"
 #include "DemoRender.inc"
@@ -218,6 +220,7 @@ int main()
             { "hardening", [] { runHardeningTests(); } },
             { "host", [] { runHostIntegrationTests(); runHostHardeningTests(); } },
             { "paraminfo", [] { runParamInfoTests(); } },
+            { "extras", [] { runPatchExtrasTests(); } },
             { "manifest", [] { runParamManifestTests(); } },
             { "stress", [] { runStressTests(); } },
             { "cpu3", [] { runCpuRound3Tests(); } },
@@ -596,6 +599,7 @@ int main()
     timedRun ("runGranularControlTests", [] { runGranularControlTests(); });
     timedRun ("runParamInfoTests", [] { runParamInfoTests(); });
     timedRun ("runParamManifestTests", [] { runParamManifestTests(); });
+    timedRun ("runPatchExtrasTests", [] { runPatchExtrasTests(); });
     timedRun ("runHostIntegrationTests", [] { runHostIntegrationTests(); });
     timedRun ("runHostHardeningTests", [] { runHostHardeningTests(); });
     timedRun ("runHardeningTests", [] { runHardeningTests(); });

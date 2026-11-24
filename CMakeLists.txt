@@ -127,6 +127,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Sequencers.cpp
     src/processor/Presets.cpp
     src/processor/State.cpp
+    src/processor/PatchExtras.cpp
     src/processor/Migrations.cpp
     src/processor/Bounce.cpp
     src/processor/SamplePortability.cpp

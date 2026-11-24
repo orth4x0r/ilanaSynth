@@ -100,6 +100,58 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         expect (bareMenus.isEmpty(), "every pop-up menu uses IlanaTheme::menuOptions (no bare PopupMenu::Options()"
                                          + (bareMenus.isEmpty() ? juce::String (")") : ": " + bareMenus.joinIntoString (", ") + ")"));
 
+        // A submenu opened from a row low in the window drops down from that row
+        // (moved up only to fit), not upwards ending at it: the filter type
+        // menu's BASIC list floated up over OSC 2 (ilana 2026-11-24).
+        {
+            juce::Component* host = nullptr;
+            for (auto* child : editor.getChildren())
+                if (child->getProperties().contains ("ilanaCalloutHost"))
+                    host = child;
+            if (host == nullptr && editor.getProperties().contains ("ilanaCalloutHost"))
+                host = &editor;
+            auto rowTop = -1, subTop = -1, subBottom = -1, hostBottom = -1;
+            if (host != nullptr)
+            {
+                juce::PopupMenu sub, menu;
+                for (int i = 1; i <= 6; ++i)
+                    sub.addItem (100 + i, "Sub item " + juce::String (i));
+                menu.addSubMenu ("FIRST", sub);
+                menu.addItem (2, "Second");
+                const auto lowRow = host->localAreaToGlobal (juce::Rectangle<int> (60, host->getHeight() * 2 / 3, 120, 20));
+                // (Found and hovered at once: a menu with no focus and no mouse over it
+                // closes itself within a few ms, as when another app comes to the front.)
+                menu.showMenuAsync (IlanaTheme::menuOptions (host).withTargetScreenArea (lowRow));
+                juce::Component* first = nullptr;
+                for (auto* child : host->getChildren())
+                    if (child->isVisible() && juce::String (typeid (*child).name()).contains ("MenuWindow"))
+                        first = child;
+                if (first != nullptr && first->getNumChildComponents() > 0)
+                {
+                    auto* row = first->getChildComponent (0);
+                    for (auto* child : first->getChildren())
+                        if (child->getY() < row->getY())
+                            row = child;
+                    rowTop = host->getLocalPoint (row, juce::Point<int>()).y;
+                    // The first row, opened from the keyboard (down, then right).
+                    first->keyPressed (juce::KeyPress (juce::KeyPress::downKey));
+                    first->keyPressed (juce::KeyPress (juce::KeyPress::rightKey));
+                    for (auto* child : host->getChildren())
+                        if (child != first && child->isVisible() && juce::String (typeid (*child).name()).contains ("MenuWindow"))
+                        {
+                            subTop = child->getY();
+                            subBottom = child->getBottom();
+                        }
+                }
+                hostBottom = host->getHeight();
+                juce::PopupMenu::dismissAllActiveMenus();
+                settle (100);
+            }
+            expect (subTop >= 0 && std::abs (subTop - (rowTop - 6)) <= 8 && subBottom <= hostBottom,
+                    "a submenu drops down from the row that opened it, inside the window (row at " + juce::String (rowTop)
+                        + ", submenu " + juce::String (subTop) + " to " + juce::String (subBottom) + " of " + juce::String (hostBottom) + ")");
+        }
+
         // No "OFF" spelled out away from a switch (I8-20): the FM matrix's
         // headings are dimmed instead.
         const auto fmPage = sources.getChildFile ("gui/pages/FmInputPages.h").loadFileAsString();

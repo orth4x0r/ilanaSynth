@@ -530,6 +530,10 @@ private:
     double transitionStart = 0.0;
     float presetLoadFlash = 0.0f;
     bool displayScaleApplied = false;
+    // This window's text scale. IlanaTheme::uiScaleRef is shared by every
+    // window in the process; adoptUiScale puts ours back before we paint or lay out.
+    float ownUiScale = 1.0f, ownTooltipZoom = 1.0f;
+    void adoptUiScale();
     void* sharpHostingContext = nullptr; // (Windows: the thread's DPI context while the experimental sharp hosting is on)
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;

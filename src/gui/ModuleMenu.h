@@ -17,6 +17,7 @@ using Kind = IlanaSynthAudioProcessor::ModuleKind;
 
 inline std::optional<IlanaSynthAudioProcessor::ModuleSnapshot>& clipboard (Kind kind)
 {
+    // Process-wide on purpose: copy a module in one instance, paste it in another.
     static std::array<std::optional<IlanaSynthAudioProcessor::ModuleSnapshot>, 4> held;
     return held[(size_t) kind];
 }

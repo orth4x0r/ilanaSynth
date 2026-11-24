@@ -85,6 +85,7 @@ inline void styleJumpLink (juce::TextButton& button, const juce::String& what)
 
 // The source currently hovered (chip, macro or LFO card), so knobs it
 // modulates can light up. Message thread only.
+// Process-wide: hovering a chip in one plugin window lights its knobs in any other open window too (cosmetic).
 inline int& highlightedModSource()
 {
     static int source = 0;
@@ -93,6 +94,7 @@ inline int& highlightedModSource()
 
 // The source pinned by clicking its chip in the bottom bar (0: none). Knobs
 // it drives stay lit until the chip is clicked again. Message thread only.
+// Process-wide, like highlightedModSource (cosmetic).
 inline int& pinnedModSource()
 {
     static int source = 0;
@@ -104,6 +106,7 @@ inline int& pinnedModSource()
 // the route at the drop's depth, as if the chip had been dragged there. Esc,
 // or a click anywhere else, disarms (the editor shows the hint while armed).
 // Message thread only. 0: nothing armed.
+// Process-wide: an armed source is cancelled by any click outside a knob, so it can't be carried into another window.
 inline int& armedModSource()
 {
     static int source = 0;
@@ -237,12 +240,14 @@ struct ModHoverHooks
     std::function<void (juce::Component&, int source)> showSource;
 };
 
+// Process-wide: installed by the window the mouse last entered (IlanaSynthAudioProcessorEditor::claimGlobalHooks).
 inline ModHoverHooks& modHoverHooks()
 {
     static ModHoverHooks hooks;
     return hooks;
 }
 
+// Process-wide on purpose: copy a knob value in one instance, paste it in another.
 inline juce::String& knobClipboard()
 {
     static juce::String value;

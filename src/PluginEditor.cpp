@@ -1421,7 +1421,7 @@ juce::String IlanaSynthAudioProcessorEditor::scaleReadout() const
                 + juce::String (juce::roundToInt (peerScale * 100.0)) + "%, interface "
                 + juce::String (juce::roundToInt (zoom * 100.0f)) + "% (saved " + juce::String (juce::roundToInt (uiZoom * 100.0f))
                 + "%, fits " + juce::String (juce::roundToInt (fitZoom() * 100.0f)) + "%), text "
-                + juce::String (IlanaTheme::uiScaleRef(), 2) + "x";
+                + juce::String (ownUiScale, 2) + "x";
     if (hostIsStretching())
         text << " - host is stretching";
     return text;
@@ -1501,7 +1501,7 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
 
     // The device scale may differ from the one resized() saw (the peer did
     // not exist yet): snap the fonts again.
-    if (! juce::approximatelyEqual (IlanaTheme::uiScaleRef(), (float) getHeight() / (float) totalDesignHeight() * hostScaleFactor()))
+    if (! juce::approximatelyEqual (ownUiScale, (float) getHeight() / (float) totalDesignHeight() * hostScaleFactor()))
         resized();
    #endif
 }
@@ -2152,8 +2152,15 @@ void IlanaSynthAudioProcessorEditor::animate()
         animator.stopTimer();
 }
 
+void IlanaSynthAudioProcessorEditor::adoptUiScale()
+{
+    IlanaTheme::uiScaleRef() = ownUiScale;
+    IlanaTheme::tooltipZoomRef() = ownTooltipZoom;
+}
+
 void IlanaSynthAudioProcessorEditor::paint (juce::Graphics& g)
 {
+    adoptUiScale(); // (the editor paints before its children; another window may have set the shared scale)
     IlanaTheme::paintPageBackground (g, getLocalBounds());
 }
 
@@ -2232,8 +2239,9 @@ void IlanaSynthAudioProcessorEditor::updateTuningIndicator()
 void IlanaSynthAudioProcessorEditor::resized()
 {
     const auto scale = (float) getHeight() / (float) totalDesignHeight();
-    IlanaTheme::uiScaleRef() = scale * hostScaleFactor();
-    IlanaTheme::tooltipZoomRef() = scale; // (the tooltip window sits outside the scaled content)
+    ownUiScale = scale * hostScaleFactor();
+    ownTooltipZoom = scale; // (the tooltip window sits outside the scaled content)
+    adoptUiScale();
 
     // A corner drag changes the zoom; remember it (saved on the timer so a
     // drag doesn't hit the disk on every step).
@@ -2245,7 +2253,7 @@ void IlanaSynthAudioProcessorEditor::resized()
 
     content.setBounds (0, 0, designWidth, totalDesignHeight());
     content.setTransform (juce::AffineTransform::scale (scale));
-    IlanaTheme::notifyUiScaleListeners();
+    IlanaTheme::notifyUiScaleListeners (this);
 
     auto area = content.getLocalBounds();
 

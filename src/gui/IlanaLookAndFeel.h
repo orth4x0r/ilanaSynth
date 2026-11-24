@@ -308,6 +308,9 @@ struct ThemeResources : private juce::DeletedAtShutdown
 inline juce::Typeface::Ptr& mediumTypefaceRef() { return ThemeResources::getInstance()->medium; }
 inline juce::Typeface::Ptr& boldTypefaceRef() { return ThemeResources::getInstance()->bold; }
 
+// Process-wide, but each plugin window re-adopts its own value before it paints
+// or lays out (IlanaSynthAudioProcessorEditor::adoptUiScale), so two windows at
+// different sizes each snap text to their own pixels.
 // The editor renders its design space through a scale transform; this mirrors
 // that zoom so fonts can be snapped to whole device pixels (fractional
 // rasterisation is what makes text look soft).
@@ -339,11 +342,18 @@ inline std::vector<UiScaleListener*>& uiScaleListeners()
     return listeners;
 }
 
-inline void notifyUiScaleListeners()
+// within: only the listeners inside that component (one plugin window), so a
+// second window open in the host at another size isn't laid out at this one's scale.
+inline void notifyUiScaleListeners (const juce::Component* within = nullptr)
 {
     const auto copy = uiScaleListeners();
     for (auto* listener : copy)
+    {
+        if (within != nullptr)
+            if (auto* component = dynamic_cast<juce::Component*> (listener); component != nullptr && ! within->isParentOf (component))
+                continue;
         listener->uiScaleChanged();
+    }
 }
 
 // All UI text should be created through this: a Font constructed from plain

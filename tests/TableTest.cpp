@@ -5,6 +5,7 @@
 #include <complex>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -110,6 +111,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "HostHardeningTests.inc"
 #include "HardeningTests.inc"
 #include "SweepTests.inc"
+#include "ParamManifestTests.inc"
 #include "DemoRender.inc"
 #include "OldStateTests.inc"
 
@@ -216,6 +218,7 @@ int main()
             { "hardening", [] { runHardeningTests(); } },
             { "host", [] { runHostIntegrationTests(); runHostHardeningTests(); } },
             { "paraminfo", [] { runParamInfoTests(); } },
+            { "manifest", [] { runParamManifestTests(); } },
             { "stress", [] { runStressTests(); } },
             { "cpu3", [] { runCpuRound3Tests(); } },
             { "cpupass", [] { runCpuPassTests(); } },
@@ -592,6 +595,7 @@ int main()
     timedRun ("runBuiltInTableTests", [] { runBuiltInTableTests(); });
     timedRun ("runGranularControlTests", [] { runGranularControlTests(); });
     timedRun ("runParamInfoTests", [] { runParamInfoTests(); });
+    timedRun ("runParamManifestTests", [] { runParamManifestTests(); });
     timedRun ("runHostIntegrationTests", [] { runHostIntegrationTests(); });
     timedRun ("runHostHardeningTests", [] { runHostHardeningTests(); });
     timedRun ("runHardeningTests", [] { runHardeningTests(); });

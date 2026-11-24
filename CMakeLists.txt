@@ -253,6 +253,14 @@ target_link_libraries(ilanaSynthFX
         juce::juce_recommended_warning_flags
 )
 
+# Sanitizer for the test engine, ilanaTableTest and ilanaTorture only (never the
+# plugins): -DILANA_SANITIZE=thread or address. Empty: off (the normal gate).
+set(ILANA_SANITIZE "" CACHE STRING "Sanitizer for the test engine and tools: address, thread or empty")
+set_property(CACHE ILANA_SANITIZE PROPERTY STRINGS "" address thread)
+if (ILANA_SANITIZE AND NOT ILANA_SANITIZE MATCHES "^(address|thread)$")
+    message(FATAL_ERROR "ILANA_SANITIZE must be empty, address or thread")
+endif()
+
 # The same stack for the dev tools below, which also build processors on the stack.
 function (ilana_big_stack target)
     if (MSVC)
@@ -451,6 +459,15 @@ ilana_engine_tool(ilanaPolishRepro ilanaEngineFp tools/PolishRepro.cpp)
 ilana_engine_tool(ilanaPresetRender ilanaEngineFp tools/PresetRender.cpp)
 ilana_engine_tool(ilanaMidiRender  ilanaEngineFp tools/MidiRender.cpp)
 ilana_engine_tool(ilanaKnobAudit   ilanaEngineFp tools/KnobAudit.cpp)
+# Concurrency torture (tools/TortureTest.cpp): audio thread against the message
+# thread's edits; build with -DILANA_SANITIZE=thread (or address).
+ilana_engine_tool(ilanaTorture     ilanaEngineTest tools/TortureTest.cpp)
+if (ILANA_SANITIZE)
+    foreach (target IN ITEMS ilanaEngineTest ilanaTableTest ilanaTorture)
+        target_compile_options(${target} PRIVATE -fsanitize=${ILANA_SANITIZE} -fno-omit-frame-pointer)
+        target_link_options(${target} PRIVATE -fsanitize=${ILANA_SANITIZE})
+    endforeach()
+endif()
 
 # Dev tool: renders reference notes from an installed VST3's default sound,
 # for fitting modelled sounds (not shipped).
@@ -544,5 +561,5 @@ endforeach()
 # cannot rot unseen: `cmake --build build --target ilanaTools`, which
 # `tools/verify.sh --all` runs after the default build.
 add_custom_target(ilanaTools DEPENDS
-    ilanaStress ilanaPolishRepro ilanaKnobAudit ilanaMidiRender ilanaPresetRender
+    ilanaStress ilanaPolishRepro ilanaKnobAudit ilanaMidiRender ilanaPresetRender ilanaTorture
     ilanaRefHost ilanaFxCpuBench)

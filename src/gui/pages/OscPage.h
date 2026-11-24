@@ -879,6 +879,7 @@ public:
     // The drop tile: a new oscillator takes the file the way its picture would (a wavetable card asks what the
     // audio is for; a SoundFont loads as a sample).
     void addOscillatorFromFile (const juce::File& file);
+    bool hasFreeSlot() const { return canAdd(); }
 
     // Adds the next oscillator (one undo step): as it was (-1: a Wavetable
     // unless it had a type), or as that type. The add row and the UI tests.

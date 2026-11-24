@@ -11,6 +11,7 @@
 
 #include "ParameterEchoGuard.h"
 #include "SectionColours.h"
+#include "RetireQueue.h"
 
 #include <array>
 #include <deque>
@@ -1270,6 +1271,7 @@ private:
 
     std::vector<std::shared_ptr<Wavetable>> userTables;
     std::array<std::shared_ptr<Wavetable>, (size_t) (numUserSlots * 3)> retiredTables;
+    RetireQueue retireQueue; // what leaves the rings above is freed only once the audio thread moved on
     std::array<int, (size_t) numUserSlots> retiredTableIndex {};
     void resetUserTableToDefault (int slot);
     void swapUserTable (int slot, std::shared_ptr<Wavetable> table);
@@ -1353,6 +1355,22 @@ private:
     // block, easing from the last output sample to silence rather than
     // stepping to it.
     std::atomic<bool> patchCut { false };
+    // A patch load in progress on another thread (Fable B1): the audio thread
+    // plays silence and drops note-ons until it ends, then cuts again, so no
+    // note starts on a half-old, half-new patch and the modulators restart on
+    // the finished one. Offline renders load between blocks: never seen there.
+    std::atomic<int> patchLoading { 0 };
+    struct PatchLoadGate
+    {
+        explicit PatchLoadGate (IlanaSynthAudioProcessor& p) : owner (p) { owner.patchLoading.fetch_add (1, std::memory_order_acq_rel); }
+        ~PatchLoadGate()
+        {
+            owner.patchCut = true;
+            owner.patchLoading.fetch_sub (1, std::memory_order_acq_rel);
+        }
+        IlanaSynthAudioProcessor& owner;
+        JUCE_DECLARE_NON_COPYABLE (PatchLoadGate)
+    };
     std::shared_ptr<void> lifetime { std::make_shared<int> (0) };
     std::atomic<bool> shuttingDown { false };
     std::atomic<bool> bypassCut { false };    // (a bypassed block / host reset: release the notes at the next block)

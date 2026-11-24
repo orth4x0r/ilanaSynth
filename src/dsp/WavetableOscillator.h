@@ -396,6 +396,16 @@ public:
 
         phase += frequency / sampleRate * incrementScale;
 
+        // A non-finite or huge step would never leave the loops below and
+        // hang the host: reset or reduce it first (normal steps never get here).
+        if (! std::isfinite (phase))
+            phase = 0.0;
+        else if (phase >= 2.0 || phase < -1.0)
+        {
+            phase -= std::floor (phase);
+            wrapped = true;
+        }
+
         while (phase >= 1.0)
         {
             phase -= 1.0;

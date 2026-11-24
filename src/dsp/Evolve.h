@@ -45,6 +45,10 @@ public:
                 continue;
             }
             d.phase += seconds * (double) juce::jlimit (0.001f, 20.0f, rate[(size_t) m]);
+            if (! std::isfinite (d.phase))
+                d.phase = 0.0;
+            else if (d.phase >= 64.0)
+                d.phase = 1.0 + (d.phase - std::floor (d.phase)); // a long gap: one new target, not thousands
             while (d.phase >= 1.0)
             {
                 d.phase -= 1.0;

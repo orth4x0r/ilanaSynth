@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../PluginProcessor.h"
+#include "ConfirmOverlay.h"
 #include "../SamplePaths.h"
 
 // The dialogs of portable sample presets (roadmap step 31): the missing-file
@@ -42,7 +43,8 @@ private:
 inline void tell (const juce::String& title, const juce::String& text, juce::MessageBoxIconType icon = juce::MessageBoxIconType::InfoIcon,
                   juce::Component* owner = nullptr)
 {
-    juce::AlertWindow::showMessageBoxAsync (icon, title, text, juce::String(), owner);
+    juce::ignoreUnused (icon);
+    ConfirmOverlay::tell (owner, title, text);
 }
 
 inline juce::String missingText (const std::vector<IlanaSynthAudioProcessor::MissingSample>& missing)

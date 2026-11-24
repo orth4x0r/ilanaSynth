@@ -1,4 +1,5 @@
 #include "SeqPage.h"
+#include "../ConfirmOverlay.h"
 
 #include "PageHelpers.h"
 
@@ -1012,7 +1013,7 @@ bool SeqPage::importMidi (const juce::File& file)
 
     if (! ClipState::importMidi (file, imported, error))
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import MIDI", error, juce::String(), this);
+        ConfirmOverlay::tell (this, "Import MIDI", error);
         return false;
     }
 
@@ -1099,7 +1100,7 @@ void SeqPage::exportMidiFile ()
 
     if (clip.notes.empty())
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Export MIDI", "This clip has no notes yet.", juce::String(), this);
+        ConfirmOverlay::tell (this, "Export MIDI", "This clip has no notes yet.");
         return;
     }
 
@@ -1126,6 +1127,6 @@ void SeqPage::exportMidiFile ()
                                   juce::String error;
 
                                   if (! ClipState::exportMidi (clip, file, error))
-                                      juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export MIDI", error, juce::String(), safeThis.getComponent());
+                                      ConfirmOverlay::tell (safeThis.getComponent(), "Export MIDI", error);
                               });
 }

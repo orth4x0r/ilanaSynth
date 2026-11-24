@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../PluginProcessor.h"
+#include "ConfirmOverlay.h"
 #include "../dsp/WavetableDoc.h"
 #include "IlanaLookAndFeel.h"
 
@@ -929,8 +930,7 @@ public:
         WavetableDoc loaded;
         if (! WavetableDoc::loadFromFile (file, loaded, loadMode))
         {
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import",
-                                                    "Could not read " + file.getFileName() + ".", juce::String(), this);
+            ConfirmOverlay::tell (this, "Import", "Could not read " + file.getFileName() + ".");
             return false;
         }
         edit ([this, &loaded] { doc = std::move (loaded); selected = 0; });
@@ -956,8 +956,7 @@ private:
                 return;
             file = file.withFileExtension ("wav");
             if (! safe->doc.exportWav (file))
-                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export",
-                                                        "Could not write " + file.getFullPathName() + ".", juce::String(), safe.getComponent());
+                ConfirmOverlay::tell (safe.getComponent(), "Export", "Could not write " + file.getFullPathName() + ".");
         });
     }
 
@@ -1004,8 +1003,7 @@ private:
             if (doc.saveToLibrary (fileName, &written))
                 showMessage ("Saved " + written.getFileName());
             else
-                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Library",
-                                                        "Could not save to " + WavetableDoc::getLibraryFolder().getFullPathName() + ".", juce::String(), this);
+                ConfirmOverlay::tell (this, "Library", "Could not save to " + WavetableDoc::getLibraryFolder().getFullPathName() + ".");
         };
 
         const auto existing = WavetableDoc::getLibraryFile (doc.name);

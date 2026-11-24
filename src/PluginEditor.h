@@ -233,8 +233,10 @@ private:
     void applyUiZoom (float newZoom);
     void updateKeysTooltip();
     float fitZoom() const;
-    float displayScale() const;
     float hostScaleFactor() const;
+    bool hostIsStretching() const;
+    juce::String scaleReadout() const;
+    void dropAudioAnywhere (const juce::StringArray& files, juce::Point<int> at);
 
     // The hover line's own strip, between the pages and the source chips.
     static constexpr int designWidth = 1060;
@@ -528,7 +530,21 @@ private:
     double transitionStart = 0.0;
     float presetLoadFlash = 0.0f;
     bool displayScaleApplied = false;
-    void* previousDpiContext = nullptr;
+    // This window's text scale. IlanaTheme::uiScaleRef is shared by every
+    // window in the process; adoptUiScale puts ours back before we paint or lay out.
+    float ownUiScale = 1.0f, ownTooltipZoom = 1.0f;
+    void adoptUiScale();
+public:
+    // Tests: draw this window's text as if at another device scale (a pixel
+    // scale times the zoom); resized() puts the real one back.
+    void setUiScaleForTest (float scale)
+    {
+        ownUiScale = scale;
+        adoptUiScale();
+        IlanaTheme::notifyUiScaleListeners (this);
+    }
+private:
+    void* sharpHostingContext = nullptr; // (Windows: the thread's DPI context while the experimental sharp hosting is on)
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;
     int shownTableNoticeVersion = 0;

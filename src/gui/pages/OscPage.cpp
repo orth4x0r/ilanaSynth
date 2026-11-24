@@ -1,4 +1,5 @@
 #include "OscPage.h"
+#include "../ConfirmOverlay.h"
 
 #include "PageHelpers.h"
 
@@ -952,7 +953,7 @@ OscPage::OscPage (IlanaSynthAudioProcessor& p)
                 const auto message = processorRef.detectSampleRoot (i);
                 // Found: the ROOT knob shows the note. Otherwise say why not.
                 if (! message.startsWith ("Root set"))
-                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Detect root note", message);
+                    ConfirmOverlay::tell (nullptr, "Detect root note", message);
             };
             styleHeaderButton (card.sampleDetectButton);
             addChildComponent (card.sampleDetectButton);
@@ -3495,8 +3496,7 @@ void OscPage::loadTableFile (const juce::String& tableId, int tableChoiceOffset,
 
     if (slot < 0)
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Load wavetable",
-                                                "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to replace it.");
+        ConfirmOverlay::tell (nullptr, "Load wavetable", "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to replace it.");
         return;
     }
 
@@ -3508,8 +3508,7 @@ void OscPage::loadTableFile (const juce::String& tableId, int tableChoiceOffset,
     }
     else
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load wavetable",
-                                                "Couldn't read " + file.getFileName() + " as a wavetable.");
+        ConfirmOverlay::tell (nullptr, "Load wavetable", "Couldn't read " + file.getFileName() + " as a wavetable.");
     }
     processorRef.endEdit();
 }
@@ -4101,8 +4100,7 @@ void OscPage::showExportMenu (int index)
                                                                   target = target.withFileExtension ("wav");
                                                                   juce::String error;
                                                                   if (! safe->processorRef.exportSampleWav (index, target, range, error))
-                                                                      juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                                                                              "Export sample", error);
+                                                                      ConfirmOverlay::tell (nullptr, "Export sample", error);
                                                               });
                         });
 }
@@ -4132,7 +4130,7 @@ void OscPage::updateBounce ()
     bounceButtonWide = -1;
     const auto message = processorRef.getBounceMessage();
     if (state == IlanaSynthAudioProcessor::BounceState::Failed)
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message, juce::String(), this);
+        ConfirmOverlay::tell (this, "Resample", message);
     else
         button.setTooltip (message);
     updateModeVisibility();
@@ -4241,8 +4239,7 @@ void OscPage::openTableEditor (int index)
         slot = processorRef.findFreeUserSlot();
         if (slot < 0)
         {
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable editor",
-                                                    "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to edit it.");
+            ConfirmOverlay::tell (nullptr, "Wavetable editor", "All " + juce::String (IlanaSynthAudioProcessor::numUserSlots) + " patch tables are in use. Pick a User table to edit it.");
             return;
         }
         auto doc = WavetableDoc::fromFactory (0);

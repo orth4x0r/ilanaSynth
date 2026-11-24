@@ -58,6 +58,7 @@ struct LaneClipboard
     bool full = false;
 };
 
+// Process-wide on purpose (a clipboard carries between instances).
 inline LaneClipboard& laneClipboard()
 {
     static LaneClipboard clipboard;

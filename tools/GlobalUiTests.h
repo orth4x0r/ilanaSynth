@@ -89,6 +89,17 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         expect (offenders.isEmpty(), "every fitted text goes through IlanaTheme::drawFitted (no drawFittedText elsewhere"
                                          + (offenders.isEmpty() ? juce::String (")") : ": " + offenders.joinIntoString (", ") + ")"));
 
+        // Every pop-up menu goes through IlanaTheme::menuOptions, which gives it a
+        // target component inside the zoomed page: a bare PopupMenu::Options()
+        // opens at the wrong size whenever Interface size is not 100% (Fable S5).
+        juce::StringArray bareMenus;
+        for (const auto& file : sources.findChildFiles (juce::File::findFiles, true, "*.h;*.cpp"))
+            if (file.getFileName() != "IlanaLookAndFeel.h" && ! file.getFullPathName().contains ("thirdparty")
+                && file.loadFileAsString().contains ("PopupMenu::Options()"))
+                bareMenus.add (file.getFileName());
+        expect (bareMenus.isEmpty(), "every pop-up menu uses IlanaTheme::menuOptions (no bare PopupMenu::Options()"
+                                         + (bareMenus.isEmpty() ? juce::String (")") : ": " + bareMenus.joinIntoString (", ") + ")"));
+
         // No "OFF" spelled out away from a switch (I8-20): the FM matrix's
         // headings are dimmed instead.
         const auto fmPage = sources.getChildFile ("gui/pages/FmInputPages.h").loadFileAsString();
@@ -119,12 +130,22 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                     settle (200);
                     probe = {};
                     probe.armed = true;
-                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
+                    // Each pixel scale with the fonts snapped for it, as in the host: the
+                    // device scale is the zoom times the pixel scale (Fable U3: the 1.75x
+                    // pass used to measure fonts snapped for 100 %).
+                    const auto zoomScale = IlanaTheme::uiScaleRef();
+                    const auto snapAt = [&] (float pixelScale)
+                    {
+                        editor.setUiScaleForTest (zoomScale * pixelScale);
+                        editor.createComponentSnapshot (editor.getLocalBounds(), true, pixelScale);
+                    };
+                    snapAt (1.0f);
                     // And at the 1.5 x pixel scale of the review's screenshots
                     // (A16-2: "PRESSUR" was only cut there).
-                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.5f);
+                    snapAt (1.5f);
                     // And at ilana's own 175 % (Impeccable audit: never tested there).
-                    editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.75f);
+                    snapAt (1.75f);
+                    editor.setUiScaleForTest (zoomScale);
                     probe.armed = false;
                     ++painted;
                     shrunkCount += probe.shrunk.size();

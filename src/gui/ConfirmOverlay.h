@@ -133,11 +133,19 @@ public:
         return getLocalBounds().withSizeKeepingCentre (width, 16 + 24 + 6 + messageHeight (width - 40) + 14 + tickLine + 30 + 16);
     }
 
-    // One line, or two when the message wraps.
+    // As many lines as the message wraps to (up to 8; a report from tell() can be long).
     int messageHeight (int width) const
     {
+        return 20 * messageLines (width);
+    }
+
+    int messageLines (int width) const
+    {
         const juce::Font font (IlanaTheme::font (IlanaTheme::TextSize::body));
-        return juce::GlyphArrangement::getStringWidthInt (font, message) > width * 19 / 20 ? 40 : 20;
+        auto lines = 0;
+        for (const auto& paragraph : juce::StringArray::fromLines (message))
+            lines += juce::jmax (1, (int) std::ceil ((double) juce::GlyphArrangement::getStringWidthInt (font, paragraph) / juce::jmax (1.0, width * 0.95)));
+        return juce::jlimit (1, 8, lines);
     }
 
     void resized() override
@@ -154,6 +162,7 @@ public:
         }
 
         cancelButton.setBounds (bottom.removeFromRight (90));
+        cancelButton.setVisible (cancelButton.getButtonText().isNotEmpty());
 
         if (alternativeButton.isVisible())
         {
@@ -182,7 +191,8 @@ public:
         area.removeFromTop (6);
         g.setColour (IlanaTheme::Ui::text2);
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
-        IlanaTheme::drawFitted (g, message, area.removeFromTop (messageHeight (area.getWidth())), juce::Justification::topLeft, 2);
+        const auto lines = messageLines (area.getWidth());
+        IlanaTheme::drawFitted (g, message, area.removeFromTop (20 * lines), juce::Justification::topLeft, lines);
     }
 
     void mouseDown (const juce::MouseEvent& event) override
@@ -207,7 +217,45 @@ public:
         return true; // nothing reaches the page underneath while asking
     }
 
+    // A message (an error, a result) inside the editor instead of a desktop
+    // alert box, which neither followed the Interface size nor the skin and
+    // could open away from the plugin window (Fable U10). Shown on the overlay
+    // of the editor `anchor` sits in, else the most recent editor's; with no
+    // editor (a test tool) it falls back to the alert box.
+    static void tell (juce::Component* anchor, const juce::String& titleText, const juce::String& messageText)
+    {
+        ConfirmOverlay* overlay = nullptr;
+        for (auto* c = anchor; c != nullptr && overlay == nullptr; c = c->getParentComponent())
+            for (auto* child : c->getChildren())
+                if (auto* found = dynamic_cast<ConfirmOverlay*> (child))
+                    overlay = found;
+        if (overlay == nullptr)
+            overlay = latest().getComponent();
+        if (overlay == nullptr || overlay->isAsking())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, titleText, messageText, {}, anchor);
+            return;
+        }
+        Choices choices;
+        choices.confirmText = "OK";
+        choices.cancelText = {};
+        choices.offerDontAsk = false;
+        overlay->ask (titleText, messageText, choices, [] (bool, bool) {});
+    }
+
+    void parentHierarchyChanged() override
+    {
+        if (getParentComponent() != nullptr)
+            latest() = this;
+    }
+
 private:
+    static juce::Component::SafePointer<ConfirmOverlay>& latest()
+    {
+        static juce::Component::SafePointer<ConfirmOverlay> overlay;
+        return overlay;
+    }
+
     juce::TextButton confirmButton, cancelButton, alternativeButton;
     juce::ToggleButton dontAskAgain;
     juce::String title, message;

@@ -316,6 +316,10 @@ public:
         if (isStepped (shape))
         {
             phaseAccumulator += cyclesPerSample;
+            if (! std::isfinite (phaseAccumulator))
+                phaseAccumulator = 0.0;
+            else if (phaseAccumulator >= 64.0)
+                phaseAccumulator = 1.0 + (phaseAccumulator - std::floor (phaseAccumulator)); // one step, not millions
             while (phaseAccumulator >= 1.0)
             {
                 phaseAccumulator -= 1.0;

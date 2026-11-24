@@ -111,6 +111,7 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         dragBand = bandAt (event.position);
+        fineMouse = lastMouse = event.position;
 
         if (dragBand >= 0)
         {
@@ -128,8 +129,12 @@ public:
             return;
 
         const auto parameters = bandParameters (dragBand);
-        const auto frequency = xToFrequency (juce::jlimit (plotArea().getX(), plotArea().getRight(), event.position.x));
-        const auto gain = yToDb (juce::jlimit (plotArea().getY(), plotArea().getBottom(), event.position.y));
+        // Shift = fine (a fifth of the move), as on the knobs (Fable U6).
+        const auto delta = event.position - lastMouse;
+        lastMouse = event.position;
+        fineMouse += event.mods.isShiftDown() ? delta * 0.2f : delta;
+        const auto frequency = xToFrequency (juce::jlimit (plotArea().getX(), plotArea().getRight(), fineMouse.x));
+        const auto gain = yToDb (juce::jlimit (plotArea().getY(), plotArea().getBottom(), fineMouse.y));
 
         if (parameters[0] != nullptr)
             parameters[0]->setValueNotifyingHost (parameters[0]->convertTo0to1 (frequency));
@@ -139,6 +144,8 @@ public:
 
         repaint();
     }
+
+    juce::Point<float> fineMouse, lastMouse;
 
     void mouseUp (const juce::MouseEvent&) override
     {

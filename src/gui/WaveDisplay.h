@@ -4,6 +4,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../dsp/EpTuning.h"
+#include "ConfirmOverlay.h"
 #include "../dsp/MultiSample.h"
 
 #include <array>
@@ -790,8 +791,7 @@ public:
                                     processor.performEdit ("SoundFont Preset", [&]
                                     {
                                         if (! processor.selectSoundFontPreset (osc, preset.bank, preset.program))
-                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "SoundFont Preset",
-                                                                                    processor.getLastSampleError(), juce::String(), safeThis.getComponent());
+                                            ConfirmOverlay::tell (safeThis.getComponent(), "SoundFont Preset", processor.getLastSampleError());
                                     });
                                     safeThis->repaint();
                                     return;
@@ -1024,8 +1024,7 @@ public:
                 slicing.mode = SampleSlicer::transients;
         }
         if (! processorRef.setSampleSlices (oscIndex, slicing, name))
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Slice",
-                                                    "Only a plain sample can be sliced (a multisample already has its zones).", juce::String(), this);
+            ConfirmOverlay::tell (this, "Slice", "Only a plain sample can be sliced (a multisample already has its zones).");
         repaint();
     }
 
@@ -1177,8 +1176,7 @@ public:
         if (processorRef.loadUserSample (oscIndex, file, true))
             switchToSampleMode();
         else
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load sample",
-                                                    processorRef.getLastSampleError(), juce::String(), this);
+            ConfirmOverlay::tell (this, "Load sample", processorRef.getLastSampleError());
         repaint();
     }
 

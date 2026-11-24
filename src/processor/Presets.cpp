@@ -1131,6 +1131,7 @@ void IlanaSynthAudioProcessor::moveLevelToTrim (std::vector<std::pair<juce::Stri
 
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
+    const PatchLoadGate loadGate (*this);
     ++dataEpoch; // what the editor draws changes
     liveRetrigger = true;
     patchCut = true;
@@ -1263,6 +1264,14 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
     if (tuningWasOn)
         if (auto* parameter = apvts.getParameter ("tuning_on"))
             targets[(size_t) parameter->getParameterIndex()] = 1.0f;
+
+    // The engine and controller settings in the gear menu (MPE, Multi-core,
+    // Quality, Oversampling) read as preferences, so a factory preset keeps
+    // their current values unless it sets them itself (the loop below does).
+    // A fresh processor holds the defaults, so fingerprints are unaffected.
+    for (const auto* id : { "mpe_mode", "multi_core", "quality", "oversampling", "os_factor" })
+        if (auto* parameter = apvts.getParameter (id))
+            targets[(size_t) parameter->getParameterIndex()] = parameter->getValue();
 
     // The original 80 presets predate the separate sub; move them over.
     std::vector<std::pair<juce::String, float>> values;

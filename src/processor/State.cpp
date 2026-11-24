@@ -549,6 +549,7 @@ void IlanaSynthAudioProcessor::ensureBuiltInTables()
 
 void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 {
+    const PatchLoadGate loadGate (*this);
     liveRetrigger = true;
     patchCut = true;
     ++patchGeneration; // a bounce still rendering belongs to the patch that started it

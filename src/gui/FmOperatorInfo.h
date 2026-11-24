@@ -154,6 +154,7 @@ struct Hooks
     std::function<void()> openPitchAndLfo;
 };
 
+// Process-wide: claimed by the window the mouse last entered (claimGlobalHooks).
 inline Hooks& hooks()
 {
     static Hooks instance;

@@ -85,6 +85,7 @@ inline void styleJumpLink (juce::TextButton& button, const juce::String& what)
 
 // The source currently hovered (chip, macro or LFO card), so knobs it
 // modulates can light up. Message thread only.
+// Process-wide: hovering a chip in one plugin window lights its knobs in any other open window too (cosmetic).
 inline int& highlightedModSource()
 {
     static int source = 0;
@@ -93,6 +94,7 @@ inline int& highlightedModSource()
 
 // The source pinned by clicking its chip in the bottom bar (0: none). Knobs
 // it drives stay lit until the chip is clicked again. Message thread only.
+// Process-wide, like highlightedModSource (cosmetic).
 inline int& pinnedModSource()
 {
     static int source = 0;
@@ -104,6 +106,7 @@ inline int& pinnedModSource()
 // the route at the drop's depth, as if the chip had been dragged there. Esc,
 // or a click anywhere else, disarms (the editor shows the hint while armed).
 // Message thread only. 0: nothing armed.
+// Process-wide: an armed source is cancelled by any click outside a knob, so it can't be carried into another window.
 inline int& armedModSource()
 {
     static int source = 0;
@@ -237,12 +240,14 @@ struct ModHoverHooks
     std::function<void (juce::Component&, int source)> showSource;
 };
 
+// Process-wide: installed by the window the mouse last entered (IlanaSynthAudioProcessorEditor::claimGlobalHooks).
 inline ModHoverHooks& modHoverHooks()
 {
     static ModHoverHooks hooks;
     return hooks;
 }
 
+// Process-wide on purpose: copy a knob value in one instance, paste it in another.
 inline juce::String& knobClipboard()
 {
     static juce::String value;
@@ -765,6 +770,15 @@ private:
 // scrolling did nothing on a touchpad, the pointer being over controls
 // nearly everywhere). Hold Ctrl / Cmd to turn the control instead. A page that
 // does not scroll leaves the wheel to the control as before.
+// On a page that does not scroll, a plain wheel turns a control only once the
+// pointer has rested on it for 300 ms: a touchpad sweep across PLAY used to
+// change whatever it passed over, mark the patch EDITED and add undo steps
+// (Fable U4, 2026-11-24). Ctrl / Cmd + wheel always turns it at once.
+inline void noteHoverStart (juce::Component& control)
+{
+    control.getProperties().set ("ilanaHoverSince", juce::Time::getMillisecondCounterHiRes());
+}
+
 inline bool scrollPageInstead (juce::Component& control, const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
 {
     if (event.mods.isCommandDown() || event.mods.isCtrlDown())
@@ -773,7 +787,13 @@ inline bool scrollPageInstead (juce::Component& control, const juce::MouseEvent&
     auto* viewport = control.findParentComponentOfClass<juce::Viewport>();
     if (viewport == nullptr || viewport->getViewedComponent() == nullptr
         || viewport->getViewedComponent()->getHeight() <= viewport->getMaximumVisibleHeight())
-        return false;
+    {
+        const auto since = control.getProperties().getWithDefault ("ilanaHoverSince", 0.0);
+        const auto rested = juce::Time::getMillisecondCounterHiRes() - (double) since >= 300.0;
+        if (rested)
+            control.getProperties().set ("ilanaHoverSince", 0.0); // (stays rested through this gesture)
+        return ! rested; // (true: the wheel is swallowed, nothing changes)
+    }
 
     viewport->mouseWheelMove (event.getEventRelativeTo (viewport), wheel);
     return true;
@@ -788,14 +808,40 @@ public:
             juce::Slider::mouseWheelMove (event, wheel);
     }
 
+    void mouseEnter (const juce::MouseEvent& event) override
+    {
+        noteHoverStart (*this);
+        juce::Slider::mouseEnter (event);
+    }
+
     KeyboardSlider()
     {
         setWantsKeyboardFocus (true);
         setMouseClickGrabsKeyboardFocus (false);
     }
 
+    // A press hands the keys to the editor (not to this slider, so the note
+    // keys and Tab keep working): after turning a knob, Ctrl+Z and Ctrl+S are
+    // the synth's, not Live's (Fable U8).
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>())
+            if (! editor->hasKeyboardFocus (true))
+                editor->grabKeyboardFocus();
+        juce::Slider::mouseDown (event);
+    }
+
+    // Enter while this control is focused or hovered types a value (the
+    // editor calls it for the hovered one; Fable U9). Set by the owner.
+    std::function<void()> onTypeValue;
+
     bool keyPressed (const juce::KeyPress& key) override
     {
+        if (key == juce::KeyPress::returnKey && onTypeValue != nullptr)
+        {
+            onTypeValue();
+            return true;
+        }
         const auto code = key.getKeyCode();
         const auto mods = key.getModifiers();
         const auto page = code == juce::KeyPress::pageUpKey || code == juce::KeyPress::pageDownKey;
@@ -845,7 +891,7 @@ public:
         if (claimed)
             return;
 
-        juce::Slider::mouseDown (event);
+        KeyboardSlider::mouseDown (event);
 
         // (a popup-menu press or a ctrl-click reset is not the start of a drag)
         dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
@@ -1131,6 +1177,7 @@ public:
             slider.setTitle (parameter->getName (64));
             slider.setDescription (describeParameter (parameterID));
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
+            slider.onTypeValue = [this] { showTypedValueBox(); };
 
             applyModulatableMark();
         }
@@ -3406,6 +3453,12 @@ public:
                 juce::ComboBox::mouseWheelMove (event, wheel);
         }
 
+        void mouseEnter (const juce::MouseEvent& event) override
+        {
+            noteHoverStart (*this);
+            juce::ComboBox::mouseEnter (event);
+        }
+
         bool keyPressed (const juce::KeyPress& key) override
         {
             if (nudgeOverride != nullptr)
@@ -4350,11 +4403,96 @@ private:
 // A compact bar-slider row for a card's list of switches (the sample's CROSSFADE): a rounded
 // box 16 units high, the share filled in the card's colour, the name on its left edge and the
 // value on its right, one drag or a double-click for the default.
+// The knob's conventions for the bar and value sliders (Fable U6): Ctrl-click
+// resets (as double-click does), and a right-click menu with Reset, Type a
+// value, Copy / Paste value and MIDI Learn. One undo step per edit.
+namespace SliderMenu
+{
+inline void showTypedValue (juce::Slider& slider, juce::RangedAudioParameter* parameter)
+{
+    auto* parent = slider.getParentComponent();
+    if (parameter == nullptr || parent == nullptr)
+        return;
+    auto* editor = new juce::TextEditor();
+    editor->setJustification (juce::Justification::centred);
+    editor->setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+    editor->setText (parameter->getCurrentValueAsText(), false);
+    editor->selectAll();
+    parent->addAndMakeVisible (editor);
+    editor->setBounds (slider.getBounds().withSizeKeepingCentre (juce::jmax (slider.getWidth(), 64), juce::jmax (slider.getHeight(), 22)));
+    juce::Component::SafePointer<juce::TextEditor> safe (editor);
+    const auto finish = [safe, parameter] (bool apply)
+    {
+        if (safe == nullptr)
+            return;
+        if (apply)
+        {
+            const auto value = parameter->getValueForText (safe->getText());
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+            parameter->endChangeGesture();
+        }
+        juce::MessageManager::callAsync ([safe] { delete safe.getComponent(); });
+    };
+    editor->onReturnKey = [finish] { finish (true); };
+    editor->onEscapeKey = [finish] { finish (false); };
+    editor->onFocusLost = [finish] { finish (true); };
+    editor->grabKeyboardFocus();
+}
+
+inline void show (juce::Slider& slider, juce::AudioProcessorValueTreeState& state, const juce::String& parameterId)
+{
+    auto* parameter = state.getParameter (parameterId);
+    auto* processor = dynamic_cast<IlanaSynthAudioProcessor*> (&state.processor);
+    if (parameter == nullptr)
+        return;
+    juce::PopupMenu menu;
+    menu.addItem (2000, "Reset to default  (double-click or Ctrl-click)");
+    menu.addItem (3500, "Type a value...");
+    menu.addSeparator();
+    menu.addItem (3000, "Copy value");
+    menu.addItem (3001, "Paste value", knobClipboard().isNotEmpty());
+    if (processor != nullptr)
+    {
+        menu.addSeparator();
+        addMidiLearnItems (menu, *processor, parameterId);
+    }
+    juce::Component::SafePointer<juce::Slider> safe (&slider);
+    menu.showMenuAsync (IlanaTheme::menuOptions (&slider), [safe, parameter, processor, parameterId] (int result)
+    {
+        if (safe == nullptr || result == 0)
+            return;
+        if (processor != nullptr && handleMidiLearnResult (result, *processor, parameterId))
+            return;
+        if (result == 3500)
+        {
+            showTypedValue (*safe, parameter);
+            return;
+        }
+        if (result == 3000)
+        {
+            knobClipboard() = juce::String (safe->getValue(), 6);
+            return;
+        }
+        if (processor != nullptr)
+            processor->beginEdit (result == 2000 ? "Reset " + parameter->getName (32) : "Paste " + parameter->getName (32));
+        parameter->beginChangeGesture();
+        if (result == 2000)
+            parameter->setValueNotifyingHost (parameter->getDefaultValue());
+        else if (result == 3001)
+            safe->setValue (knobClipboard().getDoubleValue(), juce::sendNotificationSync);
+        parameter->endChangeGesture();
+        if (processor != nullptr)
+            processor->endEdit();
+    });
+}
+} // namespace SliderMenu
+
 class BarSliderControl : public KeyboardSlider
 {
 public:
     BarSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID, const juce::String& nameText)
-        : name (nameText)
+        : name (nameText), apvts (state), parameterId (parameterID)
     {
         setSliderStyle (juce::Slider::LinearBar);
         setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
@@ -4362,7 +4500,9 @@ public:
 
         if (auto* parameter = state.getParameter (parameterID))
         {
-            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
+            shown = parameter;
+            onTypeValue = [this] { SliderMenu::showTypedValue (*this, shown); };
             const auto description = describeParameter (parameterID);
             setTitle (parameter->getName (64));
             setDescription (description);
@@ -4395,7 +4535,8 @@ public:
 
         // The name (or, while the pointer is on the bar or dragging, the value) centred in the bar
         // by its ink: the caps' middle on the bar's middle.
-        const auto text = isMouseOverOrDragging() ? juce::String (juce::roundToInt (getValue() * 100.0)) + "%" : name;
+        // The value in the parameter's own unit, as every knob shows it (was always "%").
+        const auto text = isMouseOverOrDragging() ? (shown != nullptr ? shown->getCurrentValueAsText() : juce::String (juce::roundToInt (getValue() * 100.0)) + "%") : name;
         const auto font = isMouseOverOrDragging() ? IlanaTheme::font (IlanaTheme::TextSize::packedLabel) : IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true).withKerningFactor (0.08f);
         g.setFont (font);
         g.setColour ((isMouseOverOrDragging() ? IlanaTheme::Ui::text : IlanaTheme::Ui::text3.interpolatedWith (IlanaTheme::Ui::text, share * 0.6f)).withMultipliedAlpha (alpha));
@@ -4409,8 +4550,18 @@ private:
     static constexpr float inkNudge = -0.75f; // (the font box sits the caps a little low)
     void mouseEnter (const juce::MouseEvent& e) override { KeyboardSlider::mouseEnter (e); repaint(); }
     void mouseExit (const juce::MouseEvent& e) override { KeyboardSlider::mouseExit (e); repaint(); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu())
+            SliderMenu::show (*this, apvts, parameterId);
+        else
+            KeyboardSlider::mouseDown (e);
+    }
 
     juce::String name;
+    juce::AudioProcessorValueTreeState& apvts;
+    juce::String parameterId;
+    juce::RangedAudioParameter* shown = nullptr;
     juce::Colour accent { juce::Colours::orange };
     std::unique_ptr<HeldSliderAttachment> attachment;
 };
@@ -4418,7 +4569,7 @@ private:
 class ValueSliderControl : public juce::Component
 {
 public:
-    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID) : parameterId (parameterID)
+    ValueSliderControl (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID) : parameterId (parameterID), slider (state, parameterID)
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 16);
@@ -4429,7 +4580,8 @@ public:
 
         if (auto* parameter = state.getParameter (parameterID))
         {
-            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
+            slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
+            slider.onTypeValue = [this, st = &state] { SliderMenu::showTypedValue (slider, st->getParameter (parameterId)); };
 
             const auto description = describeParameter (parameterID);
             slider.setTitle (parameter->getName (64));
@@ -4444,8 +4596,22 @@ public:
     const juce::String& getParameterId() const { return parameterId; }
 
 private:
+    // The knob's right-click menu (Fable U6).
+    struct MenuSlider : public KeyboardSlider
+    {
+        MenuSlider (juce::AudioProcessorValueTreeState& s, const juce::String& id) : state (s), parameterId (id) {}
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu())
+                SliderMenu::show (*this, state, parameterId);
+            else
+                KeyboardSlider::mouseDown (e);
+        }
+        juce::AudioProcessorValueTreeState& state;
+        juce::String parameterId;
+    };
     juce::String parameterId;
-    KeyboardSlider slider;
+    MenuSlider slider;
     std::unique_ptr<HeldSliderAttachment> attachment;
 };
 

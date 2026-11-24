@@ -50,6 +50,9 @@ python3 tools/check_doc_paths.py
 step "Layout literal ratchet"
 python3 tools/layout_literal_ratchet.py
 
+step "File length ratchet"
+python3 tools/file_length_ratchet.py
+
 step "GUI headers compile on their own"
 JOBS="$jobs" tools/check_headers.sh | tail -1
 
@@ -58,10 +61,23 @@ ILANA_CI=1 build/ilanaTableTest_artefacts/Release/ilanaTableTest | tee build/tab
 grep -q "ALL TESTS PASSED" build/table-test.txt
 
 step "FX plugin tests"
-build/ilanaFxTest_artefacts/Release/ilanaFxTest | tail -1
+# (On a failure the FAIL lines and the tail are printed, so the next agent
+# sees what broke without running it again: Fable workflow note.)
+build/ilanaFxTest_artefacts/Release/ilanaFxTest > build/fx-test.txt 2>&1 \
+    || { grep -E "FAIL" build/fx-test.txt | head -40; tail -20 build/fx-test.txt; exit 1; }
+tail -1 build/fx-test.txt
 
 step "UI tests"
-run_gui build/ilanaSnapshot_artefacts/Release/ilanaSnapshot --uitest | tail -1
+run_gui build/ilanaSnapshot_artefacts/Release/ilanaSnapshot --uitest > build/ui-test.txt 2>&1 \
+    || { grep -E "FAIL" build/ui-test.txt | head -40; tail -20 build/ui-test.txt; exit 1; }
+tail -1 build/ui-test.txt
+
+if [ "$all" = 1 ]; then
+    step "Idle CPU (no page repaints when nothing moves)"
+    run_gui build/ilanaSnapshot_artefacts/Release/ilanaSnapshot --idlecpu > build/idle-cpu.txt 2>&1 \
+        || { grep -E "FAIL|idle " build/idle-cpu.txt | head -40; exit 1; }
+    grep -E "^idle " build/idle-cpu.txt | sort -t: -k2 -rn | head -5
+fi
 
 step "Preset fingerprints"
 build/ilanaFingerprint_artefacts/Release/ilanaFingerprint build/fingerprints.csv > /dev/null

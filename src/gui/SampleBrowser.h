@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "ConfirmOverlay.h"
 #include "../dsp/OscillatorIds.h"
 #include "IlanaLookAndFeel.h"
 #include "SampleBrowserModel.h"
@@ -891,8 +892,7 @@ private:
         if (! entry.file.existsAsFile() || loadFile == nullptr || ! loadFile (entry.file))
         {
             const auto why = processorRef.getLastSampleError();
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load sample",
-                                                    why.isNotEmpty() ? why : "Could not load \"" + entry.file.getFileName() + "\".", juce::String(), this);
+            ConfirmOverlay::tell (this, "Load sample", why.isNotEmpty() ? why : "Could not load \"" + entry.file.getFileName() + "\".");
             return;
         }
 

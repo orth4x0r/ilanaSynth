@@ -146,6 +146,8 @@ set(ILANA_ENGINE_SOURCES
     src/dsp/WavetableDoc.cpp
     src/dsp/TableFactory.cpp
     src/dsp/Voice.cpp
+    src/dsp/VoiceRender.cpp
+    src/dsp/VoiceUpdate.cpp
     src/dsp/airwindows/Registry.cpp
 )
 # Absolute, so the engine libraries in cmake/engine can use the same list.

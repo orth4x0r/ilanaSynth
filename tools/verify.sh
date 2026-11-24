@@ -50,6 +50,9 @@ python3 tools/check_doc_paths.py
 step "Layout literal ratchet"
 python3 tools/layout_literal_ratchet.py
 
+step "File length ratchet"
+python3 tools/file_length_ratchet.py
+
 step "GUI headers compile on their own"
 JOBS="$jobs" tools/check_headers.sh | tail -1
 

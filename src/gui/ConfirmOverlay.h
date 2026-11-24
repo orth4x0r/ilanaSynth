@@ -220,12 +220,12 @@ public:
     // A message (an error, a result) inside the editor instead of a desktop
     // alert box, which neither followed the Interface size nor the skin and
     // could open away from the plugin window (Fable U10). Shown on the overlay
-    // of the editor `near` sits in, else the most recent editor's; with no
+    // of the editor `anchor` sits in, else the most recent editor's; with no
     // editor (a test tool) it falls back to the alert box.
-    static void tell (juce::Component* near, const juce::String& titleText, const juce::String& messageText)
+    static void tell (juce::Component* anchor, const juce::String& titleText, const juce::String& messageText)
     {
         ConfirmOverlay* overlay = nullptr;
-        for (auto* c = near; c != nullptr && overlay == nullptr; c = c->getParentComponent())
+        for (auto* c = anchor; c != nullptr && overlay == nullptr; c = c->getParentComponent())
             for (auto* child : c->getChildren())
                 if (auto* found = dynamic_cast<ConfirmOverlay*> (child))
                     overlay = found;
@@ -233,7 +233,7 @@ public:
             overlay = latest().getComponent();
         if (overlay == nullptr || overlay->isAsking())
         {
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, titleText, messageText, {}, near);
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, titleText, messageText, {}, anchor);
             return;
         }
         Choices choices;

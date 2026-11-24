@@ -185,7 +185,11 @@ int main()
 
         ++steps;
         // Let timers and async updates run, as the real message thread would.
+       #if JUCE_MODAL_LOOPS_PERMITTED
         juce::MessageManager::getInstance()->runDispatchLoopUntil (random.nextInt (3));
+       #else
+        juce::Thread::sleep (random.nextInt (3));
+       #endif
 
         if (juce::Time::getMillisecondCounterHiRes() - lastReport > 5000.0)
         {

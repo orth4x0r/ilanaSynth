@@ -236,7 +236,6 @@ private:
     float hostScaleFactor() const;
     bool hostIsStretching() const;
     juce::String scaleReadout() const;
-    void showStretchNotice();
     void dropAudioAnywhere (const juce::StringArray& files, juce::Point<int> at);
 
     // The hover line's own strip, between the pages and the source chips.
@@ -531,7 +530,7 @@ private:
     double transitionStart = 0.0;
     float presetLoadFlash = 0.0f;
     bool displayScaleApplied = false;
-    bool stretchNoticeShown = false;
+    void* sharpHostingContext = nullptr; // (Windows: the thread's DPI context while the experimental sharp hosting is on)
     float uiZoom = 1.0f;
     bool zoomNeedsSaving = false;
     int shownTableNoticeVersion = 0;

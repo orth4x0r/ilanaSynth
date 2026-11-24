@@ -815,8 +815,28 @@ public:
         setMouseClickGrabsKeyboardFocus (false);
     }
 
+    // A press hands the keys to the editor (not to this slider, so the note
+    // keys and Tab keep working): after turning a knob, Ctrl+Z and Ctrl+S are
+    // the synth's, not Live's (Fable U8).
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>())
+            if (! editor->hasKeyboardFocus (true))
+                editor->grabKeyboardFocus();
+        juce::Slider::mouseDown (event);
+    }
+
+    // Enter while this control is focused or hovered types a value (the
+    // editor calls it for the hovered one; Fable U9). Set by the owner.
+    std::function<void()> onTypeValue;
+
     bool keyPressed (const juce::KeyPress& key) override
     {
+        if (key == juce::KeyPress::returnKey && onTypeValue != nullptr)
+        {
+            onTypeValue();
+            return true;
+        }
         const auto code = key.getKeyCode();
         const auto mods = key.getModifiers();
         const auto page = code == juce::KeyPress::pageUpKey || code == juce::KeyPress::pageDownKey;
@@ -866,7 +886,7 @@ public:
         if (claimed)
             return;
 
-        juce::Slider::mouseDown (event);
+        KeyboardSlider::mouseDown (event);
 
         // (a popup-menu press or a ctrl-click reset is not the start of a drag)
         dragging = isEnabled() && ! event.mods.isPopupMenu() && ! (event.mods.withoutMouseButtons() == juce::ModifierKeys::ctrlModifier);
@@ -1152,6 +1172,7 @@ public:
             slider.setTitle (parameter->getName (64));
             slider.setDescription (describeParameter (parameterID));
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
+            slider.onTypeValue = [this] { showTypedValueBox(); };
 
             applyModulatableMark();
         }
@@ -4476,6 +4497,7 @@ public:
         {
             setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
             shown = parameter;
+            onTypeValue = [this] { SliderMenu::showTypedValue (*this, shown); };
             const auto description = describeParameter (parameterID);
             setTitle (parameter->getName (64));
             setDescription (description);
@@ -4554,6 +4576,7 @@ public:
         if (auto* parameter = state.getParameter (parameterID))
         {
             slider.setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()), juce::ModifierKeys::ctrlModifier);
+            slider.onTypeValue = [this, st = &state] { SliderMenu::showTypedValue (slider, st->getParameter (parameterId)); };
 
             const auto description = describeParameter (parameterID);
             slider.setTitle (parameter->getName (64));

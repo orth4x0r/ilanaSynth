@@ -113,6 +113,39 @@ float queryMonitorScale (void* nativeHandle)
     return juce::jlimit (1.0f, 3.0f, (float) dpiX / 96.0f);
 }
 
+// EXPERIMENTAL "sharp when the host stretches" (settings menu, off by
+// default): the window is created per-monitor aware with mixed DPI hosting
+// on, so Windows may draw it at native resolution inside a host window it
+// bitmap-stretches (Live's Auto-Scale on). Windows 10 1803 or later; the
+// thread goes back to the host's context once the window exists.
+void* enterSharpHosting()
+{
+    using SetThreadDpiAwarenessContextFn = void* (*) (void*);
+    using SetThreadDpiHostingBehaviorFn = int (*) (int);
+    auto* user32 = GetModuleHandleW (L"user32.dll");
+    if (user32 == nullptr)
+        return nullptr;
+    auto* setContext = (SetThreadDpiAwarenessContextFn) (void*) GetProcAddress (user32, "SetThreadDpiAwarenessContext");
+    auto* setHosting = (SetThreadDpiHostingBehaviorFn) (void*) GetProcAddress (user32, "SetThreadDpiHostingBehavior");
+    if (setContext == nullptr || setHosting == nullptr)
+        return nullptr;
+    setHosting (1 /*DPI_HOSTING_BEHAVIOR_MIXED*/);
+    return setContext ((void*) (juce::pointer_sized_int) -4 /*PER_MONITOR_AWARE_V2*/);
+}
+
+void leaveSharpHosting (void* previous)
+{
+    using SetThreadDpiAwarenessContextFn = void* (*) (void*);
+    using SetThreadDpiHostingBehaviorFn = int (*) (int);
+    auto* user32 = GetModuleHandleW (L"user32.dll");
+    if (user32 == nullptr || previous == nullptr)
+        return;
+    if (auto* setContext = (SetThreadDpiAwarenessContextFn) (void*) GetProcAddress (user32, "SetThreadDpiAwarenessContext"))
+        setContext (previous);
+    if (auto* setHosting = (SetThreadDpiHostingBehaviorFn) (void*) GetProcAddress (user32, "SetThreadDpiHostingBehavior"))
+        setHosting (0 /*DPI_HOSTING_BEHAVIOR_DEFAULT*/);
+}
+
 #endif
 } // namespace
 
@@ -349,6 +382,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
 
     themeIndex = juce::jlimit (0, IlanaTheme::numPalettes - 1, settings->getIntValue ("themeIndex", 0));
     IlanaAnim::fullMotion() = settings->getBoolValue ("fullMotion", IlanaAnim::fullMotion()); // (the snapshot tool turns it off first: still pictures)
+   #if defined (_WIN32)
+    if (settings->getBoolValue ("sharpWhenStretched", false))
+        sharpHostingContext = enterSharpHosting();
+   #endif
     lookAndFeel.setAccent (juce::Colour (IlanaTheme::palette[themeIndex]), juce::Colour (IlanaTheme::paletteSecond[themeIndex]));
 
     // The pages are built in this patch's colour coding.
@@ -1252,6 +1289,10 @@ void IlanaSynthAudioProcessorEditor::claimGlobalHooks()
 
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+   #if defined (_WIN32)
+    if (sharpHostingContext != nullptr)
+        leaveSharpHosting (sharpHostingContext);
+   #endif
     auto& editors = liveEditors();
     editors.erase (std::remove (editors.begin(), editors.end(), this), editors.end());
     routeBadgeWatch.stopTimer();
@@ -1365,13 +1406,6 @@ bool IlanaSynthAudioProcessorEditor::hostIsStretching() const
     return false;
 }
 
-void IlanaSynthAudioProcessorEditor::showStretchNotice()
-{
-    undoToast.showSticky ("Live is stretching this window (soft text, small menus): right-click its title bar, untick Auto-Scale Plug-In Window",
-                          "OK", [this] { undoToast.hide(); });
-    layoutUndoToast();
-}
-
 juce::String IlanaSynthAudioProcessorEditor::scaleReadout() const
 {
     auto monitor = 1.0f;
@@ -1451,19 +1485,19 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
     if (getPeer() == nullptr)
         return;
 
+    if (sharpHostingContext != nullptr)
+    {
+        leaveSharpHosting (sharpHostingContext);
+        sharpHostingContext = nullptr;
+    }
+
     displayScaleApplied = true;
 
     // No resize here any more: JUCE 8's peer already renders at the monitor's
     // scale when the host window is DPI aware, and when the host stretches an
     // unaware window nothing a plugin does can undo that. The old resize
     // multiplied the design by the monitor scale on top of the peer's, so a
-    // 100% window opened at 175% x 175% (Fable S2). When the host stretches,
-    // say how to turn it off instead.
-    if (hostIsStretching() && ! stretchNoticeShown)
-    {
-        stretchNoticeShown = true;
-        showStretchNotice();
-    }
+    // 100% window opened at 175% x 175% (Fable S2).
 
     // The device scale may differ from the one resized() saw (the peer did
     // not exist yet): snap the fonts again.
@@ -3416,8 +3450,7 @@ void IlanaSynthAudioProcessorEditor::exportPreset()
                                       // not write over the exported file afterwards).
                                       const auto target = file.withFileExtension ("ilanapreset");
                                       if (! safeThis->processorRef.writePresetCopy (target))
-                                          juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Export preset",
-                                                                                  "Couldn't write " + target.getFullPathName() + ".");
+                                          ConfirmOverlay::tell (nullptr, "Export preset", "Couldn't write " + target.getFullPathName() + ".");
 
                                       if (safeThis->presetPanel != nullptr)
                                           safeThis->presetPanel->refresh();
@@ -3989,6 +4022,10 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
    #if ILANA_VULKAN
     menu.addItem (340, "Vulkan rendering", true, vulkan != nullptr);
    #endif
+   #if defined (_WIN32)
+    menu.addItem (350, "Experimental: sharp when Live stretches the window (reopen the plugin)", true,
+                  settings->getBoolValue ("sharpWhenStretched", false));
+   #endif
     menu.addItem (500, "MPE mode (per-note pitch, pressure and slide)", true,
                   processorRef.apvts.getRawParameterValue ("mpe_mode")->load() > 0.5f);
     menu.addItem (510, "Multi-core voices (several threads, same sound)", true, read ("multi_core") > 0.5f);
@@ -4064,6 +4101,11 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                                 safeThis->settings->saveIfNeeded();
                             }
                            #endif
+                            else if (result == 350)
+                            {
+                                safeThis->settings->setValue ("sharpWhenStretched", ! safeThis->settings->getBoolValue ("sharpWhenStretched", false));
+                                safeThis->settings->saveIfNeeded();
+                            }
                             else if (result == 510)
                             {
                                 if (auto* multiCore = safeThis->processorRef.apvts.getParameter ("multi_core"))
@@ -4150,8 +4192,7 @@ void IlanaSynthAudioProcessorEditor::showSettingsMenu (bool tuningOnly)
                                                                         const auto loaded = mapping ? safeThis->processorRef.loadTuningMapping (text, error)
                                                                                                     : safeThis->processorRef.loadTuningScale (text, error);
                                                                         if (! loaded)
-                                                                            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                                                                                    "Could not load " + file.getFileName(), error, juce::String(), safeThis.getComponent());
+                                                                            ConfirmOverlay::tell (safeThis.getComponent(), "Could not load " + file.getFileName(), error);
                                                                     });
                             }
                             else if (result == 803)
@@ -4765,6 +4806,18 @@ bool IlanaSynthAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 
     if (saveOverlay.isShowing())
         return saveOverlay.keyPressed (key);
+
+    // Enter over a knob or slider types a value (Fable U9; double-click stays reset).
+    if (key == juce::KeyPress::returnKey && key.getModifiers().withoutMouseButtons() == juce::ModifierKeys())
+    {
+        const auto mouse = getMouseXYRelative();
+        for (auto* c = getComponentAt (mouse); c != nullptr && c != this; c = c->getParentComponent())
+            if (auto* slider = dynamic_cast<KeyboardSlider*> (c); slider != nullptr && slider->onTypeValue != nullptr)
+            {
+                slider->onTypeValue();
+                return true;
+            }
+    }
 
     if (key.getKeyCode() == juce::KeyPress::escapeKey && armedModSource() != 0)
     {

@@ -971,15 +971,23 @@ private:
 
             processorRef.beginEdit ("Filter " + juce::String (draggingFilter + 1) + " graph");
             beginGestures (draggingFilter);
+            fineMouse = lastMouse = event.position;
             applyDrag (event.position);
         }
     }
 
     void mouseDrag (const juce::MouseEvent& event) override
     {
-        if (draggingFilter >= 0)
-            applyDrag (event.position);
+        if (draggingFilter < 0)
+            return;
+        // Shift = fine (a fifth of the move), as on the knobs and mod rings (Fable U6).
+        const auto delta = event.position - lastMouse;
+        lastMouse = event.position;
+        fineMouse += event.mods.isShiftDown() ? delta * 0.2f : delta;
+        applyDrag (fineMouse);
     }
+
+    juce::Point<float> fineMouse, lastMouse;
 
     void mouseUp (const juce::MouseEvent&) override
     {

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "ConfirmOverlay.h"
 #include "../dsp/OscillatorIds.h"
 #include "../dsp/SamplePlayer.h"
 #include "IlanaLookAndFeel.h"
@@ -793,8 +794,7 @@ private:
             return true;
         }
 
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Add sample",
-                                                error.isNotEmpty() ? error : "Could not read " + file.getFileName() + ".", juce::String(), this);
+        ConfirmOverlay::tell (this, "Add sample", error.isNotEmpty() ? error : "Could not read " + file.getFileName() + ".");
         return false;
     }
 

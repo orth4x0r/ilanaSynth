@@ -1083,9 +1083,21 @@ inline void makePill (juce::Button& button, juce::Colour colour)
 // The one place that builds the options for a pop-up menu anchored to a component. Every menu
 // launch site goes through here, so a change to how menus open (parent, scale, renderer) is one edit.
 // Returns the options so a site can still chain .withMousePosition(), .withMinimumWidth() and so on.
+// Menus open inside the editor's zoomed content, as Vital's do (its
+// SinglePopupSelector is a child of the interface, not a window): they take
+// exactly the page's scale whatever the host does. As windows of their own
+// they came out at 1x, much smaller than the page, while Live's Auto-Scale
+// Plug-In Window bitmap-stretched the editor (ilana 2026-11-24: "i really
+// really want that fixed", "why can't we do it and vital can"). The cost, as
+// in Vital: a menu can't hang outside the plugin window.
 inline juce::PopupMenu::Options menuOptions (juce::Component* target)
 {
-    return juce::PopupMenu::Options().withTargetComponent (target);
+    auto options = juce::PopupMenu::Options().withTargetComponent (target);
+    if (target != nullptr)
+        for (auto* c = target; c != nullptr; c = c->getParentComponent())
+            if (c->getProperties().contains ("ilanaCalloutHost"))
+                return options.withParentComponent (c);
+    return options;
 }
 inline juce::PopupMenu::Options menuOptions (juce::Component& target) { return menuOptions (&target); }
 

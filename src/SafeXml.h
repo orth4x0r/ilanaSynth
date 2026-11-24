@@ -7,10 +7,14 @@
 // XmlDocument and ValueTree::fromXml recurse once per nesting level with no
 // limit, so a 200 KB file of nested tags overflowed the stack, and a preset
 // merely sitting in the folder crashed the browser's listing. Real files are
-// under ten levels deep and a few MB at most.
+// under ten levels deep and a few MB at most, except a patch with an embedded
+// sample: up to 64 MB of raw audio (maxEmbeddedSampleBytes), stored gzip +
+// base64, which grows to about 85 MB. The depth scan is the real guard; the
+// size cap only refuses absurd files, so it sits well above that (Fable P1/B2:
+// at 64 MB a Live set or preset with a long embedded sample would not load).
 namespace SafeXml
 {
-static constexpr juce::int64 maxBytes = 64 * 1024 * 1024;
+static constexpr juce::int64 maxBytes = 256 * 1024 * 1024;
 static constexpr int maxDepth = 256;
 
 // True when no element in the text nests deeper than maxDepth. A light scan:

@@ -454,7 +454,9 @@ std::vector<float> Wavetable::spectralBlendFrame (const float* a, const float* b
 {
     using Complex = std::complex<float>;
     constexpr auto bins = frameSize / 2;
-    const TableFFT fft ((int) std::log2 ((double) frameSize));
+    // (One per thread: TableFFT::perform writes its own scratch, so a static shared by every
+    // plugin instance would race the day a second thread calls this; Fable P2.)
+    static thread_local const TableFFT fft ((int) std::log2 ((double) frameSize));
     std::vector<Complex> time ((size_t) frameSize), spectrum ((size_t) frameSize);
     std::vector<Complex> spectrumA, spectrumB;
 

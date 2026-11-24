@@ -768,4 +768,30 @@ void runFxPatcherTests()
         check (swapStep < steadyStep * 3.0f + 0.02f,
                "changing the effect while playing does not click (largest step " + juce::String (swapStep, 4) + " vs " + juce::String (steadyStep, 4) + " steady)");
     }
+
+    // Copy / paste of an effect (PR #295, Fable P3): the copy takes the
+    // settings it was copied with, and the original keeps its own after both
+    // are edited, whichever card is in front.
+    {
+        IlanaSynthAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        const auto readTime = [&processor] (int slot)
+        {
+            processor.focusFxInstance (slot);
+            return processor.apvts.getRawParameterValue ("fx_delay_time")->load();
+        };
+        const auto original = processor.addFxEffect (delay);
+        set (processor, "fx_delay_time", 300.0f); // (ms)
+        const auto copied = processor.snapshotFxSlot (original);
+        set (processor, "fx_delay_time", 700.0f); // the original changes after the copy
+        const auto pasted = processor.addFxEffect (delay);
+        processor.applyFxSlotValues (pasted, copied);
+        const auto pastedTime = readTime (pasted);
+        const auto originalTime = readTime (original);
+        check (original >= 0 && pasted >= 0 && pasted != original
+                   && std::abs (pastedTime - 300.0f) < 0.5f && std::abs (originalTime - 700.0f) < 0.5f,
+               "a pasted effect keeps the copied settings and the original keeps its own (copy "
+                   + juce::String (pastedTime, 3) + ", original " + juce::String (originalTime, 3) + ")");
+    }
+
 }

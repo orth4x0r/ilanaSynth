@@ -71,6 +71,8 @@ public:
             slot.wantedMode = SpectralWarp::Off;
             slot.wantedBlend = false;
             slot.heardAmount = -1.0f;
+            slot.lastServed = nullptr;
+            slot.lastServedTable = -1;
             return base;
         }
 
@@ -119,9 +121,10 @@ public:
         }
 
         // Mid-rebuild of a different table or mode: keep what was playing if
-        // it's still this table, else the plain table. (A blended copy and the
-        // plain one have different frame counts, but the oscillator maps its
-        // frame position over whichever it gets, so either is safe to play.)
+        // it's still this table, else the plain table (a retired copy stays
+        // alive 3 seconds, so lastServed is safe to read). A blended copy and
+        // the plain one have different frame counts, but the oscillator maps its
+        // frame position over whichever it gets, so either is safe to play.
         return slot.lastServed != nullptr && slot.lastServedTable == tableChoice ? slot.lastServed : base;
     }
 

@@ -29,6 +29,7 @@ public:
     ~TableBrowser() override
     {
         restoreOriginal();
+        setLookAndFeel (nullptr);
     }
 
     TableBrowser (IlanaSynthAudioProcessor& p, juce::String parameterIdIn, juce::Colour colourIn)
@@ -93,21 +94,24 @@ public:
         {
             auto pick = onLibraryPick;
             const auto anchorArea = anchor;
+            juce::Component::SafePointer<juce::Component> hostParent (IlanaTheme::calloutParent (*this));
             if (auto* callOut = findParentComponentOfClass<juce::CallOutBox>())
                 callOut->dismiss();
             if (pick == nullptr)
                 return;
-            juce::MessageManager::callAsync ([pick, anchorArea]
+            juce::MessageManager::callAsync ([pick, anchorArea, hostParent]
             {
+                if (hostParent == nullptr)
+                    return;
                 auto files = std::make_shared<std::vector<juce::File>>();
                 juce::PopupMenu menu;
                 buildLibraryMenu (WavetableDoc::getLibraryFolder(), menu, *files);
                 if (files->empty())
                     menu.addItem (-1, "The library is empty: run tools/import_surge_wavetables.py or save tables from the editor", false);
-                menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (anchorArea),
-                                    [pick, files] (int result)
+                auto opts = IlanaTheme::menuOptions (hostParent.getComponent()).withTargetScreenArea (anchorArea);
+                menu.showMenuAsync (opts, [pick, files, hostParent] (int result)
                 {
-                    if (result >= libraryItemBase && (size_t) (result - libraryItemBase) < files->size())
+                    if (hostParent != nullptr && result >= libraryItemBase && (size_t) (result - libraryItemBase) < files->size())
                         pick ((*files)[(size_t) (result - libraryItemBase)]);
                 });
             });
@@ -694,11 +698,21 @@ private:
             BuiltInTables::build (choice - builtInBase()); // ready before the note
 
         parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
+        const auto gen = ++previewGen;
+        previewNoteActive = true;
         processorRef.triggerPreviewNote (60, true, 0.7f);
-        juce::Timer::callAfterDelay (700, [&processor = processorRef, life = processorRef.getLifetime()]
+        juce::Component::SafePointer<TableBrowser> safeThis (this);
+        juce::Timer::callAfterDelay (700, [&processor = processorRef, life = processorRef.getLifetime(), safeThis, gen]
                                      {
                                          if (const auto alive = life.lock()) // (the plug-in may be gone by now)
-                                             processor.triggerPreviewNote (60, false);
+                                         {
+                                             if (safeThis == nullptr || safeThis->previewGen == gen)
+                                             {
+                                                 processor.triggerPreviewNote (60, false);
+                                                 if (safeThis != nullptr)
+                                                     safeThis->previewNoteActive = false;
+                                             }
+                                         }
                                      });
         content.repaint();
     }
@@ -706,6 +720,13 @@ private:
     // Leaving without picking (or HEAR off) puts the old table back.
     void restoreOriginal()
     {
+        if (previewNoteActive)
+        {
+            ++previewGen;
+            previewNoteActive = false;
+            processorRef.triggerPreviewNote (60, false);
+        }
+
         if (! hasOriginal)
             return;
 
@@ -808,4 +829,6 @@ private:
     juce::Rectangle<int> chipRow;
     float scale = 1.0f;
     juce::String lastPack;
+    int previewGen = 0;
+    bool previewNoteActive = false;
 };

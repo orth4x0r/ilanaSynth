@@ -408,6 +408,9 @@ float VectorPage::readParam (const juce::String& id) const
 
 void VectorPage::timerCallback ()
 {
+    if (! isVisible())
+        return;
+
     // A corner menu names an oscillator the patch hasn't added as such
     // (the pad's caption says "none"; UI review 9, I9-17).
     auto shown = 0;

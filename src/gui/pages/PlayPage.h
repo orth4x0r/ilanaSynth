@@ -67,6 +67,7 @@ public:
     void paint (juce::Graphics& g) override;
 
     void mouseDown (const juce::MouseEvent& event) override;
+    int optionAt (juce::Point<int> point) const;
 
 private:
     // Each pill as wide as its word; the leftover width shared out evenly.
@@ -229,6 +230,7 @@ public:
     IlanaAnim::MorphSource shapeMorph { *this }; // (its old shape fades out over a new one)
 
     ParamPicture (IlanaSynthAudioProcessor& p, std::vector<juce::String> idsIn, const juce::String& tip);
+    ~ParamPicture() override { endDrag(); }
 
     // (UI review 31, 29) The picture is a control too, as the filter, envelope and LFO graphs beside it: drag across
     // for one of its card's two main knobs, up or down for the other (one drag, one undo step), Shift for fine;
@@ -355,6 +357,11 @@ class BalanceSlider : public juce::Component,
 {
 public:
     BalanceSlider (juce::AudioProcessorValueTreeState& state, const juce::String& id);
+    ~BalanceSlider() override
+    {
+        if (dragging)
+            attachment.endGesture();
+    }
 
     void setColour (juce::Colour newColour);
 
@@ -362,9 +369,30 @@ public:
 
     void mouseDown (const juce::MouseEvent& event) override;
 
-    void mouseDrag (const juce::MouseEvent& event) override { dragTo (event.position.x); }
-    void mouseUp (const juce::MouseEvent&) override { attachment.endGesture(); }
-    void mouseDoubleClick (const juce::MouseEvent&) override { attachment.setValueAsCompleteGesture (parameter.convertFrom0to1 (parameter.getDefaultValue())); }
+    void mouseDrag (const juce::MouseEvent& event) override
+    {
+        if (dragging)
+            dragTo (event.position.x);
+    }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragging)
+        {
+            attachment.endGesture();
+            dragging = false;
+        }
+    }
+    void mouseDoubleClick (const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu())
+            return;
+        if (dragging)
+        {
+            attachment.endGesture();
+            dragging = false;
+        }
+        attachment.setValueAsCompleteGesture (parameter.convertFrom0to1 (parameter.getDefaultValue()));
+    }
 
 private:
     static constexpr float labelWidth = 14.0f;
@@ -376,6 +404,7 @@ private:
     juce::RangedAudioParameter& parameter;
     juce::ParameterAttachment attachment;
     juce::Colour colour = IlanaTheme::Ui::text2;
+    bool dragging = false;
 };
 
 // The OSC area's thin scroll bar: a track and a thumb that read on the dark page.

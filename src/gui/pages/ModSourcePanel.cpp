@@ -230,6 +230,16 @@ void SourceRouteList::mouseUp (const juce::MouseEvent&)
 
 void SourceRouteList::mouseDoubleClick (const juce::MouseEvent& event)
 {
+    if (editing)
+    {
+        processorRef.endEdit();
+        editing = false;
+        dragRow = -1;
+    }
+
+    if (event.mods.isPopupMenu())
+        return;
+
     const auto row = rowAt (event.getPosition());
     if (row < 0 || event.x < rowArea (row).getX() + nameWidth (rowArea (row)))
         return;
@@ -279,18 +289,35 @@ void SourceRouteList::updateHover (juce::Point<int> position)
 void SourceRouteList::showMenu (int slot)
 {
     const auto routing = processorRef.readModSlot (slot);
+    const auto stereoAllowed = Mod::canBeStereoAnywhere (routing.destination);
     juce::PopupMenu menu;
     menu.addSectionHeader (ModNames::destination (routing.destination, processorRef));
+    menu.addItem (11, "Unipolar", true, routing.polarity == Mod::Polarity::Unipolar);
+    menu.addItem (12, "Negative", true, routing.polarity == Mod::Polarity::Negative);
+    menu.addItem (13, "Bipolar", true, routing.polarity == Mod::Polarity::Bipolar);
+    menu.addItem (14, "Auto", true, routing.polarity == Mod::Polarity::Natural);
+    menu.addSeparator();
+    menu.addItem (15, "Stereo", stereoAllowed, routing.stereo && stereoAllowed);
+    menu.addSeparator();
     menu.addItem (1, "Bypass", true, routing.bypass);
     menu.addItem (2, "Open in MATRIX");
     menu.addItem (3, "Remove");
     juce::Component::SafePointer<SourceRouteList> safeThis (this);
-    menu.showMenuAsync (IlanaTheme::menuOptions (this), [safeThis, slot, bypass = routing.bypass] (int result)
+    menu.showMenuAsync (IlanaTheme::menuOptions (this), [safeThis, slot, bypass = routing.bypass, stereo = routing.stereo] (int result)
     {
-        if (safeThis == nullptr)
+        if (safeThis == nullptr || result <= 0)
             return;
         auto& p = safeThis->processorRef;
-        if (result == 1)
+        if (result >= 11 && result <= 14)
+        {
+            const Mod::Polarity choices[] { Mod::Polarity::Unipolar, Mod::Polarity::Negative,
+                                            Mod::Polarity::Bipolar, Mod::Polarity::Natural };
+            const auto choice = (int) choices[result - 11];
+            p.performEdit ("Modulation polarity", [&p, slot, choice] { p.setModSlotValue (slot, "pol", (float) choice); });
+        }
+        else if (result == 15)
+            p.performEdit ("Stereo modulation", [&p, slot, stereo] { p.setModSlotValue (slot, "stereo", stereo ? 0.0f : 1.0f); });
+        else if (result == 1)
             p.performEdit (bypass ? "Enable modulation" : "Bypass modulation",
                            [&p, slot, bypass] { p.setModSlotValue (slot, "byp", bypass ? 0.0f : 1.0f); });
         else if (result == 2 && ModNames::openMatrixRow() != nullptr)

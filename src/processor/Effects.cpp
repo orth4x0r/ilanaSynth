@@ -1746,8 +1746,10 @@ void IlanaSynthAudioProcessor::FxEngine::processTapeStop (juce::AudioBuffer<floa
         tapeStopWrite = (tapeStopWrite + 1) % size;
         tapeStopRead += (double) tapeStopRate;
 
-        while (tapeStopRead >= (double) size)
-            tapeStopRead -= (double) size;
+        if (! std::isfinite (tapeStopRead))
+            tapeStopRead = 0.0;
+        else if (tapeStopRead >= (double) size || tapeStopRead < 0.0)
+            tapeStopRead = std::fmod (std::fmod (tapeStopRead, (double) size) + (double) size, (double) size);
     }
 }
 

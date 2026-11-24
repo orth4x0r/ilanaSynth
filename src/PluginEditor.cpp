@@ -639,6 +639,10 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
             settings->saveIfNeeded();
         }
 
+        const auto alpha = scopePanel->isVisible() && docked ? 0.45f : 1.0f;
+        tabs.getTabbedButtonBar().setAlpha (alpha);
+        for (auto* section : sections)
+            section->switcher.setAlpha (alpha);
         resized();
     };
     scopeButton.setClickingTogglesState (true);
@@ -1191,6 +1195,7 @@ void IlanaSynthAudioProcessorEditor::openZoneEditor (int oscIndex, juce::Colour 
     closeZoneEditor();
     closeWavetableEditor();
     zoneEditor = std::make_unique<ZoneMapEditor> (processorRef, oscIndex, colour);
+    zoneEditor->onUndoRedo = [this] (bool redo) { undoOrRedo (redo); };
     zoneEditor->onClose = [safe = juce::Component::SafePointer<IlanaSynthAudioProcessorEditor> (this)]
     {
         if (safe != nullptr)
@@ -1266,6 +1271,7 @@ void IlanaSynthAudioProcessorEditor::keepOwnHooks()
     ownHooks.openPitchAndLfo = FmOperatorInfo::hooks().openPitchAndLfo;
     ownHooks.armedChanged = armedModSourceChanged();
     ownHooks.tableSettings = tableBrowserSettings();
+    liveEditors().push_back (this);
     hookOwner() = this;
 }
 
@@ -1287,6 +1293,15 @@ void IlanaSynthAudioProcessorEditor::claimGlobalHooks()
 
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
+   #if defined (_WIN32)
+    if (previousDpiContext != nullptr)
+    {
+        setThreadDpiContext (previousDpiContext);
+        previousDpiContext = nullptr;
+    }
+   #endif
+    auto& editors = liveEditors();
+    editors.erase (std::remove (editors.begin(), editors.end(), this), editors.end());
     routeBadgeWatch.stopTimer();
     removeMouseListener (&hookClaimer);
     juce::PopupMenu::dismissAllActiveMenus(); // (their items call into this editor)
@@ -1313,6 +1328,8 @@ IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
         FilterFlow::openRouting() = nullptr;
         tableBrowserSettings() = nullptr;
         hookOwner() = nullptr;
+        if (! editors.empty())
+            editors.back()->claimGlobalHooks();
     }
     if (const auto page = getCurrentPageId(); page.isNotEmpty())
         processorRef.lastViewPage = page;
@@ -1336,7 +1353,11 @@ void IlanaSynthAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadca
         setPresetDockShown (false);
 
     closeWavetableEditor();
+    closeZoneEditor();
     closeSampleBrowser();
+    for (int i = getNumChildComponents(); --i >= 0;)
+        if (auto* callOut = dynamic_cast<juce::CallOutBox*> (getChildComponent (i)))
+            callOut->dismiss();
 
     layoutTabRow();
 
@@ -1478,8 +1499,10 @@ void IlanaSynthAudioProcessorEditor::applyDisplayScale()
     if (getHeight() > totalDesignHeight() + 20)
         return;
 
-    setResizeLimits (juce::roundToInt ((float) currentDesignWidth() * 0.75f * scale), juce::roundToInt (540.0f * scale),
-                     juce::roundToInt ((float) currentDesignWidth() * 1.5f * scale), juce::roundToInt (1080.0f * scale));
+    setResizeLimits (juce::roundToInt ((float) currentDesignWidth() * 0.75f * scale),
+                     juce::roundToInt ((float) totalDesignHeight() * 0.75f * scale),
+                     juce::roundToInt ((float) currentDesignWidth() * 2.0f * scale),
+                     juce::roundToInt ((float) totalDesignHeight() * 2.0f * scale));
 
     if (auto* boundsConstrainer = getConstrainer())
         boundsConstrainer->setFixedAspectRatio ((double) currentDesignWidth() / (double) totalDesignHeight());
@@ -3150,7 +3173,7 @@ void IlanaSynthAudioProcessorEditor::updateOffSwitchGlow()
             return &parent;
         };
         auto* top = deepest (*under, under->getMouseXYRelative());
-        if (top == offGlowUnder.getComponent())
+        if (top == offGlowUnder.getComponent() && (offGlowSwitch == nullptr || ! offGlowSwitch->isOn()))
             return;
         offGlowUnder = top;
 
@@ -3181,7 +3204,7 @@ void IlanaSynthAudioProcessorEditor::updateOffSwitchGlow()
                 if (module == "subosc")
                     return subOscOwn || id.startsWith ("subosc_");
                 if (module == "res")
-                    return id.startsWith ("body_");
+                    return id.startsWith ("body_") || id.startsWith ("res_");
                 return ! (module == "sub" && subOscOwn) && id.startsWith (module + "_");
             };
             std::function<void (juce::Component&)> find = [&] (juce::Component& parent)
@@ -3479,6 +3502,8 @@ void IlanaSynthAudioProcessorEditor::loadPresetFile (const juce::File& file)
                                auto& processor = safeThis->processorRef;
                                safeThis->closeWavetableEditor(); // it works on the old patch's table
                                IlanaAnim::armMorphs(); // (as a load from the browser)
+                               safeThis->closeZoneEditor();
+                               safeThis->closeSampleBrowser();
                                processor.beginEdit ("Load " + file.getFileNameWithoutExtension());
                                const auto keptRack = FxPage::keepRackOnPresetLoad() ? processor.makeFxChainXml() : nullptr;
                                const auto loaded = processor.loadPresetFromFile (file);
@@ -3529,6 +3554,8 @@ void IlanaSynthAudioProcessorEditor::loadPresetIndex (int index, std::function<v
             // One undo step for the whole preset, its data included.
             auto& self = *safeThis;
             self.closeWavetableEditor(); // it works on the old patch's table
+            self.closeZoneEditor();
+            self.closeSampleBrowser();
             IlanaAnim::armMorphs(); // (the old shapes fade out over the new ones)
             self.processorRef.beginEdit ("Load " + name);
             // KEEP FX (FX page): the rack as it was goes back over the preset's.
@@ -3697,6 +3724,8 @@ void IlanaSynthAudioProcessorEditor::toggleFavourite()
 void IlanaSynthAudioProcessorEditor::toggleAB()
 {
     closeWavetableEditor(); // the other patch has its own tables
+    closeZoneEditor();
+    closeSampleBrowser();
 
     // The whole patch, not just the parameters: tables, samples, mod remaps,
     // the FX patch, clips, tuning and the preset name go with each slot.
@@ -3740,6 +3769,8 @@ void IlanaSynthAudioProcessorEditor::copyAB (bool aToB)
             return;
 
         closeWavetableEditor(); // the other patch has its own tables
+        closeZoneEditor();
+        closeSampleBrowser();
         processorRef.restoreWholePatch (from);
         processorRef.easeNextBlock();
         (aToB ? slotB : slotA) = from;
@@ -3765,6 +3796,11 @@ void IlanaSynthAudioProcessorEditor::setTheme (int newThemeIndex)
     }
 
     sendLookAndFeelChange();
+    if (scopeWindow != nullptr)
+    {
+        scopeWindow->sendLookAndFeelChange();
+        scopeWindow->repaint();
+    }
 }
 
 // The preset's own level (output_trim, review 7): each factory preset sets
@@ -3847,7 +3883,9 @@ void IlanaSynthAudioProcessorEditor::resetPresetLevel()
     if (auto* trim = processorRef.apvts.getParameter ("output_trim"))
     {
         processorRef.beginEdit ("Reset preset level");
+        trim->beginChangeGesture();
         trim->setValueNotifyingHost (trim->getDefaultValue());
+        trim->endChangeGesture();
         processorRef.endEdit();
         updateMasterTooltip();
     }
@@ -4231,8 +4269,17 @@ void IlanaSynthAudioProcessorEditor::createPresetPanel()
 
         if (dock)
         {
-            presetPanel->setVisible (false);
-            setPresetDockShown (true);
+            if (presetDockShown)
+            {
+                presetPanel->setDocked (true);
+                presetPanel->open();
+                resized();
+            }
+            else
+            {
+                presetPanel->setVisible (false);
+                setPresetDockShown (true);
+            }
         }
         else
         {

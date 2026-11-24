@@ -644,7 +644,7 @@ float IlanaSynthAudioProcessor::readParam (const ParamCacheEntry& entry) const
     if (entry.discrete)
         result = std::round (result);
 
-    if (thread.reading && anyParamModulation && entry.destination >= 0)
+    if (thread.reading && anyParamModulation && juce::isPositiveAndBelow (entry.destination, maxDestinations))
     {
         const auto offset = paramDestinationOffsets[(size_t) entry.destination];
 
@@ -777,6 +777,9 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     // the first audio block.
     (void) Mod::extendedFmCellFor (0);
     (void) Mod::spectralOscFor (0);
+    (void) Mod::StereoString::targetFor (0);
+    (void) BuiltInTables::anyWanted();
+    (void) OscTuning::snapSet (1);
     (void) voiceKnobOffsetFor (0);
     (void) Filters2::Acid303::tuningFor (1.0); // the 303 filter's phase grid
 
@@ -811,7 +814,7 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     clockShValue = 0.0f;
 
     // The effects' memory: the shared engine and every slot's own instance.
-    prepareFxEngines (sampleRate, samplesPerBlock);
+    prepareFxEngines (sampleRate, expectedBlockSize);
     {
         const juce::ScopedLock edit (fxEditLock);
         fxRackRunner->prepare (sampleRate, expectedBlockSize, 2);
@@ -1234,9 +1237,9 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         return;
     }
 
-    // (The FX build writes the live input into buffers that prepareToPlay
-    // sizes: a block before it is silence.)
-    if (isEffectBuild && ! prepared.load (std::memory_order_acquire))
+    // A block before prepareToPlay (or a 0-channel buffer): output silence
+    // instead of indexing unallocated scratch/LFO buffers.
+    if (! prepared.load (std::memory_order_acquire) || buffer.getNumChannels() == 0)
     {
         buffer.clear();
         midiMessages.clear();
@@ -1271,7 +1274,7 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const auto length = juce::jmin (expectedBlockSize, total - start);
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
         chunkMidi.clear();
-        chunkMidi.addEvents (midiMessages, start, length, -start);
+        chunkMidi.addEvents (midiMessages, start, start + length >= total ? -1 : length, -start);
         chunkOffsetSamples = start;
         processChunk (chunk, chunkMidi);
     }
@@ -1389,12 +1392,25 @@ bool IlanaSynthAudioProcessor::startSamplePreview (const juce::File& file)
     clip->gain = SampleBrowserModel::previewGain (level.rms, level.peak);
     previewGain.store (clip->gain);
 
+    std::vector<std::shared_ptr<PreviewClip>> garbage;
     {
         const juce::SpinLock::ScopedLockType lock (previewLock);
-        previewRetired[(size_t) previewRetiredIndex] = std::move (previewPending);
-        previewRetiredIndex = (previewRetiredIndex + 1) % (int) previewRetired.size();
+        if (previewPending != nullptr)
+            previewRetired.push_back (std::move (previewPending));
         previewPending = std::move (clip);
         previewSerial.fetch_add (1, std::memory_order_release);
+        for (auto it = previewRetired.begin(); it != previewRetired.end();)
+        {
+            if (it->use_count() <= 1)
+            {
+                garbage.push_back (std::move (*it));
+                it = previewRetired.erase (it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     return true;
@@ -1402,21 +1418,42 @@ bool IlanaSynthAudioProcessor::startSamplePreview (const juce::File& file)
 
 void IlanaSynthAudioProcessor::stopSamplePreview()
 {
-    const juce::SpinLock::ScopedLockType lock (previewLock);
-    if (previewPending == nullptr)
-        return;
+    std::vector<std::shared_ptr<PreviewClip>> garbage;
+    {
+        const juce::SpinLock::ScopedLockType lock (previewLock);
+        if (previewPending == nullptr)
+            return;
 
-    previewRetired[(size_t) previewRetiredIndex] = std::move (previewPending);
-    previewRetiredIndex = (previewRetiredIndex + 1) % (int) previewRetired.size();
-    previewPending = nullptr;
-    previewGain.store (1.0f);
-    previewSerial.fetch_add (1, std::memory_order_release);
+        previewRetired.push_back (std::move (previewPending));
+        previewPending = nullptr;
+        previewGain.store (1.0f);
+        previewSerial.fetch_add (1, std::memory_order_release);
+        for (auto it = previewRetired.begin(); it != previewRetired.end();)
+        {
+            if (it->use_count() <= 1)
+            {
+                garbage.push_back (std::move (*it));
+                it = previewRetired.erase (it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
 }
 
 void IlanaSynthAudioProcessor::captureLiveInput (juce::AudioBuffer<float>& buffer)
 {
     const auto numSamples = juce::jmin (buffer.getNumSamples(), liveDry.getNumSamples());
     const auto inputs = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
+    if (inputs <= 0)
+    {
+        liveDry.clear();
+        liveInputSamples = 0;
+        buffer.clear();
+        return;
+    }
     for (int channel = 0; channel < 2; ++channel)
         liveDry.copyFrom (channel, 0, buffer, juce::jmin (channel, inputs - 1), 0, numSamples);
     liveInputSamples = numSamples;
@@ -1576,6 +1613,9 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         clipActive.clear();
         clipRunning = clipUsedHost = false;
         noteSpray.reset();
+        liveGateOpen = false;
+        liveGateNote = -1;
+        liveRetrigger.store (false);
         clearPostVoiceMemory();
     }
 
@@ -1745,12 +1785,13 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         }
     }
 
-    if (displayFrequency.load() > 0.0f)
+    if (displayFrequency.load() > 0.0f && currentSampleRate > 0.0)
     {
         auto phase = displayPhase.load() + displayFrequency.load() / (float) currentSampleRate * (float) buffer.getNumSamples();
-
-        while (phase >= 1.0f)
-            phase -= 1.0f;
+        if (! std::isfinite (phase))
+            phase = 0.0f;
+        else if (phase >= 1.0f || phase < 0.0f)
+            phase -= std::floor (phase);
 
         displayPhase.store (phase);
     }
@@ -2334,7 +2375,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         float* upChannels[2] { upBlock.getChannelPointer (0),
                                upBlock.getNumChannels() > 1 ? upBlock.getChannelPointer (1)
                                                             : upBlock.getChannelPointer (0) };
-        juce::AudioBuffer<float> upBuffer (upChannels, (int) upBlock.getNumChannels(), (int) upBlock.getNumSamples());
+        juce::AudioBuffer<float> upBuffer (upChannels, juce::jmin (2, (int) upBlock.getNumChannels()), (int) upBlock.getNumSamples());
 
         scaledMidiBuffer.clear();
 

@@ -1429,8 +1429,9 @@ void PatchPage::copyEffects (const std::vector<PatchGraph::NodeId>& ids)
     for (const auto id : ids)
         if (const auto* node = shown.find (id); node != nullptr && slotOf (node) >= 0 && ! isLfo (*node))
         {
+            const auto slot = slotOf (node);
             index[id] = (int) copied.boxes.size();
-            copied.boxes.push_back ({ slotOf (node), node->kind, { node->x, node->y } });
+            copied.boxes.push_back ({ slot, node->kind, { node->x, node->y }, processorRef.snapshotFxSlot (slot) });
         }
     if (copied.boxes.empty())
         return;
@@ -1491,10 +1492,13 @@ void PatchPage::pasteEffects (juce::Point<float> at)
         const auto before = processorRef.getFxPatchGraph();
         for (const auto& box : clip.boxes)
         {
-            // (The copy takes the original's settings when it is still there: its card in front first.)
-            if (read ("fx_slot" + juce::String (box.slot + 1)) == (float) box.type && ! processorRef.isFxSlotInFront (box.slot))
+            // (The copy takes its snapshotted settings even if the source slot moved or was removed.)
+            if (box.values.empty() && read ("fx_slot" + juce::String (box.slot + 1)) == (float) box.type && ! processorRef.isFxSlotInFront (box.slot))
                 processorRef.focusFxInstance (box.slot);
-            added.push_back (processorRef.addFxEffect (box.type));
+            const auto addedSlot = processorRef.addFxEffect (box.type);
+            if (addedSlot >= 0 && ! box.values.empty())
+                processorRef.applyFxSlotValues (addedSlot, box.values);
+            added.push_back (addedSlot);
         }
         // The cables as they were, and the copies' own between them: nothing else is wired.
         auto graph = processorRef.getFxPatchGraph();
@@ -1600,7 +1604,7 @@ void PatchPage::openWindow (int slot)
     if (node == nullptr)
         return;
     for (auto& window : windows)
-        if (window->slot == slot)
+        if (window->slot == slot && window->isVisible())
         {
             window->toFront (false);
             return;
@@ -1721,36 +1725,40 @@ void PatchPage::openSelected ()
 
 void PatchPage::addNodeItems (juce::PopupMenu& menu, const PatchGraph::Node& node)
 {
+    juce::Component::SafePointer<PatchPage> safeThis (this);
     if (isLfo (node))
     {
-        menu.addItem ("Open its window", [this, id = lfoOf (node)] { openLfoWindow (id); });
+        menu.addItem ("Open its window", [safeThis, id = lfoOf (node)] { if (safeThis != nullptr) safeThis->openLfoWindow (id); });
         return;
     }
     if (isVoice (node))
     {
         const auto kind = localKind (node);
-        menu.addItem ("Edit on PLAY", [this, node] { open (node); });
+        menu.addItem ("Edit on PLAY", [safeThis, node] { if (safeThis != nullptr) safeThis->open (node); });
         if (kind != stageKind + VoiceRouting::f1 && kind != stageKind + VoiceRouting::f2)
-            menu.addItem ("Remove its cables", [this, id = node.id]
+            menu.addItem ("Remove its cables", [safeThis, id = node.id]
             {
-                for (const auto& cable : std::vector<PatchGraph::Cable> (shown.cables()))
+                if (safeThis == nullptr)
+                    return;
+                for (const auto& cable : std::vector<PatchGraph::Cable> (safeThis->shown.cables()))
                     if (cable.from.node == id)
-                        shown.disconnect (cable.from, cable.to);
-                commit (PatchCableView::Edit::cables);
+                        safeThis->shown.disconnect (cable.from, cable.to);
+                safeThis->commit (PatchCableView::Edit::cables);
             });
         return;
     }
     const auto slot = slotOf (&node);
     if (slot < 0)
         return;
-    menu.addItem ("Open its window", [this, slot] { openWindow (slot); });
-    menu.addItem ("Edit on the RACK page", [this, slot] { if (onOpenSlot) onOpenSlot (slot); });
-    menu.addItem ("Duplicate (its own settings)", ! rackFull(), false, [this, slot] { duplicateEffect (slot); });
+    menu.addItem ("Open its window", [safeThis, slot] { if (safeThis != nullptr) safeThis->openWindow (slot); });
+    menu.addItem ("Edit on the RACK page", [safeThis, slot] { if (safeThis != nullptr && safeThis->onOpenSlot) safeThis->onOpenSlot (slot); });
+    menu.addItem ("Duplicate (its own settings)", ! rackFull(), false, [safeThis, slot] { if (safeThis != nullptr) safeThis->duplicateEffect (slot); });
 }
 
 void PatchPage::addEffectItems (juce::PopupMenu& menu, juce::Point<float> at)
 {
-    menu.addItem ("Add an LFO here", (int) lfoPatch.lfos.size() < FxLfo::maxLfos, false, [this, at] { addLfo (at); });
+    juce::Component::SafePointer<PatchPage> safeThis (this);
+    menu.addItem ("Add an LFO here", (int) lfoPatch.lfos.size() < FxLfo::maxLfos, false, [safeThis, at] { if (safeThis != nullptr) safeThis->addLfo (at); });
     menu.addSeparator();
     if (rackFull())
     {
@@ -1762,17 +1770,19 @@ void PatchPage::addEffectItems (juce::PopupMenu& menu, juce::Point<float> at)
         juce::PopupMenu sub;
         for (const auto& entry : group.entries)
         {
-            const auto add = [this, at] (int type, const juce::String& name)
+            const auto add = [safeThis, at] (int type, const juce::String& name)
             {
+                if (safeThis == nullptr)
+                    return;
                 auto added = -1;
-                processorRef.performEdit ("Add " + name, [this, type, at, &added]
+                safeThis->processorRef.performEdit ("Add " + name, [safeThis, type, at, &added]
                 {
-                    playRackAsCables();
-                    added = processorRef.addFxEffect (type);
+                    safeThis->playRackAsCables();
+                    added = safeThis->processorRef.addFxEffect (type);
                     if (added >= 0)
-                        placeNodeNow (added, at); // (inside the edit, so redo keeps the place)
+                        safeThis->placeNodeNow (added, at); // (inside the edit, so redo keeps the place)
                 });
-                refresh (true);
+                safeThis->refresh (true);
             };
             sub.addItem (entry.name, [add, type = entry.type, name = juce::String (entry.name)] { add (type, name); });
             if (entry.twin > 0)
@@ -1817,12 +1827,23 @@ bool PatchPage::addFromCarousel (const FxCarousel::Tile& tile, std::optional<juc
         }
     });
     if (added < 0)
+    {
+        carouselDrag = false;
         return false;
+    }
     refresh (true);
     if (at.has_value())
+    {
         for (const auto& node : shown.nodes())
             if (node.ref == added + 1 && ! node.isFixed() && ! isVoice (node))
-                return view.beginNodeDrag (node.id);
+            {
+                if (view.beginNodeDrag (node.id))
+                    return true;
+                break;
+            }
+        carouselDrag = false;
+        return false;
+    }
     return true;
 }
 
@@ -2290,44 +2311,54 @@ void PatchPage::addKnobLfoItems (juce::PopupMenu& menu, int slot, const juce::St
         const auto name = fxLfoName (id);
         const auto route = std::find_if (patch.lfoRoutes.begin(), patch.lfoRoutes.end(), [&] (const FxPatchData::LfoRoute& r)
                                          { return r.lfo == id && r.slot == slot && r.param == param; });
+        juce::Component::SafePointer<PatchPage> safeThis (this);
         if (route == patch.lfoRoutes.end())
         {
-            menu.addItem ("Assign to " + name, [this, id, slot, param, name]
+            menu.addItem ("Assign to " + name, [safeThis, id, slot, param, name]
             {
-                processorRef.performEdit ("Assign to " + name, [this, id, slot, param] { processorRef.assignFxLfo (id, slot, param, true, 0.5f); });
-                refresh (true);
+                if (safeThis == nullptr)
+                    return;
+                safeThis->processorRef.performEdit ("Assign to " + name, [safeThis, id, slot, param] { safeThis->processorRef.assignFxLfo (id, slot, param, true, 0.5f); });
+                safeThis->refresh (true);
             });
             continue;
         }
         juce::PopupMenu amounts;
         for (const auto percent : { 100, 50, 25, -25, -50, -100 })
-            amounts.addItem (juce::String (percent) + "%", true, juce::roundToInt (route->amount * 100.0f) == percent, [this, id, slot, param, percent]
+            amounts.addItem (juce::String (percent) + "%", true, juce::roundToInt (route->amount * 100.0f) == percent, [safeThis, id, slot, param, percent]
             {
-                processorRef.performEdit ("LFO amount", [this, id, slot, param, percent] { processorRef.setFxLfoAmount (id, slot, param, (float) percent / 100.0f); });
-                refresh (true);
+                if (safeThis == nullptr)
+                    return;
+                safeThis->processorRef.performEdit ("LFO amount", [safeThis, id, slot, param, percent] { safeThis->processorRef.setFxLfoAmount (id, slot, param, (float) percent / 100.0f); });
+                safeThis->refresh (true);
             });
         menu.addSubMenu (name + " amount  (" + juce::String (juce::roundToInt (route->amount * 100.0f)) + "%)", amounts);
-        menu.addItem ("Remove from " + name, [this, id, slot, param, name]
+        menu.addItem ("Remove from " + name, [safeThis, id, slot, param, name]
         {
-            processorRef.performEdit ("Remove from " + name, [this, id, slot, param] { processorRef.assignFxLfo (id, slot, param, false); });
-            refresh (true);
+            if (safeThis == nullptr)
+                return;
+            safeThis->processorRef.performEdit ("Remove from " + name, [safeThis, id, slot, param] { safeThis->processorRef.assignFxLfo (id, slot, param, false); });
+            safeThis->refresh (true);
         });
     }
+    juce::Component::SafePointer<PatchPage> safeThis (this);
     if (cabled == 0 && (int) patch.lfos.size() < FxLfo::maxLfos)
-        menu.addItem ("Assign to a new LFO", [this, slot, param]
+        menu.addItem ("Assign to a new LFO", [safeThis, slot, param]
         {
+            if (safeThis == nullptr)
+                return;
             // The new box above this effect's, cabled to it.
             juce::Point<float> at;
-            for (const auto& node : shown.nodes())
-                if (slotOf (&node) == slot)
+            for (const auto& node : safeThis->shown.nodes())
+                if (safeThis->slotOf (&node) == slot)
                     at = { node.x, node.y - 110.0f };
-            const auto x = std::round ((at.x - fxShift.x) / 10.0f) * 10.0f, y = std::round ((at.y - fxShift.y) / 10.0f) * 10.0f;
-            processorRef.performEdit ("Assign to a new LFO", [this, slot, param, x, y]
+            const auto x = std::round ((at.x - safeThis->fxShift.x) / 10.0f) * 10.0f, y = std::round ((at.y - safeThis->fxShift.y) / 10.0f) * 10.0f;
+            safeThis->processorRef.performEdit ("Assign to a new LFO", [safeThis, slot, param, x, y]
             {
-                if (const auto id = processorRef.addFxLfo (x, y); id > 0)
-                    processorRef.assignFxLfo (id, slot, param, true, 0.5f);
+                if (const auto id = safeThis->processorRef.addFxLfo (x, y); id > 0)
+                    safeThis->processorRef.assignFxLfo (id, slot, param, true, 0.5f);
             });
-            refresh (true);
+            safeThis->refresh (true);
         });
 }
 

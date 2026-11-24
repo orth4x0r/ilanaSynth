@@ -311,7 +311,7 @@ private:
     // copies come in on their own, not wired to anything else (no route from the end of one chain into the next).
     struct Clip
     {
-        struct Box { int slot = -1, type = 0; juce::Point<float> at; };
+        struct Box { int slot = -1, type = 0; juce::Point<float> at; std::vector<std::pair<juce::String, float>> values; };
         struct Wire { int from = 0, fromPort = 0, to = 0, toPort = 0; float gain = 1.0f, delayMs = 0.0f; };
         std::vector<Box> boxes;
         std::vector<Wire> wires; // between the boxes (indices into boxes)

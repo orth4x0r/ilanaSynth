@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include <array>
+#include <deque>
 #include <utility>
 #include <cmath>
 #include <vector>
@@ -431,8 +432,7 @@ inline const std::vector<ParamDestination>& getParamDestinations()
     // keep their meaning. Generated names live in static storage.
     static const bool extended = []
     {
-        static std::vector<juce::String> storage;
-        storage.reserve (2048);
+        static std::deque<juce::String> storage;
         const auto add = [] (const juce::String& id, const juce::String& name)
         {
             storage.push_back (id);

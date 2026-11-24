@@ -16,7 +16,7 @@ int IlanaSynthAudioProcessor::selectArpNote (int mode, int octaves)
     // Chord: all held notes stacked through the octaves, played together.
     if (mode == 7)
     {
-        arpChordNotes.clear();
+        arpChordNotes.clearQuick();
 
         for (int octave = 0; octave < octaves; ++octave)
             for (int i = 0; i < count; ++i)
@@ -197,7 +197,7 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         for (const auto metadata : midiMessages)
             trackKeys (metadata.getMessage());
 
-        output.addEvents (midiMessages, 0, numSamples, 0);
+        output.addEvents (midiMessages, 0, numSamples > 0 ? numSamples : -1, 0);
         return;
     }
 
@@ -303,8 +303,9 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
 
             if (pseqRandom.nextFloat() < stepChance)
             {
-                auto note = arpHeldNotes[pseqRandom.nextInt (arpHeldNotes.size())]
-                            + (range > 0 ? pseqRandom.nextInt (range + 1) : 0);
+                const auto baseNote = arpHeldNotes[pseqRandom.nextInt (arpHeldNotes.size())];
+                const auto offset = range > 0 ? pseqRandom.nextInt (range + 1) : 0;
+                auto note = baseNote + offset;
                 const auto scale = (int) getParam ("gen_scale");
 
                 if (scale > 0)

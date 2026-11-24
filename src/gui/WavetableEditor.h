@@ -68,6 +68,12 @@ public:
         smoothing.setRange (0.0, 1.0, 0.01);
         smoothing.setValue (0.0, juce::dontSendNotification);
         smoothing.setTooltip ("Smoothing for drawn frames");
+        smoothing.onDragStart = [this] { beginDrag(); };
+        smoothing.onDragEnd = [this]
+        {
+            dragging = false;
+            commitSoon (1);
+        };
         smoothing.onValueChange = [this]
         {
             if (doc.recipes[(size_t) selected].kind == FrameRecipe::Kind::Draw)
@@ -315,7 +321,7 @@ public:
             close();
             return true;
         }
-        if (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey)
+        if ((key == juce::KeyPress::upKey || key == juce::KeyPress::downKey) && ! dragging)
         {
             selectFrame (selected + (key == juce::KeyPress::upKey ? -1 : 1));
             return true;
@@ -599,6 +605,8 @@ private:
     void drawSegment (float x0, float y0, float x1, float y1)
     {
         auto& points = doc.recipes[(size_t) selected].points;
+        if ((int) points.size() < drawPoints * 2)
+            return;
         const auto steps = snapSteps();
         if (x1 < x0)
         {
@@ -615,13 +623,18 @@ private:
         }
         if (steps > 0)
         {
-            // Stairs: every point in a step takes the step's first value.
+            // Stairs: every point in a touched step takes the drawn value inside that step.
             const auto perStep = drawPoints / steps;
             for (int step = first / perStep; step <= last / perStep && step < steps; ++step)
-                for (int i = 1; i < perStep; ++i)
-                    points[(size_t) (step * perStep + i) * 2 + 1] = points[(size_t) (step * perStep) * 2 + 1];
+            {
+                const auto sample = juce::jlimit (first, last, step * perStep);
+                const auto value = points[(size_t) sample * 2 + 1];
+                for (int i = 0; i < perStep; ++i)
+                    points[(size_t) (step * perStep + i) * 2 + 1] = value;
+            }
         }
         doc.renderFrame (selected);
+        commitSoon();
         canvas.repaint();
         frameStrip.repaint();
         filmStrip.repaint();
@@ -858,8 +871,12 @@ private:
                 return;
             if (result == 1 || result == 2)
             {
-                safe->edit ([safe, next, result] { safe->doc.morph (safe->selected, next, result == 2); });
-                safe->commitNow();
+                const auto endFrame = juce::jmin (next, safe->doc.getNumFrames() - 1);
+                if (endFrame - safe->selected >= 2)
+                {
+                    safe->edit ([safe, endFrame, result] { safe->doc.morph (safe->selected, endFrame, result == 2); });
+                    safe->commitNow();
+                }
             }
             else if (result >= 1000)
                 safe->morphTable (result - 1000, true);
@@ -1101,8 +1118,9 @@ private:
     {
         if (commitPending || gestureOpen)
             commitNow();
+        else
+            processorRef.endEdit();
 
-        processorRef.endEdit();
         processorRef.apvts.copyState();
 
         if (redo)

@@ -488,8 +488,10 @@ void TuningPopover::resized ()
     for (auto* child : getChildren())
     {
         if (auto* knob = dynamic_cast<KnobControl*> (child))
+        {
             knob->setBounds (KnobControl::packedBoundsFor ({ x + (cell - 40) / 2, headerH + 6 + 6, 40, dial + 10 }));
-        x += cell;
+            x += cell;
+        }
     }
 }
 
@@ -1211,6 +1213,9 @@ void OscPage::timerCallback ()
 {
     if (bouncingOsc >= 0)
         updateBounce();
+
+    if (! isVisible())
+        return;
 
     if (const auto version = processorRef.getRevealVersion(); version != lastRevealVersion)
     {
@@ -4125,10 +4130,9 @@ void OscPage::updateBounce ()
         selected = bouncingOsc; // the bounced oscillator stays shown
     bouncingOsc = -1;
     bounceButtonWide = -1;
-    updateModeVisibility();
     const auto message = processorRef.getBounceMessage();
     if (state == IlanaSynthAudioProcessor::BounceState::Failed)
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message);
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Resample", message, juce::String(), this);
     else
         button.setTooltip (message);
     updateModeVisibility();

@@ -61,7 +61,15 @@ public:
         startTimerHz (30);
     }
 
-    ~ClipEditor() override { stopAudition(); }
+    ~ClipEditor() override
+    {
+        stopAudition();
+        if (editOpen)
+        {
+            processorRef.endEdit();
+            editOpen = false;
+        }
+    }
 
     void setGrid (int index)
     {
@@ -765,6 +773,18 @@ public:
             commit();
             return true;
         }
+
+        if (code == juce::KeyPress::escapeKey && dragMode == Drag::select)
+        {
+            dragMode = Drag::none;
+            repaint();
+            return true;
+        }
+
+        // Ignore destructive edits while a mouse drag is in progress so
+        // `selected` and `clip` never desync against `dragOrigin`.
+        if (dragMode != Drag::none)
+            return false;
 
         if (modifiers.isCommandDown() || modifiers.isCtrlDown())
         {

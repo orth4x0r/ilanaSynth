@@ -100,7 +100,10 @@ public:
             }
 
         if (pressedNote >= 0)
+        {
+            sounding[(size_t) pressedNote] = false;
             processorRef.triggerPreviewNote (pressedNote, false);
+        }
 
         pressedNote = -1;
         shownEpoch = ~0u; // (the lights follow on the next frame)
@@ -142,6 +145,11 @@ public:
                 g.setColour (hovered ? IlanaTheme::Ui::text.interpolatedWith (IlanaTheme::accent(), 0.25f) : IlanaTheme::Ui::text);
                 g.fillRect (key);
                 paintLit (g, key, lit);
+                if (sounding[(size_t) noteNumber])
+                {
+                    g.setColour (IlanaTheme::Ui::bg.withAlpha (0.85f));
+                    g.fillEllipse (key.getCentreX() - 2.0f, key.getY() + 3.0f, 4.0f, 4.0f);
+                }
 
                 // Octaves: each C named at the foot of its key (C3 = MIDI 60,
                 // as on the parameter readouts).
@@ -175,6 +183,11 @@ public:
                                                                         : IlanaTheme::Ui::bg);
                     g.fillRect (key);
                     paintLit (g, key, lit);
+                    if (sounding[(size_t) noteNumber])
+                    {
+                        g.setColour (IlanaTheme::Ui::text.withAlpha (0.9f));
+                        g.fillEllipse (key.getCentreX() - 2.0f, key.getY() + 3.0f, 4.0f, 4.0f);
+                    }
                 }
                 else
                 {
@@ -250,7 +263,10 @@ public:
         latching = false;
 
         if (pressedNote >= 0)
+        {
+            sounding[(size_t) pressedNote] = false;
             processorRef.triggerPreviewNote (pressedNote, false);
+        }
 
         pressedNote = -1;
         shownEpoch = ~0u; // (the lights follow on the next frame)
@@ -460,7 +476,10 @@ private:
     void startNote (int note, float velocity)
     {
         if (pressedNote >= 0)
+        {
+            sounding[(size_t) pressedNote] = false;
             processorRef.triggerPreviewNote (pressedNote, false);
+        }
 
         pressedNote = note;
         pressedVelocity = velocity;

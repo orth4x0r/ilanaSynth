@@ -128,6 +128,9 @@ inline void runOscSlotUiTests (IlanaSynthAudioProcessor& processor, IlanaSynthAu
             "one undo puts the cards back");
 
     // A click on a header without a drag moves nothing.
+    if (auto* viewport = page->findParentComponentOfClass<juce::Viewport>())
+        viewport->setViewPosition (0, 0);
+    settle (60);
     drag (editor, grab, grab);
     expect (semi (processor, "osc1_semi") == 1.0f, "a click on the header moves nothing");
 

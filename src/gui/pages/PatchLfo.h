@@ -215,6 +215,14 @@ class FxLfoDisplay : public juce::Component
 {
 public:
     FxLfoDisplay (IlanaSynthAudioProcessor& p, FxLfoControls& c) : processorRef (p), controls (c) {}
+    ~FxLfoDisplay() override
+    {
+        if (editing)
+        {
+            processorRef.endEdit();
+            editing = false;
+        }
+    }
 
     void paint (juce::Graphics& g) override;
 

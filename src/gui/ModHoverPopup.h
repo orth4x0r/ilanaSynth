@@ -62,6 +62,8 @@ public:
 
     ~ModHoverPopup() override
     {
+        dismiss();
+
         if (instance() == this)
         {
             instance() = nullptr;
@@ -186,6 +188,14 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& event) override
     {
+        if (dragParameter != nullptr)
+        {
+            dragParameter->endChangeGesture();
+            processorRef.endEdit();
+            dragParameter = nullptr;
+            dragRow = -1;
+        }
+
         const auto row = rowAt (event.position.toInt());
 
         if (row < 0 || event.mods.isPopupMenu())
@@ -607,6 +617,12 @@ private:
             }
         }
 
+        if (dragRow >= 0)
+        {
+            repaint();
+            return;
+        }
+
         const auto count = rows.size();
         const auto warningCount = warnings.size();
         readRows();
@@ -670,21 +686,59 @@ private:
 
     void showRowMenu (int row)
     {
+        const auto slot = rows[(size_t) row].slot;
+        const auto routing = processorRef.readModSlot (slot);
+        const auto stereoAllowed = Mod::canBeStereoAnywhere (routing.destination);
+
         juce::PopupMenu menu;
+        menu.addItem (11, "Unipolar", true, routing.polarity == Mod::Polarity::Unipolar);
+        menu.addItem (12, "Negative", true, routing.polarity == Mod::Polarity::Negative);
+        menu.addItem (13, "Bipolar", true, routing.polarity == Mod::Polarity::Bipolar);
+        menu.addItem (14, "Auto", true, routing.polarity == Mod::Polarity::Natural);
+        menu.addSeparator();
+        menu.addItem (15, "Stereo", stereoAllowed, routing.stereo && stereoAllowed);
+        menu.addSeparator();
         menu.addItem ((int) RowAction::toggleBypass, "Bypass", true, rows[(size_t) row].bypass);
+        if (ModNames::openMatrixRow() != nullptr)
+            menu.addItem (16, "Open in MATRIX");
         menu.addItem ((int) RowAction::remove, "Remove");
         menuOpen = true;
-        const auto slot = rows[(size_t) row].slot;
         menu.showMenuAsync (IlanaTheme::menuOptions (this).withTargetScreenArea (localAreaToGlobal (getRowBounds (row))),
-                            [safeThis = juce::Component::SafePointer<ModHoverPopup> (this), slot] (int result)
+                            [safeThis = juce::Component::SafePointer<ModHoverPopup> (this), slot, stereo = routing.stereo] (int result)
                             {
                                 if (safeThis == nullptr)
                                     return;
 
                                 safeThis->menuOpen = false;
+                                if (result <= 0)
+                                    return;
+
+                                if (result >= 11 && result <= 14)
+                                {
+                                    const Mod::Polarity choices[] { Mod::Polarity::Unipolar, Mod::Polarity::Negative,
+                                                                    Mod::Polarity::Bipolar, Mod::Polarity::Natural };
+                                    const auto choice = (int) choices[result - 11];
+                                    safeThis->processorRef.performEdit ("Modulation polarity", [&]
+                                    { safeThis->processorRef.setModSlotValue (slot, "pol", (float) choice); });
+                                    safeThis->refresh();
+                                    return;
+                                }
+                                if (result == 15)
+                                {
+                                    safeThis->processorRef.performEdit ("Stereo modulation", [&]
+                                    { safeThis->processorRef.setModSlotValue (slot, "stereo", stereo ? 0.0f : 1.0f); });
+                                    safeThis->refresh();
+                                    return;
+                                }
+                                if (result == 16 && ModNames::openMatrixRow() != nullptr)
+                                {
+                                    ModNames::openMatrixRow() (slot);
+                                    safeThis->dismiss();
+                                    return;
+                                }
 
                                 // The row may have moved while the menu was open.
-                                for (int index = 0; index < safeThis->getNumRows() && result > 0; ++index)
+                                for (int index = 0; index < safeThis->getNumRows(); ++index)
                                     if (safeThis->getRowSlot (index) == slot)
                                         return safeThis->applyRowAction (index, (RowAction) result);
                             });

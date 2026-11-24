@@ -56,6 +56,12 @@ public:
     {
         if (source == valueSource)
             return;
+        if (dragging)
+        {
+            endGestures();
+            processorRef.endEdit();
+            dragging = false;
+        }
         valueSource = source;
         lastSignature = 0;
         repaint();

@@ -1009,21 +1009,34 @@ void IlanaSynthAudioProcessor::setStateInformation (const void* data, int sizeIn
 {
     ++dataEpoch; // what the editor draws changes
 
+    if (data == nullptr || sizeInBytes <= 0 || sizeInBytes > SafeXml::maxBytes)
+    {
+        if (data != nullptr && sizeInBytes > 0)
+            keepUnreadableState (data, sizeInBytes);
+        return;
+    }
+
     // getXmlFromBinary decodes the text as UTF-8 without checking it, and a
     // damaged state (the fuzz test's bit flips) read past the end and
     // crashed. Same header as copyXmlToBinary: magic, length, text.
-    if (data != nullptr && sizeInBytes > 8)
+    const auto* bytes = static_cast<const char*> (data);
+    if (sizeInBytes > 8 && juce::ByteOrder::littleEndianInt (bytes) == 0x21324356)
     {
-        const auto* bytes = static_cast<const char*> (data);
-        if (juce::ByteOrder::littleEndianInt (bytes) == 0x21324356)
+        const auto length = (int) juce::ByteOrder::littleEndianInt (bytes + 4);
+        if (length < 0 || length > sizeInBytes - 8 || ! juce::CharPointer_UTF8::isValidString (bytes + 8, length)
+            || ! SafeXml::depthIsSafe (juce::String::fromUTF8 (bytes + 8, length)))
         {
-            const auto length = (int) juce::ByteOrder::littleEndianInt (bytes + 4);
-            if (length < 0 || length > sizeInBytes - 8 || ! juce::CharPointer_UTF8::isValidString (bytes + 8, length)
-                || ! SafeXml::depthIsSafe (juce::String::fromUTF8 (bytes + 8, length)))
-            {
-                keepUnreadableState (data, sizeInBytes);
-                return;
-            }
+            keepUnreadableState (data, sizeInBytes);
+            return;
+        }
+    }
+    else
+    {
+        if (! juce::CharPointer_UTF8::isValidString (bytes, sizeInBytes)
+            || ! SafeXml::depthIsSafe (juce::String::fromUTF8 (bytes, sizeInBytes)))
+        {
+            keepUnreadableState (data, sizeInBytes);
+            return;
         }
     }
 

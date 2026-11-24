@@ -1299,8 +1299,9 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
     }
 
     // (Relaxed: the editor only shows these; a sequentially consistent
-    // store is a locked exchange, and this was 1024 of them every block.)
-    for (int d = 0; d < maxDestinations; ++d)
+    // store is a locked exchange, and this runs every block.)
+    const auto numDest = juce::jmin (maxDestinations, Mod::getNumDestinations());
+    for (int d = 0; d < numDest; ++d)
         modDisplayValues[(size_t) d].store (totals[d] + voiceKnobShown[(size_t) d], std::memory_order_relaxed);
 
     // Which parameter destinations take the synth-wide offset, and their
@@ -1333,7 +1334,7 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
     for (const auto& entry : globalParamDestinations)
     {
         const auto i = entry.index;
-        if (i >= (int) paramDestinations.size())
+        if (i >= (int) paramDestinations.size() || ! juce::isPositiveAndBelow (entry.destination, maxDestinations))
             continue;
         const auto offset = totals[entry.destination] * entry.sign;
 

@@ -1252,13 +1252,6 @@ void IlanaSynthAudioProcessorEditor::claimGlobalHooks()
 
 IlanaSynthAudioProcessorEditor::~IlanaSynthAudioProcessorEditor()
 {
-   #if defined (_WIN32)
-    if (previousDpiContext != nullptr)
-    {
-        setThreadDpiContext (previousDpiContext);
-        previousDpiContext = nullptr;
-    }
-   #endif
     auto& editors = liveEditors();
     editors.erase (std::remove (editors.begin(), editors.end(), this), editors.end());
     routeBadgeWatch.stopTimer();

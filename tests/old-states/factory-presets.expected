@@ -35,695 +35,695 @@ d8bee83fdfe449e9 KS Marimba
 e52283c594c4ed57 Step Sequence
 30dc59f304001411 Chord Stab
 f72ff065c9c0c496 MPE Lead
-6e55b12cd3bb1605 Tape Drone
-7aa089c2cb02100d Neon Bass
-c3f2c3d6ea6a3bf5 Crystal Keys
-3c3cfcceb4c724b5 Vocal Chop
-98f63e1c22896489 Tape Choir
-d9c2f2592d8addaa Metal Drip
-88ef528e6a576822 Hyper Pluck
-20b798355778e722 S&H Techno
-4d164096f617735c Morph Pad
-6eb57d6083932ca0 Rust Bass
-e7638341c2adf1f8 Glass Bell
-d47a5748523b8c2e Warp Stab
-526fe9662f7a57b4 Sub Ritual
-1a44bdfedfe6e484 Amp Solo Lead
-97d490740d29bb56 Shimmer Pad
-3a3c9fdd13e3e357 Metal Keys
-e342bfa158054a48 Vocal Pad
-5a08226975874d62 Sub Tone 808
-3a80492d561fdd0c Feedback Drone
-2e0c6120261e9c60 Frequency Shift
-c52ba19e34f25ffd Vowel Lead
-7cde5528f01dfd90 Reverse Stutter
-7a3e98662ac1075b Granular Pad
-e4a38d1b19eb034a Odd Octaver
-babd5cb1870a8c35 Wide Chord Pad
-508103fe455016c6 Minor Chord Stab
-2798cd91104db757 Ring Bell
-ab05b02d38b91cf5 Tape Wow Dub
-865f363a9488dd52 Clocked Bass
+40cf43d19b4bc610 Tape Drone
+5cf99e27ac57114c Neon Bass
+2ff41243cf3e2b64 Crystal Keys
+799e7bc51f0da9d4 Vocal Chop
+7f386d22ed8cc86f Tape Choir
+fa22e55f0e168fd7 Metal Drip
+b29fc086bf2eda1f Hyper Pluck
+f855a11af9641eb1 S&H Techno
+8b2e14b4ee6dee40 Morph Pad
+ca5f7bd834e98165 Rust Bass
+2fdf3a950d51ad85 Glass Bell
+89f1d1fba6d19485 Warp Stab
+b0edb5160629a669 Sub Ritual
+7c6341ee32407e77 Amp Solo Lead
+fab8f8a80f1e5fc2 Shimmer Pad
+e01ad31d31e7a4ca Metal Keys
+eb1a62213a91c058 Vocal Pad
+da8862ed5e46be83 Sub Tone 808
+aa5d9b44583008ad Feedback Drone
+f8d3401e7564aa45 Frequency Shift
+82c90b23c7305686 Vowel Lead
+88eaaa8a434b0f81 Reverse Stutter
+87fb2ce3554c7f0f Granular Pad
+6d8b359878fc9803 Odd Octaver
+7b68a70e4f0fcb51 Wide Chord Pad
+38117a02cd0da74b Minor Chord Stab
+83ac041e925e5a32 Ring Bell
+932e520a9ece0840 Tape Wow Dub
+0a180d896475547f Clocked Bass
 46089f9b199fc9a8 MPE Glass
-766e5ab327626040 Crushed Trap
-9b068cf3afa0eaf0 Formant Scream
-fc5579ed9f25c345 Self-Osc Drone
-966df7593cdab07c Tremolo Keys
-8df97206a3ec4513 Resonator Bell
-41ef33a63d3dd075 LFO 4 Sweep
-4a759439ff45424f Quad Mod Pluck
-8100f1a209d0c17c LFO 3 Wobble
-35c45a6cb613e7ea Arp Glass
-96cd37d0c9f1ec58 Resonator Pluck
-19e32fe328dc07c5 Sub 808 Arp
-dbbe6a17a3b1bca6 Vocal Stutter
-091199397e9d7e40 Tape LFO Drift
-99a8ad4ba80fe220 Ladder Sub
-b6ec8a080f201748 Diode Acid
-22ef56d301087270 MS-20 Growl
-8e1542a6a8e65d69 Hyper Reese
-389197ea76008648 Comb Bass
-1579d505cc9519c9 Wavefold Sub
-ff2627a0864bdd4e FM Donk
-e5bff123658b230f Sync Stab Bass
-8b75bbb836cf8ae7 Neuro Formant
-83f37354951f3372 Pluck Sub Bass
-233a9823188cddf5 Octave Hyper Bass
-c92b0e3b2a5701b0 Rubber Mono
-e899b30b26d6457c Ring Bass
-f2f40773b7625874 Deep House Bass
-39daef44c1c414a9 Warp Wobble
-29f8d5d0a1a35c1e Morph Filter Bass
-6222c230029b9cb2 Tape Sub
-2e097938a92483fe Distorted 808
-9bf3661f72dc4f55 Dark Ladder Pluck Bass
-b6fa513528c12d71 Per-Voice Wobble
-3d70e65bde00505b Supersaw Anthem
-24f0a522a5e2205e Ladder Lead
-a533d6163d491ba6 Self-Osc Whistle
-d1645e33436fbf3b Sync Scream
-836b39274adecf78 FM Brass Lead
-b3e95b7c7a8a3fe9 Hollow Pulse Lead
-38b44248cfd3edee Talkbox Lead
-ba4d8334ba129dfd Chip Lead
-f65078fa571939fb Diode Screamer
-e806d435457167d9 Glass Lead
-38c00bdd178c7ef2 Soft Saw Lead
-6c0b401a3945a3fa Ring Lead
-f971ae4adfde9354 Fifth Stack Lead
-189e7e577c531830 Theremin
-b71bd5432f2969e5 Acid Squelch Lead
-2d9069bb4dfa0135 Stereo Bend Lead
-379f91fd36774e17 Vintage Mono Lead
-6c1bc34f30cbc79b Octave Screamer
-9b7a78f5c6701aa1 Pan Flute
-a9f483067408abce Ladder Pluck
-e03d32765e17449f Supersaw Pluck
-ef23af387b4d745a Comb Harp
-50b0544ec04c1445 Nylon String
-5cf7e96b780b028b Pizzicato
-34d91e1fad53500e Diode Blip
-d8c8ce7204b09a62 FM Pluck
-1af4d9382fb3394d Kalimba
-725f6fb9f824ea38 Warp Pluck
-88ce286132bf795c Formant Pluck
-1fe20c437450dba0 Muted Guitar
-4d31998cf5934cba Glass Mallet
-e31ed360a98319e4 Resonant Drop
-495ff12446c46510 Plucked Bell Stack
-30aaf38652eb9331 Vowel Pad
-a35a0f6da23da2e9 Supersaw Pad
-4ed5ee8eee11187d Comb Choir
-9a04ff1afd00d92f Curve Motion Pad
-fa0501fd2de0c61a Dark Matter
-0e7ee39ac308f44a Shimmer Glass Pad
-b15e56cdaac583e6 Sweep Pad
-85abd56a22f66e38 Octave Stack Pad
-2e802ae204c605f5 Pulse Width Pad
-f76d26b18d6969d4 Breathing Pad
-b9fe8bd8e60cc1f9 Tape Strings
-c21a0780c01b13fb FM E-Piano
-f4409c5533ad062e Warm Clav
-300c9f953cf8a9af Toy Piano
-8bb3b9b2aa7a5b23 Digital Bell Keys
-97d4e81c419c7105 Harpsichord
-c5897495c7ebbdef Vibraphone
-b0360e48d2b1844d House Organ Chord
-6a7f76f480a9c3ca Stab Ladder Chord
-d5279e37a33afac3 Dub Chord
-c167263f141e4315 Lo-Fi Chord
-c412716a413534ca Sus Pad Chord
-20b112bf820db404 Power Chord
-e9930b6bcf735e77 Minor Glass Chord
-5c5d912903e0de94 Ladder Arp
-d73e35b8ea28b098 Random Glass Arp
-30a1af44ca523bdc Acid Arp
-826619e914210c6b FM Sequence
-140525396e41cad2 Trance Gate Arp
-379107969761f22a Bouncing Ball Arp
-4eb8d76f808039df Chord Arp
-7bc35fa9fc980c5e Comb Cathedral
-ee77354c0a151c98 Self-Osc Choir
-a26ce7254e24782b Ring Drone
-46e8cc1dc19cd757 Stairway Drone
-cb6bf74c5af9e870 Tidal Drone
-ea638d46a0d1ac3f Bowed Metal
-8d87f378bfba6657 Riser Sweep
-66ed27d55d584b05 Laser Zap
-fd7ebe6a63c4a00e Noise Sweep
-25705102856cf45d Alarm Siren
-ec61429638a0604d Glitch Gate
-d1e7c9ab4e1f5c15 Down Lifter
-4b53ea135b2b149e Freq Shift Wash
-2596fd2c5703dee4 Soft Synth Piano
-01cc30150ecc083a Pulse Arp Down
-b0c0580ceafcdc2e Converge Bells
-f8c5ba1f09937331 Deep Space Drone
-074de431d78a684a Oversampled Grind
-b3870d24bec12b22 Stutter Hit
-5ff7ebd74fb7db72 Radio Tuning
-22bb355521b4411b Ladder Swell Pad
-fe9270a00dce5eda EQ Sculpted Pad
-360264798aae649f Sitar Pluck
-2ce789626ae02d7b Legato Glide Lead
-87143aac04b68e04 Chaos Kick
-63561039d3c2d744 FM Snare
-efe8a2536a769179 Metal Hat
-f60fc8b4eb84a149 Granular Clap
-edc049ca48c0edb3 Drunk Tom
-7f770e1fe102d6f1 Spectral Rim
-0fa6cf1a030c39b4 Operator Bell
-69ed7cc506d61201 Through-Zero Growl
-0ecf061b31b410b3 Feedback Choir
-2e49c10c32adc40a Key FM Scream
-642449b7820df83e Stretched Glass Keys
-026f167b1cd643a9 Formant Shifter
-a31587b45527618c Harmonic Cut Pad
-144635584f6da0e5 Smeared Organ
-a8a47e45d25ec773 Shift Bass
-ec388d28a59a98db Grain Choir
-3404d8b84c36df08 Swarm
-9377ca9bfd0d38f6 Vinyl Dust Keys
-259543c45c166afe Frozen Grain Lead
-4b730de62180b244 Lorenz Bass
-8880d5eef00a51ed Drunk Tape Keys
-86e546a0ae553555 Chaos Filter Pad
-df5621170d71d7e0 Gated Supersaw
-75237ac0e198816c Swing Gate Pad
-2f02e10b26308ca0 Stutter Stab
-8e3cbfc4f52f681d Pentatonic Rain
-e4092a08a5682c21 Scale Walker
-9175c0b2bd7b3522 Hirajoshi Spray
-577dac20443c0ac6 Blues Machine
-e0a890da6ebc79f1 Granular Riser
-2173dd8fbe5c0766 Lorenz Radio
-3056a72aecce5733 Audio Rate Siren
-f711a1b3d62bec68 Bitwise Arp
-3bc698cda44d881b Throat Drone
-a23b62cb5904bdbe Hammered Strings
-720f580919ff0d67 Pedal Bloom
-8ec1863417d385e1 Honky Hammers
-adffdbe0021d1ab0 Bolted Strings
-b645469517772a8a Bowed Board
-860b0f27826204cc Osc-Struck Strings
-b8feb01dcfcbdac0 Euclid Pluck Machine
-eb2afde2dfc88c58 Probability Bells
-fbba72c7721cd030 Strummed Harp
-6c13ee038abf120b Euclid Kalimba
-b7d9e535ba1967ed Metal Plate Hybrid
-d6252d3c7bdf0436 Bell Shell Hybrid
-e3342057ef91eb70 Glass Shell Hybrid
-ee4094c4f00ec2ce Supersaw Bell Body
-0f238eae44520859 Tine Keys
-cca1a3c833cdcc56 Reed Keys
-ce871670f2061a09 Live Body
-c7fb5ca5ad6e6f54 Live Wah
-5e4bc51fd5bf5e4a Live Grains
-711ea94ca0ed1915 Live Strings
-239cb357b6be467d Felt Hammer Board
-ef63fe3c7290353f Nylon Twelve
-6d80764055a25697 Cello Section
-37a86aabddfa870c Solo Cello
-19f0e9c862215ee3 Harp Cascade
-84b768fe02185970 Detuned Zither
-9254f44b5180b59f Slide Fiddle
-dfeb698bc3c6bc1d Contrabass Growl
-76776f709dcb9288 String Ensemble Wide
-d13a9922812ae79b Six-Layer Stack
-94ea51dc68501f0a Fifth Engine
-1552ac083ab782f0 Route Split Pad
-4ef6aa18e64a9f86 Layered Sync Choir
-6aedbc9a0031bee6 Modulated Route Bass
-c3aab409269a356f Lorenz Wash
-af95bbf8a1957acd Pendulum Swing Pad
-ef99094c777115bc Spring Bounce Bass
-ba3ae7da802a8492 Double Pendulum Chaos
-69c347cdbfd2f9b5 Henon Glitch
-afb3841ddb7c31f8 Rossler Tide
-08f7f0126b4dc62c Stick-Slip Growl
-d7f9d64946b28906 Bouncing Ball FX
-6dd11ff9e7f2d01b Bright Concert Grand
-880842d10af92375 Detuned Saloon
-d9512636d8489e02 Prepared Piano Bells
-fad035ba197b01e2 Toy Grand
-fe8ff66eae071738 Dense Board Piano
-b1cabe6f680bb78e Vintage Tine
-d054738065339908 Growl Reed
-0f3eeebe68ed5a45 Chorused Tine
-ecc2450818a17ff6 Distorted Tine Rock
-7427e90cb8ae4672 DX Stack Bass
-82b93aa79e4fac99 DX Bell Pad
-4622c5182e830c36 Two Pairs Keys
-c665cba628f035eb One Drives Three
-91152731ef7fd034 DX Keys Classic
-5f233beb05429f65 Ratio Snap Bell
-b1fa1763af9a70d3 Fixed Freq Clang
-045b839b0286ae2c Feedback Chain Bass
-386ff4d0c13e0f15 Six-Op Organ
-cb50c55d0e6a3b8c Inharmonic Pluck
-46f091e073c4151c PD Casio Lead
-2109329cbc855bb5 Warp Stack Bass
-d966e6c0791af3f9 Envelope Warp Pluck
-c648938ca7dc18c1 PD Formant Voice
-d098da8663fc8fee Dual Stage Warp Lead
-3d1a92c9f0a47340 PD Metallic Bell
-38447d5c22c3cd44 Warp Envelope Pad
-b76afd1fc81c1d01 PD Growl Bass
-193f6624e41c7677 Euclid Bass Sequence
-e98be5e6ef8b0f0f Prob Seq Bells
-80392816a253b502 Strummed Pad
-88bc61b5112d4cc8 Ratchet Arp Machine
-0c2cf9f1501eec7d Euclid Trance Gate
-2b73f11a85c2f511 Scale Spray Keys
-0e9127f44f6a7a74 Prob Seq Drone
-277e218364ffa471 Euclid Exciter Pluck
-8c417e3f23acdabe Marimba Bar Body
-9d82876c7095647b Vibraphone Plate
-cfec552b33dd2b08 Church Bell Shell
-417bbe881224384e Glass Chime Body
-e6d5033947e12398 Coupled String Body
-3c6ac0d80a389714 Feedback Body Growl
-fb151c4411f1cc36 West Body Pluck
-611553eadf5a54da Deep FM Bell Body
-a3f8e8fcbeb62514 Struck Board Pad
-6c52e592688c8cc4 Sympathetic Body Drone
-12c74fa53944bd52 West Folded Bass
-0593328fbe1f90d4 Buchla Bongo Melody
-46a05645c92efe8d Steiner Growl
-25d0943205b2e910 Vowel Bank Voice
-1ac270c64638f55e Talking Filter Lead
-25414da416a288a8 Twin Peak Pad
-9ba802d38fdbe5b4 OTA Squelch
-e4c4c4f74fc7b7f1 Comb Morph Pluck
-320816b6533b7aff Phaser Notch Sweep
-875fc2fdfa0f601a SEM Classic Lead
-1944ffa85438926d Feedback Guitar Drone
-9bf5a075ea795291 Screaming Feedback Lead
-1d5bba2364a8ed0f Vector Corner Morph
-b60054106107f018 Vector Path Drift
-56f8eb822936a090 Feedback Distance Growl
-7326cf8c1ec1178d Vector Strike Pad
-eaf396323275b684 Bounced Bell Grains
-270cde0b21e66003 Resampled FM Texture
-55c31d14c9cd885d Baked Chaos Loop
-0ba01631a464991f Reversed Piano Wash
-9c0654fe04e7115b Frozen Feedback Table
-8cf9fed8963a825f Tabled Cello
-df53d4636607e7df Live Comb Wash
-b4faa849b5aaec0f Live Feedback Loop
-8dcaa23c1069d22a Live Struck Bells
-6ea92ff78bba5970 Live West Fold
-2fa737a1ecf20381 Live Vector Morph
-77aa248e4f52b041 Live Ring FM
-ba9166293599df00 Live Granular Delay
-389456ca90232ea6 Live Formant Filter
-1b34cedbf72bd468 Live Feedback Strings
-4756a1860e742878 Live Twin Peak Wah
-7af8a40ff1b03845 BRASS 1 (ROM1A)
-16dfcf06ce973f42 BRASS 2 (ROM1A)
-94e2872c2348e642 BRASS 3 (ROM1A)
-03fd6a65d1e66d66 STRINGS 1 (ROM1A)
-248146fffebe2f1a STRINGS 2 (ROM1A)
-693b7c5ee77c5e53 STRINGS 3 (ROM1A)
-42268994da7da62e ORCHESTRA (ROM1A)
-57deb1cd8fa9b8fa PIANO 1 (ROM1A)
-627d9f0090008a75 PIANO 2 (ROM1A)
-d7cc0dab1e23c23d PIANO 3 (ROM1A)
-ce055190a3df5cfb E.PIANO 1 (ROM1A)
-78cb0709e845eaf2 GUITAR 1 (ROM1A)
-36e22c07de4eec46 GUITAR 2 (ROM1A)
-3742ac708925dd63 SYN-LEAD 1 (ROM1A)
-2fac7a189ce25068 BASS 1 (ROM1A)
-22dc045d35f9a2e6 BASS 2 (ROM1A)
-48422eb7f425688c E.ORGAN 1 (ROM1A)
-aa23ac58e217f26b PIPES 1 (ROM1A)
-0345c5e19d54dcc9 HARPSICH 1 (ROM1A)
-edadb9f0a1ec9ef4 CLAV 1 (ROM1A)
-d195d9eb4a0157d1 VIBE 1 (ROM1A)
-e1cdf1e2f0bb27b5 MARIMBA (ROM1A)
-74c5d16e736ccb7d KOTO (ROM1A)
-3545f56e179b257f FLUTE 1 (ROM1A)
-3280450cccf1ed15 ORCH-CHIME (ROM1A)
-0996004a4baabef9 TUB BELLS (ROM1A)
-f11eba8c9dfba802 STEEL DRUM (ROM1A)
-5ce8ef7a7604476c TIMPANI (ROM1A)
-3ab009ba71964d3e REFS WHISL (ROM1A)
-1e7860f468581d36 VOICE 1 (ROM1A)
-cb6afe2bd3be6647 TRAIN (ROM1A)
-791fc7c04e7ac586 TAKE OFF (ROM1A)
-0716c0f9af85d95c PIANO 4 (ROM1B)
-c3e017096dbcd3e2 PIANO 5 (ROM1B)
-64229258b4f4549f E.PIANO 2 (ROM1B)
-c36bd115a992e25f E.PIANO 3 (ROM1B)
-e1ac22b1ce62ad69 E.PIANO 4 (ROM1B)
-c0d131e1c255ec6d PIANO 5THS (ROM1B)
-6636e897f7d3d912 CELESTE (ROM1B)
-7f0755df04c6c04a TOY PIANO (ROM1B)
-2e42484e13466f02 HARPSICH 2 (ROM1B)
-66bcaefa29398703 HARPSICH 3 (ROM1B)
-f0645465e8fd28db CLAV 2 (ROM1B)
-e01bff3737fbe126 CLAV 3 (ROM1B)
-11a5b1602b7423ab E.ORGAN 2 (ROM1B)
-2f7eadb0df6f0615 E.ORGAN 3 (ROM1B)
-27d2818320b106bb E.ORGAN 4 (ROM1B)
-50ab9f89d6ca8e4e E.ORGAN 5 (ROM1B)
-9a44bae3ca238f79 PIPES 2 (ROM1B)
-069fdb1f2d53bbcc PIPES 3 (ROM1B)
-8d087d8115854f11 PIPES 4 (ROM1B)
-954b09c5842b4c15 CALIOPE (ROM1B)
-e29318acb26a1aae ACCORDION (ROM1B)
-b83f299a14d98e1c SITAR (ROM1B)
-a015ffbada2e9186 GUITAR 3 (ROM1B)
-f3a7efdb7e2fa4ae GUITAR 4 (ROM1B)
-6320dbb320fcfb28 GUITAR 5 (ROM1B)
-7d8d35b968d9b2e3 GUITAR 6 (ROM1B)
-8c12afbea5408b85 LUTE (ROM1B)
-154936bdf0a7a872 BANJO (ROM1B)
-b7dcde93292a1d31 HARP 1 (ROM1B)
-dfae7200b0d48580 HARP 2 (ROM1B)
-e3eb5336bcdef10b BASS 3 (ROM1B)
-a6f94f1bea3e6b5a BASS 4 (ROM1B)
-97cc1989f9eb04a6 PICCOLO (ROM2A)
-7502167be6c4ea8c FLUTE 2 (ROM2A)
-09ebc1766e9587b2 OBOE (ROM2A)
-6778d24c6451368d CLARINET (ROM2A)
-e5fd6ddedeb94bad SAX BC (ROM2A)
-27ce7c3ceb000d7e BASSOON (ROM2A)
-652a0699424a49d7 STRINGS 4 (ROM2A)
-f8afd961aeb4f2f7 STRINGS 5 (ROM2A)
-9cd1737ad6587b68 STRINGS 6 (ROM2A)
-462d6f990515e091 STRINGS 7 (ROM2A)
-5ed4d7cc1949723a STRINGS 8 (ROM2A)
-f0a5a411765cf46d BRASS 4 (ROM2A)
-e7867eb444ace35f BRASS 5 (ROM2A)
-ce801234ab3d840f BRASS 6 BC (ROM2A)
-e0a225fd42cdbeaf BRASS 7 (ROM2A)
-484fa96ae1d202de BRASS 8 (ROM2A)
-22a9dcab1a2fe0fa RECORDER (ROM2A)
-2b7b38bb0616aec7 HARMONICA1 (ROM2A)
-885c80ac53bf97fd HRMNCA2 BC (ROM2A)
-7041f0220874168e VOICE 2 (ROM2A)
-c47b0ef3cf973708 VOICE 3 (ROM2A)
-616fdefe4f4e3a68 GLOKENSPL (ROM2A)
-60975e25bea04b93 VIBE 2 (ROM2A)
-78b74f639079eb11 XYLOPHONE (ROM2A)
-13c792e1dda4203f CHIMES (ROM2A)
-1cb515de410cac93 GONG 1 (ROM2A)
-ffa3466498bc512e GONG 2 (ROM2A)
-2f96c88338277a6d BELLS (ROM2A)
-ea3462d8fa49038c COW BELL (ROM2A)
-8d5e1ab9369da1fc BLOCK (ROM2A)
-34523080b62a8043 FLEXATONE (ROM2A)
-30816c4a494a3f2f LOG DRUM (ROM2A)
-b1f177459eed5ddd SYN-LEAD 2 (ROM2B)
-203e0c2409ea1bb9 SYN-LEAD 3 (ROM2B)
-1d465cc4c6e791a7 SYN-LEAD 4 (ROM2B)
-fceb2aa2b0b0f8aa SYN-LEAD 5 (ROM2B)
-570cb2d3e63e4639 SYN-CLAV 1 (ROM2B)
-927a02043f13d822 SYN-CLAV 2 (ROM2B)
-3cbc7b82d3fa7ac3 SYN-CLAV 3 (ROM2B)
-80f5bbd9c6bd1cea SYN-PIANO (ROM2B)
-0aba51d66a59180d SYNBRASS 1 (ROM2B)
-4934741839333a57 SYNBRASS 2 (ROM2B)
-89453d8377ff96ce SYNORGAN 1 (ROM2B)
-4109b0b5eb73a244 SYNORGAN 2 (ROM2B)
-4c2fa6e5c1825247 SYN-VOX (ROM2B)
-dd6caad5a7ec0327 SYN-ORCH (ROM2B)
-d96304ed33edfa8f SYN-BASS 1 (ROM2B)
-3608a220d3d77dce SYN-BASS 2 (ROM2B)
-2993e7dfd67576cb HARP-FLUTE (ROM2B)
-9a085fef98bcdc50 BELL-FLUTE (ROM2B)
-f4d81f4229b39611 E.P-BRS BC (ROM2B)
-80cedc6b09f0ad2d T.BL-EXPA (ROM2B)
-12db3505eefe4702 CHIME-STRG (ROM2B)
-90b68063cb160b58 B.DRM-SNAR (ROM2B)
-78904feb7ed9552e SHIMMER (ROM2B)
-92f62ff830277c7e EVOLUTION (ROM2B)
-a60ac552ae3d2012 WATER GDN (ROM2B)
-42726d6b0e79d26f WASP STING (ROM2B)
-5d7ed63087f8bc1e LASER GUN (ROM2B)
-c64416606d6c854c DESCENT (ROM2B)
-6da160a1b55b9ff8 OCTAVE WAR (ROM2B)
-d9ad7c6d85552a87 GRAND PRIX (ROM2B)
-98795c49ad97dec0 ST.HELENS (ROM2B)
-6f39d7e9fa652fe4 EXPLOSION (ROM2B)
-7be529319db3af8d FLUTE 1 (ROM3A)
-8032ff5f39668515 HARPSICH 1 (ROM3A)
-a2127ad283a18c71 STRG ENS 1 (ROM3A)
-82a460a15aaa1ff5 BRIGHT BOW (ROM3A)
-0942dca7a4497ef9 BRASSHORNS (ROM3A)
-6be337346647e50e BR TRUMPET (ROM3A)
-18aa44f8d5a06c9c MARIMBA (ROM3A)
-f707dd859995ca7e E.PIANO 1 (ROM3A)
-60c867fab729747d PIANO 1 (ROM3A)
-dc1809ee6598b4a7 PIPES 1 (ROM3A)
-3654e5fc58631ae8 E.ORGAN 1 (ROM3A)
-ac5bac1a6ef383c4 E.BASS 1 (ROM3A)
-a0e3c1c77eefb1ce CLAV 1 (ROM3A)
-bef873ef2ba8b9b7 HARMONICA1 (ROM3A)
-db24be06c4a5dacb JAZZ GUIT1 (ROM3A)
-3a4f76b63dd73f07 PRC SYNTH1 (ROM3A)
-d0ba274e077f9965 SAX BC (ROM3A)
-e71836f26b9b8c2b FRETLESS 1 (ROM3A)
-05f05c7727336f5d HARP 1 (ROM3A)
-93f0d9b571313623 TIMPANI (ROM3A)
-c41366c5c71b5b88 HEAVYMETAL (ROM3A)
-c418cb9c49ca4766 STEEL DRUM (ROM3A)
-1867755778f395c0 SYN-LEAD 1 (ROM3A)
-0f1ed0b55e39e331 VOICES BC (ROM3A)
-e3293f5dee9035e5 CLAV ENS (ROM3A)
-42e916f5ba378280 LASERSWEEP (ROM3A)
-af7f20928011719f TUB ERUPT (ROM3A)
-b2d8548a2ed4b3f6 GRAND PRIX (ROM3A)
-b2f289f9a2019c7c REFS WHISL (ROM3A)
-3b20942f8386342b TRAIN (ROM3A)
-846b6c31b4072393 BRASS S H (ROM3A)
-791fc7c04e7ac586 TAKE OFF (ROM3A)
-ca3b3235a5ba7263 PIANO 2 (ROM3B)
-4ddec3f214b69d98 E.GRAND 1 (ROM3B)
-fc2dfe45df862c43 E.GRAND 2 (ROM3B)
-6cbcf3b3c5607433 HONKY TONK (ROM3B)
-29b33ed486ccc803 E.PIANO 2 (ROM3B)
-648a76c06625098d E.PIANO 3 (ROM3B)
-0933a3dc938fb89e E.PIANO 4 (ROM3B)
-463dbddd968461c6 CELESTE (ROM3B)
-a98b0a38f1f603cf FUNK CLAV (ROM3B)
-3273d725b2c22c5e CLAV ENS 2 (ROM3B)
-84c914dbc29b3d6c PERC CLAV (ROM3B)
-37ac048fdf1b598e HARPSICH 2 (ROM3B)
-665d52fabf8eac9c E.ORGAN 2 (ROM3B)
-ad775a180715b485 E.ORGAN 3 (ROM3B)
-9179d9b38b316f78 60-S ORGAN (ROM3B)
-a5195c07764b6328 PIPES 2 (ROM3B)
-bedee90be1c0a6e9 PIPES 3 (ROM3B)
-c28d4af40f74a5e6 CALIOPE (ROM3B)
-5d10ebc57e020ac2 ACCORDION (ROM3B)
-df0e4ada281b2629 TOY PIANO (ROM3B)
-8c2fdbed1b9c066a SITAR (ROM3B)
-9109cb9cc3409480 KOTO (ROM3B)
-758c1807e42e0340 JAZZ GUIT2 (ROM3B)
-54c1db8c0a121a54 SPANISHGTR (ROM3B)
-ebb77f7e9ad2eaa4 FOLK GUIT (ROM3B)
-d45c8cd83decae31 LUTE (ROM3B)
-154936bdf0a7a872 BANJO (ROM3B)
-d2fcc4a9f0d287f1 CLAS.GUIT (ROM3B)
-dc6f4ed92c82bda4 HARP 2 (ROM3B)
-03dc66462474421a E.BASS 2 (ROM3B)
-50c0bf10967abff5 FRETLESS 2 (ROM3B)
-5cf1a1ca48a30aa8 PLUCK BASS (ROM3B)
-4c6b71b9388279f9 PICCOLO (ROM4A)
-923c60d2f131b2c5 FLUTE 2 (ROM4A)
-c47caeaaca06e2e5 OBOE (ROM4A)
-aa51e5266bf98e1c CLARINET (ROM4A)
-18df0e5f1ff0b6b8 BASSOON (ROM4A)
-d748dd97678a22e2 PAN FLUTE (ROM4A)
-75fb5ff19e151d77 LEAD BRASS (ROM4A)
-12b7405d2c9f4b24 HORNS (ROM4A)
-98569f7ca2c0e9d3 SOLO TBONE (ROM4A)
-5db0111d2f874884 BRASS BC (ROM4A)
-e8ce46f2bbea8b8f BRASS 5THS (ROM4A)
-1d87dc4d7b448dee SYNTHBRASS (ROM4A)
-ac04768e0e444dd8 STRG QRT 1 (ROM4A)
-26ad11e06867092d STRG ENS 2 (ROM4A)
-6ee79b8aa5605a75 VIOLA SECN (ROM4A)
-abf997c0884fb991 STRGS LOW (ROM4A)
-bd010403b20f2111 HIGH STRGS (ROM4A)
-14d9092f67900310 PIZZ STGS (ROM4A)
-6497957d2ed702d5 STG CRSNDO (ROM4A)
-13c35dc9fcd4a151 STGS 5THS (ROM4A)
-04dbd922b992cb28 BELLS (ROM4A)
-ed5da89dab5d2036 TUB BELLS (ROM4A)
-040df96b6caa881b RECORDERS (ROM4A)
-13c792e1dda4203f CHIMES (ROM4A)
-2c1bbcb03c99011e VOICES (ROM4A)
-78b74f639079eb11 XYLOPHONE (ROM4A)
-ea3462d8fa49038c COWBELL (ROM4A)
-8d5e1ab9369da1fc WOOD BLOCK (ROM4A)
-272474de99f29b83 FLEXATONE (ROM4A)
-00c2d6d3c5c03109 LOG DRUM (ROM4A)
-616fdefe4f4e3a68 GLOKENSPL (ROM4A)
-5f98334dce5c6dbd VIBE (ROM4A)
-e08969b2a9907bf2 CLAV-E.PNO (ROM4B)
-5b56f489b43312bb PERC BRASS (ROM4B)
-de342e4801d6f1e8 PRC SYNTH2 (ROM4B)
-09c23cf1e1ac9230 HARPSI-STG (ROM4B)
-053a6013df0b5944 CHIME-STRG (ROM4B)
-2993e7dfd67576cb HARP-FLUTE (ROM4B)
-9a085fef98bcdc50 BELL-FLUTE (ROM4B)
-e4761e863b828c5c STRG-CHIME (ROM4B)
-18119e502741a5e2 STRG-MARIM (ROM4B)
-55e50c3f43a7d7ac STRG-PIZZT (ROM4B)
-cba22c494f11c8fa ORCHESTRA (ROM4B)
-785daed01496990b LEAD GUITR (ROM4B)
-661de0a3e8c4369e PIANO-BRS (ROM4B)
-3a5773d3e498c716 BRS-CHIME (ROM4B)
-5122d579b8dd0e2c B.DRM-SNAR (ROM4B)
-b0dc88fd36e618a3 E.P-BRS BC (ROM4B)
-6563676dd328927e ORG-BRS BC (ROM4B)
-c8f9233b98f0d3df CLV-BRS BC (ROM4B)
-7b4cc572ecfe824b WHISTLES (ROM4B)
-c016b388880120f8 FILTER SWP (ROM4B)
-6ed05aa9fea0ed7f FUNKY RISE (ROM4B)
-8dfbabcea20cf6e4 WILD BOAR (ROM4B)
-78904feb7ed9552e SHIMMER (ROM4B)
-150e633363cabdc6 EVOLUTION (ROM4B)
-a60ac552ae3d2012 WATER GDN (ROM4B)
-42726d6b0e79d26f WASP STING (ROM4B)
-9804a4590348c80e MULTI NOTE (ROM4B)
-df3540799a5a7aed DESCENT (ROM4B)
-6da160a1b55b9ff8 OCTAVE WAR (ROM4B)
-c6c02105f3bb1558 ..GOTCHA.. (ROM4B)
-13982061e84e11e8 ST.HELENS (ROM4B)
-89e1941f35466b0c EXPLOSION (ROM4B)
-312635558656bb48 Say Again. (DEXED01)
-0e82ea0361157b96 LAURIE (DEXED01)
-53763784f508341b Beatmehrdr (DEXED01)
-b21726810c548ae7 PHAROH (DEXED01)
-450ce66ebfeaa5be Chroma 5 \ (DEXED01)
-90df4398117cdc4a Lavitar \ (DEXED01)
-94618d544706e02e SloSwl //\ (DEXED01)
-19dac1bcde19f3d9 OB Genviv\ (DEXED01)
-0144d4e343515e71 SAW EM UP (DEXED01)
-3f1317ac9c309892 LFORez ++\ (DEXED01)
-5c65e1a82be6f023 ENCOUNTERS (DEXED01)
-c97644dd6ecad930 Thunder 3 (DEXED01)
-efe108a2e2b709b0 EchoEcho 3 (DEXED01)
-3c226923c6ba75bd -ANALOG 1- (DEXED01)
-1d289d78ef8b8a48 P.ICE 25.1 (DEXED01)
-53d61811364d81ee FLEXI 4 (DEXED01)
-62df02586d8beba2 ARP 2600 (DEXED01)
-957b83ae5565ec07 Arp+BuzzRs (DEXED01)
-025898fbf1bb9c6d TRW (DEXED01)
-df4d7a9579971b30 MIRIDOR 1 (DEXED01)
-bc01e9ee892863ff DEVIL TACK (DEXED01)
-0c6ef4b4e2e8c0c1 RUMBLE 1 (DEXED01)
-9bd44044e220acfd CASCADE 21 (DEXED01)
-21e0059043607ff4 C,D,Eb,F (DEXED01)
-a00d467604d1af4c TundStatc^ (DEXED01)
-88c0cb40efec554f -WOBBLE 1- (DEXED01)
-7763a23a401cb41e FILTER-SWP (DEXED01)
-76e294ea2a8a35bb SAHARA (DEXED01)
-e8302fcf7dfdda72 ELECTRON 1 (DEXED01)
-fe00db6e2fc3b9b0 BANKS, T. (DEXED01)
-8a9383212a547f01 Slow3D Pad (DEXED01)
-9e9e628b87795187 LFO SWEEP (DEXED01)
-90dc9221a761a054 Tresillo Gate
-ada28102bae38e36 Seven Over Four
-8703a43ae902980f Breathing Choir
-709fd95494e3a20e Gated Cathedral
-985a874cb9efbd18 Triplet Arp Through Gate
-05a5d7d9e4e86691 Dotted Five Drone
-7c1f8c7a7a972366 Half Time Gate Bass
-37587827802a1b2b Euclid Gate Stack
-9284895ffae4c022 Gate Build Riser
-62d98aeabab4bf22 Stutter Bell Machine
-b183919d05b9dbdb Random Gate Choir
-d7ae33e30fbb5735 Acid Fold Lead
-ca992638c7900143 Arp Gate Bass
-aec6e169ef515748 Bowed Choir
-a7dfe1233b987fd7 Bowed Lead
-ab64b6214b300f89 Bowed Piano
-e2dbb0ceb3232b49 Cable Pluck Bass
-a4d2454e59c1cba3 Chance Mallets
-f0ff77f082eb1e67 Drop Pluck
-e34f44a95a951721 Euclid Mallets
-9550baae1c891b48 Felt Upright
-538b691d3d900e91 FM Walk
-534f83c51c1ecf0d Frozen Hammers
-b0e7cb01911e8415 Gate Stab Chords
-b90f2afae8682a0c Gated Glass Pluck
-d9768be3949b7b7a Glass Harp Keys
-54ea0d43b5b2a9b3 Holt Pad
-3715c04f3a490a71 Koto Snap
-d196e33af0465385 Operator Bass
-77f5d52fda2cc425 Operator Clav
-24dcdf4f0588b9b9 Operator Lead
-2d85a2a6c28c038e Operator Tines
-1a3a188c2d54e6e2 Pear Lead
-8598c42545c4a1f8 Picked Steel
-8e7e4da2bc384cf5 Reed Growl Bass
-a21a7847fa43c509 Reed Lead
-25895346170c49ae Reed Pump Organ
-c922f216c9bcab8a Resonant Drone
-64829570e035499f Soundboard Bloom
-ac9c9f59a6580d03 Spray Harp
-9d65cc215048cf54 Sympathetic Haze
-45126d7efad03379 Tine Room
-34fe6500ae1b0276 Toy Box Piano
-c9ecaf8e9271d2ef Upright Thump
-905850a1850a8789 West Glow Pad
-52f80aa159fbad0e West Marimba
-20ad1b7315fa42f7 Z Ladder Bass
-c5bb2b2fa9affd4e Operator Glass Lead
-e352b02a0438f4ba Folded Supersaw
-e319c0201caa7c73 Moving Comb Sync
-8d90243c25a92922 Formant Chorus Lead
-848668f453e9a7cd Formant Operator Lead
-b39ddecaed97796d Deep Pulse Gate Pad
-13b0152cc3281754 CZ Gate Pad
-acbef14aec1eaa52 Talking Saw Pluck
-2496de7e43f920b9 Cluster Formant Pluck
-4dc692d9f9ccbd13 Rounded Saw Gate Pluck
-0bd4a51758d23342 Vowel Octave Bass
-438cf51ee848621f Vowel Pulse Bass
-034fb9c610cc8af9 Analog 303 Bass
-4ffaa0836fb4fd15 Talking Pulse Bass
-c62f517fa962cd12 Scramble Chorus Keys
-2adf88b2fa87bb02 Plain Hall Keys
-a43152c8c89945c1 CZ Bitwise Lead
-ec10355c597ede31 Pulse Operator Lead
-6e9fe33b5b43db1d Logistic Product Lead
-a659e2b1c5decbcc Twin Sine Holt Lead
-c6486b7edc332870 Talking CZ Pad
-cdb067727d7d7fa9 Scramble Saw Pluck
-86bde8e442f0995f Organ Saw Pluck
-a30ccf23471a282f Wavecrush Analog Bass
-91a2f44654813ea2 Vocoder Drive Bass
-55cf012aaa5b0b0e Ladder Triangle Bass
-1838ac7b37b15cd3 Vocoder Pulse Bass
-3ddc07c720ee2994 Tine Vowel Keys
-69707453a919305b Modal Grand
-42842bae10d03c47 Lorenz Chord Pad
-c48462a138e87ba7 Chaos Bell Keys
-69b0c31fd738cc10 Chaos Saw Pluck
-6b5bf2e15bb74ed1 Frame Snap Reese
-6d6db735d4ca5a86 Vowel Strike Keys
-c64465577aba0bea Euclid Vowel Glass
-052d256ff2583e6e Feedback Bow Pluck
-a8a6c3fdff500509 Hexagon Choir Pad
-40a41d671d1ff1c2 Triangle Vector Lead
-bda24e2ac510d8b1 Pentagon Glass Keys
-6eb609ca330de32c Hushed Grand
-dccf87c67d43e7a6 Octave Drop Bass
-b44e8e42d1354e5d Trance Pluck
-8cbedc2419149846 Rave Hoover
-d6997b3824a5732d Reese Screech
-c734c9dddd5c59fd Synth Brass Lead
-645e0a2d76dedcf5 Arcade Pulse Lead
-ae50f2e949e9d198 Vox Glide Lead
-51d0f3bcd338da21 Rave Kick
-09233895159a989c Snap Clap
-7018b0397e2ca4fa Closed Hat
+a36ba30c9cc5ec55 Crushed Trap
+0c379c5e1c9bc331 Formant Scream
+47437beec6d4a51c Self-Osc Drone
+3a871567650b8981 Tremolo Keys
+3accbb27bdf88e6a Resonator Bell
+9c24b49afcd344df LFO 4 Sweep
+ce245d78e6bfc152 Quad Mod Pluck
+c962b2ac700b0f99 LFO 3 Wobble
+3a3f7785a1f212eb Arp Glass
+8636b5aa83446401 Resonator Pluck
+a5dd88b770f1ba08 Sub 808 Arp
+8ea28d78dfa41a9b Vocal Stutter
+4a48d4b4362ad465 Tape LFO Drift
+16df676bc0def0c1 Ladder Sub
+83b8a8ef72ac7a35 Diode Acid
+cf145e7ab9efef79 MS-20 Growl
+96598004f4233c08 Hyper Reese
+7af6857fa340b881 Comb Bass
+a7514bb372ebe664 Wavefold Sub
+815a38fa331f44fb FM Donk
+37a54f825dab9566 Sync Stab Bass
+f536e100700a1326 Neuro Formant
+32a9db1a02de65e7 Pluck Sub Bass
+eb0725a1c6574fc0 Octave Hyper Bass
+19cfb5917cb57f85 Rubber Mono
+09236f3b899366e5 Ring Bass
+9096a45360126a09 Deep House Bass
+178567c2a6327e68 Warp Wobble
+fb7e98dca4dda7ff Morph Filter Bass
+f95606a63a972a13 Tape Sub
+5eb2df08baaa790b Distorted 808
+58c2e6624f68fe94 Dark Ladder Pluck Bass
+b8ca43d3d1b06ba4 Per-Voice Wobble
+bb5cfd150bd708d0 Supersaw Anthem
+b326a62b8882b68f Ladder Lead
+f1af319826da0acf Self-Osc Whistle
+81a3385a10a099fc Sync Scream
+a7fe95d650354611 FM Brass Lead
+8c8538416aa882b8 Hollow Pulse Lead
+ed70275a0bf955bf Talkbox Lead
+8d9b96c747802f70 Chip Lead
+4e14d9aad34b3bbe Diode Screamer
+2645942b86f3f606 Glass Lead
+c34c38580566bfbf Soft Saw Lead
+cacc1839f0cc04bb Ring Lead
+13746bbcf3ad4741 Fifth Stack Lead
+05693f7e34bccd49 Theremin
+a3f438b5171c0f1c Acid Squelch Lead
+802868cc271693a6 Stereo Bend Lead
+3e94a070da6aea86 Vintage Mono Lead
+d0fbd1179188a75c Octave Screamer
+185e5a2c5e0d4930 Pan Flute
+739369826d80b793 Ladder Pluck
+a31bdaea20e8a046 Supersaw Pluck
+ef37cd93001c7367 Comb Harp
+5e7f0d97ef4e1a94 Nylon String
+fc42ff4ae009b7aa Pizzicato
+d071052de9e61dd7 Diode Blip
+dad037031cd2cbff FM Pluck
+db501dda0db73f88 Kalimba
+565c3dbd02b78981 Warp Pluck
+deaf7420d1268e8d Formant Pluck
+5e9ccc162768ec2d Muted Guitar
+2f96c688b35adc93 Glass Mallet
+2b8791ac14eb3b89 Resonant Drop
+f02775f9e3405615 Plucked Bell Stack
+bd90310af9186145 Vowel Pad
+2b7b06a91d81d124 Supersaw Pad
+32f2f2c2faa7fbb5 Comb Choir
+5b26bdf07a79ce87 Curve Motion Pad
+bfc377b0a0829e84 Dark Matter
+313c8ed676cbd486 Shimmer Glass Pad
+96a68054fe2fe3c6 Sweep Pad
+5777157194f5a454 Octave Stack Pad
+d53114f08c7d65b1 Pulse Width Pad
+b99b0e874adae110 Breathing Pad
+7fd569b8193c0df9 Tape Strings
+0ed569750c25883a FM E-Piano
+979e06a8c3b962d3 Warm Clav
+9b785db1d2db62ea Toy Piano
+568d8fd2157b871e Digital Bell Keys
+32e03515c045a9d0 Harpsichord
+efa64cb1e1a056d6 Vibraphone
+f33c0acfb8ca4a11 House Organ Chord
+859bbe822decefe6 Stab Ladder Chord
+05c0af9030ff82f3 Dub Chord
+c619274e3b6e0381 Lo-Fi Chord
+1bf0d912549840ee Sus Pad Chord
+e13bacbdf4c88fc4 Power Chord
+e5b69bb1e6970ba7 Minor Glass Chord
+3ab4f9ded7df5711 Ladder Arp
+064c74b409b3bad9 Random Glass Arp
+1881a0a25f50c399 Acid Arp
+b4c30407294b6772 FM Sequence
+ccc103c4fa009ba3 Trance Gate Arp
+d4cf04e2555af7b3 Bouncing Ball Arp
+28b7fa5dc3e43296 Chord Arp
+d536b51752a63b53 Comb Cathedral
+743f0a368f95de45 Self-Osc Choir
+7f92664c4a550c5e Ring Drone
+a21c122fe52443f2 Stairway Drone
+c56eaa019e0b0c39 Tidal Drone
+bb04a3e2b577d702 Bowed Metal
+5377b47778c11dca Riser Sweep
+afa94c74e53c1118 Laser Zap
+537a84ebc226dbc7 Noise Sweep
+1bd598aa290f2b08 Alarm Siren
+4e5d53be3c0d7410 Glitch Gate
+8ed0dd35da9f6978 Down Lifter
+3b52f4af7a50809f Freq Shift Wash
+e9bc7d29ff135239 Soft Synth Piano
+ee5319555c23540b Pulse Arp Down
+88659825e8f373df Converge Bells
+0a487aae51773090 Deep Space Drone
+f91e6862a2042edf Oversampled Grind
+f92e58038a8a4c05 Stutter Hit
+e512cd48420e4e29 Radio Tuning
+fc6bf0d8f5f5f04d Ladder Swell Pad
+db1ce843993f6d14 EQ Sculpted Pad
+eefb4ee2ec2f7d94 Sitar Pluck
+9dbd7be0d58f91a4 Legato Glide Lead
+f99df817b3fa44af Chaos Kick
+f07f1484ddbf5623 FM Snare
+ae1f060b815db4ca Metal Hat
+b38258b17ccd8fce Granular Clap
+1dd3348a2306fcfc Drunk Tom
+bea61943952f0e3e Spectral Rim
+2cf41a7ec2915a07 Operator Bell
+32fc5abdb62703ae Through-Zero Growl
+7ae88f7076b9f42d Feedback Choir
+2ecf0503e86df3d9 Key FM Scream
+e911875d61023ba1 Stretched Glass Keys
+d8d09e7b257e7f12 Formant Shifter
+13c440974a9e96f2 Harmonic Cut Pad
+ea3d3d1bd98f0f96 Smeared Organ
+d5f2be3fb8ffbf68 Shift Bass
+6b7b1f4d52e5029d Grain Choir
+36da3332e059126f Swarm
+e6d2b8efed45c901 Vinyl Dust Keys
+d13a94a7c292fbe5 Frozen Grain Lead
+18b50744d4a9a6af Lorenz Bass
+d42decb6ba0e8982 Drunk Tape Keys
+3cbeccf228b303d1 Chaos Filter Pad
+c6453531575ef646 Gated Supersaw
+d62bd71fac5d4832 Swing Gate Pad
+3e4285e1d1590c92 Stutter Stab
+a0431b49ea8be6ae Pentatonic Rain
+743daf608e25a35e Scale Walker
+c8773d84dcaafbad Hirajoshi Spray
+8709784b31b79759 Blues Machine
+7c30e5c49386a286 Granular Riser
+750fc57925cc5065 Lorenz Radio
+d9cd69338af5ca88 Audio Rate Siren
+5a6af59ee3cb1027 Bitwise Arp
+823f2939e99d18d4 Throat Drone
+8b50004eedd4cc71 Hammered Strings
+f5d6ff0a5c192428 Pedal Bloom
+77d40ee3038e50a2 Honky Hammers
+a4c6842cdc088c1f Bolted Strings
+fa287e3caa8631f1 Bowed Board
+0e298889032412fb Osc-Struck Strings
+8c3afa06ac52e093 Euclid Pluck Machine
+57ecef083b0b6397 Probability Bells
+d1fbdc000f6304ff Strummed Harp
+eb4cfd448e5aee30 Euclid Kalimba
+e75c620302ee4cba Metal Plate Hybrid
+a66f7797e44520a5 Bell Shell Hybrid
+40a95de674199fb7 Glass Shell Hybrid
+d5993a15f26d8285 Supersaw Bell Body
+0ae48a520a73fc46 Tine Keys
+af7fa69c2a902169 Reed Keys
+4df937d6de1505ca Live Body
+2cd63c4243817bb7 Live Wah
+92b19bc1392b1119 Live Grains
+90597011465b8362 Live Strings
+e85646bfbea5ec96 Felt Hammer Board
+a256c8f17bab73d8 Nylon Twelve
+2f3efedcde7d7dc9 Cello Section
+af67f036826c090b Solo Cello
+6f132af738113170 Harp Cascade
+be9bafa81763ab37 Detuned Zither
+82b5a56d42062d84 Slide Fiddle
+f9d706c8d1c71b86 Contrabass Growl
+d87e00ab82285032 String Ensemble Wide
+552d1f98d8046fba Six-Layer Stack
+5d9f304e996b84fb Fifth Engine
+a2f975d7982fd7ca Route Split Pad
+775a10f1eb440a1c Layered Sync Choir
+e3cf5e5849be0479 Modulated Route Bass
+8e1ef3df2e85f3e1 Lorenz Wash
+bc60f4bca4d307bb Pendulum Swing Pad
+e89a6dc8b307b4bf Spring Bounce Bass
+3b65b0fa5983ebb1 Double Pendulum Chaos
+426e3729a40e770a Henon Glitch
+d454ee32469eed17 Rossler Tide
+db93957f11a194cb Stick-Slip Growl
+c7abf335c32b0d15 Bouncing Ball FX
+d175a8cfe45b57c0 Bright Concert Grand
+d6d8a82eabc8d6da Detuned Saloon
+8d8d45e2d7a17e31 Prepared Piano Bells
+cbacea4db00f536d Toy Grand
+4b461ecab0c0d75b Dense Board Piano
+b920ec338b8f5da1 Vintage Tine
+bc78b58d91d4c96f Growl Reed
+b8a84805577dab96 Chorused Tine
+e7eb53facc17bed5 Distorted Tine Rock
+43ea3f965d0dae09 DX Stack Bass
+0eaa4e40eff53d6a DX Bell Pad
+05ce4c03143bc791 Two Pairs Keys
+3d3ea18abb2fc16c One Drives Three
+dc9e816d4a4854d3 DX Keys Classic
+fe32c7f978e89876 Ratio Snap Bell
+ecc99d9222ac281c Fixed Freq Clang
+581f3acc7b92f5cb Feedback Chain Bass
+09ccb5493cf727ca Six-Op Organ
+ade57a8d9df2a383 Inharmonic Pluck
+da6bad883cad1135 PD Casio Lead
+f219a1727562c9d6 Warp Stack Bass
+7939372c88c352ca Envelope Warp Pluck
+c7fd07dbba918cd0 PD Formant Voice
+6037e137eee2ab9f Dual Stage Warp Lead
+a243a1d9142ef873 PD Metallic Bell
+5aa34d8acab4fccb Warp Envelope Pad
+289a375f42b8de86 PD Growl Bass
+38bcae87305cc914 Euclid Bass Sequence
+d9f6619058fc0690 Prob Seq Bells
+12553dc1b5ef6e1d Strummed Pad
+e62167f78886ca07 Ratchet Arp Machine
+8cdba8e5cd3b63ce Euclid Trance Gate
+c7a4ff174814d3d6 Scale Spray Keys
+c84b1a81168bb14f Prob Seq Drone
+f246965b3607855a Euclid Exciter Pluck
+9a605e7b6dc89f71 Marimba Bar Body
+40e084aba59fd9a0 Vibraphone Plate
+3ce25afa31b6edef Church Bell Shell
+27ec7a193a8c33e5 Glass Chime Body
+47ca0f49b21bd3e7 Coupled String Body
+6898d0a5f1c4000b Feedback Body Growl
+905c980007984c9d West Body Pluck
+c4d57ff438c2f73d Deep FM Bell Body
+34aaeef9fc494b2f Struck Board Pad
+8ff06825036494c7 Sympathetic Body Drone
+a00bfb6b0ff0e035 West Folded Bass
+8cd4687118e13443 Buchla Bongo Melody
+723a69de9520b7de Steiner Growl
+3dade042562dd76b Vowel Bank Voice
+b3303cd5404ecfcd Talking Filter Lead
+67316bf85e881f32 Twin Peak Pad
+ee8638eec2b79567 OTA Squelch
+f303ce5b9d9c5dd2 Comb Morph Pluck
+7b2658f90b6ea181 Phaser Notch Sweep
+d23a21c65da284c9 SEM Classic Lead
+3a5ccbe2fe04d82e Feedback Guitar Drone
+f514f2522f9e4fa2 Screaming Feedback Lead
+3f10910a7056bf1c Vector Corner Morph
+e494fbbf7d02f8f7 Vector Path Drift
+71233c1d4c0ae6a7 Feedback Distance Growl
+60ffe83427ed6f5e Vector Strike Pad
+dca767fff431a1f7 Bounced Bell Grains
+9f2cab9f6badc56c Resampled FM Texture
+b934b143a7ac17ea Baked Chaos Loop
+6e3739e4d7b5ccb5 Reversed Piano Wash
+daf3227aa567e780 Frozen Feedback Table
+51eca59b9d10ef01 Tabled Cello
+9c0b4e4ad21ae9c0 Live Comb Wash
+7fa815f016036bac Live Feedback Loop
+4abf5dfc00526c25 Live Struck Bells
+34f8dbc3307bbdff Live West Fold
+2f73ff450e7d4c0a Live Vector Morph
+faae3f53d5524062 Live Ring FM
+962a1e7201a13e17 Live Granular Delay
+d61b6043d4766975 Live Formant Filter
+0957a58b1c726fdb Live Feedback Strings
+eed14f02248c390f Live Twin Peak Wah
+c297b1f8f1b96dee BRASS 1 (ROM1A)
+16063c43b689953d BRASS 2 (ROM1A)
+41ce5029cee990ad BRASS 3 (ROM1A)
+ed8cbc3ce2881b85 STRINGS 1 (ROM1A)
+e4a0e11750a93a8d STRINGS 2 (ROM1A)
+0fb9b4abcf695170 STRINGS 3 (ROM1A)
+d9646d6eb446a011 ORCHESTRA (ROM1A)
+f3242075a9d46389 PIANO 1 (ROM1A)
+3408d3403d37a4e2 PIANO 2 (ROM1A)
+38b1d8cb746bfbf2 PIANO 3 (ROM1A)
+2b03be3dbe877910 E.PIANO 1 (ROM1A)
+ce74113084b11169 GUITAR 1 (ROM1A)
+6da430449de8ed65 GUITAR 2 (ROM1A)
+db64ec56a500c5c8 SYN-LEAD 1 (ROM1A)
+982905f3c683234b BASS 1 (ROM1A)
+d4a3eee166e53471 BASS 2 (ROM1A)
+3467e0f2501f52db E.ORGAN 1 (ROM1A)
+7fee838704f90048 PIPES 1 (ROM1A)
+c74c4cd3ec0ca1c2 HARPSICH 1 (ROM1A)
+a4d1191048c09803 CLAV 1 (ROM1A)
+a501c2996d60915e VIBE 1 (ROM1A)
+dd59d24beeaf041e MARIMBA (ROM1A)
+921b050b7b65d3aa KOTO (ROM1A)
+647759f143cd4000 FLUTE 1 (ROM1A)
+a65902320748d65a ORCH-CHIME (ROM1A)
+e2ea811ff2993102 TUB BELLS (ROM1A)
+3e5110a6d6ed0b1d STEEL DRUM (ROM1A)
+438a280af64b7563 TIMPANI (ROM1A)
+34fee3a4743c6261 REFS WHISL (ROM1A)
+5b67ae67aaff6c11 VOICE 1 (ROM1A)
+3cb9311e6baa3fd0 TRAIN (ROM1A)
+8d2f30d1ebdcf78d TAKE OFF (ROM1A)
+0de23b65f4d85a73 PIANO 4 (ROM1B)
+5ef987a4ec5ec689 PIANO 5 (ROM1B)
+5166b988b87acbf0 E.PIANO 2 (ROM1B)
+b3fb7aac351ad334 E.PIANO 3 (ROM1B)
+ae4d4bccb1dbc542 E.PIANO 4 (ROM1B)
+a2f83fdd51087aca PIANO 5THS (ROM1B)
+bebb17c81c5956e5 CELESTE (ROM1B)
+b1d36f0cb41b0cc9 TOY PIANO (ROM1B)
+801fab876284df45 HARPSICH 2 (ROM1B)
+e9a8f82d90481788 HARPSICH 3 (ROM1B)
+3903c1fdb2a1d8d8 CLAV 2 (ROM1B)
+d8384eaf8e8ee139 CLAV 3 (ROM1B)
+4dba03ea49ab20dc E.ORGAN 2 (ROM1B)
+58bf4500939cd9a2 E.ORGAN 3 (ROM1B)
+6ee667120a2693ac E.ORGAN 4 (ROM1B)
+ee63ab5334001a5d E.ORGAN 5 (ROM1B)
+9167aefe8c4a0da2 PIPES 2 (ROM1B)
+f4ec2adf084d47cb PIPES 3 (ROM1B)
+2837c2cb4f57c93a PIPES 4 (ROM1B)
+f89f40330adf56aa CALIOPE (ROM1B)
+8c2074a8738ba64d ACCORDION (ROM1B)
+2f0bb51197527863 SITAR (ROM1B)
+dcfb001182b994fd GUITAR 3 (ROM1B)
+8809f08af8261055 GUITAR 4 (ROM1B)
+9ae55a0232f8c71b GUITAR 5 (ROM1B)
+d8701f64b28f38c0 GUITAR 6 (ROM1B)
+33d536aa4f0e515a LUTE (ROM1B)
+73fb19d65066e081 BANJO (ROM1B)
+9450f902a5096a3a HARP 1 (ROM1B)
+32dbc58967f3b517 HARP 2 (ROM1B)
+25e76e6e7923bbf0 BASS 3 (ROM1B)
+a568b29a5e1656ed BASS 4 (ROM1B)
+bd01b26c3f725de5 PICCOLO (ROM2A)
+cb170b62cd48d7a7 FLUTE 2 (ROM2A)
+f24b5dd82e349341 OBOE (ROM2A)
+26e6929daf994a6a CLARINET (ROM2A)
+f24122480985e4d6 SAX BC (ROM2A)
+973cac97a5819e55 BASSOON (ROM2A)
+19409b4443ba5b04 STRINGS 4 (ROM2A)
+cfb31cf316a3941c STRINGS 5 (ROM2A)
+3acd6f24c31e9543 STRINGS 6 (ROM2A)
+4c314d23506c54ca STRINGS 7 (ROM2A)
+924054c67d244b3d STRINGS 8 (ROM2A)
+b32f835020e92272 BRASS 4 (ROM2A)
+dec0645d42f931d4 BRASS 5 (ROM2A)
+3775e0ff9d5bbd84 BRASS 6 BC (ROM2A)
+81d9d487a0cb686c BRASS 7 (ROM2A)
+9c4635b63f83076d BRASS 8 (ROM2A)
+5e3e98885afad761 RECORDER (ROM2A)
+732b6e0c7808468c HARMONICA1 (ROM2A)
+f7f886cb9eb230c6 HRMNCA2 BC (ROM2A)
+d98dfa9d31680869 VOICE 2 (ROM2A)
+d1de71e6c243a8c7 VOICE 3 (ROM2A)
+fd21642fcc2285b7 GLOKENSPL (ROM2A)
+3bf8dd07d62b4c1c VIBE 2 (ROM2A)
+92aba10fb66d2222 XYLOPHONE (ROM2A)
+f0bad0823d6dbbcc CHIMES (ROM2A)
+5fae267c91630d18 GONG 1 (ROM2A)
+277fbecf01cf1c81 GONG 2 (ROM2A)
+e8f8657767b63452 BELLS (ROM2A)
+98f505bd376c44f3 COW BELL (ROM2A)
+08d761e79575aee7 BLOCK (ROM2A)
+0298788fe6803ff4 FLEXATONE (ROM2A)
+24299d1b49bfc610 LOG DRUM (ROM2A)
+39d93333c5169292 SYN-LEAD 2 (ROM2B)
+a09751add3abd62e SYN-LEAD 3 (ROM2B)
+3da9585c28379884 SYN-LEAD 4 (ROM2B)
+5abc9155b2a9e5ad SYN-LEAD 5 (ROM2B)
+47520c26685f2f16 SYN-CLAV 1 (ROM2B)
+74fe357834121cb1 SYN-CLAV 2 (ROM2B)
+5dc254357f495478 SYN-CLAV 3 (ROM2B)
+4fcf95efc5d76ac5 SYN-PIANO (ROM2B)
+398b4f8769aedaae SYNBRASS 1 (ROM2B)
+82b6a4ed2197dfb4 SYNBRASS 2 (ROM2B)
+00703e4c6df7a9ed SYNORGAN 1 (ROM2B)
+d1556e11e4ec4a57 SYNORGAN 2 (ROM2B)
+e8c97f666acfe024 SYN-VOX (ROM2B)
+5498be08743ab028 SYN-ORCH (ROM2B)
+aae827ade397b220 SYN-BASS 1 (ROM2B)
+4a83d3719fde5661 SYN-BASS 2 (ROM2B)
+273608f488dd1abc HARP-FLUTE (ROM2B)
+188a78ee84177907 BELL-FLUTE (ROM2B)
+c85fc81959cc8c9e E.P-BRS BC (ROM2B)
+4ba99eabb25d8b9a T.BL-EXPA (ROM2B)
+721681a950677fed CHIME-STRG (ROM2B)
+e7e55f395c64cb83 B.DRM-SNAR (ROM2B)
+37507906f5af3749 SHIMMER (ROM2B)
+37653d6bd9e6c9d9 EVOLUTION (ROM2B)
+cb2963c4d63ca8fd WATER GDN (ROM2B)
+afc39d69be322a4c WASP STING (ROM2B)
+e2ac50272d0ff419 LASER GUN (ROM2B)
+9663256e6255a203 DESCENT (ROM2B)
+ddacc7e3c5b07a83 OCTAVE WAR (ROM2B)
+03b8d71387c128c8 GRAND PRIX (ROM2B)
+db305b00679eb253 ST.HELENS (ROM2B)
+9627c3fce5ccf7bb EXPLOSION (ROM2B)
+ad5089cfa123fb7e FLUTE 1 (ROM3A)
+65ddfee40c98d4ee HARPSICH 1 (ROM3A)
+4376f361b8924c56 STRG ENS 1 (ROM3A)
+42c22cb4a7358a0e BRIGHT BOW (ROM3A)
+1535bd5faf1895ee BRASSHORNS (ROM3A)
+7daed87603eac125 BR TRUMPET (ROM3A)
+cb8b588f585df767 MARIMBA (ROM3A)
+a40fcc71733b4ef9 E.PIANO 1 (ROM3A)
+42ee089460f1a866 PIANO 1 (ROM3A)
+7fd46bc9238ba9e4 PIPES 1 (ROM3A)
+9f92b8a37b251ab7 E.ORGAN 1 (ROM3A)
+61e3c5caa76f6ea7 E.BASS 1 (ROM3A)
+0fc36bcf7fefcbf9 CLAV 1 (ROM3A)
+66b0b5e6a861913c HARMONICA1 (ROM3A)
+75503c6ed000a4a8 JAZZ GUIT1 (ROM3A)
+dd134f61dc04695c PRC SYNTH1 (ROM3A)
+d80ae0ac6a02927e SAX BC (ROM3A)
+a9e902b9cb206f3c FRETLESS 1 (ROM3A)
+39b7c3102c1b72ea HARP 1 (ROM3A)
+0dbea37cf0862b58 TIMPANI (ROM3A)
+b0f53aacaf9bca8b HEAVYMETAL (ROM3A)
+1675731679416b31 STEEL DRUM (ROM3A)
+a0b53628f9fc92bb SYN-LEAD 1 (ROM3A)
+2dd0fed290a43ed2 VOICES BC (ROM3A)
+0f47ae83eec19a6e CLAV ENS (ROM3A)
+061ea1e06432e8fb LASERSWEEP (ROM3A)
+54452852843605a4 TUB ERUPT (ROM3A)
+12664f545d8f3665 GRAND PRIX (ROM3A)
+265595acc5df3d57 REFS WHISL (ROM3A)
+dd21c4526d294bc4 TRAIN (ROM3A)
+a777209b3b061ba4 BRASS S H (ROM3A)
+8d2f30d1ebdcf78d TAKE OFF (ROM3A)
+db5c833e5787f7b4 PIANO 2 (ROM3B)
+cb232b25b3150a5f E.GRAND 1 (ROM3B)
+471e12e1b06203b8 E.GRAND 2 (ROM3B)
+d69dca57976a1a0c HONKY TONK (ROM3B)
+896f781c58d663ac E.PIANO 2 (ROM3B)
+fbddf80bd4944dda E.PIANO 3 (ROM3B)
+8a3500fb4c1791e5 E.PIANO 4 (ROM3B)
+9f3104bad5411041 CELESTE (ROM3B)
+1ba2e2fae0f95e70 FUNK CLAV (ROM3B)
+c9b24f58fd6d6e99 CLAV ENS 2 (ROM3B)
+12580c2b44178fb7 PERC CLAV (ROM3B)
+99c62a4960541235 HARPSICH 2 (ROM3B)
+208d18361bdd29bb E.ORGAN 2 (ROM3B)
+f4a6a284bcd60ee6 E.ORGAN 3 (ROM3B)
+1026e5d271be995f 60-S ORGAN (ROM3B)
+5a2d5d29853a629b PIPES 2 (ROM3B)
+9066a04efe5e9bfe PIPES 3 (ROM3B)
+9cc6387434a41101 CALIOPE (ROM3B)
+c0406747766fcee5 ACCORDION (ROM3B)
+3404c2b71f6d170a TOY PIANO (ROM3B)
+295a64026e7f282d SITAR (ROM3B)
+63e373782321c67f KOTO (ROM3B)
+e116674b3087f8a3 JAZZ GUIT2 (ROM3B)
+1816448e7fd35f97 SPANISHGTR (ROM3B)
+7077549888b15dc3 FOLK GUIT (ROM3B)
+577a8b6c3abd43d6 LUTE (ROM3B)
+73fb19d65066e081 BANJO (ROM3B)
+938fd926d36f77f2 CLAS.GUIT (ROM3B)
+6288502101abe7cb HARP 2 (ROM3B)
+6b2364d445cd15c5 E.BASS 2 (ROM3B)
+cba2773e77af18a2 FRETLESS 2 (ROM3B)
+329d06771f72b853 PLUCK BASS (ROM3B)
+fe72997afba92372 PICCOLO (ROM4A)
+c2b7f082e99a46da FLUTE 2 (ROM4A)
+4f1b3a6d8cfde586 OBOE (ROM4A)
+eb2663bfd363718f CLARINET (ROM4A)
+58ebe86befb64abb BASSOON (ROM4A)
+3ad27eee0d370ce9 PAN FLUTE (ROM4A)
+70af1c812f803f60 LEAD BRASS (ROM4A)
+8375f6184ef0878b HORNS (ROM4A)
+4713e24065e45f44 SOLO TBONE (ROM4A)
+49a4a3a4964dcecf BRASS BC (ROM4A)
+f921e8cbc0b2c3c4 BRASS 5THS (ROM4A)
+4d73911b68c035f9 SYNTHBRASS (ROM4A)
+38df966efb0c9b1f STRG QRT 1 (ROM4A)
+abcab54ac1baa3ce STRG ENS 2 (ROM4A)
+d5804af68dcddaae VIOLA SECN (ROM4A)
+ecf6e27047242332 STRGS LOW (ROM4A)
+e032060672f18ab2 HIGH STRGS (ROM4A)
+bb9faca236e5942f PIZZ STGS (ROM4A)
+4f3fe48748d6e062 STG CRSNDO (ROM4A)
+6d0fb9a0a5d73ba2 STGS 5THS (ROM4A)
+c7737a21f23fa9f3 BELLS (ROM4A)
+e85d598f52341ccd TUB BELLS (ROM4A)
+3dbeb006ecb9e898 RECORDERS (ROM4A)
+f0bad0823d6dbbcc CHIMES (ROM4A)
+b43f1950ec01d60d VOICES (ROM4A)
+92aba10fb66d2222 XYLOPHONE (ROM4A)
+98f505bd376c44f3 COWBELL (ROM4A)
+08d761e79575aee7 WOOD BLOCK (ROM4A)
+eb311e025abf93c4 FLEXATONE (ROM4A)
+1860609a2d515c7a LOG DRUM (ROM4A)
+fd21642fcc2285b7 GLOKENSPL (ROM4A)
+fa285222224c0436 VIBE (ROM4A)
+6dc6f143b5b00c8d CLAV-E.PNO (ROM4B)
+a585f429a88e5b08 PERC BRASS (ROM4B)
+6efed8efe7614b3b PRC SYNTH2 (ROM4B)
+92ae0ed0aec78c0f HARPSI-STG (ROM4B)
+32fba614f11dec63 CHIME-STRG (ROM4B)
+273608f488dd1abc HARP-FLUTE (ROM4B)
+188a78ee84177907 BELL-FLUTE (ROM4B)
+8cdc323499313da7 STRG-CHIME (ROM4B)
+9bce6abdbd0f19b9 STRG-MARIM (ROM4B)
+768e9a3710d65b23 STRG-PIZZT (ROM4B)
+b36147747ed7b86d ORCHESTRA (ROM4B)
+f119f3a0e70c7db8 LEAD GUITR (ROM4B)
+4fb1b52ec47705c5 PIANO-BRS (ROM4B)
+079617d28ad336f5 BRS-CHIME (ROM4B)
+f03d6a36af2402b3 B.DRM-SNAR (ROM4B)
+4e8e90737622fd04 E.P-BRS BC (ROM4B)
+c294a3e4e8cd34d1 ORG-BRS BC (ROM4B)
+e4424d43da4b852c CLV-BRS BC (ROM4B)
+6929b8884960b47c WHISTLES (ROM4B)
+804a72bf55ed7853 FILTER SWP (ROM4B)
+4cec1cb454d53e04 FUNKY RISE (ROM4B)
+1b4dcf6755a8293f WILD BOAR (ROM4B)
+37507906f5af3749 SHIMMER (ROM4B)
+97b6c52e9dd95b79 EVOLUTION (ROM4B)
+cb2963c4d63ca8fd WATER GDN (ROM4B)
+afc39d69be322a4c WASP STING (ROM4B)
+7a06722bda2d138d MULTI NOTE (ROM4B)
+7855c7b15b5ea7be DESCENT (ROM4B)
+ddacc7e3c5b07a83 OCTAVE WAR (ROM4B)
+6e89584e05478ea7 ..GOTCHA.. (ROM4B)
+d57858175f8def9b ST.HELENS (ROM4B)
+515e64fef91042bb EXPLOSION (ROM4B)
+9b88409a0ccc5c03 Say Again. (DEXED01)
+30b6febaf1d22dbd LAURIE (DEXED01)
+db38add343b0d944 Beatmehrdr (DEXED01)
+4a288ff0b20541e0 PHAROH (DEXED01)
+941530a135f871e9 Chroma 5 \ (DEXED01)
+fe37df01ff26ec55 Lavitar \ (DEXED01)
+f9bd66ee1e7c4605 SloSwl //\ (DEXED01)
+d9ed8f3e5db2dfee OB Genviv\ (DEXED01)
+fae5ca5186b3b92e SAW EM UP (DEXED01)
+114dae21da342561 LFORez ++\ (DEXED01)
+045e25e7ec89dfc0 ENCOUNTERS (DEXED01)
+2d168e4f69d6c59f Thunder 3 (DEXED01)
+10fa893fffc39a0b EchoEcho 3 (DEXED01)
+be427b371f10511e -ANALOG 1- (DEXED01)
+2f5fd11235503ba3 P.ICE 25.1 (DEXED01)
+d32ede0a803079d1 FLEXI 4 (DEXED01)
+9b8e5f20b9770281 ARP 2600 (DEXED01)
+8c78a5945145cce4 Arp+BuzzRs (DEXED01)
+43dde2269097566e TRW (DEXED01)
+5170da07c6314743 MIRIDOR 1 (DEXED01)
+775dc719d19d01e8 DEVIL TACK (DEXED01)
+7929e095772983a6 RUMBLE 1 (DEXED01)
+8abeebe5e1b234fa CASCADE 21 (DEXED01)
+afdfeb5c84d33bcb C,D,Eb,F (DEXED01)
+59b498e4a4130e77 TundStatc^ (DEXED01)
+f8ca187145b4512c -WOBBLE 1- (DEXED01)
+b749c2cd34561f69 FILTER-SWP (DEXED01)
+dacc2a390b924b70 SAHARA (DEXED01)
+639e11f4755022d9 ELECTRON 1 (DEXED01)
+5844f0bc1ff5677f BANKS, T. (DEXED01)
+5ee7efe6deeb9032 Slow3D Pad (DEXED01)
+7329463e10611234 LFO SWEEP (DEXED01)
+5c99f796d7fd357e Tresillo Gate
+729007e0e182fcf8 Seven Over Four
+fc69c470d5b685a1 Breathing Choir
+a6c5edbaf0ae87ec Gated Cathedral
+62a90495d3da803b Triplet Arp Through Gate
+b541e6926b5ee46a Dotted Five Drone
+dd303866897220f5 Half Time Gate Bass
+d1e6441b09ca8b20 Euclid Gate Stack
+8cb557c60e4f18b5 Gate Build Riser
+dd5d0ef543cf7775 Stutter Bell Machine
+79d24597ee58d439 Random Gate Choir
+eff9c5ce91d56bfa Acid Fold Lead
+a192f3cc8a5a1e54 Arp Gate Bass
+0e0a243a4942eba3 Bowed Choir
+4dfffb718bbf95a4 Bowed Lead
+78526ef3a91a6022 Bowed Piano
+c2d870d067cfcd9e Cable Pluck Bass
+d9add07233702b38 Chance Mallets
+e88c43fc954406b4 Drop Pluck
+54e324388c096f7a Euclid Mallets
+3f278c50c24db43f Felt Upright
+777c14a7527e9ee6 FM Walk
+987ddcb290ff81f2 Frozen Hammers
+2711dc0e1dcf2722 Gate Stab Chords
+9339d672ec706baf Gated Glass Pluck
+722fb576495d18fd Glass Harp Keys
+f4b31a80723a0730 Holt Pad
+37b7ff1d9c6a78d2 Koto Snap
+c84cceef03ab8032 Operator Bass
+37d0e7df44819196 Operator Clav
+3515a5ab0bbfa856 Operator Lead
+6929ba634f061dad Operator Tines
+bf6015367b8969a5 Pear Lead
+d5998f994c3afcdf Picked Steel
+9d9218954f8ae90a Reed Growl Bass
+883ad84e903fc8be Reed Lead
+981ef9200080630d Reed Pump Organ
+8d3a606e0d4f5431 Resonant Drone
+9c236c027baca35c Soundboard Bloom
+f32fe5757d416e24 Spray Harp
+0a3380cb7ce3fe0f Sympathetic Haze
+2eef600e0cbb49ae Tine Room
+a48fa5eb432c0de1 Toy Box Piano
+1300fc6e982ee3c8 Upright Thump
+59624adb9a865db6 West Glow Pad
+21e174e37a5e8de5 West Marimba
+56a47f87cfc84db4 Z Ladder Bass
+c75655f7db2a4c61 Operator Glass Lead
+ea9cce2da2cf65af Folded Supersaw
+98c5c82001e18d86 Moving Comb Sync
+819ec643739b37bb Formant Chorus Lead
+523968752adff206 Formant Operator Lead
+f89e7a5cf9acedb7 Deep Pulse Gate Pad
+89b169212e1bbee2 CZ Gate Pad
+7a6d657a7206c1d5 Talking Saw Pluck
+f12205df5fb17d2a Cluster Formant Pluck
+db290c5b79b8a6b0 Rounded Saw Gate Pluck
+4692887f452bf64d Vowel Octave Bass
+ccaf671abd89cb98 Vowel Pulse Bass
+5eb78f6d18c8ab16 Analog 303 Bass
+5bb4096745382032 Talking Pulse Bass
+f8f65d5b84697de1 Scramble Chorus Keys
+78e51c9f63276245 Plain Hall Keys
+8f029fbad064b608 CZ Bitwise Lead
+8e31b3c20250723a Pulse Operator Lead
+c8e94d5d346faa3c Logistic Product Lead
+56da65552cecff9b Twin Sine Holt Lead
+dc19ea445d36e6ee Talking CZ Pad
+4faf236073046d46 Scramble Saw Pluck
+3852e3a184734c60 Organ Saw Pluck
+69881114fc667d88 Wavecrush Analog Bass
+a9e2f658e3c12059 Vocoder Drive Bass
+13754ed1cdd44359 Ladder Triangle Bass
+4d526ea3d768e2fc Vocoder Pulse Bass
+f25c872f595e7bcb Tine Vowel Keys
+1b1af07663f6ef28 Modal Grand
+7f1fe2e2c887e919 Lorenz Chord Pad
+18a6bb7abaa4cc14 Chaos Bell Keys
+086d94a15a5e72c9 Chaos Saw Pluck
+1d83126687ba0a8e Frame Snap Reese
+6ab2c90359606a99 Vowel Strike Keys
+f82b594c10b1ec39 Euclid Vowel Glass
+252413f020d8691d Feedback Bow Pluck
+6576b4eb68a99561 Hexagon Choir Pad
+46dc93bea20748e5 Triangle Vector Lead
+c15d221d0d3a09aa Pentagon Glass Keys
+b3d2f1b4da57ffff Hushed Grand
+ae67ac8c6bba33d9 Octave Drop Bass
+e3570d49397624ba Trance Pluck
+aea1153ba7a61737 Rave Hoover
+82a04dd645d5632e Reese Screech
+a42dd599a44be0b0 Synth Brass Lead
+8c18bd588ab3d09e Arcade Pulse Lead
+acbfa428fd7d1acd Vox Glide Lead
+c4677dfb8bc1180e Rave Kick
+8053c4acfdc6e423 Snap Clap
+6a03930e88999855 Closed Hat
 c68c8e6012791eed Deep Grit 808
 8546cc7515e8dd07 Modal Violin
 768b87b04337283e Modal Viola

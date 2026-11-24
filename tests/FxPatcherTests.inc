@@ -781,15 +781,15 @@ void runFxPatcherTests()
             return processor.apvts.getRawParameterValue ("fx_delay_time")->load();
         };
         const auto original = processor.addFxEffect (delay);
-        set (processor, "fx_delay_time", 0.3f);
+        set (processor, "fx_delay_time", 300.0f); // (ms)
         const auto copied = processor.snapshotFxSlot (original);
-        set (processor, "fx_delay_time", 0.7f); // the original changes after the copy
+        set (processor, "fx_delay_time", 700.0f); // the original changes after the copy
         const auto pasted = processor.addFxEffect (delay);
         processor.applyFxSlotValues (pasted, copied);
         const auto pastedTime = readTime (pasted);
         const auto originalTime = readTime (original);
         check (original >= 0 && pasted >= 0 && pasted != original
-                   && std::abs (pastedTime - 0.3f) < 0.01f && std::abs (originalTime - 0.7f) < 0.01f,
+                   && std::abs (pastedTime - 300.0f) < 0.5f && std::abs (originalTime - 700.0f) < 0.5f,
                "a pasted effect keeps the copied settings and the original keeps its own (copy "
                    + juce::String (pastedTime, 3) + ", original " + juce::String (originalTime, 3) + ")");
     }

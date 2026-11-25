@@ -2,6 +2,37 @@
 #include "../ThreadChecks.h"
 #include "../dsp/VectorShape.h"
 
+namespace
+{
+struct GlobalTarget
+{
+    int index, destination;
+    float sign;
+};
+
+// Built once (warmModulationTables runs it from prepareToPlay, so the
+// audio thread never allocates it on its first block).
+const std::vector<GlobalTarget>& globalParamDestinationTable()
+{
+    static const auto table = []
+    {
+        std::vector<GlobalTarget> list;
+        const auto& entries = Mod::getParamDestinations();
+        for (int i = 0; i < (int) entries.size(); ++i)
+        {
+            if (Mod::extendedFmCellFor (Mod::paramDestinationFor (i)) >= 0)
+                continue;
+            const juce::String id (entries[(size_t) i].id);
+            const auto reversed = id.endsWith ("_eg_r1") || id.endsWith ("_eg_r2") || id.endsWith ("_eg_r3") || id.endsWith ("_eg_r4")
+                                  || id.startsWith ("opeg_pitch_r");
+            list.push_back ({ i, Mod::paramDestinationFor (i), reversed ? -1.0f : 1.0f });
+        }
+        return list;
+    }();
+    return table;
+}
+} // namespace
+
 void IlanaSynthAudioProcessor::setLfoCustomPoint (int lfoIndex, int step, float value)
 {
     ++dataEpoch; // what the editor draws changes
@@ -477,6 +508,8 @@ void IlanaSynthAudioProcessor::updateEvolveAndVector (int numSamples)
         amounts[(size_t) m] = getParam (evolveIds[(size_t) m].first);
         rates[(size_t) m] = getParam (evolveIds[(size_t) m].second);
     }
+    if (evolveRestartWanted.exchange (false))
+        evolve.reset (evolveSeed.load());
     evolve.advance (seconds, amounts, rates);
     for (int m = 0; m < Mod::numMacros; ++m)
         macroDrift[(size_t) m].store (evolve.offset (m));
@@ -547,7 +580,9 @@ void IlanaSynthAudioProcessor::freezeEvolve()
             amount->setValueNotifyingHost (0.0f);
         macroDrift[(size_t) m].store (0.0f);
     }
-    evolve.reset();
+    // (Not evolve.reset() here: the audio thread is advancing it. It restarts
+    // there, from the seed of the last restart, so a repeatable render stays so.)
+    evolveRestartWanted.store (true);
 }
 
 LfoSimSettings IlanaSynthAudioProcessor::readLfoSimSettings (int lfo) const
@@ -1310,26 +1345,7 @@ void IlanaSynthAudioProcessor::evaluateGlobalModulation (const Mod::Slot* slots,
     // (review 7, I7-3): a positive amount lengthens the stage, so it lowers
     // the DX7 rate the parameter stores. Every rate: ATTACK, DECAY 1 / 2 and
     // RELEASE of each operator and of OP PITCH.
-    struct GlobalTarget
-    {
-        int index, destination;
-        float sign;
-    };
-    static const auto globalParamDestinations = []
-    {
-        std::vector<GlobalTarget> list;
-        const auto& entries = Mod::getParamDestinations();
-        for (int i = 0; i < (int) entries.size(); ++i)
-        {
-            if (Mod::extendedFmCellFor (Mod::paramDestinationFor (i)) >= 0)
-                continue;
-            const juce::String id (entries[(size_t) i].id);
-            const auto reversed = id.endsWith ("_eg_r1") || id.endsWith ("_eg_r2") || id.endsWith ("_eg_r3") || id.endsWith ("_eg_r4")
-                                  || id.startsWith ("opeg_pitch_r");
-            list.push_back ({ i, Mod::paramDestinationFor (i), reversed ? -1.0f : 1.0f });
-        }
-        return list;
-    }();
+    const auto& globalParamDestinations = globalParamDestinationTable();
 
     for (const auto& entry : globalParamDestinations)
     {
@@ -1458,6 +1474,8 @@ bool IlanaSynthAudioProcessor::canMergeModSlots (int into, int from, juce::Strin
         return fail ("their polarities differ");
     if (a.bypass != b.bypass)
         return fail ("one is switched off");
+    if (a.stereo != b.stereo)
+        return fail ("one is a stereo route");
     if (std::abs (a.curve - b.curve) > 1.0e-6f)
         return fail ("their curves differ");
     if (isModRemapOn (into) || isModRemapOn (from))
@@ -1489,4 +1507,9 @@ int IlanaSynthAudioProcessor::mergeDuplicateModSlots()
                 ++merged;
 
     return merged;
+}
+
+void IlanaSynthAudioProcessor::warmModulationTables()
+{
+    (void) globalParamDestinationTable();
 }

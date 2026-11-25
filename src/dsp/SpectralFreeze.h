@@ -54,11 +54,13 @@ public:
             frozenMagnitude[(size_t) ch].assign ((size_t) numBins, 0.0f);
             previousPhase[(size_t) ch].assign ((size_t) numBins, 0.0f);
             phaseAccumulator[(size_t) ch].assign ((size_t) numBins, 0.0f);
+            heldAdvance[(size_t) ch].assign ((size_t) numBins, 0.0f);
         }
 
         inputWrite = 0;
         outputRead = 0;
         hopFill = 0;
+        hasFrozenData = false; // (the held spectrum was just cleared)
         lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
@@ -71,6 +73,7 @@ public:
             std::fill (frozenMagnitude[(size_t) ch].begin(), frozenMagnitude[(size_t) ch].end(), 0.0f);
             std::fill (previousPhase[(size_t) ch].begin(), previousPhase[(size_t) ch].end(), 0.0f);
             std::fill (phaseAccumulator[(size_t) ch].begin(), phaseAccumulator[(size_t) ch].end(), 0.0f);
+            std::fill (heldAdvance[(size_t) ch].begin(), heldAdvance[(size_t) ch].end(), 0.0f);
         }
 
         inputWrite = 0;
@@ -188,6 +191,7 @@ private:
             auto& held = frozenMagnitude[(size_t) ch];
             auto& lastPhase = previousPhase[(size_t) ch];
             auto& accumulated = phaseAccumulator[(size_t) ch];
+            auto& advance = heldAdvance[(size_t) ch];
 
             for (int bin = 0; bin < numBins; ++bin)
             {
@@ -203,8 +207,15 @@ private:
 
                 lastPhase[(size_t) bin] = phase;
 
+                // Held, each bin turns on by its last live advance per hop: the
+                // live input's (which changes, or is 0 in silence and made the
+                // hold buzz at the hop rate) is not the held sound's.
+                const auto holding = frozen && hasFrozenData;
+                if (! holding)
+                    advance[(size_t) bin] = delta;
+
                 // (Kept within one turn, so the sine and cosine below stay exact however long it holds.)
-                auto total = accumulated[(size_t) bin] + delta;
+                auto total = accumulated[(size_t) bin] + (holding ? advance[(size_t) bin] : delta);
                 total += total > pi ? -twoPi : (total < -pi ? twoPi : 0.0f);
                 accumulated[(size_t) bin] = total;
 
@@ -268,7 +279,7 @@ private:
     std::array<std::vector<float>, 2> inputRing, outputRing;
     std::vector<std::complex<float>> spectrum, frameSpectrum;
     std::array<std::vector<std::complex<float>>, 2> half;
-    std::array<std::vector<float>, 2> frozenMagnitude, previousPhase, phaseAccumulator;
+    std::array<std::vector<float>, 2> frozenMagnitude, previousPhase, phaseAccumulator, heldAdvance;
     std::array<int, numBands> bandLo {}, bandHi {};
     double sampleRate = 44100.0;
     int inputWrite = 0;

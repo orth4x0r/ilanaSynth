@@ -555,7 +555,9 @@ private:
             for (int p = 0; p < node.numInputs; ++p)
                 peak = juce::jmax (peak, peakOf (*io.in[p], numChannels, length));
             auto& since = program.sinceInput[(size_t) index];
-            since = peak < silence ? since + length : 0;
+            // (Held just past the tail: an int counting every silent block
+            // would wrap after hours asleep and wake the node.)
+            since = peak < silence ? std::min (since + length, program.tails[(size_t) index] + length + 1) : 0;
             if (since > program.tails[(size_t) index] + length)
             {
                 // Silent in, tail spent: the node's output is silence.

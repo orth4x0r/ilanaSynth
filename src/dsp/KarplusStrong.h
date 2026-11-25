@@ -106,6 +106,7 @@ public:
         std::fill (buffer.begin(), buffer.end(), 0.0f);
         std::fill (bufferB.begin(), bufferB.end(), 0.0f);
         writePosition = writePositionB = 0;
+        lastStrikeFrequency = 0.0;
         lowpassState = lowpassStateB = 0.0f;
         phase = 0.0;
         for (auto& stage : dispersionPairState) stage[0] = stage[1] = 0.0f;
@@ -297,8 +298,18 @@ public:
             updateDispersionDelay();
         }
 
+        // A re-struck key keeps its tine or string moving, as the real one
+        // does; another key is another tine or string, so a voice reused for
+        // a new pitch does not carry the last note's motion into it (the
+        // tine's modes would ring on at the new pitch, the piano's lines be
+        // read at the new lengths).
+        const auto sameKey = std::abs (frequency / juce::jmax (1.0, lastStrikeFrequency) - 1.0) < 0.002;
+        lastStrikeFrequency = frequency;
+
         if (isElectric())
         {
+            if (! sameKey)
+                electric.reset();
             strikeVelocity = level;
             electric.trigger (level);
             return;
@@ -306,6 +317,8 @@ public:
 
         if (isPiano())
         {
+            if (! sameKey)
+                piano.reset();
             strikeVelocity = level;
             piano.trigger (level, random.nextFloat());
             return;
@@ -1689,6 +1702,7 @@ private:
     juce::Random random;
     double sampleRate = 44100.0;
     double frequency = 440.0;
+    double lastStrikeFrequency = 0.0; // the pitch trigger() last struck (0: none since reset)
     double phase = 0.0;
     int writePosition = 0;
     float lowpassState = 0.0f;

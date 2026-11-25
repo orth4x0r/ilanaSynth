@@ -894,6 +894,7 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     // does not change a moment later).
     if (asyncNeeded && juce::MessageManager::existsAndIsCurrentThread())
         handleUpdateNowIfNeeded();
+    preloadAirwindowsForPatch();
 }
 
 // A patch keeps the exciter trims of the generation it was saved with; it

@@ -709,6 +709,7 @@ float IlanaSynthAudioProcessor::getParam (const ParamRef& ref) const
 void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     repeatWasPlaying = false; // (an export that starts playing re-seeds)
+    warmModulationTables();
     noteSpray.reset();
     arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (65536);
@@ -989,7 +990,9 @@ void IlanaSynthAudioProcessor::restartModulators (juce::int64 salt)
     clockShPhase = 0.0;
     clockShValue = 0.0f;
     vectorPathPhase = 0.0;
-    evolve.reset (4242u + (std::uint32_t) salt);
+    evolveSeed.store (4242u + (std::uint32_t) salt);
+    evolve.reset (evolveSeed.load());
+    evolveRestartWanted.store (false);
     vectorDrift.reset (9191u + (std::uint32_t) salt);
     for (auto& drift : macroDrift)
         drift.store (0.0f);
@@ -1647,6 +1650,8 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
         msegKeyDown.fill (false);
         msegKeysDown = 0;
         arpHeldNotes.clearQuick();
+        arpPedalDown = false;      // (the pedal's lift went by unseen too)
+        arpSustainedKey.fill (false);
         clipHeld.clearQuick();
         clipActive.clear();
         clipRunning = clipUsedHost = false;

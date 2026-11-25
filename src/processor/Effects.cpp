@@ -524,9 +524,9 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
     const auto lowHz = getParam ("fx_split_low");
     const auto highHz = juce::jmax (lowHz * 1.5f, getParam ("fx_split_high"));
     const auto rate = juce::jmax (1.0, currentSampleRate);
-    if (split.lastBand != band || split.lastLow != lowHz || split.lastHigh != highHz)
+    if (split.lastBand != band || split.lastLow != lowHz || split.lastHigh != highHz || split.lastRate != rate)
     {
-        const auto fresh = split.lastBand != band;
+        const auto fresh = split.lastBand != band || split.lastRate != rate;
         const auto low = juce::IIRCoefficients::makeLowPass (rate, juce::jlimit (20.0, rate * 0.45, (double) lowHz), 0.70710678);
         const auto lowCut = juce::IIRCoefficients::makeHighPass (rate, juce::jlimit (20.0, rate * 0.45, (double) lowHz), 0.70710678);
         const auto high = juce::IIRCoefficients::makeLowPass (rate, juce::jlimit (20.0, rate * 0.45, (double) highHz), 0.70710678);
@@ -563,6 +563,7 @@ void IlanaSynthAudioProcessor::processSlotBand (int slot, int type, int band, ju
         split.lastBand = band;
         split.lastLow = lowHz;
         split.lastHigh = highHz;
+        split.lastRate = rate;
     }
 
     auto* left = buffer.getWritePointer (0);
@@ -993,7 +994,7 @@ void IlanaSynthAudioProcessor::FxEngine::processDelay (juce::AudioBuffer<float>&
                             if (customTapGains[step] < 0.001f)
                                 continue;
 
-                            const auto tapDelay = juce::jlimit (1.0f, (float) (currentSampleRate * 1.95),
+                            const auto tapDelay = juce::jlimit (1.0f, (float) (currentSampleRate * (maxDelaySeconds - 0.1)),
                                                                 delaySamples[channel] * (float) (step + 1) * 0.25f);
                             sum += delayLine.popSample (channel, tapDelay, false) * customTapGains[step];
                         }
@@ -1007,7 +1008,7 @@ void IlanaSynthAudioProcessor::FxEngine::processDelay (juce::AudioBuffer<float>&
                             if (time <= 0.0f)
                                 continue;
 
-                            const auto tapDelay = juce::jlimit (1.0f, (float) (currentSampleRate * 1.95),
+                            const auto tapDelay = juce::jlimit (1.0f, (float) (currentSampleRate * (maxDelaySeconds - 0.1)),
                                                                 delaySamples[channel] * time);
                             sum += delayLine.popSample (channel, tapDelay, false) * tapGains[tapPattern][tap];
                         }
@@ -1327,7 +1328,7 @@ void IlanaSynthAudioProcessor::FxEngine::processReverb (juce::AudioBuffer<float>
                 reverb.processMono (reverbScratch.getWritePointer (0), numSamples);
 
             const auto gateCoefficient = (float) std::exp (-1.0 / (0.06 * currentSampleRate));
-            const auto gateGain = getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f);
+            const auto gateGain = juce::jlimit (0.0f, 1.0f, getParam ("fx_reverb_mix") + getFxMod (Mod::Destination::FxReverbMix, 1.0f));
 
             for (int i = 0; i < numSamples; ++i)
             {
@@ -2801,7 +2802,9 @@ void IlanaSynthAudioProcessor::FxEngine::reset()
     stutterWasOn = false;
     stutterRecording = false;
     stutterArmed = false;
-    tapeStopBuffer.clear();
+    // (The tape back at speed too: stopped, it read the cleared ring as
+    // silence for a whole STOP TIME.)
+    tapeStopBuffer.clear(); tapeStopWrite = 0; tapeStopRead = 0.0; tapeStopRate = 1.0f; tapeStopLagFade = 1.0f;
     haasLine.reset();
     feedbackLine.reset();
     flangerLine.reset();
@@ -2894,7 +2897,7 @@ void IlanaSynthAudioProcessor::FxEngine::resetMemoryOf (int type)
             break;
         case 14: flangerLine.reset(); flangerPhase = 0.0; break;
         case 15: dimLine.reset(); dimPhase = 0.0; break;
-        case 17: tapeStopBuffer.clear(); break;
+        case 17: tapeStopBuffer.clear(); tapeStopWrite = 0; tapeStopRead = 0.0; tapeStopRate = 1.0f; tapeStopLagFade = 1.0f; break;
         case 26: for (auto& shift : octaverShift) shift.reset(); break;
         case 28:
             feedbackLine.reset();
@@ -2978,6 +2981,27 @@ void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choi
     for (auto& engine : slotEngines)
         if (auto* own = engine.load (std::memory_order_acquire))
             own->preloadAirwindowsCategory (category, choice);
+}
+
+// After a patch or session load: every Airwindows slot's algorithm is made
+// here, on the message thread, instead of on the audio thread's first block.
+void IlanaSynthAudioProcessor::preloadAirwindowsForPatch()
+{
+    auto main = false;
+    std::array<bool, (size_t) numAwCategories> categories {};
+    for (int slot = 0; slot < numFxSlots; ++slot)
+    {
+        const auto type = (int) getParam (fxSlotIds[(size_t) slot].type);
+        main = main || type == 30;
+        if (const auto category = airwindows::categoryForFxType (type); juce::isPositiveAndBelow (category, (int) categories.size()))
+            categories[(size_t) category] = true;
+    }
+    if (main)
+        preloadAirwindows ((int) getParam ("fx_aw_algo"));
+    const auto refs = makeAwCategoryRefs();
+    for (int category = 0; category < (int) categories.size() && category < (int) refs.size(); ++category)
+        if (categories[(size_t) category])
+            preloadAirwindowsCategory (category, (int) getParam (refs[(size_t) category][0]));
 }
 
 // An impulse response goes to the reverb the REVERB card is showing.

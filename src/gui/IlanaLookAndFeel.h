@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "SubmenuPlacement.h"
+
 #include "AnimationUtils.h"
 #include "../SectionColours.h"
 #include <BinaryData.h>
@@ -2132,6 +2134,9 @@ public:
     }
 
     int getPopupMenuBorderSize() override { return menuBorder; }
+
+    // A submenu drops down from the row that opened it (SubmenuPlacement.h).
+    void preparePopupMenuWindow (juce::Component& window) override { SubmenuPlacement::place (window, menuBorder); }
 
     void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
                                     int& idealWidth, int& idealHeight) override

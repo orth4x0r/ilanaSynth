@@ -2105,12 +2105,20 @@ void OscPage::layoutMixBlock (CardGeometry& card, juce::Rectangle<int> c, KnobCo
         const auto envX = c.getX() + 2 * knobCell + 3;
         osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
         const auto filterY = top + cellH + gapH;
-        const auto labelW = 28;
-        // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
+        const auto labelW = filterLabelWidth();
+        // (FILTER keeps its tracking, as OUT under it: filterLabelWidth. The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
         card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
         pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
         pieces.outBar.setBounds ({ c.getX(), c.getBottom() - meterH, c.getWidth(), meterH });
     }
+
+// The MIX block's FILTER name: 38 px keeps its letter-spacing, as OUT under it (UI polish
+// 2026-11-25). Under 100 % zoom the text floor makes the five route segments wider, so the
+// name gives the 10 px back and fits itself, as before.
+int OscPage::filterLabelWidth()
+{
+    return IlanaTheme::uiScaleRef() < 0.99f ? 28 : 38;
+}
 
 void OscPage::layoutUnisonBlock (CardGeometry& card, juce::Rectangle<int> c, std::initializer_list<KnobControl*> knobs)
 {
@@ -2448,7 +2456,7 @@ void OscPage::layoutPhysicalPanels (CardGeometry& card)
                                         (float) (osc.level.getY() + osc.level.getPackedNameArea().getY() - y));
         }
         {
-            const auto labelW = 28, filterY = mixPanel.getY() + physMenuY + menuH - filterH; // (bottoms on one line with CHORD and the unison mode)
+            const auto labelW = filterLabelWidth(), filterY = mixPanel.getY() + physMenuY + menuH - filterH; // (bottoms on one line with CHORD and the unison mode)
             card.labels.push_back ({ { mixPanel.getX() + 6, filterY, labelW, filterH }, "FILTER" });
             pieces.routeBar.setBounds ({ mixPanel.getX() + 6 + labelW, filterY, mixPanel.getWidth() - 12 - labelW + 3, filterH });
         }

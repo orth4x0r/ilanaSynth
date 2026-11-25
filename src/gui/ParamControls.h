@@ -3369,6 +3369,8 @@ public:
     {
         auto area = getLocalBounds();
 
+        setValueUnderName (! packedMenu && label.getText().isNotEmpty());
+
         if (packedMenu)
         {
             label.setBounds ({});
@@ -3401,6 +3403,18 @@ public:
 
         label.setBounds (area.removeFromTop (13));
         combo.setBounds (area.removeFromTop (24));
+    }
+
+    // A text-first menu under its name starts its value on the name's letters
+    // (the name label's own 4 px border); a menu alone starts on its box edge.
+    void setValueUnderName (bool under)
+    {
+        if ((int) combo.getProperties().getWithDefault ("valueInset", 0) != (under ? 4 : 0))
+        {
+            combo.getProperties().set ("valueInset", under ? 4 : 0);
+            combo.resized();
+            combo.repaint();
+        }
     }
 
     void paint (juce::Graphics& g) override

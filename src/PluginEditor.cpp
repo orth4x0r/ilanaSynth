@@ -704,6 +704,7 @@ IlanaSynthAudioProcessorEditor::IlanaSynthAudioProcessorEditor (IlanaSynthAudioP
     voiceModeMenu = std::make_unique<ComboControl> (p.apvts, "voice_mode", "MODE");
     voiceModeMenu->setCompactLayout (true);
     voiceModeMenu->setPackedMenu (true);
+    voiceModeMenu->getComboBox().getProperties().set ("bare", true); // (a line of words in the bottom strip: UI polish 2026-11-25)
     voiceModeMenu->getComboBox().getProperties().set ("packedMenuSize", IlanaTheme::TextSize::body);
     voicesKnob = std::make_unique<StripKnob> (p, "poly_voices", "Voices", -1, IlanaTheme::Ui::text2, false);
     voicesKnob->setValueLineHidden (true);

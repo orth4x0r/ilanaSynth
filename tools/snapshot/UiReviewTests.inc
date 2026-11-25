@@ -578,6 +578,13 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                                          || dynamic_cast<juce::ComboBox*> (label->getParentComponent()) != nullptr;
                 const auto height = label->getLookAndFeel().getLabelFont (*label).getHeight();
                 ++checked;
+                // (A name under a well in a row of rings, SEQ GENERATE: the rings' own name size and floor.)
+                if (label->getProperties().contains ("ringName"))
+                {
+                    if (height * IlanaTheme::uiScaleRef() < IlanaTheme::TextSize::screenFloorPx - 0.6f)
+                        small.add (page + ": '" + label->getText() + "' ring name " + juce::String (height, 1));
+                    continue;
+                }
                 const auto floor = interactive ? IlanaTheme::TextSize::minInteractive : IlanaTheme::TextSize::minPassive;
                 const auto key = page + ": '" + label->getText() + "' " + juce::String (height, 1);
                 if (height < floor - 0.01f && seen.insert (key).second)

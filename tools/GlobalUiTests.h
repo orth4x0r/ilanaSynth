@@ -653,11 +653,13 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 // Reading order in a grid: along a row (labels on one line) or
                 // down to the next row (V12-5: the controls may stand in a column).
                 // (ilana's arranger pass, 2026-10-29: the menus sit 7 px lower than the knobs' tops, so a row allows 8.)
-                const auto sameRow = labelTop >= 0 && std::abs (bounds.getY() - labelTop) <= 8;
-                const auto nextRow = labelTop >= 0 && bounds.getY() > labelTop + 8;
+                // (UI polish 2026-11-25: menus and rings share one middle line, names below, so the row is
+                // judged by the controls' centres, not their tops.)
+                const auto sameRow = labelTop >= 0 && std::abs (bounds.getCentreY() - labelTop) <= 8;
+                const auto nextRow = labelTop >= 0 && bounds.getCentreY() > labelTop + 8;
                 const auto inOrder = ! bounds.isEmpty() && (labelTop < 0 || (sameRow && bounds.getX() > previousX) || nextRow);
                 if (labelTop < 0 || nextRow)
-                    labelTop = bounds.getY();
+                    labelTop = bounds.getCentreY();
                 previousX = bounds.getX();
                 if (! inOrder)
                 {

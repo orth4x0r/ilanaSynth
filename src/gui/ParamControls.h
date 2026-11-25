@@ -3304,7 +3304,7 @@ public:
         combo.setColour (juce::ComboBox::outlineColourId, IlanaTheme::Ui::line.interpolatedWith (tint, 0.55f));
         combo.setColour (juce::ComboBox::backgroundColourId, IlanaTheme::Ui::raised.interpolatedWith (tint, 0.1f));
         // (Only the box takes the colour: the name stays the sheet's grey .lbl.)
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        applyNameFont();
         combo.repaint();
         label.repaint();
     }
@@ -3360,7 +3360,7 @@ public:
             return;
 
         compactLayout = shouldBeCompact;
-        label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+        applyNameFont();
         combo.getProperties().set ("compactMenu", compactLayout);
         resized();
     }
@@ -3370,6 +3370,16 @@ public:
         auto area = getLocalBounds();
 
         setValueUnderName (! packedMenu && label.getText().isNotEmpty());
+
+        // Name below (UI polish 2026-11-25, the SEQ GENERATE row): a well on the rings' middle line, its value
+        // centred, its name centred under it on the rings' name line, as a ring's.
+        if (nameBelowSize > 0.0f && label.getText().isNotEmpty())
+        {
+            combo.setBounds (area.removeFromTop (wellHeight));
+            area.removeFromTop (nameBelowGap);
+            label.setBounds (area.removeFromTop (13)); // off-grid
+            return;
+        }
 
         if (packedMenu)
         {
@@ -3405,7 +3415,32 @@ public:
         combo.setBounds (area.removeFromTop (24));
     }
 
-    // A text-first menu under its name starts its value on the name's letters
+    // The name under the well, in a ring's name style; gap = from the well's bottom to the name's top.
+    // The name's font: a ring's name when it sits below the well, else the sheet's label caps (kept by tint and layout).
+    void applyNameFont()
+    {
+        if (nameBelowSize > 0.0f)
+        {
+            const auto f = IlanaTheme::font (nameBelowSize, true);
+            label.setFont (f.withKerningFactor (f.getHeight() > 6.2f ? 0.0f : 0.08f));
+        }
+        else
+            label.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+    }
+
+    void setNameBelow (float nameSize, int gap, int well = 24)
+    {
+        nameBelowSize = nameSize;
+        nameBelowGap = gap, wellHeight = well;
+        applyNameFont();
+        label.setJustificationType (juce::Justification::centredTop);
+        label.setBorderSize ({ 0, 0, 0, 0 });
+        label.getProperties().set ("ringName", true); // (held to the rings' names' floor: the UI test)
+        combo.getProperties().set ("centredValue", true);
+        resized();
+    }
+
+    // A bare menu under its name starts its value on the name's letters
     // (the name label's own 4 px border); a menu alone starts on its box edge.
     void setValueUnderName (bool under)
     {
@@ -3568,6 +3603,8 @@ public:
 
 private:
     PopupCombo combo;
+    float nameBelowSize = 0.0f;
+    int nameBelowGap = 0, wellHeight = 24;
     juce::Label label;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachment;
     float hover = 0.0f;

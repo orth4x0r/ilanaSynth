@@ -130,6 +130,7 @@ void UnisonSpreadView::paint (juce::Graphics& g)
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true));
         IlanaTheme::drawFitted (g, "L", area.withWidth (12.0f).withTrimmedLeft (3.0f).toNearestInt(), juce::Justification::centredLeft, 1);
         IlanaTheme::drawFitted (g, "R", area.withLeft (area.getRight() - 12.0f).withTrimmedRight (3.0f).toNearestInt(), juce::Justification::centredRight, 1);
+        IlanaTheme::drawFitted (g, "SPREAD", area.reduced (6.0f, 3.0f).withHeight (12.0f).toNearestInt(), juce::Justification::centredLeft, 1); // off-grid
 
         const auto count = voices;
         const auto half = plot.getWidth() * 0.5f - 6.0f;
@@ -2136,10 +2137,13 @@ void OscPage::layoutUnisonBlock (CardGeometry& card, juce::Rectangle<int> c, std
     }
     const auto lowY = c.getY() + cellH + 4;
     const auto lowH = c.getBottom() - lowY;
-    const auto menuW = 62;
-    osc.uniMode.setBounds ({ c.getX(), lowY, menuW, menuH });
-    card.labels.push_back ({ { c.getX(), lowY + menuH + 3, menuW, juce::jmin (12, juce::jmax (0, lowH - menuH - 3)) }, "SPREAD" });
-    pieces.spreadView.setBounds ({ c.getX() + menuW + 6, lowY, c.getRight() - (c.getX() + menuW + 6), lowH });
+    // The mode menu reads on the title line, "UNISON  Classic v", as "TABLE Drive Saw v" in the card header, and the
+    // SPREAD picture takes the panel's whole width under the rings with its name inside (UI polish 2026-11-25,
+    // ilana: the 62 px column with SPREAD under the menu had "the spacing all off").
+    const auto titleW = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::innerTitleFont()), "UNISON");
+    osc.uniMode.setBounds ({ c.getX() + titleW + 8, c.getY() - panelTitleH - 3, juce::jmin (90, c.getWidth() - titleW - 8), menuH }); // off-grid
+    const auto rowW = juce::jmin (c.getWidth(), cell * count);
+    pieces.spreadView.setBounds ({ c.getX() + (c.getWidth() - rowW) / 2, lowY, rowW, lowH });
 }
 
 void OscPage::placeScaleChord (int index, int x, int y1, int y2, int width)
@@ -3610,6 +3614,9 @@ void OscPage::applyCardStyle (int index)
         menu->setPackedMenu (panels);
     osc.table.setPackedMenu (kind == Kind::wavetable || kind == Kind::fm);
     osc.frameBlend.setPackedMenu (kind == Kind::wavetable);
+    // Header-line menus draw bare (no well): they read as words in a line of words (UI polish 2026-11-25).
+    for (auto* menu : { &osc.table, &osc.frameBlend, &osc.excite, &osc.uniMode })
+        menu->getComboBox().getProperties().set ("bare", true);
     waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
 
     // Physical (review 23): its own knobs packed too, the switch with its name under it.

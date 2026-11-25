@@ -1135,6 +1135,8 @@ inline juce::Component* calloutParent (juce::Component& anchor)
 
 namespace Space = IlanaTheme::Space; // the short name for page code
 
+#include "ButtonWords.h"
+
 class IlanaLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
@@ -1946,7 +1948,7 @@ public:
         if (button.getToggleState() && button.isEnabled())
         {
             g.setColour (offText.interpolatedWith (IlanaTheme::Ui::text, lit));
-            drawButtonWords (g, button.getButtonText(), button.getLocalBounds().reduced (4, 2));
+            IlanaTheme::drawButtonWords (g, button.getButtonText(), button.getLocalBounds().reduced (4, 2));
             return;
         }
 
@@ -1961,36 +1963,8 @@ public:
                                               : lit > 0.01f && button.isEnabled() ? offText.interpolatedWith (IlanaTheme::Ui::text, lit) // (fading out)
                                                                                   : offText)
                          .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
-        drawButtonWords (g, button.getButtonText(),
+        IlanaTheme::drawButtonWords (g, button.getButtonText(),
                          juce::Rectangle<int> (leftIndent, yIndent, button.getWidth() - leftIndent - rightIndent, button.getHeight() - yIndent * 2));
-    }
-
-    // A button's words, centred. A button that opens a menu ends its text in
-    // a down or up caret (U+25BE, U+25B4): it is drawn as the selects' chevron
-    // after the words instead of the font's triangle (UI polish 2026-11-25).
-    static void drawButtonWords (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area)
-    {
-        const auto down = text.endsWithChar ((juce::juce_wchar) 0x25be), up = text.endsWithChar ((juce::juce_wchar) 0x25b4);
-        if (! down && ! up)
-        {
-            IlanaTheme::drawFitted (g, text, area, juce::Justification::centred, 1, IlanaTheme::TextSize::minInteractive);
-            return;
-        }
-        const auto words = text.dropLastCharacters (1).trimEnd();
-        constexpr float chevronW = 7.0f, gap = 5.0f;
-        const auto wordsW = (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), words);
-        const auto room = (float) area.getWidth() - chevronW - gap;
-        const auto shownW = juce::jmin (wordsW, room);
-        const auto x0 = (float) area.getX() + ((float) area.getWidth() - (shownW + gap + chevronW)) * 0.5f;
-        IlanaTheme::drawFitted (g, words, juce::Rectangle<float> (x0, (float) area.getY(), shownW + 1.0f, (float) area.getHeight()).toNearestInt(),
-                                juce::Justification::centredLeft, 1, IlanaTheme::TextSize::minInteractive);
-        const auto cx = x0 + shownW + gap + chevronW * 0.5f, cy = (float) area.getCentreY();
-        const auto dy = (up ? -1.0f : 1.0f) * chevronW * 0.25f;
-        juce::Path chevron;
-        chevron.startNewSubPath (cx - chevronW * 0.5f, cy - dy);
-        chevron.lineTo (cx, cy + dy);
-        chevron.lineTo (cx + chevronW * 0.5f, cy - dy);
-        g.strokePath (chevron, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
@@ -2002,17 +1976,37 @@ public:
 
         if (hover > 0.01f && hover < 0.99f)
             box.repaint();
-        // A text-first select (UI polish 2026-11-25, Vital-style): no box at
-        // rest, the name and value on the card's label edge, then a small
-        // chevron right after the words. Hover brightens the name and the
-        // chevron; the click area is the whole box as before.
+        // A select is a quiet well (UI polish 2026-11-25): the fill, no rim at
+        // rest (a rim on hover), a small chevron 9 px in from the right. A
+        // "bare" select (a header line's: TABLE, FRAME BLEND, a filter's type,
+        // the voice MODE, UNISON's mode) draws no box at all, its chevron right
+        // after the words, Vital-style; hover brightens the name and chevron.
         const auto packedBox = (bool) box.getProperties().getWithDefault ("packedMenu", false);
-        const auto size = juce::jmin (5.5f, (float) height * 0.28f);
+        const auto bare = isBare (box);
+        const auto lead = comboLead (box);
         const auto prefixW = comboPrefixWidth (box);
-        const auto textW = juce::GlyphArrangement::getStringWidthInt (packedBox ? font (packedMenuSizeOf (box)) : getComboBoxFont (box), box.getText());
         const auto dotW = packedBox && valueDotShown (box) ? 9 : 0;
-        const auto inset = packedBox ? 0 : valueInsetOf (box);
-        const auto c = juce::Point<float> (juce::jmin ((float) width - 5.0f, (float) (inset + prefixW + dotW + textW) + 8.0f), (float) height * 0.5f);
+        if (! bare)
+        {
+            const auto bounds = juce::Rectangle<float> ((float) width, (float) height).reduced (0.5f);
+            const auto radius = packedBox ? 4.0f : juce::jmin (7.0f, bounds.getHeight() * 0.27f);
+            g.setColour (box.findColour (juce::ComboBox::backgroundColourId).interpolatedWith (Ui::hover, 0.45f * hover));
+            g.fillRoundedRectangle (bounds, radius);
+            if (hover > 0.01f)
+            {
+                g.setColour (box.findColour (juce::ComboBox::outlineColourId).interpolatedWith (Ui::text3, 0.45f).withMultipliedAlpha (hover));
+                g.drawRoundedRectangle (bounds.reduced (0.5f), radius - 0.5f, 1.0f);
+            }
+        }
+        const auto size = juce::jmin (5.5f, (float) height * 0.28f);
+        auto chevronX = (float) width - 9.0f;
+        if (bare)
+        {
+            const auto textW = juce::GlyphArrangement::getStringWidthInt (packedBox ? font (packedMenuSizeOf (box)) : getComboBoxFont (box), box.getText());
+            const auto inset = packedBox ? 0 : valueInsetOf (box);
+            chevronX = juce::jmin ((float) width - 5.0f, (float) (inset + prefixW + dotW + textW) + 8.0f);
+        }
+        const auto c = juce::Point<float> (chevronX, (float) height * 0.5f);
         juce::Path chevron;
         chevron.startNewSubPath (c.x - size * 0.5f, c.y - size * 0.25f);
         chevron.lineTo (c.x, c.y + size * 0.25f);
@@ -2030,10 +2024,10 @@ public:
             {
                 g.setColour (Ui::text3.interpolatedWith (Ui::text2, hover).withMultipliedAlpha (textOn));
                 g.setFont (font (packedNameSizeOf (box), true).withKerningFactor (0.09f));
-                g.drawText (box.getProperties()["textPrefix"].toString(), juce::Rectangle<int> (0, 0, prefixW, height), juce::Justification::centredLeft, false);
+                g.drawText (box.getProperties()["textPrefix"].toString(), juce::Rectangle<int> (lead, 0, prefixW, height), juce::Justification::centredLeft, false);
             }
             const auto value = box.getText();
-            auto textX = prefixW;
+            auto textX = lead + prefixW;
             // A value that names another oscillator wears that oscillator's dot.
             if (dotW > 0)
             {
@@ -2041,9 +2035,10 @@ public:
                 g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ (float) textX + 2.5f, (float) height * 0.5f }));
                 textX += dotW;
             }
-            g.setColour ((isPlaceholderValue (value) ? Ui::text3 : Ui::text).withMultipliedAlpha (textOn));
+            // (A bare "Off" reads text2: in text3 beside a text3 name the whole menu looked switched off.)
+            g.setColour ((isPlaceholderValue (value) ? (bare ? Ui::text2 : Ui::text3) : Ui::text).withMultipliedAlpha (textOn));
             g.setFont (font (packedMenuSizeOf (box)));
-            IlanaTheme::drawFitted (g, value, juce::Rectangle<int> (textX, 0, juce::jmax (0, width - textX - 11), height), juce::Justification::centredLeft, 1);
+            IlanaTheme::drawFitted (g, value, juce::Rectangle<int> (textX, 0, juce::jmax (0, width - textX - (bare ? 11 : 15)), height), juce::Justification::centredLeft, 1);
             return;
         }
 
@@ -2052,11 +2047,15 @@ public:
         {
             g.setColour (Ui::text3.interpolatedWith (Ui::text2, hover).withMultipliedAlpha (box.isEnabled() ? 1.0f : 0.5f));
             g.setFont (font (TextSize::tiny, true).withKerningFactor (0.07f));
-            g.drawText (prefix, juce::Rectangle<int> (0, 0, prefixW, height), juce::Justification::centredLeft, false);
+            g.drawText (prefix, juce::Rectangle<int> (lead, 0, prefixW, height), juce::Justification::centredLeft, false);
         }
     }
 
-    // A menu under a name starts its words where the name's do (ComboControl sets it).
+    static bool isBare (const juce::ComboBox& box) { return (bool) box.getProperties().getWithDefault ("bare", false); }
+    // Where a select's words start: on the box edge when bare, 6 px into its well otherwise.
+    static int comboLead (const juce::ComboBox& box) { return isBare (box) ? 0 : 6; }
+
+    // A bare menu under a name starts its words where the name's do (ComboControl sets it).
     static int valueInsetOf (const juce::ComboBox& box) { return (int) box.getProperties().getWithDefault ("valueInset", 0); }
 
     // A packed menu whose value names another oscillator wears that oscillator's dot.
@@ -2078,7 +2077,7 @@ public:
             const auto prefixW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameSizeOf (box), true).withKerningFactor (0.09f), prefix) + 3;
             // (The value comes first: a menu with no room for both drops its name, which the tooltip keeps.)
             const auto valueW = juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuSizeOf (box)), box.getText()) + 1;
-            return valueW > box.getWidth() - prefixW - 11 ? 0 : prefixW;
+            return valueW > box.getWidth() - comboLead (box) - prefixW - (isBare (box) ? 11 : 15) ? 0 : prefixW;
         }
         // (A menu too narrow for its name and a value drops the name: the 75 % zoom's.)
         if (prefix.isEmpty() || box.getWidth() < 118)
@@ -2095,9 +2094,12 @@ public:
             return;
         }
         const auto shift = comboPrefixWidth (box);
-        // (No box, so no padding: the value starts on the box's left edge, the label's own 5 px border taken back.)
-        const auto inset = valueInsetOf (box);
-        label.setBounds (inset + shift - 5, 1, box.getWidth() - 6 - shift - inset, box.getHeight() - 2);
+        // (The value starts at the lead, the label's own 5 px border taken back.)
+        const auto inset = isBare (box) ? valueInsetOf (box) : 0;
+        const auto lead = comboLead (box);
+        label.setBounds (lead + inset + shift - 5, 1, box.getWidth() - lead - inset - shift - (isBare (box) ? 6 : 12), box.getHeight() - 2);
+        label.setJustificationType ((bool) box.getProperties().getWithDefault ("centredValue", false) ? juce::Justification::centred
+                                                                                                         : juce::Justification::centredLeft);
         label.setFont (getComboBoxFont (box));
     }
 

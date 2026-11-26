@@ -344,7 +344,10 @@ void IlanaSynthAudioProcessor::handleAsyncUpdate()
     // Roadmap step 17: the FX patch follows the slots; the rack's plan
     // follows its routing, bypasses and solos (asked for by the audio thread).
     if (fxReconcileWanted.exchange (false))
+    {
         reconcileFxPatch();
+        syncReverbIrEngines(); // a slot that got its own engine loads the patch's IR
+    }
     if (fxRackCompileWanted.exchange (false))
         compileFxRackPlan (fxRackSignature());
     freeRetiredFx (false);
@@ -1186,6 +1189,9 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         setLfoCurve (lfo, text != nullptr ? LfoCurve::fromString (text) : LfoCurve::preset (0));
     }
     resetAllModRemaps();
+
+    // A factory preset has no IR file (its IR reverb plays dry until one is loaded).
+    setReverbIrPath ({});
 
     // A factory preset has no colour coding: every section in its default colour.
     for (int key = 0; key < SectionColours::count; ++key)

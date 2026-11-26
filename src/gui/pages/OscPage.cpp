@@ -130,6 +130,7 @@ void UnisonSpreadView::paint (juce::Graphics& g)
         g.setFont (IlanaTheme::font (IlanaTheme::TextSize::packedLabel, true));
         IlanaTheme::drawFitted (g, "L", area.withWidth (12.0f).withTrimmedLeft (3.0f).toNearestInt(), juce::Justification::centredLeft, 1);
         IlanaTheme::drawFitted (g, "R", area.withLeft (area.getRight() - 12.0f).withTrimmedRight (3.0f).toNearestInt(), juce::Justification::centredRight, 1);
+        IlanaTheme::drawFitted (g, "SPREAD", area.reduced (6.0f, 3.0f).withHeight (12.0f).toNearestInt(), juce::Justification::centredLeft, 1); // off-grid
 
         const auto count = voices;
         const auto half = plot.getWidth() * 0.5f - 6.0f;
@@ -2105,12 +2106,20 @@ void OscPage::layoutMixBlock (CardGeometry& card, juce::Rectangle<int> c, KnobCo
         const auto envX = c.getX() + 2 * knobCell + 3;
         osc.ampEnv.setBounds ({ envX, top + 4, c.getRight() - envX, menuH });
         const auto filterY = top + cellH + gapH;
-        const auto labelW = 28;
-        // (The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
+        const auto labelW = filterLabelWidth();
+        // (FILTER keeps its tracking, as OUT under it: filterLabelWidth. The five segments take 5 px more than the content's width: AUTO, BOTH and NONE stay whole at the small zoom.)
         card.labels.push_back ({ { c.getX() - 2, filterY, labelW, filterH }, "FILTER" });
         pieces.routeBar.setBounds ({ c.getX() + labelW - 2, filterY, c.getWidth() - labelW + 5, filterH });
         pieces.outBar.setBounds ({ c.getX(), c.getBottom() - meterH, c.getWidth(), meterH });
     }
+
+// The MIX block's FILTER name: 38 px keeps its letter-spacing, as OUT under it (UI polish
+// 2026-11-25). Under 100 % zoom the text floor makes the five route segments wider, so the
+// name gives the 10 px back and fits itself, as before.
+int OscPage::filterLabelWidth()
+{
+    return IlanaTheme::uiScaleRef() < 0.99f ? 28 : 38;
+}
 
 void OscPage::layoutUnisonBlock (CardGeometry& card, juce::Rectangle<int> c, std::initializer_list<KnobControl*> knobs)
 {
@@ -2128,10 +2137,13 @@ void OscPage::layoutUnisonBlock (CardGeometry& card, juce::Rectangle<int> c, std
     }
     const auto lowY = c.getY() + cellH + 4;
     const auto lowH = c.getBottom() - lowY;
-    const auto menuW = 62;
-    osc.uniMode.setBounds ({ c.getX(), lowY, menuW, menuH });
-    card.labels.push_back ({ { c.getX(), lowY + menuH + 3, menuW, juce::jmin (12, juce::jmax (0, lowH - menuH - 3)) }, "SPREAD" });
-    pieces.spreadView.setBounds ({ c.getX() + menuW + 6, lowY, c.getRight() - (c.getX() + menuW + 6), lowH });
+    // The mode menu reads on the title line, "UNISON  Classic v", as "TABLE Drive Saw v" in the card header, and the
+    // SPREAD picture takes the panel's whole width under the rings with its name inside (UI polish 2026-11-25,
+    // ilana: the 62 px column with SPREAD under the menu had "the spacing all off").
+    const auto titleW = juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::innerTitleFont()), "UNISON");
+    osc.uniMode.setBounds ({ c.getX() + titleW + 8, c.getY() - panelTitleH - 3, juce::jmin (90, c.getWidth() - titleW - 8), menuH }); // off-grid
+    const auto rowW = juce::jmin (c.getWidth(), cell * count);
+    pieces.spreadView.setBounds ({ c.getX() + (c.getWidth() - rowW) / 2, lowY, rowW, lowH });
 }
 
 void OscPage::placeScaleChord (int index, int x, int y1, int y2, int width)
@@ -2448,7 +2460,7 @@ void OscPage::layoutPhysicalPanels (CardGeometry& card)
                                         (float) (osc.level.getY() + osc.level.getPackedNameArea().getY() - y));
         }
         {
-            const auto labelW = 28, filterY = mixPanel.getY() + physMenuY + menuH - filterH; // (bottoms on one line with CHORD and the unison mode)
+            const auto labelW = filterLabelWidth(), filterY = mixPanel.getY() + physMenuY + menuH - filterH; // (bottoms on one line with CHORD and the unison mode)
             card.labels.push_back ({ { mixPanel.getX() + 6, filterY, labelW, filterH }, "FILTER" });
             pieces.routeBar.setBounds ({ mixPanel.getX() + 6 + labelW, filterY, mixPanel.getWidth() - 12 - labelW + 3, filterH });
         }
@@ -3602,6 +3614,9 @@ void OscPage::applyCardStyle (int index)
         menu->setPackedMenu (panels);
     osc.table.setPackedMenu (kind == Kind::wavetable || kind == Kind::fm);
     osc.frameBlend.setPackedMenu (kind == Kind::wavetable);
+    // Header-line menus draw bare (no well): they read as words in a line of words (UI polish 2026-11-25).
+    for (auto* menu : { &osc.table, &osc.frameBlend, &osc.excite, &osc.uniMode })
+        menu->getComboBox().getProperties().set ("bare", true);
     waveDisplay (index).setFrameReadout (kind != Kind::wavetable);
 
     // Physical (review 23): its own knobs packed too, the switch with its name under it.

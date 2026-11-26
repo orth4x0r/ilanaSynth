@@ -120,6 +120,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/ParameterLayout.cpp
     src/processor/Modulation.cpp
     src/processor/Effects.cpp
+    src/processor/FxFiles.cpp
     src/processor/FxPatcher.cpp
     src/processor/OscRouting.cpp
     src/processor/OscSlots.cpp

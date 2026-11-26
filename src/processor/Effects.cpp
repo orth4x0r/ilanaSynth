@@ -2447,18 +2447,6 @@ std::unique_ptr<juce::XmlElement> IlanaSynthAudioProcessor::makeFxChainXml()
     return root;
 }
 
-void IlanaSynthAudioProcessor::FxEngine::loadReverbIr (const juce::File& file)
-{
-    if (! file.existsAsFile())
-        return;
-
-    convolution.loadImpulseResponse (file,
-                                     juce::dsp::Convolution::Stereo::yes,
-                                     juce::dsp::Convolution::Trim::yes,
-                                     0,
-                                     juce::dsp::Convolution::Normalise::yes);
-    reverbIrLoaded.store (true);
-}
 
 bool IlanaSynthAudioProcessor::loadFxChainFromFile (const juce::File& file)
 {
@@ -2967,45 +2955,3 @@ float IlanaSynthAudioProcessor::getVocoderBandLevel (int band, int slot) const
     return juce::isPositiveAndBelow (band, (int) engine.vocoderBandDisplay.size()) ? engine.vocoderBandDisplay[(size_t) band].load() : 0.0f;
 }
 
-void IlanaSynthAudioProcessor::preloadAirwindows (int algorithm)
-{
-    fxMain->preloadAirwindows (algorithm);
-    for (auto& engine : slotEngines)
-        if (auto* own = engine.load (std::memory_order_acquire))
-            own->preloadAirwindows (algorithm);
-}
-
-void IlanaSynthAudioProcessor::preloadAirwindowsCategory (int category, int choice)
-{
-    fxMain->preloadAirwindowsCategory (category, choice);
-    for (auto& engine : slotEngines)
-        if (auto* own = engine.load (std::memory_order_acquire))
-            own->preloadAirwindowsCategory (category, choice);
-}
-
-// After a patch or session load: every Airwindows slot's algorithm is made
-// here, on the message thread, instead of on the audio thread's first block.
-void IlanaSynthAudioProcessor::preloadAirwindowsForPatch()
-{
-    auto main = false;
-    std::array<bool, (size_t) numAwCategories> categories {};
-    for (int slot = 0; slot < numFxSlots; ++slot)
-    {
-        const auto type = (int) getParam (fxSlotIds[(size_t) slot].type);
-        main = main || type == 30;
-        if (const auto category = airwindows::categoryForFxType (type); juce::isPositiveAndBelow (category, (int) categories.size()))
-            categories[(size_t) category] = true;
-    }
-    if (main)
-        preloadAirwindows ((int) getParam ("fx_aw_algo"));
-    const auto refs = makeAwCategoryRefs();
-    for (int category = 0; category < (int) categories.size() && category < (int) refs.size(); ++category)
-        if (categories[(size_t) category])
-            preloadAirwindowsCategory (category, (int) getParam (refs[(size_t) category][0]));
-}
-
-// An impulse response goes to the reverb the REVERB card is showing.
-void IlanaSynthAudioProcessor::loadReverbIr (const juce::File& file)
-{
-    const_cast<FxEngine&> (displayEngine (13)).loadReverbIr (file);
-}

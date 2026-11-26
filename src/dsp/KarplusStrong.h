@@ -78,6 +78,10 @@ public:
     void matchNoise (const KarplusStrong& other) { random.setSeed (other.random.getSeed()); }
 
     static int bufferSizeFor (double rate) { return juce::nextPowerOfTwo ((int) (rate / 15.0) + 1); }
+    // The piano model's lines hold about 2.4 periods, so A0 (27.5 Hz) needs
+    // rate / 11.5: the plain buffer at 44.1 kHz, a buffer of its own at 48 kHz
+    // and up (bufferSizeFor's 4096 clamped A0 39 cents sharp there).
+    static int pianoBufferSizeFor (double rate) { return juce::nextPowerOfTwo ((int) (rate / 11.0) + 1); }
 
     // A scratch shared with the other strings of one voice (at least
     // bufferSizeFor long, never used by two strings at once); without one
@@ -94,7 +98,16 @@ public:
         buffer.assign ((size_t) size, 0.0f);
         bufferB.assign ((size_t) size, 0.0f);
         electric.prepare (sampleRate);
-        piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
+        if (const auto pianoSize = pianoBufferSizeFor (sampleRate); pianoSize > size)
+        {
+            pianoBuffer.assign ((size_t) pianoSize, 0.0f);
+            piano.prepare (sampleRate, pianoBuffer.data(), (int) pianoBuffer.size());
+        }
+        else
+        {
+            pianoBuffer = {};
+            piano.prepare (sampleRate, buffer.data(), (int) buffer.size());
+        }
         modal.prepare (sampleRate);
         bowedModal.prepare (sampleRate);
         feedbackLoop.prepare (sampleRate);
@@ -1697,6 +1710,7 @@ private:
     }
 
     std::vector<float> buffer;
+    std::vector<float> pianoBuffer; // the piano's lines when buffer is too short for A0 (48 kHz and up)
     std::vector<float> combScratch;
     std::vector<float>* sharedScratch = nullptr;
     juce::Random random;

@@ -654,7 +654,7 @@ void FxPage::paintOutput (juce::Graphics& g)
         paintRailPill (g, outColumn, "OUT");
 
     g.setColour (IlanaTheme::Ui::text2);
-    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::body));
+    g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.09f));
     g.drawText ("SOFT CLIP", outputSoftLabel, juce::Justification::centredRight);
     g.setColour (IlanaTheme::Ui::line);
     g.fillRect (outputSeparator);

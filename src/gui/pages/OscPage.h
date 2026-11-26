@@ -1077,6 +1077,7 @@ private:
 
     // UNISON: the dials in one row across the panel, then the mode menu (SPREAD named under it) beside the SPREAD
     // picture, which takes the rest of the height: a bar per voice, placed by its pan, as tall as its detune.
+    static int filterLabelWidth();
     void layoutUnisonBlock (CardGeometry& card, juce::Rectangle<int> c, std::initializer_list<KnobControl*> knobs);
 
     // PITCH's lower rows (UI review 31, item 9): SCALE (and its root while a scale is on) over CHORD, so both keep their names.

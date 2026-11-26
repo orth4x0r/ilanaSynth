@@ -1469,6 +1469,7 @@ PlayPage::PlayPage (IlanaSynthAudioProcessor& p)
             card.type->getComboBox().setTooltip (typeTip);
             card.type->setPopupOverride ([this, combo = &card.type->getComboBox(), id = prefix + "_type", f] { showFilterTypeMenu (*combo, id, f); });
             card.type->setPackedMenu (true);
+            card.type->getComboBox().getProperties().set ("bare", true); // (a header line's menu: UI polish 2026-11-25)
             addAndMakeVisible (*card.type);
             card.slope = std::make_unique<PillChoice> (state, prefix + "_slope", juce::StringArray { "12 dB", "24 dB" }, colour, "SLOPE\n12 dB is gentler and brighter; 24 dB cuts harder.");
             card.slope->setStacked ("SLOPE");

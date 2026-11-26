@@ -127,6 +127,9 @@ public:
     std::unique_ptr<juce::XmlElement> makeFxChainXml();
     bool applyFxChainXml (const juce::XmlElement& chain);
     void loadReverbIr (const juce::File& file);
+    // The patch's impulse response file (empty: none), saved with the patch.
+    juce::String getReverbIrPath() const { return reverbIrFile; }
+    void setReverbIrPath (const juce::String& path);
     void switchFxChain();
     void copyFxChainToOtherBank();
     bool isShowingChainA() const { return showingChainA; }
@@ -1114,6 +1117,7 @@ private:
         std::array<LfoCurve, (size_t) Mod::maxSlots> remaps;
         std::shared_ptr<const ClipState::Clips> clips;
         SectionColours::Table colours {}; // the sections' own colours (0: default)
+        juce::String reverbIr;            // the IR reverb's file
     };
     struct PatchDataEdit;
     float readNormalised (const juce::String& id) const;
@@ -1123,6 +1127,8 @@ private:
     void restorePatchData (const PatchData& data, const PatchData& reference);
     static bool samePatchData (const PatchData& a, const PatchData& b);
     std::optional<PatchData> pendingEditData; // between beginEdit and endEdit
+    juce::String reverbIrFile;  // the patch's IR file (message thread)
+    void syncReverbIrEngines(); // each FX engine loads it if it hasn't
     mutable juce::uint64 hashedDataEpoch = ~(juce::uint64) 0;
     mutable juce::int64 cachedDataHash = 0;
     // A table doc's content hash, kept while the slot holds the same doc.

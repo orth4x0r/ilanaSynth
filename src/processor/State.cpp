@@ -76,6 +76,11 @@ juce::ValueTree IlanaSynthAudioProcessor::buildFullState()
         else
             state.setProperty ("sectionColours", picked.joinIntoString (","), nullptr);
     }
+    // The IR reverb's file, by path (as a sample file is).
+    if (reverbIrFile.isEmpty())
+        state.removeProperty ("reverbIr", nullptr);
+    else
+        state.setProperty ("reverbIr", reverbIrFile, nullptr);
     state.setProperty ("oscRevealMask", revealMasks[(size_t) Module::Oscillator].load(), nullptr);
     state.setProperty ("envRevealMask", revealMasks[(size_t) Module::Envelope].load(), nullptr);
     state.setProperty ("lfoRevealMask", revealMasks[(size_t) Module::Lfo].load(), nullptr);
@@ -558,6 +563,8 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
     if (state.hasProperty ("presetName")) // a factory preset renamed since the session was saved
         state.setProperty ("presetName", Presets::currentPresetName (state.getProperty ("presetName").toString()), nullptr);
     tuningState.loadFrom (state); // no Tuning child: 12-TET
+    setReverbIrPath (state.getProperty ("reverbIr").toString()); // none: no IR
+
     // No sectionColours: every section in its default colour.
     {
         SectionColours::Table picked {};
@@ -1123,6 +1130,7 @@ IlanaSynthAudioProcessor::PatchData IlanaSynthAudioProcessor::capturePatchData()
     data.tuningScale = tuningState.getScaleText();
     data.tuningMapping = tuningState.getMappingText();
     data.colours = getSectionColours();
+    data.reverbIr = reverbIrFile;
     return data;
 }
 
@@ -1163,7 +1171,8 @@ bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchDat
 
     if (a.tables != b.tables || a.embedded != b.embedded || a.samplePaths != b.samplePaths || a.sampleOptions != b.sampleOptions
         || a.macroNames != b.macroNames || a.macroCcs != b.macroCcs || a.reveal != b.reveal
-        || a.tuningScale != b.tuningScale || a.tuningMapping != b.tuningMapping || a.colours != b.colours)
+        || a.tuningScale != b.tuningScale || a.tuningMapping != b.tuningMapping || a.colours != b.colours
+        || a.reverbIr != b.reverbIr)
         return false;
 
     if (a.fx != b.fx && (a.fx == nullptr || b.fx == nullptr || ! FxPatchData::samePatch (*a.fx, *b.fx)))
@@ -1182,6 +1191,9 @@ bool IlanaSynthAudioProcessor::samePatchData (const PatchData& a, const PatchDat
 
 void IlanaSynthAudioProcessor::restorePatchData (const PatchData& data, const PatchData& reference)
 {
+    if (data.reverbIr != reference.reverbIr)
+        setReverbIrPath (data.reverbIr);
+
     for (int key = 0; key < SectionColours::count; ++key)
         if (data.colours[(size_t) key] != reference.colours[(size_t) key])
             setSectionColour (key, data.colours[(size_t) key]);
@@ -1454,6 +1466,7 @@ juce::int64 IlanaSynthAudioProcessor::getPatchDataHash() const
     }
     addText (getParamCcMapText());
     add (data.colours.data(), sizeof (data.colours));
+    addText (data.reverbIr);
     addText (data.tuningScale);
     addText (data.tuningMapping);
 

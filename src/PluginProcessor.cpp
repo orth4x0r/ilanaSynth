@@ -1298,7 +1298,10 @@ void IlanaSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         hasPendingMidi = false;
         pendingMidi.addEvents (midiMessages, 0, -1, 0);
-        midiMessages.swapWith (pendingMidi);
+        // Copied back, not swapped: a swap left the host's buffer (of any
+        // size) as pendingMidi, so a later dropped block could grow it here.
+        midiMessages.clear();
+        midiMessages.addEvents (pendingMidi, 0, -1, 0);
         pendingMidi.clear();
     }
 

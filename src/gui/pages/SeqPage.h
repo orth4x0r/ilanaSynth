@@ -144,7 +144,7 @@ private:
     StepEditor step1, step2;
     IlanaSynthAudioProcessor& processorRef;
     ArpLanesEditor arpLanes;
-    static constexpr int engineMenuDrop = 7, generateMenuRise = 6;
+    static constexpr int engineMenuDrop = 7;
     ComboControl arpMode, arpDiv;
     KnobControl arpOctaves, arpGate, arpChance;
     ComboControl genScale, genRoot;

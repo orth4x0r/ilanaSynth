@@ -1087,6 +1087,8 @@ private:
     void placeOctaveButtons (int index, juce::Rectangle<int> area);
 
     static int packedButtonWidth (const juce::String& text);
+    juce::String shownHeaderWords; // (the header menus' words it was laid out for)
+    static bool isBareHeader (ComboControl& menu); // (a header line's bare menu: laid out from its words)
 
     // The filter route as the bar's five segments: AUTO F1 F2 BOTH NONE.
     static int routeToSegment (int route) { return route == FilterRoute::Filter1 ? 1 : route == FilterRoute::Filter2 ? 2 : route == FilterRoute::Both ? 3 : route == FilterRoute::Direct ? 4 : 0; }

@@ -802,6 +802,7 @@ private:
     void updateSubBlock (const float* mods, float filterEnvValue, float filter2EnvValue, const float* envelopeValues, int samples);
     double advanceGlideAndDrift (float driftMod, int samples);
     void tuneBody (double driftedFrequency);
+    double bodyPitchFactor (const float* modValues) const;
     /** True when the voice cable graph routes audio through the physical body. */
     bool bodyIsInChain() const;
     /** True when a material body runs in the legacy way: excited by the physical bus, not cabled. */

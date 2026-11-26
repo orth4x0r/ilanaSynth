@@ -791,6 +791,30 @@ void runM72BodyTests()
                                                       + juce::String (ratioDb, 1) + " dB)");
             }
 
+    // The body follows the pitch the oscillator plays: a saw fine-tuned 30
+    // cents sharp still sits on a long-DECAY body's narrow first mode (it
+    // tuned to the bare note and lost most of its level before, 2026-11-26;
+    // bend and pitch routes take the same path).
+    for (const auto shape : { 1, 2, 3, 4 })
+    {
+        const auto bodied = [shape] (float fine)
+        {
+            return renderCleanPatch ([shape, fine] (IlanaSynthAudioProcessor& p)
+            {
+                setParam (p, "osc1_fine", fine);
+                setParam (p, "res_on", 1.0f);
+                setParam (p, "res_amount", 1.0f);
+                setParam (p, "res_decay", 0.9f);
+                setParam (p, "body_type", (float) shape);
+            }, 60, 1.0);
+        };
+        const auto inTune = bodied (0.0f);
+        const auto sharp = bodied (30.0f);
+        const auto lossDb = 20.0 * std::log10 (energy (inTune, 0, 48000) / juce::jmax (1.0e-12, energy (sharp, 0, 48000)));
+        check (std::abs (lossDb) < 3.0, "BODY type " + juce::String (shape) + " follows a fine-tuned oscillator ("
+                                            + juce::String (lossDb, 1) + " dB off the in-tune level)");
+    }
+
     const auto small = render (0, 0.0f, 0.0f, 0.6f, 1);
     const auto large = render (0, 0.0f, 1.0f, 0.6f, 1);
     const auto smallHz = fundamentalOf (std::vector<float> (small.begin() + 3000, small.begin() + 18000), 48000.0);

@@ -156,4 +156,72 @@ void runRound3FixTests()
         check (energy / juce::jmax (1, samples) > 1.0e-4, "round3 freeze: the hold sounds after the input stops");
         check (std::abs (heldHz - hz) < 60.0, "round3 freeze: the hold keeps the note's pitch in silence (" + juce::String (heldHz, 0) + " Hz)");
     }
+
+    // RC follow-ups (2026-11-26). An oscillator switched from FM / DX7 to
+    // WAVETABLE keeps WAVETABLE through a save and reload, though it is still
+    // tuned by ratio (the operator migration ran on every load and turned it
+    // back into an operator).
+    {
+        IlanaSynthAudioProcessor p;
+        fresh (p);
+        setPlain (p, "osc1_mode", (float) OscMode::fmOperator);
+        setPlain (p, "osc1_tune", (float) OscTuning::Ratio);
+        setPlain (p, "osc1_mode", (float) OscMode::wavetable);
+        juce::MemoryBlock saved;
+        p.getStateInformation (saved);
+        IlanaSynthAudioProcessor reloaded;
+        fresh (reloaded);
+        reloaded.setStateInformation (saved.getData(), (int) saved.getSize());
+        reloaded.runAsyncUpdateForTest();
+        check (juce::roundToInt (reloaded.apvts.getRawParameterValue ("osc1_mode")->load()) == OscMode::wavetable,
+               "rc: a ratio-tuned oscillator set to WAVETABLE stays WAVETABLE after a reload");
+
+        // A state from before the stamp still loads its old operators as FM / DX7.
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        if (xml != nullptr)
+        {
+            xml->removeAttribute ("operatorModeSchema");
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary (*xml, old);
+            IlanaSynthAudioProcessor legacy;
+            fresh (legacy);
+            legacy.setStateInformation (old.getData(), (int) old.getSize());
+            legacy.runAsyncUpdateForTest();
+            check (juce::roundToInt (legacy.apvts.getRawParameterValue ("osc1_mode")->load()) == OscMode::fmOperator,
+                   "rc: an unstamped old state still loads a ratio-tuned wavetable as FM / DX7");
+        }
+        else
+            check (false, "rc: the saved state reads back as XML");
+    }
+
+    // An old patch's exciter trims: once no oscillator plays an exciter from
+    // before its trim, the patch takes today's trims (a newly picked exciter
+    // plays at its normal level, not untrimmed until a reload).
+    {
+        IlanaSynthAudioProcessor p;
+        fresh (p);
+        setPlain (p, "osc1_mode", 1.0f);
+        setPlain (p, "osc1_excite", 11.0f);
+        juce::MemoryBlock saved;
+        p.getStateInformation (saved);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        check (xml != nullptr, "rc exciter: the saved state reads back as XML");
+        if (xml != nullptr)
+        {
+            xml->setAttribute ("exciterLevels", 1);
+            juce::MemoryBlock old;
+            juce::AudioProcessor::copyXmlToBinary (*xml, old);
+            IlanaSynthAudioProcessor legacy;
+            fresh (legacy);
+            legacy.setStateInformation (old.getData(), (int) old.getSize());
+            legacy.runAsyncUpdateForTest();
+            const auto none = [] (int, juce::MidiBuffer&) {};
+            render (legacy, 2, 1, none);
+            check (legacy.getStateExciterLevelsForTest() == 1, "rc exciter: an old patch still playing its exciter keeps its levels");
+            setPlain (legacy, "osc1_excite", 0.0f);
+            render (legacy, 2, 1, none);
+            check (legacy.getStateExciterLevelsForTest() == Voice::currentExciterLevels,
+                   "rc exciter: after the exciter changes, the patch takes today's trims");
+        }
+    }
 }

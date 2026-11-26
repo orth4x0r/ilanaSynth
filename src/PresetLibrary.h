@@ -608,6 +608,7 @@ namespace Library
 #include "PresetPackShowcase.h"
 #include "PresetPackIlanaOwn.h"
 #include "PresetPackModalBowed.h"
+#include "PresetPackModal.h"
 
 // The owner's blind A/B marked these presets bad in both their old and new
 // form (2026-09-30): rebuilt from scratch (content/analysis/rebuild-8.md).
@@ -2914,6 +2915,9 @@ inline std::vector<FactoryPreset> buildLaterPacks()
 
     // The Modal Bowed violin, viola and cello (PresetPackModalBowed.h).
     addModalBowedPresets (add);
+
+    // The modal pack: the Modal Guitar, Bowed and Piano, real and past real (PresetPackModal.h).
+    addModalPresets (add);
 
     return list;
 }

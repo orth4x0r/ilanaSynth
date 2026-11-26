@@ -729,42 +729,60 @@ index,name,rms_db,peak,centroid_hz,side_ratio
 727,"Modal Violin",-22.8911,0.443285,1433.08,0
 728,"Modal Viola",-24.1036,0.430945,1488.05,0
 729,"Modal Cello",-24.4921,0.514673,1314.45,0
-730,"Filter model: Low Pass",-13.6276,0.811676,1087.94,0
-731,"Filter model: Band Pass",-24.915,0.476539,2809.78,0
-732,"Filter model: High Pass",-25.3912,0.580635,5821.25,0
-733,"Filter model: Notch",-13.8608,0.716116,2884.26,0
-734,"Filter model: Ladder LP",-16.1693,0.668577,1360.13,0
-735,"Filter model: Ladder HP",-27.8541,0.405562,5929.21,0
-736,"Filter model: Diode LP",-17.1628,0.541948,1567.52,0
-737,"Filter model: MS-20 LP",-15.2811,0.647802,1072.92,0
-738,"Filter model: Comb +",-13.3359,0.797624,2664.27,0
-739,"Filter model: Comb -",-17.4126,0.645527,3160.77,0
-740,"Filter model: Formant",-14.8637,0.741375,2097.36,0
-741,"Filter model: Morph",-24.8008,0.482069,2818.95,0
-742,"Filter model: Ladder BP",-16.0519,0.877686,2335.76,0
-743,"Filter model: Ladder Drive",-16.7827,0.56736,935.309,0
-744,"Filter model: SEM",-14.4234,0.657535,2999.9,0
-745,"Filter model: OTA LP",-19.3419,0.444842,891.703,0
-746,"Filter model: OTA BP",-28.0321,0.316889,2678.45,0
-747,"Filter model: MS-20 HP",-26.6724,0.437875,5336.77,0
-748,"Filter model: Steiner",-23.775,0.542175,2996.44,0
-749,"Filter model: Phaser Notch",-15.3582,0.673735,2519.89,0
-750,"Filter model: Comb Damped",-13.632,0.734123,2580.5,0
-751,"Filter model: Comb Morph",-13.7534,0.734055,2923.94,0
-752,"Filter model: Vowel",-16.0552,0.635725,690.797,0
-753,"Filter model: Talking",-19.9009,0.599792,1573.68,0
-754,"Filter model: Twin Peak",-21.8183,0.547608,2799.55,0
-755,"Filter model: 303 Acid",-17.006,0.648564,1316.47,0
-756,"Filter model: Moog Drive",-18.5504,0.56766,931.349,0
-757,"Filter model: Vowel Morph",-14.1732,0.773534,468.277,0
-758,"Filter model: Comb Body",-19.0117,0.469659,2698.71,0
-759,"Filter model: AW Z LP",-17.1418,0.522281,955.156,0
-760,"Filter model: AW Z HP",-27.7209,0.465131,7516.16,0
-761,"Filter model: AW Z BP",-27.9947,0.349301,3473.9,0
-762,"Filter model: AW Acid",-16.3508,0.524603,3595.99,0
-763,"Filter model: AW X LP",-22.054,0.298899,1289.49,0
-764,"Filter model: AW YNot LP",-13.446,0.858489,3363.43,0
-765,"Filter model: AW Holt",-13.9504,0.678279,1117.71,0
-766,"Filter model: AW Angle",-14.0376,0.741165,1040.82,0
-767,"Filter model: AW Pear",-13.8728,0.748363,1242.99,0
-768,"Filter model: Disperser",-13.9229,0.832255,2927.04,0
+730,"Nylon Classical",-24.0354,0.429061,460.592,0.0923138
+731,"Tenor Uke",-24.1596,0.620047,612.392,0.0779688
+732,"Guitarron Bass",-22.0965,0.523214,299.018,4.3363e-07
+733,"Shapeshifter Guitar",-24.1105,0.494897,702.193,0.167628
+734,"Cathedral Guitar",-22.0294,0.341571,552.63,0.417955
+735,"Liquid Nylon",-24.0615,0.375478,624.999,0.0999373
+736,"Crushed Uke",-24.2741,0.702885,3733.71,2.02137e-07
+737,"Modal Double Bass",-22.0258,0.596796,1346.88,0
+738,"Pizzicato Cello",-24.1858,0.709734,613.461,0.112396
+739,"Bowed Glass",-22.0576,0.608666,2102.41,0.348647
+740,"Cistern Drone",-25.0589,0.376016,1409.34,0.538519
+741,"Modal Chamber Strings",-21.9807,0.527665,1524.48,0.281039
+742,"Fuzz Cello",-21.1161,0.44677,1472.42,0.0904061
+743,"Bedroom Upright",-22.3102,0.670914,538.269,0.366458
+744,"Giant Plate Piano",-23.17,0.681299,571.259,0.375638
+745,"Crushed Grand Gate",-24.8679,0.487322,3752.2,0.406051
+746,"Plucked And Bowed",-22.0595,0.605508,1456.27,0.305721
+747,"Nylon Saw Pluck",-24.1047,0.74627,1806.8,0.597549
+748,"Filter model: Low Pass",-13.6276,0.811676,1087.94,0
+749,"Filter model: Band Pass",-24.915,0.476539,2809.78,0
+750,"Filter model: High Pass",-25.3912,0.580635,5821.25,0
+751,"Filter model: Notch",-13.8608,0.716116,2884.26,0
+752,"Filter model: Ladder LP",-16.1693,0.668577,1360.13,0
+753,"Filter model: Ladder HP",-27.8541,0.405562,5929.21,0
+754,"Filter model: Diode LP",-17.1628,0.541948,1567.52,0
+755,"Filter model: MS-20 LP",-15.2811,0.647802,1072.92,0
+756,"Filter model: Comb +",-13.3359,0.797624,2664.27,0
+757,"Filter model: Comb -",-17.4126,0.645527,3160.77,0
+758,"Filter model: Formant",-14.8637,0.741375,2097.36,0
+759,"Filter model: Morph",-24.8008,0.482069,2818.95,0
+760,"Filter model: Ladder BP",-16.0519,0.877686,2335.76,0
+761,"Filter model: Ladder Drive",-16.7827,0.56736,935.309,0
+762,"Filter model: SEM",-14.4234,0.657535,2999.9,0
+763,"Filter model: OTA LP",-19.3419,0.444842,891.703,0
+764,"Filter model: OTA BP",-28.0321,0.316889,2678.45,0
+765,"Filter model: MS-20 HP",-26.6724,0.437875,5336.77,0
+766,"Filter model: Steiner",-23.775,0.542175,2996.44,0
+767,"Filter model: Phaser Notch",-15.3582,0.673735,2519.89,0
+768,"Filter model: Comb Damped",-13.632,0.734123,2580.5,0
+769,"Filter model: Comb Morph",-13.7534,0.734055,2923.94,0
+770,"Filter model: Vowel",-16.0552,0.635725,690.797,0
+771,"Filter model: Talking",-19.9009,0.599792,1573.68,0
+772,"Filter model: Twin Peak",-21.8183,0.547608,2799.55,0
+773,"Filter model: 303 Acid",-17.006,0.648564,1316.47,0
+774,"Filter model: Moog Drive",-18.5504,0.56766,931.349,0
+775,"Filter model: Vowel Morph",-14.1732,0.773534,468.277,0
+776,"Filter model: Comb Body",-19.0117,0.469659,2698.71,0
+777,"Filter model: AW Z LP",-17.1418,0.522281,955.156,0
+778,"Filter model: AW Z HP",-27.7209,0.465131,7516.16,0
+779,"Filter model: AW Z BP",-27.9947,0.349301,3473.9,0
+780,"Filter model: AW Acid",-16.3508,0.524603,3595.99,0
+781,"Filter model: AW X LP",-22.054,0.298899,1289.49,0
+782,"Filter model: AW YNot LP",-13.446,0.858489,3363.43,0
+783,"Filter model: AW Holt",-13.9504,0.678279,1117.71,0
+784,"Filter model: AW Angle",-14.0376,0.741165,1040.82,0
+785,"Filter model: AW Pear",-13.8728,0.748363,1242.99,0
+786,"Filter model: Disperser",-13.9229,0.832255,2927.04,0

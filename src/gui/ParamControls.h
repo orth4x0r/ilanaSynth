@@ -3431,12 +3431,12 @@ public:
 
     void setNameBelow (float nameSize, int gap, int well = 24)
     {
-        nameBelowSize = nameSize, nameBelowGap = gap, wellHeight = well;
+        const auto below = nameSize > 0.0f; // (0 puts the name back above: a page that switches layouts)
+        nameBelowSize = juce::jmax (0.0f, nameSize), nameBelowGap = gap, wellHeight = well;
         applyNameFont();
-        label.setJustificationType (juce::Justification::centredTop);
-        label.setBorderSize ({ 0, 0, 0, 0 });
-        label.getProperties().set ("ringName", true); // (held to the rings' names' floor: the UI test)
-        combo.getProperties().set ("centredValue", true);
+        label.setJustificationType (below ? juce::Justification::centredTop : juce::Justification::centredLeft);
+        label.setBorderSize (below ? juce::BorderSize<int>() : juce::BorderSize<int> { 0, 4, 0, 1 });
+        label.getProperties().set ("ringName", below), combo.getProperties().set ("centredValue", below); // (ringName: the rings' names' floor in the UI test)
         resized();
     }
 

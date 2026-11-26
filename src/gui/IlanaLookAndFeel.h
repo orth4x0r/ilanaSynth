@@ -2052,6 +2052,13 @@ public:
     }
 
     static bool isBare (const juce::ComboBox& box) { return (bool) box.getProperties().getWithDefault ("bare", false); }
+    // A bare packed select's width with its name, value and chevron and nothing after (a header lays out from it).
+    static int bareNaturalWidth (const juce::ComboBox& box)
+    {
+        const auto prefix = box.getProperties()["textPrefix"].toString();
+        const auto prefixW = prefix.isEmpty() ? 0 : juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedNameSizeOf (box), true).withKerningFactor (0.09f), prefix) + 3;
+        return prefixW + juce::GlyphArrangement::getStringWidthInt (IlanaTheme::font (packedMenuSizeOf (box)), box.getText()) + 1 + 15;
+    }
     // Where a select's words start: on the box edge when bare, 6 px into its well otherwise.
     static int comboLead (const juce::ComboBox& box) { return isBare (box) ? 0 : 6; }
 

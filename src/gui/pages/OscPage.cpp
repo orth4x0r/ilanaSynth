@@ -1237,6 +1237,16 @@ void OscPage::timerCallback ()
 
     effectRules.apply();
 
+    // The header line is laid out from its menus' words (layoutCardHeader): a new table or blend lays it out again.
+    juce::String words;
+    for (const auto& each : controls)
+        words << each->table.getComboBox().getText() << '|' << each->frameBlend.getComboBox().getText() << '|' << each->excite.getComboBox().getText() << '|';
+    if (words != shownHeaderWords)
+    {
+        shownHeaderWords = words;
+        resized();
+    }
+
     // The TEMPO row's RENDERING note comes and goes with the renders.
     if (const auto rendering = processorRef.getStretchRendersPending() > 0; rendering != shownRendering)
     {
@@ -2171,6 +2181,12 @@ void OscPage::placeOctaveButtons (int index, juce::Rectangle<int> area)
     pieces.octUp.setBounds (area.withTrimmedLeft (half + 4));
 }
 
+bool OscPage::isBareHeader (ComboControl& menu)
+{
+    const auto& props = menu.getComboBox().getProperties();
+    return (bool) props.getWithDefault ("bare", false) && (bool) props.getWithDefault ("packedMenu", false);
+}
+
 int OscPage::packedButtonWidth (const juce::String& text)
 {
     return juce::GlyphArrangement::getStringWidthInt (juce::Font (IlanaTheme::font (IlanaTheme::TextSize::packedTextHeight, true).withKerningFactor (0.07f)), text) + 16;
@@ -2212,36 +2228,49 @@ void OscPage::layoutCardHeader (CardGeometry& card)
     auto x = card.bounds.getX() + 68; // (past OSC n at FILTER's title size: UI review 31, item 39)
     pieces.typeBar.setBounds ({ x, centre - 8, juce::jmin (pieces.typeBar.preferredWidth(), juce::jmax (0, right.getRight() - x - 4)), 17 });
     x = pieces.typeBar.getRight() + 7;
-
-    // What the engine plays, with ‹ › (UI review 31, item 16): the table, FM's WAVE, or a Physical card's EXCITER.
-    if (card.kind == Kind::wavetable || card.kind == Kind::fm || card.kind == Kind::physical)
+    // (The even gaps only while the line keeps its status words whole, else the old 4 px: a crowded FM card's.)
+    const auto startX = x;
+    for (const auto [stepGap, groupGap] : { std::pair<int, int> { 8, 12 }, { 4, 4 } })
     {
-        auto& what = card.kind == Kind::physical ? osc.excite : osc.table;
-        what.setBounds (juce::Rectangle<int> (juce::jlimit (0, 124, right.getRight() - x - 4), menuH).withPosition (x, centre - menuH / 2));
-        x = what.getRight() + 4;
-        pieces.prevTable.setBounds ({ x, centre - 8, 24, 16 });
-        pieces.nextTable.setBounds ({ x + 27, centre - 8, 24, 16 });
-        x += 55;
-    }
+        x = startX;
+
+        // What the engine plays, with ‹ › (UI review 31, item 16): the table, FM's WAVE, or a Physical card's EXCITER.
+        if (card.kind == Kind::wavetable || card.kind == Kind::fm || card.kind == Kind::physical)
+        {
+            auto& what = card.kind == Kind::physical ? osc.excite : osc.table;
+            // (UI polish 2026-11-26: a bare menu is as wide as its words, so the ‹ › follow its chevron and every
+            // group in the line keeps one 12 px gap; the slack goes after FRAME. A long name still stops at 124.)
+            const auto natural = isBareHeader (what) ? IlanaLookAndFeel::bareNaturalWidth (what.getComboBox()) : 124;
+            what.setBounds (juce::Rectangle<int> (juce::jlimit (0, juce::jmin (124, natural), right.getRight() - x - 4), menuH).withPosition (x, centre - menuH / 2));
+            x = what.getRight() + (isBareHeader (what) ? stepGap : 4);
+            pieces.prevTable.setBounds ({ x, centre - 8, 24, 16 });
+            pieces.nextTable.setBounds ({ x + 27, centre - 8, 24, 16 });
+            x += 51 + (isBareHeader (what) ? groupGap : 4);
+        }
 
 
-    if (card.kind == Kind::wavetable)
-    {
-        // FRAME BLEND: how the table reads between frames, beside the table it reads.
-        // (4 px after the steps, as the steps sit 4 px after the table's menu.)
-        osc.frameBlend.setBounds (juce::Rectangle<int> (juce::jlimit (0, 138, right.getRight() - x - 4), menuH).withPosition (x, centre - menuH / 2));
-        x = osc.frameBlend.getRight() + 4;
-        // The frame playing now, in the header's free run (the card's picture shows only a slim bar).
-        const auto frameW = juce::jlimit (0, 84, right.getRight() - x - 4);
-        pieces.frameTag.setBounds ({ x, centre - 8, frameW, 16 });
-        x += frameW + 4;
-    }
+        if (card.kind == Kind::wavetable)
+        {
+            // FRAME BLEND: how the table reads between frames, beside the table it reads.
+            // (4 px after the steps, as the steps sit 4 px after the table's menu.)
+            const auto natural = isBareHeader (osc.frameBlend) ? IlanaLookAndFeel::bareNaturalWidth (osc.frameBlend.getComboBox()) : 138;
+            osc.frameBlend.setBounds (juce::Rectangle<int> (juce::jlimit (0, juce::jmin (138, natural), right.getRight() - x - 4), menuH).withPosition (x, centre - menuH / 2));
+            x = osc.frameBlend.getRight() + (isBareHeader (osc.frameBlend) ? groupGap : 4);
+            // The frame playing now, in the header's free run (the card's picture shows only a slim bar).
+            const auto frameW = juce::jlimit (0, 84, right.getRight() - x - 4);
+            pieces.frameTag.setBounds ({ x, centre - 8, frameW, 16 });
+            x += frameW + 4;
+        }
 
-    if (card.kind == Kind::sample || card.kind == Kind::grain)
-    {
-        const auto width = juce::jlimit (0, 124, right.getRight() - x - 4);
-        pieces.sampleNameButton.setBounds ({ x, centre - 8, width, 16 });
-        x += width + 4;
+        if (card.kind == Kind::sample || card.kind == Kind::grain)
+        {
+            const auto width = juce::jlimit (0, 124, right.getRight() - x - 4);
+            pieces.sampleNameButton.setBounds ({ x, centre - 8, width, 16 });
+            x += width + 4;
+        }
+
+        if (right.getRight() - x - 2 >= 60)
+            break;
     }
 
     const auto statusWidth = juce::jlimit (0, 190, right.getRight() - x - 2);

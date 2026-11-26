@@ -579,7 +579,7 @@ void runSmallThingsTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioPr
                 const auto height = label->getLookAndFeel().getLabelFont (*label).getHeight();
                 ++checked;
                 // (A name under a well in a row of rings, SEQ GENERATE: the rings' own name size and floor.)
-                if (label->getProperties().contains ("ringName"))
+                if ((bool) label->getProperties().getWithDefault ("ringName", false))
                 {
                     if (height * IlanaTheme::uiScaleRef() < IlanaTheme::TextSize::screenFloorPx - 0.6f)
                         small.add (page + ": '" + label->getText() + "' ring name " + juce::String (height, 1));

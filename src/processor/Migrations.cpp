@@ -716,8 +716,10 @@ const std::vector<Migrations::Row>& Migrations::table()
         // parameters, after the default macros (loadFactoryPreset).
         { "modRangeSchema", 1, 2, modDepthRanges,
           SavedStage::afterDefaults, Missing::skip, FactoryStage::none, Missing::skip, Duplicates::first },
-        // An operator from before the FM / DX7 type loads as one (it renders the same). No stamp.
-        { nullptr, 0, 0, operatorModes,
+        // An operator from before the FM / DX7 type loads as one (it renders the same).
+        // Stamped since 2026-11-26: it ran on every load, so a Ratio-tuned or
+        // Operator-EG oscillator switched to WAVETABLE came back as FM / DX7.
+        { "operatorModeSchema", 1, 2, operatorModes,
           SavedStage::afterDefaults, Missing::skip, FactoryStage::afterTrims, Missing::add, Duplicates::first },
         // GLIDE took 16 times its knob's time (the recipes' and every baked
         // pack's too): x16, so they glide as they were heard.

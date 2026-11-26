@@ -61,6 +61,7 @@ public:
         outputRead = 0;
         hopFill = 0;
         hasFrozenData = false; // (the held spectrum was just cleared)
+        loudFrames = 0;
         lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
@@ -80,6 +81,7 @@ public:
         outputRead = 0;
         hopFill = 0;
         hasFrozenData = false;
+        loudFrames = 0;
         lastMix = std::numeric_limits<float>::quiet_NaN();
     }
 
@@ -185,6 +187,7 @@ private:
             half[1][(size_t) bin] = { 0.5f * diff.imag(), -0.5f * diff.real() };
         }
 
+        auto loudest = 0.0f; // this frame's strongest bin (HOLD waiting for a sound)
         for (int ch = 0; ch < 2; ++ch)
         {
             auto& values = half[(size_t) ch];
@@ -197,6 +200,7 @@ private:
             {
                 const auto value = values[(size_t) bin];
                 const auto magnitude = std::sqrt (value.real() * value.real() + value.imag() * value.imag());
+                loudest = juce::jmax (loudest, magnitude);
                 const auto phase = fastAtan2 (value.imag(), value.real());
 
                 // Both phases are in -pi..pi, so one turn is the most to take off.
@@ -237,7 +241,13 @@ private:
             }
         }
 
-        if (! frozen)
+        // HOLD on with nothing held yet (a patch loaded with HOLD on, or a
+        // reset): it holds the first sound that comes in, instead of passing
+        // the live input until HOLD is toggled. Once the sound has filled a
+        // whole window (four hops), so the frame and its phase advance are
+        // the sound's, not its onset against silence.
+        loudFrames = loudest > holdOnsetLevel ? loudFrames + 1 : 0;
+        if (! frozen || loudFrames >= fftSize / hopSize + 1)
             hasFrozenData = true;
 
         for (int band = 0; band < numBands; ++band)
@@ -286,6 +296,8 @@ private:
     int outputRead = 0;
     int hopFill = 0;
     bool hasFrozenData = false;
+    static constexpr float holdOnsetLevel = 0.01f; // a bin's magnitude (about -95 dBFS for a sine)
+    int loudFrames = 0; // frames in a row with sound in them
     float lastMix = std::numeric_limits<float>::quiet_NaN(); // MIX of the last block (eased from)
     std::array<std::atomic<float>, numBands> bands {};
 };

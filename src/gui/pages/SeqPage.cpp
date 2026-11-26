@@ -595,9 +595,10 @@ void SeqPage::layoutGenerate ()
     // value wider than that is shrunk to fit, so RATE, ROOT and the DIRECTION menus (narrow cells) read small beside
     // KEY and MODE. Each menu gets the width its longest value needs at the select text size (a very long list is
     // judged by its first 52 px), taken from the knobs' share.
-    const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+    // (Names sit under the controls at the rings' name size since UI polish 2026-11-25.)
+    const auto nameFont = juce::Font (IlanaTheme::font (12.5f, true));
     // A ring's cell: the ring, the cell's 3 px a side and a hair, so no ring is cut (UI audit 9).
-    constexpr float ringCell = 44.0f; // (the ring 40 and its cell's 3 px a side, less what a ring's own margin gives; VELOCITY's name fits)
+    constexpr float ringCell = 50.0f; // (the ring 40, 2 px of stroke a side and its cell's 3 px a side: at 44 the ARP rings were cut, ilana 2026-11-26)
     const auto fit = [&] (Item& item)
     {
         if (auto* menu = dynamic_cast<ComboControl*> (item.control))
@@ -607,7 +608,7 @@ void SeqPage::layoutGenerate ()
             const auto& box = menu->getComboBox();
             for (int i = 0; i < box.getNumItems(); ++i)
                 widest = juce::jmax (widest, (float) juce::GlyphArrangement::getStringWidth (font, box.getItemText (i)));
-            item.pixels = juce::jmin (widest, 52.0f) + 23.0f + 3.0f + 6.0f; // (the arrow's 23 px, the label's borders, the cell's 3 px a side)
+            item.pixels = juce::jmin (widest, 52.0f) + 16.0f + 3.0f + 6.0f; // (the well's chevron 16 px, the label's borders, the cell's 3 px a side)
             // The name reads whole at its own size (a label squeezes its text to fit: DIRECTION did).
             item.pixels = juce::jmax (item.pixels, (float) juce::GlyphArrangement::getStringWidthInt (nameFont, menu->getLabelText()) + 5.0f + 6.0f);
         }

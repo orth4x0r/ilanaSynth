@@ -3430,8 +3430,7 @@ public:
 
     void setNameBelow (float nameSize, int gap, int well = 24)
     {
-        nameBelowSize = nameSize;
-        nameBelowGap = gap, wellHeight = well;
+        nameBelowSize = nameSize, nameBelowGap = gap, wellHeight = well;
         applyNameFont();
         label.setJustificationType (juce::Justification::centredTop);
         label.setBorderSize ({ 0, 0, 0, 0 });

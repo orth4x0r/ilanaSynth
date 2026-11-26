@@ -635,6 +635,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         auto* tabs = findChild<CardTabs> (editor);
         juce::StringArray rows;
         auto rowsOk = tabs != nullptr;
+        juce::StringArray cutRings;
+        auto ringsWhole = true;
         const std::vector<std::pair<int, std::vector<juce::String>>> engines {
             { 0, { "arp_div", "arp_mode", "arp_steps", "arp_gate", "arp_octaves", "arp_chance" } },
             { 1, { "euc_div", "euc_target", "euc_steps", "euc_gate", "euc_hits", "euc_rotate" } },
@@ -661,6 +663,10 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
                 if (labelTop < 0 || nextRow)
                     labelTop = bounds.getCentreY();
                 previousX = bounds.getX();
+                // (ilana 2026-11-26, "generate arp knobs" cut off: a ring's cell holds its whole dial and stroke.)
+                if (auto* knob = dynamic_cast<KnobControl*> (shownControl (id)))
+                    if ((float) knob->getWidth() < knob->packedDialDevicePx() / IlanaTheme::uiScaleRef() + 4.0f)
+                        ringsWhole = false, cutRings.add (id + " " + juce::String (knob->getWidth()) + " < dial " + juce::String (knob->packedDialDevicePx() / IlanaTheme::uiScaleRef(), 1));
                 if (! inOrder)
                 {
                     rowsOk = false;
@@ -671,6 +677,7 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         if (tabs != nullptr)
             tabs->setSelected (0, true);
         settle (200);
+        expect (ringsWhole, "GENERATE's rings are not cut by their cells" + (cutRings.isEmpty() ? juce::String() : " (" + cutRings.joinIntoString (", ") + ")"));
         expect (rowsOk, "ARP, EUCLID and PROB SEQ start with RATE, the menus in one row and the knobs below (V13-7)"
                             + (rows.isEmpty() ? juce::String() : " (" + rows.joinIntoString (", ") + ")"));
 

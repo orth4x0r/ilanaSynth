@@ -156,4 +156,58 @@ void runRound3FixTests()
         check (energy / juce::jmax (1, samples) > 1.0e-4, "round3 freeze: the hold sounds after the input stops");
         check (std::abs (heldHz - hz) < 60.0, "round3 freeze: the hold keeps the note's pitch in silence (" + juce::String (heldHz, 0) + " Hz)");
     }
+
+    // SPECTRAL FREEZE with HOLD already on (a patch loaded that way): it
+    // holds the first sound that comes in, instead of passing the input.
+    {
+        SpectralFreeze freeze;
+        freeze.prepare (48000.0);
+        constexpr double hz = 1000.0;
+        std::vector<float> left (256), right (256);
+        int crossings = 0, samples = 0;
+        auto last = 0.0f;
+        double energy = 0.0;
+        for (int block = 0; block < 400; ++block)
+        {
+            for (int i = 0; i < 256; ++i)
+            {
+                const auto t = (double) (block * 256 + i) / 48000.0;
+                const auto on = block >= 20 && block < 60;
+                left[(size_t) i] = right[(size_t) i] = on ? (float) (0.5 * std::sin (juce::MathConstants<double>::twoPi * hz * t)) : 0.0f;
+            }
+            freeze.process (left.data(), right.data(), 256, true, 1.0f);
+            if (block >= 200)
+                for (int i = 0; i < 256; ++i)
+                {
+                    const auto x = left[(size_t) i];
+                    crossings += (last < 0.0f && x >= 0.0f) ? 1 : 0;
+                    last = x;
+                    energy += (double) x * x;
+                    ++samples;
+                }
+        }
+        const auto heldHz = (double) crossings * 48000.0 / (double) juce::jmax (1, samples);
+        check (energy / juce::jmax (1, samples) > 1.0e-4, "round3 freeze: HOLD on from the start holds the first sound");
+        check (std::abs (heldHz - hz) < 60.0, "round3 freeze: ... at its pitch (" + juce::String (heldHz, 0) + " Hz)");
+    }
+
+    // Strings have room for A0 at every rate (the piano clamped it 39 cents
+    // sharp at 48 kHz: its line holds about 2.4 periods).
+    for (const auto rate : { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 })
+        check ((double) KarplusStrong::pianoBufferSizeFor (rate) / 2.4 >= rate / 27.5,
+               "round3 strings: A0 fits the string buffer at " + juce::String (rate, 0) + " Hz");
+
+    // A factory preset clears the patch's IR file; a saved one brings it back
+    // (save, undo and EDITED: the PatchExtras row).
+    {
+        IlanaSynthAudioProcessor p;
+        fresh (p);
+        p.setReverbIrPath ("/no/such/ir.wav"); // (a missing file: kept by the patch, the reverb stays dry)
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+        p.loadFactoryPreset (1);
+        check (p.getReverbIrPath().isEmpty(), "round3 ir: a factory preset has no IR file");
+        p.setStateInformation (state.getData(), (int) state.getSize());
+        check (p.getReverbIrPath() == "/no/such/ir.wav", "round3 ir: the saved patch's IR file comes back");
+    }
 }

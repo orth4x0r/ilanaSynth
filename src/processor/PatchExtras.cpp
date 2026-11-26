@@ -56,6 +56,30 @@ const std::vector<Row>& rows()
               const auto doc = p.getUserTableDocPtr (0);
               return doc == nullptr ? juce::String ("none") : doc->name + ":" + juce::String ((int) doc->frames.size());
           } },
+        { "IR reverb file",
+          [] (P& p)
+          {
+              // (A real file: loading needs one. The engines read it in the background.)
+              const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ilana-extras-ir.wav");
+              if (! file.existsAsFile())
+              {
+                  juce::AudioBuffer<float> impulse (2, 64);
+                  impulse.clear();
+                  impulse.setSample (0, 0, 1.0f);
+                  impulse.setSample (1, 0, 1.0f);
+                  if (auto stream = file.createOutputStream())
+                  {
+                      juce::WavAudioFormat wav;
+                      if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (stream.get(), 48000.0, 2, 16, {}, 0)))
+                      {
+                          stream.release();
+                          writer->writeFromAudioSampleBuffer (impulse, 0, impulse.getNumSamples());
+                      }
+                  }
+              }
+              p.loadReverbIr (file);
+          },
+          [] (const P& p) { return p.getReverbIrPath(); } },
         { "tuning",
           [] (P& p)
           {

@@ -50,6 +50,9 @@ public:
     void preloadAirwindowsCategory (int category, int choice);
 
     void loadReverbIr (const juce::File& file);
+    // The patch's impulse response on this engine: loads it when it differs
+    // from what this engine holds (an empty path: none, IR plays dry).
+    void syncReverbIr (const juce::String& path);
 
 private:
     friend class IlanaSynthAudioProcessor;
@@ -147,6 +150,7 @@ private:
     juce::dsp::Phaser<float> phaser;
     juce::dsp::Convolution convolution;
     std::atomic<bool> reverbIrLoaded { false };
+    juce::String reverbIrPath; // what loadReverbIr last loaded here (message thread)
     static constexpr double maxDelaySeconds = 8.5; // the delay line and the stutter loop
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 96000 };
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> combLine { 96000 };

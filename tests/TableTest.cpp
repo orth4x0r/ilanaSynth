@@ -113,6 +113,7 @@ void timedRun (const char* name, Suite&& suite)
 #include "HardeningTests.inc"
 #include "PatchExtrasTests.inc"
 #include "SweepTests.inc"
+#include "Round3Tests.inc"
 #include "ParamManifestTests.inc"
 #include "DemoRender.inc"
 #include "OldStateTests.inc"
@@ -217,6 +218,7 @@ int main()
             { "builtin", [] { runBuiltInTableTests(); } },
             { "clip", [] { runClipTests(); } },
             { "sweep", [] { runSweepFixTests(); } },
+            { "round3", [] { runRound3FixTests(); } },
             { "hardening", [] { runHardeningTests(); } },
             { "host", [] { runHostIntegrationTests(); runHostHardeningTests(); } },
             { "paraminfo", [] { runParamInfoTests(); } },
@@ -604,6 +606,7 @@ int main()
     timedRun ("runHostHardeningTests", [] { runHostHardeningTests(); });
     timedRun ("runHardeningTests", [] { runHardeningTests(); });
     timedRun ("runSweepFixTests", [] { runSweepFixTests(); });
+    timedRun ("runRound3FixTests", [] { runRound3FixTests(); });
     timedRun ("runAirwindowsFilterTests", [] { runAirwindowsFilterTests(); });
 
     // Thread-ownership checks (src/ThreadChecks.h): the audio-thread flag is

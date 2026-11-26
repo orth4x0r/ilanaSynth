@@ -1737,8 +1737,9 @@ void Voice::renderNextBlock (juce::AudioBuffer<float>& outputBuffer, int startSa
     classifySlowEnvelopes();
 
     // Watch a released note for silence (not one the modal body, the
-    // Operator EG or a live input can still sound through).
-    watchReleaseSilence = ! disableReleaseSilence && ! noteHeld && ! monoPending && ! dx7Playing && params.liveInput == nullptr
+    // Operator EG or a live input can still sound through, nor a One Shot
+    // still playing past its key: a silent gap in the sample is not its end).
+    watchReleaseSilence = ! disableReleaseSilence && ! noteHeld && ! oneShotHold && ! monoPending && ! dx7Playing && params.liveInput == nullptr
                           && ! legacyMaterialBody();
     if (! watchReleaseSilence)
         releaseSilentSamples = 0;

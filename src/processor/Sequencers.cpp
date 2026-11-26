@@ -197,7 +197,11 @@ void IlanaSynthAudioProcessor::processArpeggiator (juce::MidiBuffer& midiMessage
         for (const auto metadata : midiMessages)
             trackKeys (metadata.getMessage());
 
-        output.addEvents (midiMessages, 0, numSamples > 0 ? numSamples : -1, 0);
+        // (Clamped into the block as the arp's own path does: a note-off stamped
+        // at or past the end, which trackKeys has already seen, must not drop.)
+        const auto endSample = juce::jmax (0, numSamples - 1);
+        for (const auto metadata : midiMessages)
+            output.addEvent (metadata.getMessage(), numSamples > 0 ? juce::jlimit (0, endSample, metadata.samplePosition) : metadata.samplePosition);
         return;
     }
 
@@ -610,7 +614,7 @@ void IlanaSynthAudioProcessor::processClip (juce::MidiBuffer& midi, int numSampl
             // Keys still held in Key transpose were taken out of the MIDI:
             // give them back to the synth so they sound again.
             for (auto note : clipHeld)
-                midi.addEvent (juce::MidiMessage::noteOn (1, note, clipHeldVelocity[(size_t) note]), 0);
+                midi.addEvent (juce::MidiMessage::noteOn (juce::jlimit (1, 16, (int) clipHeldChannel[(size_t) note]), note, clipHeldVelocity[(size_t) note]), 0);
 
             clipHeld.clearQuick();
             clipWasOn = clipRunning = false;
@@ -662,7 +666,7 @@ void IlanaSynthAudioProcessor::processClip (juce::MidiBuffer& midi, int numSampl
 
         if (hostMode && clipLastMode == 0)
             for (auto note : clipHeld)
-                midi.addEvent (juce::MidiMessage::noteOn (1, note, clipHeldVelocity[(size_t) note]), 0);
+                midi.addEvent (juce::MidiMessage::noteOn (juce::jlimit (1, 16, (int) clipHeldChannel[(size_t) note]), note, clipHeldVelocity[(size_t) note]), 0);
 
         clipHeld.clearQuick();
         clipRunning = false;
@@ -789,6 +793,7 @@ void IlanaSynthAudioProcessor::processClip (juce::MidiBuffer& midi, int numSampl
                 clipHeld.removeAllInstancesOf (message.getNoteNumber());
                 clipHeld.add (message.getNoteNumber());
                 clipHeldVelocity[(size_t) message.getNoteNumber()] = message.getVelocity();
+                clipHeldChannel[(size_t) message.getNoteNumber()] = (juce::uint8) message.getChannel();
 
                 if (wasEmpty)
                 {

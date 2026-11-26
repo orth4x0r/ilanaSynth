@@ -777,6 +777,9 @@ public:
     // The MPE master channel's wheel, -1..1 (scaled by masterBendRange).
     void setMasterBend (double wheel) noexcept { masterBendWheel = wheel; updateBend(); }
     bool isMpe() const noexcept { return params.mpe; }
+    // This block's MPE switch even on a voice that hasn't played since it
+    // changed (an idle voice's own params are the last note's).
+    bool isMpeNow() const noexcept { return paramsSource != nullptr ? paramsSource->mpe : params.mpe; }
     // What the note started with (the regression tests read these).
     float getModWheel() const noexcept { return modWheel; }
     float getExpression() const noexcept { return expressionValue; }

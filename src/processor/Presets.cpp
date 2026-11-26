@@ -1131,14 +1131,16 @@ void IlanaSynthAudioProcessor::moveLevelToTrim (std::vector<std::pair<juce::Stri
 
 void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
 {
+    const auto& presets = Presets::getFactoryPresets();
+
+    // (A wrong index loads nothing, so it must not cut the sound either.)
+    if (index < 0 || index >= (int) presets.size())
+        return;
+
     const PatchLoadGate loadGate (*this);
     ++dataEpoch; // what the editor draws changes
     liveRetrigger = true;
     patchCut = true;
-    const auto& presets = Presets::getFactoryPresets();
-
-    if (index < 0 || index >= (int) presets.size())
-        return;
 
     ++patchGeneration; // a bounce still rendering belongs to the patch that started it
 
@@ -1463,6 +1465,7 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
                 clearModSlot (i);
 
     updateExciterLevelMatch (0);
+    preloadAirwindowsForPatch();
 }
 
 bool IlanaSynthAudioProcessor::writePresetCopy (const juce::File& file)

@@ -2174,6 +2174,18 @@ public:
     // A submenu drops down from the row that opened it (SubmenuPlacement.h).
     void preparePopupMenuWindow (juce::Component& window) override { SubmenuPlacement::place (window, menuBorder); }
 
+    // A ComboBox's own list opens where every other menu does: inside the
+    // editor (IlanaTheme::menuOptions). JUCE builds a combo's options itself,
+    // so without this the plain selects were the one kind of menu still
+    // opening as a desktop window of their own.
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label) override
+    {
+        auto options = juce::LookAndFeel_V4::getOptionsForComboBoxPopupMenu (box, label);
+        if (auto* host = IlanaTheme::menuOptions (box).getParentComponent())
+            options = options.withParentComponent (host);
+        return options;
+    }
+
     void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
                                     int& idealWidth, int& idealHeight) override
     {

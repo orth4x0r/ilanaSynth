@@ -2,9 +2,12 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "OwnMenuBox.h"
+
 // The sample's name in the card header: a packed menu box ("SAMPLE  Rhodes C3.wav") whose click
-// opens the load menu instead of a list.
-class SampleNameBox : public juce::ComboBox
+// opens the load menu instead of a list (OwnMenuBox::ownMenu: the click handling
+// every select with a menu of its own shares).
+class SampleNameBox : public OwnMenuBox
 {
 public:
     SampleNameBox()
@@ -13,23 +16,12 @@ public:
         getProperties().set ("packedMenu", true);
     }
 
-    std::function<void()> onPopup;
-
-    // The load menu opens on the press only, never through ComboBox's "menu
-    // active" flag. The base class sets that flag on the press and clears it
-    // only in its own list's callback; our menu has its own callback, so the
-    // flag stayed set after the first open and every later click was swallowed
-    // until the editor was rebuilt (ilana: "granular source drop down will
-    // sometimes fail to appear"). PopupCombo (ParamControls.h) does the same.
+    // (Always the load menu, never a list: with no menu set a click does nothing.)
     void mouseDown (const juce::MouseEvent& event) override
     {
-        // (Asynchronously, as ComboBox does: the press that dismissed another
-        // open menu gets to finish first.)
-        if (isEnabled() && ! event.mods.isPopupMenu())
-            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<SampleNameBox> (this)]
-                                             { if (safe != nullptr) safe->openMenu(); });
+        if (opensOwnMenu())
+            OwnMenuBox::mouseDown (event);
     }
-
     void mouseDrag (const juce::MouseEvent&) override {}
     void mouseUp (const juce::MouseEvent&) override {}
 
@@ -37,7 +29,7 @@ public:
     {
         if (key == juce::KeyPress::returnKey)
         {
-            openMenu();
+            openOwnMenu();
             return true;
         }
         return false; // (one item: nothing to step through)
@@ -48,23 +40,10 @@ public:
         juce::Component::mouseWheelMove (event, wheel); // (the page scrolls; no item to step to)
     }
 
-    // (Reached by accessibility's "press" action: clear the flag it set first.)
     void showPopup() override
     {
         hidePopup();
-        openMenu();
-    }
-
-    // A press can arrive twice in a few milliseconds (a touchpad tap, a double
-    // event from the host); the second would close the first's menu as it opened.
-    void openMenu()
-    {
-        const auto now = juce::Time::getMillisecondCounterHiRes();
-        if (now - lastOpen < 150.0)
-            return;
-        lastOpen = now;
-        if (onPopup != nullptr)
-            onPopup();
+        openOwnMenu();
     }
 
     void setCaptionAndName (const juce::String& caption, const juce::String& name)
@@ -78,7 +57,4 @@ public:
         }
         repaint();
     }
-
-private:
-    double lastOpen = -1.0e9;
 };

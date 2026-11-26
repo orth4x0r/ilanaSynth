@@ -1,5 +1,6 @@
 {
- "src/PluginEditor.cpp": 61,
+ "src/PluginEditor.cpp": 59,
+ "src/PluginEditorHeader.cpp": 2,
  "src/gui/CardTabs.h": 7,
  "src/gui/ClipEditor.h": 26,
  "src/gui/ConfirmOverlay.h": 17,

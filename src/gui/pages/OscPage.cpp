@@ -914,7 +914,7 @@ OscPage::OscPage (IlanaSynthAudioProcessor& p)
 
             // The sample's name in the header, a menu button as the table's is (a click is LOAD's menu).
             card.sampleNameButton.setTooltip ("The sample this oscillator plays. Click to load another or pick a factory sample");
-            card.sampleNameButton.onPopup = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
+            card.sampleNameButton.ownMenu = [this, i] { waveDisplay (i).showSampleMenu (aux[(size_t) i]->sampleNameButton); };
             addChildComponent (card.sampleNameButton);
             addChildComponent (card.xfadeBar);
 

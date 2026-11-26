@@ -3,7 +3,7 @@
 
 Counts the raw numbers passed to layout calls (removeFrom*, withTrimmed*,
 reduced, expanded, withHeight, withWidth, withSizeKeepingCentre, withX, ...)
-in src/gui and src/PluginEditor.cpp, per file, and compares them with the
+in src/gui, src/PluginEditor.cpp and src/PluginEditorHeader.cpp, per file, and compares them with the
 committed tools/layout_literals.json. A file whose count rises fails; a file
 whose count falls passes (and says so: run with --update to lower the
 committed number). Use a token from IlanaTheme::Space (Space::s8, Space::cardPad...)
@@ -55,6 +55,7 @@ def literals(line):
 def files():
     paths = sorted((ROOT / "src" / "gui").rglob("*.h")) + sorted((ROOT / "src" / "gui").rglob("*.cpp"))
     paths.append(ROOT / "src" / "PluginEditor.cpp")
+    paths.append(ROOT / "src" / "PluginEditorHeader.cpp")
     return [p for p in paths if p.exists()]
 
 

@@ -821,6 +821,15 @@ public:
     // fromUser: a file the player chose or dropped; it replaces a factory
     // sample source (the SOURCE menu goes back to the loaded sample).
     bool loadUserSample (int oscIndex, const juce::File& file, bool fromUser = false);
+    // The same for a file the player chose or dropped (fromUser), decoded on
+    // a background thread so a big SoundFont doesn't freeze the window. `done`
+    // runs on the message thread: loaded, failed (getLastSampleError() says
+    // why) or replaced (a newer load, a patch or a preset took the oscillator
+    // first, and this file was dropped). Message thread.
+    enum class SampleLoadResult { loaded, failed, replaced };
+    void loadUserSampleInBackground (int oscIndex, const juce::File& file, std::function<void (SampleLoadResult)> done);
+    // A patch or preset load: whatever is still decoding in the background is dropped.
+    void cancelBackgroundSampleLoads();
 
     // Roadmap step 42: the sample browser's audition. startSamplePreview decodes
     // the file on the calling (message) thread, up to previewSeconds of it, sets
@@ -1161,6 +1170,19 @@ private:
     void retargetSampleOptions (int oscIndex, const juce::String& newPath); // the file moved (collect, relink)
     // Puts a saved zone map back on a freshly loaded file's sample.
     std::shared_ptr<SampleData> applyZoneOptions (std::shared_ptr<SampleData> loaded, const juce::ValueTree& options, const juce::File& file);
+    // loadUserSample in three steps, so the decoding can run off the message
+    // thread (src/processor/Samples.cpp). decodeUserFile touches nothing of
+    // the processor's (any thread); the other two run on the caller's thread.
+    struct DecodedSample
+    {
+        std::shared_ptr<SampleData> data;
+        juce::String error; // why not, when data is null
+        bool multi = false; // a SoundFont or SFZ instrument
+        juce::StringArray missing; // an SFZ's missing files
+    };
+    static DecodedSample decodeUserFile (const juce::File& file, int bank, int program);
+    juce::ValueTree startSampleLoad (int oscIndex, const juce::File& file, bool fromUser);
+    bool finishSampleLoad (int oscIndex, const juce::File& file, DecodedSample decoded, const juce::ValueTree& options, bool fromUser);
     static juce::ValueTree encodeSample (const SampleData& data);
     static std::shared_ptr<SampleData> decodeSample (const juce::ValueTree& tree, int depth = 0);
 
@@ -1513,6 +1535,9 @@ private:
     std::array<std::pair<std::shared_ptr<SampleData>, juce::ValueTree>, (size_t) numSampleOscs> encodedSamples; // under stateLock
     std::array<juce::String, (size_t) numSampleOscs> pendingSamplePaths;
     std::array<bool, (size_t) numSampleOscs> pendingSampleClear {};
+    // Bumped by every change to an oscillator's sample and by each load
+    // request: a background load whose number moved on is dropped.
+    std::array<std::atomic<unsigned>, (size_t) numSampleOscs> sampleRequests {};
     // A path the state names whose file would not load: the slot is empty,
     // and a save still writes the path (the file may be back next time).
     std::array<juce::String, (size_t) numSampleOscs> missingSamplePaths;

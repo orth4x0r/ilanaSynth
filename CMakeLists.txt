@@ -132,6 +132,7 @@ set(ILANA_PROCESSOR_SOURCES
     src/processor/Migrations.cpp
     src/processor/Bounce.cpp
     src/processor/SamplePortability.cpp
+    src/processor/Samples.cpp
     src/processor/Dx7.cpp
     src/dsp/BuiltInTables.cpp
     src/dsp/ModalPianoTable.cpp
@@ -159,6 +160,7 @@ list(TRANSFORM ILANA_ENGINE_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 # .cpp (ARCH-8).
 set(ILANA_GUI_SOURCES
     src/PluginEditor.cpp
+    src/PluginEditorHeader.cpp
     src/gui/pages/EnvLfoPages.cpp
     src/gui/pages/VectorPage.cpp
     src/gui/pages/FmInputPages.cpp

@@ -1170,14 +1170,50 @@ public:
     }
 
     // Loads a chosen or dropped file; a file that can't be read says why
-    // (roadmap step 43) instead of doing nothing.
+    // (roadmap step 43) instead of doing nothing. The file is decoded in the
+    // background (a big SoundFont takes seconds): the well says "LOADING"
+    // meanwhile, and the old sound plays on until the new one is ready.
     void loadSampleFile (const juce::File& file)
     {
-        if (processorRef.loadUserSample (oscIndex, file, true))
-            switchToSampleMode();
-        else
-            ConfirmOverlay::tell (this, "Load sample", processorRef.getLastSampleError());
+        loadingName = file.getFileName();
+        const auto request = ++loadingRequest;
         repaint();
+        // (The mode switch is the processor's, so it happens even when the
+        // window was closed while the file decoded.)
+        processorRef.loadUserSampleInBackground (oscIndex, file,
+            [safeThis = juce::Component::SafePointer<WaveDisplay> (this), &processor = processorRef, osc = oscIndex, mode = modeId, request]
+            (IlanaSynthAudioProcessor::SampleLoadResult result)
+            {
+                if (result == IlanaSynthAudioProcessor::SampleLoadResult::loaded)
+                    switchToSampleMode (processor, osc, mode);
+                if (safeThis == nullptr)
+                    return;
+                if (safeThis->loadingRequest == request)
+                    safeThis->loadingName.clear();
+                if (result == IlanaSynthAudioProcessor::SampleLoadResult::failed)
+                    ConfirmOverlay::tell (safeThis.getComponent(), "Load sample", processor.getLastSampleError());
+                safeThis->repaint();
+            });
+    }
+
+    // The file still decoding (empty when none): the UI test reads it.
+    const juce::String& getLoadingName() const { return loadingName; }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (loadingName.isEmpty())
+            return;
+        // Over whatever the well shows: the file being read.
+        const auto bounds = wellArea();
+        g.setColour (IlanaTheme::Ui::panel.withAlpha (0.72f));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        auto text = bounds.reduced ((float) Space::s12, (float) Space::s4);
+        g.setColour (traceColour);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label, true));
+        g.drawText ("LOADING", text.removeFromTop (text.getHeight() * 0.5f).toNearestInt(), juce::Justification::centredBottom);
+        g.setColour (IlanaTheme::Ui::text2);
+        g.setFont (IlanaTheme::font (IlanaTheme::TextSize::label));
+        IlanaTheme::drawFitted (g, loadingName, text.toNearestInt(), juce::Justification::centredTop);
     }
 
     void resized() override
@@ -1433,13 +1469,22 @@ private:
     // to Sample; a granular one stays granular.
     void switchToSampleMode()
     {
-        if (modeId.isEmpty() || isSampleMode())
+        if (! isSampleMode())
+            switchToSampleMode (processorRef, oscIndex, modeId);
+    }
+
+    static void switchToSampleMode (IlanaSynthAudioProcessor& processor, int osc, const juce::String& modeParam)
+    {
+        if (modeParam.isEmpty())
             return;
+        if (auto* raw = processor.apvts.getRawParameterValue (modeParam))
+            if (const auto current = juce::roundToInt (raw->load()); current == 2 || current == 3)
+                return; // (Sample or Granular already: isSampleMode)
 
         // (Through the processor, so an operator's ratio tuning goes too.)
-        if (modeId == juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, oscIndex)]) + "_mode")
-            processorRef.setOscillatorMode (oscIndex, OscMode::sample);
-        else if (auto* parameter = processorRef.apvts.getParameter (modeId))
+        if (modeParam == juce::String (OscillatorIds::prefixes[(size_t) juce::jlimit (0, OscillatorIds::count - 1, osc)]) + "_mode")
+            processor.setOscillatorMode (osc, OscMode::sample);
+        else if (auto* parameter = processor.apvts.getParameter (modeParam))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (2.0f));
     }
 
@@ -3620,6 +3665,8 @@ private:
     float loadFlash = 0.0f;
     float displayedFrame = 0.0f;
     bool sampleDragHover = false;
+    juce::String loadingName; // a dropped or chosen file still decoding (loadSampleFile)
+    int loadingRequest = 0; // (the latest loadSampleFile: only its answer clears loadingName)
     bool subTableMapping = false;
     std::array<juce::TextButton, 3> viewButtons;
     juce::TextButton previousTable, nextTable;

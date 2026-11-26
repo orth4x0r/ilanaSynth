@@ -112,6 +112,7 @@ public:
     // Makes an Airwindows algorithm ahead of its use (the editor picks one).
     void preloadAirwindows (int algorithm);
     void preloadAirwindowsCategory (int category, int choice);
+    void preloadAirwindowsForPatch(); // every slot's, after a load (message thread)
     void randomizeFxChain();
     // Picking an exciter on oscillator `osc` (0-based, the OSC card's icons):
     // the Modal Piano sets the oscillator's string knobs to where they play
@@ -1259,6 +1260,7 @@ private:
     std::vector<ClipActiveNote> clipActive;
     juce::Array<int> clipHeld; // keys down, in press order (Key transpose)
     std::array<juce::uint8, 128> clipHeldVelocity {}; // their velocities, to give them back
+    std::array<juce::uint8, 128> clipHeldChannel {};  // and their MIDI channels (their note-offs come on them)
     double clipBase = 0.0;     // the beat at the block's first sample
     double clipExpected = 0.0; // where the host's beat should be next block
     bool clipWasOn = false, clipRunning = false, clipUsedHost = false;
@@ -1542,6 +1544,10 @@ private:
     // M8.5
     void updateEvolveAndVector (int numSamples);
     MacroEvolve evolve, vectorDrift;
+    // Freeze Evolve (message thread) asks; the audio thread restarts the
+    // drifts before its next advance, from the seed the last restart used.
+    std::atomic<bool> evolveRestartWanted { false };
+    std::atomic<std::uint32_t> evolveSeed { 4242u };
     std::array<std::atomic<float>, Mod::numMacros> macroDrift {};
     std::atomic<float> vectorX { 0.5f }, vectorY { 0.5f };
     std::array<float, OscillatorIds::count> vectorGains = [] { std::array<float, OscillatorIds::count> g {}; g.fill (1.0f); return g; }();
@@ -1616,6 +1622,7 @@ private:
     float lfoStepValues[numLfos][16] {};
     float globalSourceValue (Mod::Source source) const;
     void evaluateGlobalModulation (const Mod::Slot* slots, int numSlots);
+    void warmModulationTables();   // builds evaluateGlobalModulation's table off the audio thread
     std::array<std::atomic<float>, (size_t) numLfos> lfoPhaseDisplays {};
     std::atomic<float> displayPhase { 0.0f };
     std::atomic<float> displayFrequency { 0.0f };
@@ -2047,6 +2054,7 @@ private:
         std::array<juce::IIRFilter, 2> allLow, allHigh;
         int lastBand = 0;
         float lastLow = 0.0f, lastHigh = 0.0f;
+        double lastRate = 0.0;   // coefficients are rebuilt after a sample-rate change
 
         void reset()
         {

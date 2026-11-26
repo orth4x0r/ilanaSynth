@@ -30,7 +30,10 @@ public:
 
         if (newMode != mode)
         {
-            heldNotes.clearQuick();
+            // Mono <-> Legato keeps the keys still down (releasing the top
+            // one falls back to the next); in or out of Poly starts afresh.
+            if ((newMode == Mode::Poly) != (mode == Mode::Poly))
+                heldNotes.clearQuick();
             pendingCount = 0;
 
             // Leaving poly: let the extra voices ring out rather than cut.
@@ -73,6 +76,19 @@ public:
             }
         }
 
+        // All Sound Off cuts (JUCE releases it softly, as All Notes Off), and
+        // with MPE either one on the master channel covers every member
+        // channel's notes too.
+        if (message.isAllSoundOff() || message.isAllNotesOff())
+        {
+            const auto channel = isMpe() && message.getChannel() == 1 ? 0 : message.getChannel();
+            if (message.isAllSoundOff() || channel == 0)
+            {
+                allNotesOff (channel, ! message.isAllSoundOff());
+                return;
+            }
+        }
+
         Synthesiser::handleMidiEvent (message);
     }
 
@@ -93,6 +109,24 @@ public:
                 shared.modWheel[midiChannel] = (float) controllerValue / 127.0f;
             else if (controllerNumber == 11)
                 shared.expression[midiChannel] = (float) controllerValue / 127.0f;
+        }
+
+        // MPE: the master channel's wheel, expression and pedals apply to the
+        // notes on every member channel too (JUCE only tells voices playing
+        // channel 1, and the voices read their own channel's values).
+        if (midiChannel == 1 && isMpe())
+        {
+            for (int channel = 2; channel <= 16; ++channel)
+            {
+                if (controllerNumber == 1)
+                    shared.modWheel[channel] = shared.modWheel[1];
+                else if (controllerNumber == 11)
+                    shared.expression[channel] = shared.expression[1];
+            }
+
+            for (int channel = 1; channel <= 16; ++channel)
+                Synthesiser::handleController (channel, controllerNumber, controllerValue);
+            return;
         }
 
         Synthesiser::handleController (midiChannel, controllerNumber, controllerValue);
@@ -125,7 +159,7 @@ public:
     bool isMpe() const
     {
         const auto* first = voices.isEmpty() ? nullptr : dynamic_cast<const Voice*> (voices.getFirst());
-        return first != nullptr && first->isMpe();
+        return first != nullptr && first->isMpeNow(); // (not isMpe(): voice 0 may be idle since MPE changed)
     }
 
     void handlePitchWheel (int midiChannel, int wheelValue) override

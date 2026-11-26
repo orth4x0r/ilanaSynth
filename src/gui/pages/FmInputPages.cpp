@@ -635,14 +635,28 @@ void FmPage::layoutPlainOperator (OperatorControls& controls)
     const auto cellWidth = left.getWidth() / juce::jmax (1, columns);
     const auto blockWidth = cellWidth * columns;
     auto block = left.withSizeKeepingCentre (left.getWidth(), juce::jmin (left.getHeight(), menuHeight + gap + knobsHeight));
-    layoutRow (block.removeFromTop (menuHeight), menus);
+    const auto menuRow = block.removeFromTop (menuHeight).withSizeKeepingCentre (blockWidth, menuHeight);
     block.removeFromTop (gap);
     block = block.withSizeKeepingCentre (blockWidth, block.getHeight());
     const auto cellHeight = twoRows ? gridRowHeight : block.getHeight();
+    auto nameUnits = 0.0f;
     for (int i = 0; i < count; ++i)
         if (auto* knob = dynamic_cast<KnobControl*> (knobsInRow[(size_t) i]))
+        {
             knob->placeAsRing (juce::Rectangle<int> (block.getX() + (i % columns) * cellWidth, block.getY() + (i / columns) * cellHeight,
                                                      cellWidth, cellHeight).reduced (2, 0), twoRows ? 46 : count <= 5 ? 60 : 44);
+            nameUnits = nameUnits > 0.0f ? nameUnits : knob->packedNameUnits();
+        }
+    // The menus as SEQ GENERATE's (UI polish 2026-11-26): wells on one line over the rings, the same left and right
+    // edges, each name under its well at the rings' name size.
+    const auto menuW = menuRow.getWidth() / juce::jmax (1, (int) menus.size());
+    for (size_t i = 0; i < menus.size(); ++i)
+    {
+        const auto cell = menuRow.withX (menuRow.getX() + (int) i * menuW).withWidth (menuW).reduced (3, 0); // off-grid (SEQ's cells' 3 px a side)
+        if (auto* menu = dynamic_cast<ComboControl*> (menus[i]))
+            menu->setNameBelow (nameUnits, 3);
+        menus[i]->setBounds (cell);
+    }
     // Another type's way to the operator's controls: on the title line, left of the oscillator picker.
     if (makeOperator.isVisible())
     {
@@ -698,6 +712,8 @@ void FmPage::layoutOperatorEnvCard (OperatorControls& controls, juce::Rectangle<
     for (auto& each : operators)
     {
         setOperatorCardStyle (*each, false);
+        for (auto* menu : { &each->tune, &each->snap, &each->ampEnv, &each->feedbackType })
+            menu->setNameBelow (0.0f, 0); // (the plain card's names under the wells go back above)
         each->feedbackType.setCompactLayout (false);
         each->feedbackType.setLabelText ("TYPE"); // (beside FEEDBACK's knob; the tooltip names it in full)
         each->ampEnv.setPackedMenu (false);

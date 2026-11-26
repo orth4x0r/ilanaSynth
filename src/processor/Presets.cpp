@@ -997,7 +997,9 @@ static void applyPlayStyle (const char* presetName, const juce::String& category
                             std::vector<std::pair<juce::String, float>>& values)
 {
     static const juce::StringArray slides { "Theremin", "Legato Glide Lead", "Slide Fiddle", "Rubber Mono", "Stick-Slip Growl",
-                                        "Modal Violin", "Modal Viola", "Modal Cello" };
+                                        "Modal Violin", "Modal Viola", "Modal Cello",
+                                        // (the modal pack's bowed and ringing ones: the bow's let-go or the body's ring is the tail)
+                                        "Modal Double Bass", "Fuzz Cello" };
     const auto exempt = slides.contains (presetName);
 
     if (! exempt && (category == "Bass" || category == "Lead"))

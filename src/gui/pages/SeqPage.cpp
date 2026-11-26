@@ -567,14 +567,14 @@ void SeqPage::layoutGenerate ()
     const auto sprayKnob = euclidShown ? 0.82f : 0.85f;
     std::vector<std::vector<Item>> groups {
         { { &genRoot, 0.8f }, { &genScale, 1.2f }, { &genSnap, 1.35f } },
-        { { &sprayStrum, 1.05f }, { strumTime.get(), 0.9f } },
+        { { &sprayStrum, 1.0f }, { strumTime.get(), 1.0f } },
         { { &sprayDirection, 1.05f }, { sprayCount.get(), sprayKnob }, { sprayRange.get(), sprayKnob },
           { spraySpread.get(), sprayKnob }, { sprayChance.get(), sprayKnob }, { sprayVelocity.get(), sprayKnob } }
     };
     // (MODE is wider, so "UpDown", "Converge" and "Scale Random" read whole; SPRAY's five rings give the width
     // back: UI review 29, B1. The rings' cells get the width their ring needs, below.)
-    const std::vector<Item> arpItems { { &arpDiv, 0.9f }, { &arpMode, 1.95f }, { &arpSteps, 0.75f }, { &arpGate, 0.75f },
-                                       { &arpOctaves, 0.75f }, { &arpChance, 0.75f } };
+    const std::vector<Item> arpItems { { &arpDiv, 0.9f }, { &arpMode, 1.6f }, { &arpSteps, 0.84f }, { &arpGate, 0.84f },
+                                       { &arpOctaves, 0.84f }, { &arpChance, 0.84f } };
     engineBox = {};
     if (engineTabs.getSelected() != 3)
     {
@@ -595,9 +595,10 @@ void SeqPage::layoutGenerate ()
     // value wider than that is shrunk to fit, so RATE, ROOT and the DIRECTION menus (narrow cells) read small beside
     // KEY and MODE. Each menu gets the width its longest value needs at the select text size (a very long list is
     // judged by its first 52 px), taken from the knobs' share.
-    const auto nameFont = juce::Font (IlanaTheme::font (IlanaTheme::TextSize::label, true).withKerningFactor (0.07f));
+    // (Names sit under the controls at the rings' name size since UI polish 2026-11-25.)
+    const auto nameFont = juce::Font (IlanaTheme::font (12.5f, true));
     // A ring's cell: the ring, the cell's 3 px a side and a hair, so no ring is cut (UI audit 9).
-    constexpr float ringCell = 44.0f; // (the ring 40 and its cell's 3 px a side, less what a ring's own margin gives; VELOCITY's name fits)
+    constexpr float ringCell = 50.0f; // (the ring 40, 2 px of stroke a side and its cell's 3 px a side: at 44 the ARP rings were cut, ilana 2026-11-26)
     const auto fit = [&] (Item& item)
     {
         if (auto* menu = dynamic_cast<ComboControl*> (item.control))
@@ -607,7 +608,7 @@ void SeqPage::layoutGenerate ()
             const auto& box = menu->getComboBox();
             for (int i = 0; i < box.getNumItems(); ++i)
                 widest = juce::jmax (widest, (float) juce::GlyphArrangement::getStringWidth (font, box.getItemText (i)));
-            item.pixels = juce::jmin (widest, 52.0f) + 23.0f + 3.0f + 6.0f; // (the arrow's 23 px, the label's borders, the cell's 3 px a side)
+            item.pixels = juce::jmin (widest, 52.0f) + 16.0f + 3.0f + 6.0f; // (the well's chevron 16 px, the label's borders, the cell's 3 px a side)
             // The name reads whole at its own size (a label squeezes its text to fit: DIRECTION did).
             item.pixels = juce::jmax (item.pixels, (float) juce::GlyphArrangement::getStringWidthInt (nameFont, menu->getLabelText()) + 5.0f + 6.0f);
         }
@@ -685,6 +686,7 @@ void SeqPage::layoutGenerate ()
     }
     auto x = (float) area.getX();
     const auto extra = 0.0f;
+    std::vector<std::pair<juce::Component*, juce::Rectangle<int>>> placed;
     for (size_t g = 0; g < groups.size(); ++g)
     {
         auto weight = 0.0f;
@@ -702,7 +704,8 @@ void SeqPage::layoutGenerate ()
         if (switches[g] != nullptr)
             switches[g]->setBounds (juce::Rectangle<int> (title.getRight() - 8 - 40, title.getCentreY() - 23, 40, 13 + 20));
 
-        // The controls: names on one line at the band's top.
+        // The controls: every one a thing on the rings' middle line with its name under it on the rings' name
+        // line (UI polish 2026-11-25: menus had their names above while the rings had theirs below).
         auto row = box.reduced (padding, 0).withTrimmedTop (boxHeaderHeight).withTrimmedBottom (4);
         auto left = (float) row.getX();
         for (const auto& item : groups[g])
@@ -710,18 +713,49 @@ void SeqPage::layoutGenerate ()
             const auto cell = juce::Rectangle<int> (juce::roundToInt (left), row.getY(), juce::roundToInt (item.weight * unit),
                                                     row.getHeight()).reduced (3, 0);
             left += item.weight * unit;
-            // PLAY's ring knobs; a menu or a switch level with the rings' middle (so SNAP TO KEY's
-            // menus don't leave its box's bottom third empty, UI review 26).
-            if (auto* knob = dynamic_cast<KnobControl*> (item.control))
-            {
-                knob->placeAsRing (cell, 40);
-                continue;
-            }
-            const auto preferred = preferredControlHeight (item.control, cell.getWidth());
-            const auto height = preferred > 0 ? juce::jmin (cell.getHeight(), preferred) : cell.getHeight();
-            // (ilana's layout, 2026-10-29: 6 px higher, the menu boxes level with the rings.)
-            item.control->setBounds (cell.withSizeKeepingCentre (cell.getWidth(), height).translated (0, -generateMenuRise));
+            placed.push_back ({ item.control, cell });
         }
+    }
+
+    // Rings first: they set the middle line and the name line the menus and switches follow.
+    int middle = -1, nameTop = -1;
+    float nameUnits = 0.0f;
+    for (const auto& [control, cell] : placed)
+        if (auto* knob = dynamic_cast<KnobControl*> (control))
+        {
+            knob->placeAsRing (cell, 40);
+            if (middle < 0)
+            {
+                middle = knob->getY() + juce::roundToInt (knob->getDialCentre().y);
+                nameTop = knob->getY() + knob->getPackedNameArea().getY();
+                nameUnits = knob->packedNameUnits();
+            }
+        }
+    for (const auto& [control, cell] : placed)
+    {
+        if (dynamic_cast<KnobControl*> (control) != nullptr)
+            continue;
+        if (middle < 0)
+        {
+            control->setBounds (cell);
+            continue;
+        }
+        constexpr int well = 21; // (under 22 px a select's value takes the body size, no bigger than the rings' numbers)
+        if (auto* menu = dynamic_cast<ComboControl*> (control))
+        {
+            const auto top = middle - well / 2;
+            menu->setNameBelow (nameUnits, juce::jmax (0, nameTop - (top + well) - 1), well);
+            menu->setBounds (cell.withTop (top).withBottom (juce::jmax (top + well, nameTop + 14)));
+        }
+        else if (auto* toggle = dynamic_cast<ToggleControl*> (control))
+        {
+            toggle->setPackedName (ToggleControl::NamePlace::below);
+            toggle->setBelowNameSize (nameUnits);
+            toggle->setBounds (cell.withTop (middle - 7).withBottom (juce::jmax (middle + 9, nameTop + 14)));
+            toggle->setNameDrop (juce::jmax (0, nameTop - (middle - 7 + 15 + 1)));
+        }
+        else
+            control->setBounds (cell);
     }
 }
 

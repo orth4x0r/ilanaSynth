@@ -211,7 +211,7 @@ inline void addModalPresets (const std::function<void (const FactoryPreset&)>& a
              .set ("osc1_string_damp", 0.25f)
              .macro (1, "HAMMER", { { param ("osc1_hammer_hard"), 0.4f } })
              .macro (2, "DAMP", { { param ("osc1_string_damp"), 0.5f } })
-             .macro (3, "WOBBLE", { { param ("fx_chorus_mix"), 0.5f }, { param ("fx_chorus_depth"), 0.5f } })
+             .macro (3, "WOBBLE", { { param ("fx_chorus_mix"), 0.5f }, { param ("fx_chorus_rate"), 0.3f } })
              .macro (4, "ROOM", { { D::FxReverbMix, 0.3f } })
              .fx ({ FxChorus, FxTilt, FxReverb }).chorus (0.6f, 0.2f, 0.25f).set ("fx_tilt", -0.3f)
              .reverb (Room, 0.4f, 0.15f)

@@ -16,7 +16,7 @@ public:
     // tooltip. Update the list and its version together with the changelog;
     // the UI test checks the version against the header's and that every
     // page exists.
-    static constexpr const char* whatsNewVersion = "1.4 BETA";
+    static constexpr const char* whatsNewVersion = "1.0 RC";
 
     struct NewFeature
     {

@@ -67,6 +67,7 @@ int toOldState (juce::MemoryBlock& block)
     if (xml == nullptr)
         return 0;
     auto changed = 0;
+    xml->removeAttribute ("operatorModeSchema"); // (a state from before the type had no stamp)
     for (auto* child : xml->getChildIterator())
         if (child->getStringAttribute ("id").endsWith ("_mode") && juce::roundToInt (child->getDoubleAttribute ("value")) == OscMode::fmOperator)
         {

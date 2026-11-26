@@ -13,6 +13,7 @@ namespace
         { "osc3Schema", 2 }, { "grainPosSchema", 2 }, { "lorenzSchema", 2 }, { "stringSchema", 2 },
         { "redundantKnobsSchema", 2 }, { "modRangeSchema", 2 }, { "destSchema", 2 }, { "tableSchema", 4 },
         { "boardMixSchema", 5 }, { "glideSchema", 2 }, { "bodyLevelSchema", 2 },
+        { "operatorModeSchema", 2 },
     };
 
     bool savedByNewerBuild (const juce::ValueTree& state)
@@ -925,6 +926,23 @@ void IlanaSynthAudioProcessor::updateExciterLevelMatch (int savedLevels)
     }
 
     exciterLevels = usesUntrimmed ? levels : Voice::currentExciterLevels;
+}
+
+void IlanaSynthAudioProcessor::refreshExciterLevelMatch() noexcept
+{
+    const auto levels = exciterLevels.load();
+    if (levels >= Voice::currentExciterLevels)
+        return;
+    for (size_t osc = 0; osc < oscModeRaw.size(); ++osc)
+    {
+        if (oscModeRaw[osc] == nullptr || oscExciteRaw[osc] == nullptr)
+            return; // (not prepared yet)
+        const auto excite = juce::roundToInt (oscExciteRaw[osc]->load());
+        if (juce::roundToInt (oscModeRaw[osc]->load()) == 1 && Voice::exciterTrim (excite) != 1.0f
+            && Voice::exciterTrimLevel (excite) > levels)
+            return; // (an oscillator still plays an exciter from before its trim)
+    }
+    exciterLevels = Voice::currentExciterLevels;
 }
 
 bool IlanaSynthAudioProcessor::loadTuningScale (const juce::String& sclText, juce::String& error)

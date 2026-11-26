@@ -275,7 +275,7 @@ void Voice::updateSubBlock (const float* mods, float filterEnvValue, float filte
     if (params.subOscLevel > 0.0f)
         subOsc.setFrequency (driftedFrequency * std::exp2 (((double) params.subOscOctave + bendSemitones) / 12.0));
 
-    tuneBody (driftedFrequency);
+    tuneBody (driftedFrequency * bodyPitchFactor (mods));
 
     updateFilterCoefficients (mods, filterEnvValue, filter2EnvValue);
 }
@@ -572,6 +572,31 @@ bool Voice::legacyMaterialBody() const
     return params.resonatorOn && params.bodyType != 0 && ! bodyIsInChain();
 }
 
+// The body sits on the pitch the oscillators play, not only on the note: the
+// pitch bend and the leading oscillator's fine tune and pitch modulation (a
+// vibrato) move it too. A tuned body's first mode is a fraction of a hertz
+// wide at long DECAY, so a bent or vibrato note used to fall off it and lose
+// most of the body (HANDOFF open issue, ilana 2026-11-26: "body could be an
+// issue tho so fix that"). Whole-semitone offsets (SEMI, OCT) stay out: the
+// body keeps the note's register, as before.
+double Voice::bodyPitchFactor (const float* modValues) const
+{
+    using D = Mod::Destination;
+    constexpr D pitchDestinations[] { D::Osc1Pitch, D::Osc2Pitch, D::SubPitch,
+                                      D::Osc4Pitch, D::Osc5Pitch, D::Osc6Pitch };
+    auto semitones = bendSemitones;
+    for (int osc = 0; osc < VoiceParams::numOscillators; ++osc)
+    {
+        const auto& settings = params.oscillators[(size_t) osc];
+        if (! params.oscillatorEnabled[(size_t) osc] || settings.tuneMode == OscTuning::Fixed
+            || (osc == 2 && settings.level <= 0.0f))
+            continue;
+        semitones += settings.cents / 100.0 + (double) modValues[(int) pitchDestinations[osc]] * 48.0;
+        break;
+    }
+    return semitones == 0.0 ? 1.0 : std::exp2 (semitones / 12.0);
+}
+
 void Voice::tuneBody (double driftedFrequency)
 {
     using D = Mod::Destination;
@@ -613,7 +638,7 @@ void Voice::renderBodyTail (float* left, float* right, int startSample, int numS
     for (int i = 0; i < numSamples; ++i)
     {
         if ((i & 15) == 0)
-            tuneBody (advanceGlideAndDrift (blockMod (D::Drift), juce::jmin (16, numSamples - i)));
+            tuneBody (advanceGlideAndDrift (blockMod (D::Drift), juce::jmin (16, numSamples - i)) * bodyPitchFactor (blockMods.data()));
         if (fadeTotal > 0)
             ampGainFade = fadeRemaining > 0 ? (float) --fadeRemaining / (float) fadeTotal : 0.0f;
         const auto wetL = materialBodyL.process (0.0f) * wetGain * ampGainFade;

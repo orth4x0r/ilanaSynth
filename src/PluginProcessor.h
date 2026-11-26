@@ -1390,6 +1390,16 @@ private:
     // VoiceParams::exciterLevels; saved as the state's "exciterLevels".
     std::atomic<int> exciterLevels { Voice::currentExciterLevels };
     void updateExciterLevelMatch (int savedLevels);
+    // An old patch keeps its untrimmed exciter levels only while an
+    // oscillator still plays one of those exciters: once none does (an
+    // exciter or mode changed after the load), the patch takes today's trims,
+    // so a newly picked exciter plays at its normal level. Audio thread, each
+    // block; reads cached parameter pointers (filled in prepareToPlay).
+    void refreshExciterLevelMatch() noexcept;
+public:
+    int getStateExciterLevelsForTest() const noexcept { return exciterLevels.load(); }
+private:
+    std::array<const std::atomic<float>*, (size_t) OscillatorIds::count> oscModeRaw {}, oscExciteRaw {};
 
 public:
     // Loads one DX7 voice as the current patch (named after it): ordinary

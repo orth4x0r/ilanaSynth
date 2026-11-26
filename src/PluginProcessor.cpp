@@ -710,6 +710,12 @@ void IlanaSynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     repeatWasPlaying = false; // (an export that starts playing re-seeds)
     warmModulationTables();
+    for (size_t osc = 0; osc < oscModeRaw.size(); ++osc)
+    {
+        const juce::String prefix (OscillatorIds::prefixes[osc]);
+        oscModeRaw[osc] = apvts.getRawParameterValue (prefix + "_mode");
+        oscExciteRaw[osc] = apvts.getRawParameterValue (prefix + "_excite");
+    }
     noteSpray.reset();
     arpHeldNotes.clearQuick();   // what's sounding is released by its gate
     generatedMidi.ensureSize (65536);
@@ -2365,6 +2371,7 @@ void IlanaSynthAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, j
     trackHeldKeys (midiForSynth);
     playResumedKeys (midiForSynth, buffer.getNumSamples());
 
+    refreshExciterLevelMatch();
     p.exciterLevels = exciterLevels.load();
 
     // M7.5: the live input and its envelope for the voices; live grains

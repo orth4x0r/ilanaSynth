@@ -1,11 +1,11 @@
-<p align="center"><img src="docs/img/social-preview.png" alt="ilanaSynth beta 1.4: El Sinte de Big Ilana Da GOAT" width="720"></p>
+<p align="center"><img src="docs/img/social-preview.png" alt="ilanaSynth RC 1.0: El Sinte de Big Ilana Da GOAT" width="720"></p>
 
 <h1 align="center">ilanaSynth</h1>
 
 <p align="center"><b>El Sinte de Big Ilana Da GOAT</b></p>
 
 <p align="center">
-  <img alt="Version: beta 1.4" src="https://img.shields.io/badge/version-beta%201.4-ff6a3d">
+  <img alt="Version: RC 1.0" src="https://img.shields.io/badge/version-RC%201.0-ff6a3d">
   <img alt="Next: RC 1.0" src="https://img.shields.io/badge/next-RC%201.0-8a8f98">
   <img alt="Formats: VST3, CLAP, AU, standalone" src="https://img.shields.io/badge/VST3%20%C2%B7%20CLAP%20%C2%B7%20AU%20%C2%B7%20standalone-2b2f36">
   <img alt="Built with JUCE C++" src="https://img.shields.io/badge/JUCE-C%2B%2B20-2b2f36">
@@ -510,7 +510,7 @@ git pull origin main
 The script also installs **ilanaSynth FX** (`C:\Program Files\Common Files\VST3\ilanaSynth FX.vst3`). In Ableton Live it appears under Audio Effects: put it on an audio track (or after an instrument) and play into it. It needs no MIDI (use TRIGGER on the INPUT page); to play it from a MIDI track, set that track's MIDI To the FX track.
 
 ### Windows: installer
-1. Run `ilanaSynth-1.4-Windows-Setup.exe`, which installs both plugins (VST3 and CLAP) and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
+1. Run `ilanaSynth-1.0-Windows-Setup.exe`, which installs both plugins (VST3 and CLAP) and the standalone. Or copy the `ilanaSynth.vst3` folder to `C:\Program Files\Common Files\VST3\`.
 2. Rescan your plugin folder in your DAW.
 3. The standalone `ilanaSynth.exe` needs no DAW at all.
 

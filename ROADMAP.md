@@ -329,9 +329,9 @@ Adversarial passes over v1.3 before release: each UI round looks for what is con
 
 ---
 
-## Later (v1.4, pushed back, not scheduled)
+## Later (v1.4): dropped
 
-These are ideas to come back to after v1.3 ships. None of them block anything above. Each still follows the sound-fitting rule, and each gets its own presets when it lands.
+**Dropped by ilana on 2026-11-26** ("drop all this", on the RC 1.0 report): M11 and M12 will not be built. Kept below as a record only. Earlier ideas to come back to after v1.3 shipped; none of them blocked anything above. Each still follows the sound-fitting rule, and each gets its own presets when it lands.
 
 ### M11: Pulse-train oscillator: pulsar and FOF (was M11 and M13; before that M13 and M15)
 One engine, because a FOF grain is a pulsar whose pulse is a decaying sine. It reuses the grain scheduler in `GranularOsc`, wavetable reading, and the unison bank.

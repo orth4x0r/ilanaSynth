@@ -76,7 +76,7 @@ c962b2ac700b0f99 LFO 3 Wobble
 3a3f7785a1f212eb Arp Glass
 8636b5aa83446401 Resonator Pluck
 a5dd88b770f1ba08 Sub 808 Arp
-8ea28d78dfa41a9b Vocal Stutter
+378453273bb9d974 Vocal Stutter
 4a48d4b4362ad465 Tape LFO Drift
 16df676bc0def0c1 Ladder Sub
 83b8a8ef72ac7a35 Diode Acid
@@ -95,7 +95,7 @@ eb0725a1c6574fc0 Octave Hyper Bass
 178567c2a6327e68 Warp Wobble
 fb7e98dca4dda7ff Morph Filter Bass
 f95606a63a972a13 Tape Sub
-5eb2df08baaa790b Distorted 808
+76dbf47a75359990 Distorted 808
 58c2e6624f68fe94 Dark Ladder Pluck Bass
 b8ca43d3d1b06ba4 Per-Voice Wobble
 bb5cfd150bd708d0 Supersaw Anthem
@@ -120,7 +120,7 @@ d0fbd1179188a75c Octave Screamer
 739369826d80b793 Ladder Pluck
 a31bdaea20e8a046 Supersaw Pluck
 ef37cd93001c7367 Comb Harp
-5e7f0d97ef4e1a94 Nylon String
+fbcf917e7cc98465 Nylon String
 fc42ff4ae009b7aa Pizzicato
 d071052de9e61dd7 Diode Blip
 dad037031cd2cbff FM Pluck
@@ -135,7 +135,7 @@ bd90310af9186145 Vowel Pad
 2b7b06a91d81d124 Supersaw Pad
 32f2f2c2faa7fbb5 Comb Choir
 5b26bdf07a79ce87 Curve Motion Pad
-bfc377b0a0829e84 Dark Matter
+2f2a6b3c7216aa2d Dark Matter
 313c8ed676cbd486 Shimmer Glass Pad
 96a68054fe2fe3c6 Sweep Pad
 5777157194f5a454 Octave Stack Pad
@@ -184,7 +184,7 @@ f92e58038a8a4c05 Stutter Hit
 e512cd48420e4e29 Radio Tuning
 fc6bf0d8f5f5f04d Ladder Swell Pad
 db1ce843993f6d14 EQ Sculpted Pad
-eefb4ee2ec2f7d94 Sitar Pluck
+06359412899da514 Sitar Pluck
 9dbd7be0d58f91a4 Legato Glide Lead
 f99df817b3fa44af Chaos Kick
 f07f1484ddbf5623 FM Snare
@@ -192,7 +192,7 @@ ae1f060b815db4ca Metal Hat
 b38258b17ccd8fce Granular Clap
 1dd3348a2306fcfc Drunk Tom
 bea61943952f0e3e Spectral Rim
-2cf41a7ec2915a07 Operator Bell
+9512f48c249b4664 Operator Bell
 32fc5abdb62703ae Through-Zero Growl
 7ae88f7076b9f42d Feedback Choir
 2ecf0503e86df3d9 Key FM Scream
@@ -248,7 +248,7 @@ af67f036826c090b Solo Cello
 be9bafa81763ab37 Detuned Zither
 82b5a56d42062d84 Slide Fiddle
 f9d706c8d1c71b86 Contrabass Growl
-d87e00ab82285032 String Ensemble Wide
+f42207222846909f String Ensemble Wide
 552d1f98d8046fba Six-Layer Stack
 5d9f304e996b84fb Fifth Engine
 a2f975d7982fd7ca Route Split Pad
@@ -299,7 +299,7 @@ c84b1a81168bb14f Prob Seq Drone
 f246965b3607855a Euclid Exciter Pluck
 9a605e7b6dc89f71 Marimba Bar Body
 40e084aba59fd9a0 Vibraphone Plate
-3ce25afa31b6edef Church Bell Shell
+3f09ffb2666d3f72 Church Bell Shell
 27ec7a193a8c33e5 Glass Chime Body
 47ca0f49b21bd3e7 Coupled String Body
 6898d0a5f1c4000b Feedback Body Growl
@@ -311,7 +311,7 @@ a00bfb6b0ff0e035 West Folded Bass
 8cd4687118e13443 Buchla Bongo Melody
 723a69de9520b7de Steiner Growl
 3dade042562dd76b Vowel Bank Voice
-b3303cd5404ecfcd Talking Filter Lead
+33f3d6a95635e5b8 Talking Filter Lead
 67316bf85e881f32 Twin Peak Pad
 ee8638eec2b79567 OTA Squelch
 f303ce5b9d9c5dd2 Comb Morph Pluck
@@ -326,7 +326,7 @@ e494fbbf7d02f8f7 Vector Path Drift
 dca767fff431a1f7 Bounced Bell Grains
 9f2cab9f6badc56c Resampled FM Texture
 b934b143a7ac17ea Baked Chaos Loop
-6e3739e4d7b5ccb5 Reversed Piano Wash
+ff3eb651bb9a8765 Reversed Piano Wash
 daf3227aa567e780 Frozen Feedback Table
 51eca59b9d10ef01 Tabled Cello
 9c0b4e4ad21ae9c0 Live Comb Wash
@@ -655,10 +655,10 @@ e88c43fc954406b4 Drop Pluck
 722fb576495d18fd Glass Harp Keys
 f4b31a80723a0730 Holt Pad
 37b7ff1d9c6a78d2 Koto Snap
-c84cceef03ab8032 Operator Bass
-37d0e7df44819196 Operator Clav
-3515a5ab0bbfa856 Operator Lead
-6929ba634f061dad Operator Tines
+d0823857fb6a8d98 Operator Bass
+76b0467dde6b82c9 Operator Clav
+c2bb3727f8f2314e Operator Lead
+16b4a3531b21fa26 Operator Tines
 bf6015367b8969a5 Pear Lead
 d5998f994c3afcdf Picked Steel
 9d9218954f8ae90a Reed Growl Bass
@@ -669,16 +669,16 @@ d5998f994c3afcdf Picked Steel
 f32fe5757d416e24 Spray Harp
 0a3380cb7ce3fe0f Sympathetic Haze
 2eef600e0cbb49ae Tine Room
-a48fa5eb432c0de1 Toy Box Piano
+dd93e48e509ca0e1 Toy Box Piano
 1300fc6e982ee3c8 Upright Thump
 59624adb9a865db6 West Glow Pad
 21e174e37a5e8de5 West Marimba
 56a47f87cfc84db4 Z Ladder Bass
 c75655f7db2a4c61 Operator Glass Lead
-ea9cce2da2cf65af Folded Supersaw
+9e69be9faea91d52 Folded Supersaw
 98c5c82001e18d86 Moving Comb Sync
 819ec643739b37bb Formant Chorus Lead
-523968752adff206 Formant Operator Lead
+fb0c958eb19c791b Formant Operator Lead
 f89e7a5cf9acedb7 Deep Pulse Gate Pad
 89b169212e1bbee2 CZ Gate Pad
 7a6d657a7206c1d5 Talking Saw Pluck
@@ -691,11 +691,11 @@ ccaf671abd89cb98 Vowel Pulse Bass
 f8f65d5b84697de1 Scramble Chorus Keys
 78e51c9f63276245 Plain Hall Keys
 8f029fbad064b608 CZ Bitwise Lead
-8e31b3c20250723a Pulse Operator Lead
-c8e94d5d346faa3c Logistic Product Lead
-56da65552cecff9b Twin Sine Holt Lead
+7c6e6c730f0d917a Pulse Operator Lead
+380bd912f3f32480 Logistic Product Lead
+d22c6c42d49d2341 Twin Sine Holt Lead
 dc19ea445d36e6ee Talking CZ Pad
-4faf236073046d46 Scramble Saw Pluck
+285e033fd6223b8b Scramble Saw Pluck
 3852e3a184734c60 Organ Saw Pluck
 69881114fc667d88 Wavecrush Analog Bass
 a9e2f658e3c12059 Vocoder Drive Bass
@@ -723,7 +723,7 @@ a42dd599a44be0b0 Synth Brass Lead
 acbfa428fd7d1acd Vox Glide Lead
 c4677dfb8bc1180e Rave Kick
 8053c4acfdc6e423 Snap Clap
-6a03930e88999855 Closed Hat
+9773d6b446956b18 Closed Hat
 c68c8e6012791eed Deep Grit 808
 8546cc7515e8dd07 Modal Violin
 768b87b04337283e Modal Viola
@@ -743,6 +743,6 @@ a0ab809030c22199 Modal Chamber Strings
 54571e232c14bef2 Fuzz Cello
 ea6524bc0d88d8b8 Bedroom Upright
 b8251aea1d354e7b Giant Plate Piano
-f496d652e1c761f4 Crushed Grand Gate
+a5cb257534b24c94 Crushed Grand Gate
 df0d518068c046ef Plucked And Bowed
 92f05a3997191e4f Nylon Saw Pluck

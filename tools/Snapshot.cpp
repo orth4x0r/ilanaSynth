@@ -274,6 +274,7 @@ void closeSourcePopover (IlanaSynthAudioProcessorEditor& editor)
 #include "LayoutUiTests9.h"
 #include "GlobalUiTests.h"
 #include "DropdownUiTests.h"
+#include "CodeHealthUiTests.h"
 #include "PatchCableUiTests.h"
 #include "OscRoutingUiTests.h"
 #include "OscSlotUiTests.h"
@@ -367,6 +368,7 @@ const UiGroup uiGroups[] = {
     { "R6", uiGroup_R6 },
     { "R31C", uiGroup_R31C },
     { "DD", uiGroup_DD },
+    { "CODE_HEALTH", uiGroup_CODE_HEALTH },
     { "PG", uiGroup_PG },
     { "OR", uiGroup_OR },
     { "OS", uiGroup_OS },

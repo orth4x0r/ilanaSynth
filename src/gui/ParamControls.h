@@ -15,6 +15,7 @@
 #include "ModulePool.h"
 #include "InfoStrip.h"
 #include "HeldSliderAttachment.h"
+#include "OwnMenuBox.h"
 
 #include "ModRingConfig.h"
 
@@ -3310,7 +3311,7 @@ public:
     }
 
     // Replace the drop-down list with something else when clicked.
-    void setPopupOverride (std::function<void()> override) { combo.popupOverride = std::move (override); }
+    void setPopupOverride (std::function<void()> override) { combo.ownMenu = std::move (override); }
     // The arrow keys' step to the next or previous choice (+1 / -1), when a
     // choice must go through more than its parameter (the oscillator type).
     void setNudgeOverride (std::function<void (int)> override) { combo.nudgeOverride = std::move (override); }
@@ -3477,7 +3478,7 @@ private:
 public:
     // A ComboBox whose popup can be replaced (e.g. by the wavetable browser).
     // (Public for the dropdown UI test.)
-    struct PopupCombo : public juce::ComboBox,
+    struct PopupCombo : public OwnMenuBox,
                         private juce::ComboBox::Listener
     {
         PopupCombo() { addListener (this); }
@@ -3487,8 +3488,8 @@ public:
         // fades the old pictures out over the new shapes (IlanaAnim::MorphSource).
         void comboBoxChanged (juce::ComboBox*) override { IlanaAnim::playMorphs(); }
 
-        std::function<void()> popupOverride;
-        double lastOverrideOpen = 0.0;
+        // (The replacement list, e.g. the wavetable browser, is OwnMenuBox::ownMenu;
+        // the click handling is OwnMenuBox's.)
         double lastPopupOpen = -1.0e9; // (when the person last opened this list)
         std::function<void (int)> nudgeOverride;
 
@@ -3522,82 +3523,24 @@ public:
                     return true;
                 }
             }
-            if (popupOverride != nullptr && key == juce::KeyPress::returnKey)
+            if (opensOwnMenu() && key == juce::KeyPress::returnKey)
             {
-                openOverride();
+                openOwnMenu();
                 return true;
             }
 
             return juce::ComboBox::keyPressed (key);
         }
 
-        // A select with its own menu opens it on the press only, and never
-        // goes through ComboBox's "menu active" flag. The base class sets that
-        // flag on the press, again on the release, and asks showPopup() to
-        // open on a drag and on key repeats; the old override cleared it by
-        // hidePopup() but, on a quick click, a second showPopup() landed
-        // inside the 150 ms debounce and returned with the flag still set, so
-        // every later click did nothing (the list never showed, though the
-        // arrow keys still worked: ilana's PC report, PLAY and OSC). Taking
-        // the press, release, drag and Return key here leaves the flag
-        // alone for good.
-        void mouseDown (const juce::MouseEvent& event) override
+    protected:
+        void showListPopup() override
         {
-            if (popupOverride == nullptr)
-            {
-                juce::ComboBox::mouseDown (event);
-                return;
-            }
-
-            // (Asynchronously, as ComboBox does: the press that dismissed
-            // another open menu gets to finish first.)
-            if (isEnabled() && ! event.mods.isPopupMenu())
-                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PopupCombo> (this)]
-                                                 { if (safe != nullptr) safe->openOverride(); });
-        }
-
-        void mouseDrag (const juce::MouseEvent& event) override
-        {
-            if (popupOverride == nullptr)
-                juce::ComboBox::mouseDrag (event);
-        }
-
-        void mouseUp (const juce::MouseEvent& event) override
-        {
-            if (popupOverride == nullptr)
-                juce::ComboBox::mouseUp (event);
-        }
-
-        void showPopup() override
-        {
-            if (popupOverride == nullptr)
-            {
-                lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
-                IlanaAnim::armMorphs();
-                juce::ComboBox::showPopup();
-                return;
-            }
-
-            // (Reached by accessibility's "press" action: clear the flag it
-            // set before opening our own list.)
-            hidePopup();
-            openOverride();
-        }
-
-        // Opens the replacement list. A press can arrive twice in a few
-        // milliseconds (a touchpad tap, a double event from the host); the
-        // second would close the first's menu as it opened.
-        void openOverride()
-        {
-            const auto now = juce::Time::getMillisecondCounterHiRes();
-
-            if (now - lastOverrideOpen < 150.0)
-                return;
-
-            lastOverrideOpen = now;
+            lastPopupOpen = juce::Time::getMillisecondCounterHiRes();
             IlanaAnim::armMorphs();
-            popupOverride();
+            juce::ComboBox::showPopup();
         }
+
+        void aboutToOpenOwnMenu() override { IlanaAnim::armMorphs(); }
     };
 
 private:

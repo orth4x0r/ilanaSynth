@@ -1,10 +1,10 @@
 # Max line counts (file-length ratchet; tools/file_length_ratchet.py --update rewrites this).
 # A listed file may grow 50 lines past its count; an unlisted file may not pass 3000.
-5017 src/PluginEditor.cpp
-4853 src/gui/ParamControls.h
+4136 src/PluginEditor.cpp
+4846 src/gui/ParamControls.h
 4420 src/gui/pages/OscPage.cpp
 3681 src/gui/WaveDisplay.h
-3642 src/PluginProcessor.cpp
+3021 src/PluginProcessor.cpp
 3520 tools/Snapshot.cpp
 3269 src/gui/pages/FxPage.cpp
 2957 src/processor/Effects.cpp

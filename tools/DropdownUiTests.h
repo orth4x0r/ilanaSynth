@@ -40,7 +40,7 @@ void runDropdownTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
 
             auto* combo = dynamic_cast<ComboControl::PopupCombo*> (&box);
 
-            if (combo == nullptr || combo->popupOverride == nullptr)
+            if (combo == nullptr || combo->ownMenu == nullptr)
                 continue;
 
             ++tried;
@@ -113,8 +113,8 @@ void runDropdownTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
 
                 ++boxes;
                 int opened = 0;
-                const auto keep = box->onPopup;
-                box->onPopup = [&opened] { ++opened; };
+                const auto keep = box->ownMenu;
+                box->ownMenu = [&opened] { ++opened; };
                 const auto name = juce::String (page) + ": SOURCE";
                 const auto click = [&]
                 {
@@ -140,7 +140,7 @@ void runDropdownTests (IlanaSynthAudioProcessor& processor, IlanaSynthAudioProce
                 if (opened != before + 1 || ! click())
                     stuck.add (name + " (Return then click)");
 
-                box->onPopup = keep;
+                box->ownMenu = keep;
             }
         }
 

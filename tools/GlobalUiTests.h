@@ -94,8 +94,8 @@ void runGlobalReview8Tests (IlanaSynthAudioProcessor& processor, IlanaSynthAudio
         // opens at the wrong size whenever Interface size is not 100% (Fable S5).
         juce::StringArray bareMenus;
         for (const auto& file : sources.findChildFiles (juce::File::findFiles, true, "*.h;*.cpp"))
-            if (file.getFileName() != "IlanaLookAndFeel.h" && ! file.getFullPathName().contains ("thirdparty")
-                && file.loadFileAsString().contains ("PopupMenu::Options()"))
+            if (file.getFileName() != "IlanaLookAndFeel.h" && file.getFileName() != "MenuParent.h" // (menuOptions itself)
+                && ! file.getFullPathName().contains ("thirdparty") && file.loadFileAsString().contains ("PopupMenu::Options()"))
                 bareMenus.add (file.getFileName());
         expect (bareMenus.isEmpty(), "every pop-up menu uses IlanaTheme::menuOptions (no bare PopupMenu::Options()"
                                          + (bareMenus.isEmpty() ? juce::String (")") : ": " + bareMenus.joinIntoString (", ") + ")"));

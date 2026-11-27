@@ -778,6 +778,8 @@ void IlanaSynthAudioProcessor::applyFullState (const juce::ValueTree& stateIn)
 
         // Whatever an earlier load left queued is stale: each slot below either
         // queues its own change or is cancelled (same path as the live one).
+        // So is a file the player dropped that is still decoding.
+        cancelBackgroundSampleLoads();
         for (int i = 0; i < numSampleOscs; ++i)
         {
             const auto path = state.getProperty ("osc" + juce::String (i + 1) + "SamplePath").toString();

@@ -1457,6 +1457,13 @@ void uiGroup_DD (UiCtx& ctx)
     runDropdownTests (processor, *pages);
 }
 
+void uiGroup_CODE_HEALTH (UiCtx& ctx)
+{
+    UI_GROUP_PRELUDE
+    // Code health before RC 1.0: plain selects open inside the editor, samples load in the background.
+    runCodeHealthTests (processor, *pages);
+}
+
 void uiGroup_PG (UiCtx& ctx)
 {
     UI_GROUP_PRELUDE

@@ -1226,6 +1226,8 @@ void IlanaSynthAudioProcessor::loadFactoryPreset (int index)
         // Cleared now, not queued: a queued clear outlived by a later load of
         // the same path would wipe that load's sample (and an undo step
         // taken right after this load would see the slots still full).
+        // (A file the player dropped that is still decoding is dropped too.)
+        cancelBackgroundSampleLoads();
         for (int i = 0; i < numSampleOscs; ++i)
         {
             auto occupied = false;

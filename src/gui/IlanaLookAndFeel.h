@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "MenuParent.h"
 #include "SubmenuPlacement.h"
 
 #include "AnimationUtils.h"
@@ -1092,45 +1093,7 @@ inline void makePill (juce::Button& button, juce::Colour colour)
     button.repaint();
 }
 
-// The one place that builds the options for a pop-up menu anchored to a component. Every menu
-// launch site goes through here, so a change to how menus open (parent, scale, renderer) is one edit.
-// Returns the options so a site can still chain .withMousePosition(), .withMinimumWidth() and so on.
-// Menus open inside the editor's zoomed content, as Vital's do (its
-// SinglePopupSelector is a child of the interface, not a window): they take
-// exactly the page's scale whatever the host does. As windows of their own
-// they came out at 1x, much smaller than the page, while Live's Auto-Scale
-// Plug-In Window bitmap-stretched the editor (ilana 2026-11-24: "i really
-// really want that fixed", "why can't we do it and vital can"). The cost, as
-// in Vital: a menu can't hang outside the plugin window.
-inline juce::PopupMenu::Options menuOptions (juce::Component* target)
-{
-    auto options = juce::PopupMenu::Options().withTargetComponent (target);
-    if (target != nullptr)
-        for (auto* c = target; c != nullptr; c = c->getParentComponent())
-            if (c->getProperties().contains ("ilanaCalloutHost"))
-                return options.withParentComponent (c);
-    return options;
-}
-inline juce::PopupMenu::Options menuOptions (juce::Component& target) { return menuOptions (&target); }
-
-// The component a call-out box (the table browser, the colour picker, the
-// remap editor) goes into: the plugin editor itself, never the top-level
-// component. In a plugin the top level is the host wrapper around the
-// editor (JUCE's VST3 ContentWrapperComponent), so a call-out added there
-// is the editor's sibling: the software renderer paints it, but with Vulkan
-// on, the editor is drawn into a child window that covers the wrapper, and
-// the call-out opened invisibly under it (ilana 2026-11-17, "they never
-// open"). Falls back to the top level outside an editor.
-inline juce::Component* calloutParent (juce::Component& anchor)
-{
-    // (The editor marks itself with "ilanaCalloutHost": this header doesn't
-    // see juce_audio_processors.)
-    for (auto* c = &anchor; c != nullptr; c = c->getParentComponent())
-        if (c->getProperties().contains ("ilanaCalloutHost"))
-            return c;
-    return anchor.getTopLevelComponent();
-}
-
+// menuOptions and calloutParent: MenuParent.h (included at the top).
 } // namespace IlanaTheme
 
 namespace Space = IlanaTheme::Space; // the short name for page code
@@ -2180,6 +2143,18 @@ public:
 
     // A submenu drops down from the row that opened it (SubmenuPlacement.h).
     void preparePopupMenuWindow (juce::Component& window) override { SubmenuPlacement::place (window, menuBorder); }
+
+    // A ComboBox's own list opens where every other menu does: inside the
+    // editor (IlanaTheme::menuOptions). JUCE builds a combo's options itself,
+    // so without this the plain selects were the one kind of menu still
+    // opening as a desktop window of their own.
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label) override
+    {
+        auto options = juce::LookAndFeel_V4::getOptionsForComboBoxPopupMenu (box, label);
+        if (auto* host = IlanaTheme::menuOptions (box).getParentComponent())
+            options = options.withParentComponent (host);
+        return options;
+    }
 
     void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardMenuItemHeight,
                                     int& idealWidth, int& idealHeight) override

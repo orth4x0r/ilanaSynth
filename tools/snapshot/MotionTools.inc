@@ -927,7 +927,7 @@ int runVulkanLive (const juce::File& outDir)
         ComboControl::PopupCombo* table = nullptr;
         for (auto* control : combos)
             if (auto* combo = dynamic_cast<ComboControl::PopupCombo*> (&control->getComboBox()))
-                if (table == nullptr && combo->popupOverride != nullptr && visibleInTree (combo) && control->getLabelText().containsIgnoreCase ("TABLE"))
+                if (table == nullptr && combo->ownMenu != nullptr && visibleInTree (combo) && control->getLabelText().containsIgnoreCase ("TABLE"))
                     table = combo; // (the first: OSC 1's)
         check (table != nullptr, "OSC 1 has a TABLE select");
         if (table != nullptr)

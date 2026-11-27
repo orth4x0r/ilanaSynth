@@ -124,6 +124,7 @@ bool IlanaSynthAudioProcessor::pasteModule (const ModuleSnapshot& snapshot, int 
 
     if (snapshot.kind == ModuleKind::Oscillator && juce::isPositiveAndBelow (index, OscillatorIds::count))
     {
+        cancelBackgroundSampleLoads(); // (a file still decoding was meant for the oscillator replaced here)
         after.embedded[(size_t) index] = snapshot.embedded;
         after.liveSamples[(size_t) index] = snapshot.liveSample;
         after.samplePaths[(size_t) index] = snapshot.samplePath;
@@ -174,6 +175,7 @@ void IlanaSynthAudioProcessor::initModule (ModuleKind kind, int index)
 
     if (kind == ModuleKind::Oscillator && juce::isPositiveAndBelow (index, OscillatorIds::count))
     {
+        cancelBackgroundSampleLoads(); // (a file still decoding was meant for the oscillator cleared here)
         after.embedded[(size_t) index] = nullptr;
         after.liveSamples[(size_t) index] = nullptr;
         after.samplePaths[(size_t) index] = {};

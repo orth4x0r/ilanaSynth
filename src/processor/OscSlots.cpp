@@ -176,6 +176,7 @@ void IlanaSynthAudioProcessor::swapOscillators (int a, int b)
 {
     if (a == b || ! juce::isPositiveAndBelow (a, numOscs) || ! juce::isPositiveAndBelow (b, numOscs))
         return;
+    cancelBackgroundSampleLoads(); // (a file still decoding was meant for the slot as it was)
 
     const auto map = swapMap (a, b);
 
@@ -261,6 +262,7 @@ int IlanaSynthAudioProcessor::duplicateOscillator (int from)
 {
     if (! juce::isPositiveAndBelow (from, numOscs) || ! isOscillatorShown (from))
         return -1;
+    cancelBackgroundSampleLoads(); // (a file still decoding was meant for the slots as they were)
 
     auto copy = -1;
     for (int i = 0; i < numOscs && copy < 0; ++i)
